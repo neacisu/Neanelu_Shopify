@@ -1,0 +1,1567 @@
+{
+  "__type": {
+    "name": "Product",
+    "fields": [
+      {
+        "name": "availablePublicationsCount",
+        "args": [],
+        "type": {
+          "kind": "OBJECT",
+          "name": "Count",
+          "ofType": null
+        }
+      },
+      {
+        "name": "bundleComponents",
+        "args": [
+          {
+            "name": "first",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "after",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "last",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "before",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "reverse",
+            "defaultValue": "false",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          }
+        ],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "ProductBundleComponentConnection",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "category",
+        "args": [],
+        "type": {
+          "kind": "OBJECT",
+          "name": "TaxonomyCategory",
+          "ofType": null
+        }
+      },
+      {
+        "name": "collections",
+        "args": [
+          {
+            "name": "first",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "after",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "last",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "before",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "reverse",
+            "defaultValue": "false",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          },
+          {
+            "name": "sortKey",
+            "defaultValue": "ID",
+            "type": {
+              "kind": "ENUM",
+              "name": "CollectionSortKeys",
+              "ofType": null
+            }
+          },
+          {
+            "name": "query",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          }
+        ],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "CollectionConnection",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "combinedListing",
+        "args": [],
+        "type": {
+          "kind": "OBJECT",
+          "name": "CombinedListing",
+          "ofType": null
+        }
+      },
+      {
+        "name": "combinedListingRole",
+        "args": [],
+        "type": {
+          "kind": "ENUM",
+          "name": "CombinedListingsRole",
+          "ofType": null
+        }
+      },
+      {
+        "name": "compareAtPriceRange",
+        "args": [],
+        "type": {
+          "kind": "OBJECT",
+          "name": "ProductCompareAtPriceRange",
+          "ofType": null
+        }
+      },
+      {
+        "name": "contextualPricing",
+        "args": [
+          {
+            "name": "context",
+            "defaultValue": null,
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "INPUT_OBJECT",
+                "name": "ContextualPricingContext",
+                "ofType": null
+              }
+            }
+          }
+        ],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "ProductContextualPricing",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "createdAt",
+        "args": [],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "DateTime",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "defaultCursor",
+        "args": [],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "description",
+        "args": [
+          {
+            "name": "truncateAt",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          }
+        ],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "descriptionHtml",
+        "args": [],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "HTML",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "events",
+        "args": [
+          {
+            "name": "first",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "after",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "last",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "before",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "reverse",
+            "defaultValue": "false",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          },
+          {
+            "name": "sortKey",
+            "defaultValue": "ID",
+            "type": {
+              "kind": "ENUM",
+              "name": "EventSortKeys",
+              "ofType": null
+            }
+          },
+          {
+            "name": "query",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          }
+        ],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "EventConnection",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "featuredMedia",
+        "args": [],
+        "type": {
+          "kind": "INTERFACE",
+          "name": "Media",
+          "ofType": null
+        }
+      },
+      {
+        "name": "feedback",
+        "args": [],
+        "type": {
+          "kind": "OBJECT",
+          "name": "ResourceFeedback",
+          "ofType": null
+        }
+      },
+      {
+        "name": "giftCardTemplateSuffix",
+        "args": [],
+        "type": {
+          "kind": "SCALAR",
+          "name": "String",
+          "ofType": null
+        }
+      },
+      {
+        "name": "handle",
+        "args": [],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "hasOnlyDefaultVariant",
+        "args": [],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Boolean",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "hasOutOfStockVariants",
+        "args": [],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Boolean",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "hasVariantsThatRequiresComponents",
+        "args": [],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Boolean",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "id",
+        "args": [],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "ID",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "inCollection",
+        "args": [
+          {
+            "name": "id",
+            "defaultValue": null,
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "ID",
+                "ofType": null
+              }
+            }
+          }
+        ],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Boolean",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "isGiftCard",
+        "args": [],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Boolean",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "legacyResourceId",
+        "args": [],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "UnsignedInt64",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "media",
+        "args": [
+          {
+            "name": "first",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "after",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "last",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "before",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "reverse",
+            "defaultValue": "false",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          },
+          {
+            "name": "sortKey",
+            "defaultValue": "POSITION",
+            "type": {
+              "kind": "ENUM",
+              "name": "ProductMediaSortKeys",
+              "ofType": null
+            }
+          },
+          {
+            "name": "query",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          }
+        ],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "MediaConnection",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "mediaCount",
+        "args": [],
+        "type": {
+          "kind": "OBJECT",
+          "name": "Count",
+          "ofType": null
+        }
+      },
+      {
+        "name": "metafield",
+        "args": [
+          {
+            "name": "namespace",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "key",
+            "defaultValue": null,
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          }
+        ],
+        "type": {
+          "kind": "OBJECT",
+          "name": "Metafield",
+          "ofType": null
+        }
+      },
+      {
+        "name": "metafields",
+        "args": [
+          {
+            "name": "namespace",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "keys",
+            "defaultValue": null,
+            "type": {
+              "kind": "LIST",
+              "name": null,
+              "ofType": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "String",
+                  "ofType": null
+                }
+              }
+            }
+          },
+          {
+            "name": "first",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "after",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "last",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "before",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "reverse",
+            "defaultValue": "false",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          }
+        ],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "MetafieldConnection",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "onlineStorePreviewUrl",
+        "args": [],
+        "type": {
+          "kind": "SCALAR",
+          "name": "URL",
+          "ofType": null
+        }
+      },
+      {
+        "name": "onlineStoreUrl",
+        "args": [],
+        "type": {
+          "kind": "SCALAR",
+          "name": "URL",
+          "ofType": null
+        }
+      },
+      {
+        "name": "options",
+        "args": [
+          {
+            "name": "first",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          }
+        ],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "OBJECT",
+                "name": "ProductOption",
+                "ofType": null
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "priceRangeV2",
+        "args": [],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "ProductPriceRangeV2",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "productComponents",
+        "args": [
+          {
+            "name": "first",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "after",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "last",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "before",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "reverse",
+            "defaultValue": "false",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          }
+        ],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "ProductComponentTypeConnection",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "productComponentsCount",
+        "args": [],
+        "type": {
+          "kind": "OBJECT",
+          "name": "Count",
+          "ofType": null
+        }
+      },
+      {
+        "name": "productParents",
+        "args": [
+          {
+            "name": "first",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "after",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "last",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "before",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "reverse",
+            "defaultValue": "false",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          },
+          {
+            "name": "query",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          }
+        ],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "ProductConnection",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "productType",
+        "args": [],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "publishedAt",
+        "args": [],
+        "type": {
+          "kind": "SCALAR",
+          "name": "DateTime",
+          "ofType": null
+        }
+      },
+      {
+        "name": "publishedInContext",
+        "args": [
+          {
+            "name": "context",
+            "defaultValue": null,
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "INPUT_OBJECT",
+                "name": "ContextualPublicationContext",
+                "ofType": null
+              }
+            }
+          }
+        ],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Boolean",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "publishedOnCurrentPublication",
+        "args": [],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Boolean",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "publishedOnPublication",
+        "args": [
+          {
+            "name": "publicationId",
+            "defaultValue": null,
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "ID",
+                "ofType": null
+              }
+            }
+          }
+        ],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Boolean",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "requiresSellingPlan",
+        "args": [],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Boolean",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "resourcePublicationOnCurrentPublication",
+        "args": [],
+        "type": {
+          "kind": "OBJECT",
+          "name": "ResourcePublicationV2",
+          "ofType": null
+        }
+      },
+      {
+        "name": "resourcePublications",
+        "args": [
+          {
+            "name": "onlyPublished",
+            "defaultValue": "true",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          },
+          {
+            "name": "first",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "after",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "last",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "before",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "reverse",
+            "defaultValue": "false",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          }
+        ],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "ResourcePublicationConnection",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "resourcePublicationsCount",
+        "args": [
+          {
+            "name": "onlyPublished",
+            "defaultValue": "true",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          }
+        ],
+        "type": {
+          "kind": "OBJECT",
+          "name": "Count",
+          "ofType": null
+        }
+      },
+      {
+        "name": "resourcePublicationsV2",
+        "args": [
+          {
+            "name": "onlyPublished",
+            "defaultValue": "true",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          },
+          {
+            "name": "catalogType",
+            "defaultValue": null,
+            "type": {
+              "kind": "ENUM",
+              "name": "CatalogType",
+              "ofType": null
+            }
+          },
+          {
+            "name": "first",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "after",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "last",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "before",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "reverse",
+            "defaultValue": "false",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          }
+        ],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "ResourcePublicationV2Connection",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "restrictedForResource",
+        "args": [
+          {
+            "name": "calculatedOrderId",
+            "defaultValue": null,
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "ID",
+                "ofType": null
+              }
+            }
+          }
+        ],
+        "type": {
+          "kind": "OBJECT",
+          "name": "RestrictedForResource",
+          "ofType": null
+        }
+      },
+      {
+        "name": "sellingPlanGroups",
+        "args": [
+          {
+            "name": "first",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "after",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "last",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "before",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "reverse",
+            "defaultValue": "false",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          }
+        ],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "SellingPlanGroupConnection",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "sellingPlanGroupsCount",
+        "args": [],
+        "type": {
+          "kind": "OBJECT",
+          "name": "Count",
+          "ofType": null
+        }
+      },
+      {
+        "name": "seo",
+        "args": [],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "SEO",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "status",
+        "args": [],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "ENUM",
+            "name": "ProductStatus",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "tags",
+        "args": [],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "templateSuffix",
+        "args": [],
+        "type": {
+          "kind": "SCALAR",
+          "name": "String",
+          "ofType": null
+        }
+      },
+      {
+        "name": "title",
+        "args": [],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "totalInventory",
+        "args": [],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Int",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "tracksInventory",
+        "args": [],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Boolean",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "translations",
+        "args": [
+          {
+            "name": "locale",
+            "defaultValue": null,
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "marketId",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        ],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "OBJECT",
+                "name": "Translation",
+                "ofType": null
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "unpublishedPublications",
+        "args": [
+          {
+            "name": "first",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "after",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "last",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "before",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "reverse",
+            "defaultValue": "false",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          }
+        ],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "PublicationConnection",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "updatedAt",
+        "args": [],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "DateTime",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "variants",
+        "args": [
+          {
+            "name": "first",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "after",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "last",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "before",
+            "defaultValue": null,
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "reverse",
+            "defaultValue": "false",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          },
+          {
+            "name": "sortKey",
+            "defaultValue": "POSITION",
+            "type": {
+              "kind": "ENUM",
+              "name": "ProductVariantSortKeys",
+              "ofType": null
+            }
+          }
+        ],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "ProductVariantConnection",
+            "ofType": null
+          }
+        }
+      },
+      {
+        "name": "variantsCount",
+        "args": [],
+        "type": {
+          "kind": "OBJECT",
+          "name": "Count",
+          "ofType": null
+        }
+      },
+      {
+        "name": "vendor",
+        "args": [],
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        }
+      }
+    ]
+  }
+}
