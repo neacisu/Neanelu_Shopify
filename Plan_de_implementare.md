@@ -1269,6 +1269,53 @@ Obiectiv: Server HTTP, OAuth offline complet, webhooks ingress cu enqueue minim,
     ]
     ```
 
+### F3.5: Fundația Frontend (Vite 7.3, App Shell & Global UI)
+
+    ```JSON
+    [
+    {
+        "id_task": "F3.5.1",
+        "denumire_task": "Setup Workspace: Vite 7.3 & React Router v7",
+        "descriere_task": "Inițializează proiectul `apps/web-admin`. Setup package.json cu `react`, `react-dom`, `@shopify/shopify-app-react-router`, `lucide-react`. Configurare `vite.config.ts` cu server proxy (/api -> backend) și plugin Shopify HMR. Configurare `tsconfig.json` cu path aliases (@/*).",
+        "cale_implementare": "/apps/web-admin/vite.config.ts, /apps/web-admin/tsconfig.json",
+        "contextul_anterior": "Start UI.",
+        "validare_task": "Dev server rulează.",
+        "outcome_task": "Mediu de lucru activ.",
+        "restrictii_antihalucinatie": "Vite 7.3.0 este obligatoriu."
+    },
+    {
+        "id_task": "F3.5.2",
+        "denumire_task": "Instalare Primitives shadcn/ui & Tailwind v4",
+        "descriere_task": "Instalează Tailwind v4. Rulare init shadcn. Instalează TOATE primitivele: `button`, `badge`, `card`, `input`, `textarea`, `select`, `table`, `progress`, `dialog`, `alert-dialog`, `tabs`, `skeleton`, `tooltip`, `scroll-area`, `sonner` (toast).",
+        "cale_implementare": "/apps/web-admin/components/ui/*",
+        "contextul_anterior": "Workspace gata.",
+        "validare_task": "Folder components/ui populat.",
+        "outcome_task": "Component library complet.",
+        "restrictii_antihalucinatie": "Nu amâna instalarea componentelor."
+    },
+    {
+        "id_task": "F3.5.3",
+        "denumire_task": "Implementare Global Elements (Toaster, Loader)",
+        "descriere_task": "În `root.tsx`, adaugă `<Toaster />` (Sonner) și configurează AppProvider. Creează componenta `GlobalSpinner` folosind `Loader2` animate-spin. Implementează `ErrorBoundary` globală care afișează un `Alert` roșu în caz de crash React.",
+        "cale_implementare": "/apps/web-admin/app/root.tsx",
+        "contextul_anterior": "Componente gata.",
+        "validare_task": "App-ul randează fără erori și afișează un toast de test la mount.",
+        "outcome_task": "App Shell robust.",
+        "restrictii_antihalucinatie": "Folosește Sonner, nu Toast primitiv."
+    },
+    {
+        "id_task": "F3.5.4",
+        "denumire_task": "Dashboard Home: Header & KPI Grid",
+        "descriere_task": "Implementează `_index.tsx`. Header cu titlu 'Neanelu Monitor' și buton 'Refresh Data'. Grid 4x1 cu KPI Cards: Produse Totale (Icon Package), Cozi Active (Icon Cpu), Health (Icon Activity), Rate Erori (Icon Alert). Datele vor fi mockuite momentan.",
+        "cale_implementare": "/apps/web-admin/app/routes/_index.tsx",
+        "contextul_anterior": "Shell gata.",
+        "validare_task": "Vizualizare Dashboard corectă.",
+        "outcome_task": "Prima pagină UI.",
+        "restrictii_antihalucinatie": "Folosește grid layout responsive."
+    }
+    ]
+    ```
+
 ## Faza F4: Infrastructura de procesare asincronă (Săptămâna 4)
 
 Durată: Săptămâna 4
@@ -1550,6 +1597,43 @@ Obiectiv: BullMQ Pro + fairness multi-tenant + rate limiting distribuit Shopify 
         "validare_task": "Smoke test pass în dev cu Jaeger running.",
         "outcome_task": "Verificare automată că telemetry funcționează.",
         "restrictii_antihalucinatie": "Fallback silențios dacă exporter lipsește."
+    }
+    ]
+    ```
+
+### F4.5: UI Monitorizare Cozi Detaliată
+
+    ```JSON
+    [
+    {
+        "id_task": "F4.5.1",
+        "denumire_task": "Queue UI: Tab 'Metrici' (Recharts)",
+        "descriere_task": "Implementează `Tabs` layout în `app.queues.tsx`. Tab 1: Line Chart pentru Throughput (Jobs/sec) și Pie Chart pentru Status Distribution (Active/Failed/Wait). Folosește date reale din loader (API Backend).",
+        "cale_implementare": "/apps/web-admin/app/routes/app.queues.tsx",
+        "contextul_anterior": "Backend F4 gata.",
+        "validare_task": "Graficele randează axe și tooltip-uri.",
+        "outcome_task": "Vizualizare metrici.",
+        "restrictii_antihalucinatie": "Line Chart are referință roșie la limită."
+    },
+    {
+        "id_task": "F4.5.2",
+        "denumire_task": "Queue UI: Tab 'Jobs List' (Table & Filters)",
+        "descriere_task": "Tab 2: Toolbar cu Search Input (by ID) și Filter Select. Tabel cu coloanele: ID (copyable), Payload (truncate), Progress (bar), Status (Badge), Actions (Dropdown). Implementează logica de filtrare client-side sau server-side.",
+        "cale_implementare": "/apps/web-admin/app/components/domain/jobs-table.tsx",
+        "contextul_anterior": "Metrici gata.",
+        "validare_task": "Tabelul listează joburi.",
+        "outcome_task": "Listare joburi.",
+        "restrictii_antihalucinatie": "Dropdown Actions include Retry și Delete."
+    },
+    {
+        "id_task": "F4.5.3",
+        "denumire_task": "Queue UI: Actiuni & Dialoguri Confirmare",
+        "descriere_task": "Conectează acțiunile din tabel: Retry trimite POST request și afișează Success Toast. Delete deschide `AlertDialog`: 'Această acțiune este ireversibilă'. Confirmarea șterge jobul și face refresh la listă.",
+        "cale_implementare": "/apps/web-admin/app/routes/app.queues.tsx",
+        "contextul_anterior": "Tabel gata.",
+        "validare_task": "Workflow-ul de ștergere fuctionează end-to-end.",
+        "outcome_task": "Interactivitate completă.",
+        "restrictii_antihalucinatie": "AlertDialog obligatoriu pentru Delete."
     }
     ]
     ```
@@ -1847,6 +1931,43 @@ Obiectiv: Bulk Operations complet (query + mutation) + streaming JSONL + COPY î
     ]
     ```
 
+### F5.5: Interfață Control Ingestie
+
+    ```JSON
+    [
+    {
+        "id_task": "F5.5.1",
+        "denumire_task": "Ingestion UI: Empty State & Trigger",
+        "descriere_task": "Hero Section pentru starea Idle: Titlu, Descriere ultima rulare, Buton 'Start Full Sync' (Primary, Blue). Dropzone pentru upload JSONL manual (Secondary area).",
+        "cale_implementare": "/apps/web-admin/app/routes/app.ingestion.tsx",
+        "contextul_anterior": "Pipeline F5 gata.",
+        "validare_task": "Butonul Start declanșează API-ul.",
+        "outcome_task": "Control manual ingestie.",
+        "restrictii_antihalucinatie": "Design clar pentru starea Idle."
+    },
+    {
+        "id_task": "F5.5.2",
+        "denumire_task": "Ingestion UI: Active State Progress & Stepper",
+        "descriere_task": "Starea Active: Ascunde Hero, arată Status Card. Stepper orizontal cu 4 pași (Download, Parse, Transform, Save) folosind icon-uri (Check/Spin/Wait). Progress Bar mare animat. Buton 'Abort' (Destructive).",
+        "cale_implementare": "/apps/web-admin/app/components/domain/ingestion-progress.tsx",
+        "contextul_anterior": "Trigger gata.",
+        "validare_task": "UI-ul se schimbă în Active când jobul pornește.",
+        "outcome_task": "Feedback vizual procesare.",
+        "restrictii_antihalucinatie": "Animație pulse pe active step."
+    },
+    {
+        "id_task": "F5.5.3",
+        "denumire_task": "Ingestion UI: Log Console Component",
+        "descriere_task": "Componenta `LogConsole`: zonă neagră scrollable. Randează stream de loguri. Feature: Toggle 'Show Errors Only'. Formatare culori: [ERROR] roșu, [WARN] galben.",
+        "cale_implementare": "/apps/web-admin/app/components/domain/log-console.tsx",
+        "contextul_anterior": "Progress UI gata.",
+        "validare_task": "Logurile apar colorate corect.",
+        "outcome_task": "Debug vizual.",
+        "restrictii_antihalucinatie": "Font monospace obligatoriu."
+    }
+    ]
+    ```
+
 ## Faza F6: Integrare AI & Vector Search (Săptămâna 7)
 
 Durată: Săptămâna 7
@@ -2032,6 +2153,33 @@ Obiectiv: embeddings OpenAI Batch + index vectorial în Redis 8.4 + observabilit
         "validare_task": "Rulează testul în CI/staging; generează raport latență.",
         "outcome_task": "Certitudine asupra performanței înainte de producție.",
         "restrictii_antihalucinatie": "Nu ignora latența de rețea în măsurători."
+    }
+    ]
+    ```
+
+### F6.4: AI Search Playground
+
+    ```JSON
+    [
+    {
+        "id_task": "F6.4.1",
+        "denumire_task": "Search UI: Sidebar Filters",
+        "descriere_task": "Panou stânga: Textarea pentru query. Slider pentru Threshold (0.1-1.0). Input number pentru Limit. Switch pentru JSON Metadata. Buton 'Execută' full-width.",
+        "cale_implementare": "/apps/web-admin/app/routes/app.search.tsx",
+        "contextul_anterior": "Vectori gata.",
+        "validare_task": "Formularul trimite parametrii corecți.",
+        "outcome_task": "Controale căutare.",
+        "restrictii_antihalucinatie": "Slider precis 0.05 step."
+    },
+    {
+        "id_task": "F6.4.2",
+        "denumire_task": "Search UI: Results Grid & JSON Modal",
+        "descriere_task": "Panou dreapta: Grid de carduri. Fiecare card: Thumbnail, Titlu, Preț, Badge Scor. Click pe card deschide `Dialog` cu JSON-ul complet al vectorului.",
+        "cale_implementare": "/apps/web-admin/app/components/domain/vector-result.tsx",
+        "contextul_anterior": "Filtre gata.",
+        "validare_task": "Rezultatele apar cu scorul colorat (Verde > 0.9).",
+        "outcome_task": "Vizualizare rezultate AI.",
+        "restrictii_antihalucinatie": "Afișare clară a scorului."
     }
     ]
     ```
