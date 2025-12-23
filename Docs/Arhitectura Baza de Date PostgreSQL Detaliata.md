@@ -114,6 +114,8 @@ Sistemul care înțelege că "Ecran" == "Display".
   * *Atributele Canonice (ex: 'screen_size').*
 * **`prod_attr_synonyms`** (`synonym` TEXT PK, `registry_id` FK, `confidence` FLOAT)
   * *Dicționarul de Sinonime.*
+* **`prod_embeddings`** (`id` UUIDv7 PK, `product_id` FK, `embedding_type` ENUM, `embedding` vector(1536), `content_hash` TEXT)
+  * *Vectorii de produs pentru deduplicare și căutare.*
 
 **Strategia Vectorială (Deduplicare Fuzzy):**
 

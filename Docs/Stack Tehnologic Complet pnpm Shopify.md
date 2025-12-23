@@ -76,7 +76,8 @@ Această abordare elimină riscul de scurgere a datelor prin erori de programare
 
 ### **2.3 Caching și Orchestrare Distribuită: Redis 8.4.0**
 
-Componenta de memorie volatilă este **Redis 8.4.0** (distribuția oficială cu **RediSearch** și **RedisJSON** integrate nativ). Este obligatorie pentru vector search (F6.2) și pentru cache-ul semantic, pe lângă rolul de backend pentru cozile BullMQ. Redis 8.4.0 oferă +30% throughput față de versiunile anterioare, structuri probabilistice și sharded Pub/Sub; imaginea recomandată în compose este `redis:8.4`.
+Componenta de memorie volatilă este **Redis 8.4.0**. Este utilizată pentru cache-ul semantic (Exact Match), Rate Limiting și ca backend pentru cozile BullMQ.
+> **Notă:** Vector Search este gestionat exclusiv de **pgvector (Postgres)**. Redis nu stochează vectori, pentru a reduce costurile RAM și complexitatea sincronizării.
 
 #### **2.3.1 Structuri Probabilistice pentru Deduplicare**
 

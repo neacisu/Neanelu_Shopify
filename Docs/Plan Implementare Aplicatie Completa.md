@@ -1,5 +1,19 @@
 # **Raport Tehnic Exhaustiv: Arhitectura și Implementarea Scalabilă a Aplicațiilor Shopify Multi-Tenant pentru Volume Masive de Date (1M+ SKU)**
 
+> [!IMPORTANT]
+> **DOCUMENTATION STANDARDIZATION (F0-F8)**
+> This document uses legacy "Faza 1-6" numbering. Please refer to `Plan_de_implementare.md` as the Source of Truth.
+>
+> | This Document | **Plan_de_implementare.md (SoT)** |
+> | :--- | :--- |
+> | Faza 1 (Fundament) | **F1 + F2** |
+> | Faza 2 (Ingestie) | **F5** (Bulk Pipeline) |
+> | Faza 3 (Modelare) | **F2** (Data Modeling) |
+> | Faza 4 (AI/Semantic) | **F6** (AI & Vectors) |
+> | Faza 5 (Governance) | **F4** (Async & Fairness) |
+> | Faza 6 (Optimizare) | **F7** (Production) |
+> | *Not Covered* | **F8** (Extensions) |
+
 ---
 
 ## **Addendum (Dec 2025): Descoperiri validate în research (TypeScript)**

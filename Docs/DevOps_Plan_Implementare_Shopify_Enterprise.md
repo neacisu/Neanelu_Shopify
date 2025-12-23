@@ -1,6 +1,21 @@
 # **Plan Implementare Tehnică DevOps: Shopify Enterprise (1M+ SKU)**
 
-**Stack:** Node.js v24 (LTS), PostgreSQL 18.1, Redis 8.4.0, BullMQ Pro **Package Manager:** pnpm (Strict Enforcement) **Abordare:** Infrastructure-First \-\> Data Layer \-\> Logic \-\> Observability
+> [!IMPORTANT]
+> **DOCUMENTATION STANDARDIZATION (F0-F8)**
+> This document uses legacy "Phase 1-7" numbering. Please refer to `Plan_de_implementare.md` as the Source of Truth.
+>
+> | This Document | **Plan_de_implementare.md (SoT)** |
+> | :--- | :--- |
+> | Faza 1 (Local) | **F0 + F1** (Bootstrapping) |
+> | Faza 2 (Data) | **F2** (Data Layer) |
+> | Faza 3 (Backend) | **F3** (Core Backend) |
+> | Faza 4 (Async) | **F4** (Async Engine) |
+> | Faza 5 (Ingestion) | **F5** (Bulk Pipeline) |
+> | Faza 6 (AI) | **F6** (AI & Vectors) |
+> | Faza 7 (Prod) | **F7** (Production) |
+> | *Not Covered* | **F8** (Extensions) |
+
+**Stack:** Node.js v24 (LTS), PostgreSQL 18.1, Redis 8.4.0, BullMQ Pro **Package Manager:** pnpm (Strict Enforcement) **Abordare:** Infrastructure-First -> Data Layer -> Logic -> Observability
 
 ---
 
@@ -174,7 +189,7 @@ Pentru a susține volumul de 1M+ SKU și procesarea asincronă, arhitectura de p
 * **Acțiune:**  
   `pnpm add -wD typescript @types/node tsx`
 * **Creare tsconfig.base.json:**
-  * `target`: `ES2024` (aliniat cu Node.js 24)
+  * `target`: `ES2025` (aliniat cu Node.js 24)
   * `module`: `NodeNext` (ESM nativ)
   * `moduleResolution`: `NodeNext`
   * `strict`: `true`

@@ -81,13 +81,14 @@ Locație: Monorepo public pnpm (open-source, licență MIT), sistem bare-metal (
 
 39. F7.5: Production Readiness (SRE, Autoscaling, Runbooks)
 
+40. Faza F8: Extensii Avansate (Opțional, Post-MVP)
+
 ## 1. Introducere
 
-Documentația aferentă proiectului Manager Shopify cuprinde mai multe materiale ce descriu arhitectura și planul de implementare pentru o aplicație Shopify de tip enterprise, capabilă să gestioneze un volum masiv de date (peste 1 milion de SKU-uri). Analiza critică a acestor documente evidențiază atât o viziune unitară, cât și unele inadvertențe și erori ce trebuie reconciliate în planul final:
-    - Structura pe faze și sub-faze: Planul tehnic este împărțit în etape DevOps (Faze F0–F7 în prezentul document) ce progresează de la configurarea mediului de dezvoltare, la implementarea stratului de date, logica de business, integrarea AI și, în final, livrarea în producție cu CI/CD și monitorizare. Documentul „Plan Implementare Aplicație Completă” prezintă o structurare similară (Faza 1–6), însă cu o grupare ușor diferită a priorităților (de exemplu, guvernanța multi-tenant și echitatea resurselor apar ca fază separată spre final, pe când în planul DevOps acestea sunt adresate mai devreme, în faza de infrastructură asincronă). Pentru coerentizare, planul final aliniază aceste faze într-o secvență logică F0–F7 care acoperă toate aspectele.
+Documentația aferentă proiectului Manager Shopify cuprinde mai multe materiale ce descriu arhitectura și planul de implementare pentru o aplicație Shopify de tip enterprise, capabilă să gestioneze un volum masiv de date (peste 1 milion de SKU-uri). Analiza critică a acestor documente evidențiază atât o viziune unitară, cât și unele inadvertențe și erori ce trebuie reconciliate în planul final: - Structura pe faze și sub-faze: Planul tehnic este împărțit în etape DevOps (Faze F0–F7 în prezentul document) ce progresează de la configurarea mediului de dezvoltare, la implementarea stratului de date, logica de business, integrarea AI și, în final, livrarea în producție cu CI/CD și monitorizare. Documentul „Plan Implementare Aplicație Completă” prezintă o structurare similară (Faza 1–6), însă cu o grupare ușor diferită a priorităților (de exemplu, guvernanța multi-tenant și echitatea resurselor apar ca fază separată spre final, pe când în planul DevOps acestea sunt adresate mai devreme, în faza de infrastructură asincronă). Pentru coerentizare, planul final aliniază aceste faze într-o secvență logică F0–F7 care acoperă toate aspectele.
 
     - Stiva tehnologică și alegeri de implementare: Toate materialele converg spre un stack modern orientat pe performanță: Node.js v24 LTS (Krypton) pentru server, **PostgreSQL 18.1** pentru baza de date relațională, **Redis 8.4.0** (cu module RediSearch și RedisJSON) pentru cache, cozi și vector search, și un monorepo JavaScript/TypeScript gestionat cu pnpm. Testare standardizată: **backend (apps/backend-worker) rulează pe `node:test` + `node --watch --test`**, iar **frontend (apps/web-admin) rulează pe Vitest (ecosistem Vite/RR7)**; **Jest nu este folosit**. Se pune accent pe instrumente moderne: BullMQ Pro pentru cozi distribuite și fairness multi-tenant, OpenTelemetry pentru observabilitate și integrarea OpenAI pentru capabilități AI. Totuși, există inconsistențe notabile în descrierea unora dintre aceste alegeri:
-    
+
     - ORM și gestionarea bazei de date: Standardul proiectului este **Drizzle ORM** (pentru acces tipizat la PostgreSQL) împreună cu **drizzle-kit** pentru migrații SQL. Abordarea păstrează migrațiile SQL ca sursă de adevăr, ceea ce ajută la funcționalități avansate precum Row Level Security (RLS) și la control operațional mai bun în producție.
 
     - Framework front-end vs. backend combinat: Documentația discută fuziunea Remix cu React Router (contextul anului 2025) și posibilitatea utilizării șablonului oficial Shopify App (bazat pe Remix) pentru front-end. În același timp, structura proiectului evidențiază un front-end React separat (admin UI integrată în Shopify via iframe) în folderul apps/web-admin, distinct de serviciul backend Node.js din apps/backend-worker. Planul final clarifică abordarea: se folosește un front-end React standalone (React Router v7) pentru interfața de administrare (embedded în Shopify), în timp ce backend-ul Node (Fastify) gestionează API-urile și procesările asincrone. S-a considerat alternativă utilizarea Remix pentru a unifica front-end-ul cu backend-ul, însă s-a optat pentru separare pentru o modularitate mai bună și control sporit al performanței.
@@ -262,7 +263,7 @@ Obiectiv: Stabilirea mediului de lucru și a convențiilor standard (versiuni pl
         "outcome_task": "Strategia de asigurare a calității codului este definită (tool-urile de linting și formatare, împreună cu regulile dorite), permițând implementarea rapidă a acestora odată ce structura proiectului este creată.",
         "restrictii_antihalucinatie": "Nu instala încă pachetele de lint/format (acest pas este pregătitor). Nu impune reguli de cod contradictorii cu stack-ul (ex: nu activa reguli de browser pentru un proiect Node). Nu ignora importanța acestui pas – nu continua fără a clarifica instrumentele de calitate."
     }
-    
+
 ### F0.2: Inițializare repository de cod și structura de bază a proiectului
 
     ```JSON
@@ -497,7 +498,7 @@ Obiectiv: Configurarea mediului local de dezvoltare într-un mod reproductibil �
     {
         "id_task": "F1.1.6.1",
         "denumire_task": "Bootstrap TypeScript: tsconfig.base.json, configurații per workspace, ESM standard",
-        "descriere_task": "**OBLIGATORIU conform Stack Tehnologic:** Instalează TypeScript la root și configurează:\n\n1. **Instalare:** `pnpm add -Dw typescript @types/node`\n\n2. **Creare `tsconfig.base.json` la root:**\n```json\n{\n  \"compilerOptions\": {\n    \"target\": \"ES2024\",\n    \"module\": \"NodeNext\",\n    \"moduleResolution\": \"NodeNext\",\n    \"strict\": true,\n    \"esModuleInterop\": true,\n    \"skipLibCheck\": true,\n    \"declaration\": true,\n    \"declarationMap\": true,\n    \"sourceMap\": true,\n    \"outDir\": \"dist\",\n    \"rootDir\": \"src\",\n    \"resolveJsonModule\": true,\n    \"isolatedModules\": true,\n    \"baseUrl\": \".\",\n    \"paths\": {\n      \"@app/*\": [\"packages/*/src\"]\n    }\n  }\n}\n```\n\n3. **Creare `tsconfig.json` în fiecare workspace** care extinde tsconfig.base.json:\n```json\n{\n  \"extends\": \"../../tsconfig.base.json\",\n  \"compilerOptions\": {\n    \"outDir\": \"./dist\",\n    \"rootDir\": \"./src\"\n  },\n  \"include\": [\"src/**/*\"],\n  \"exclude\": [\"node_modules\", \"dist\"]\n}\n```\n\n4. **Adaugă scripturi în root package.json (cu --if-present pentru repo skeleton):**\n- `typecheck`: `pnpm -r --if-present run typecheck`\n- `build`: `pnpm -r --if-present run build`\n\n5. **DECIZIE EXPLICITĂ build strategy:**\n- Backend (apps/backend-worker): folosește `tsc` (nativ Node.js, fără bundler)\n- Frontend (apps/web-admin): folosește `vite build` (integrat cu React Router 7)\n- Packages: folosesc `tsc` pentru tipuri + declarații",
+        "descriere_task": "**OBLIGATORIU conform Stack Tehnologic:** Instalează TypeScript la root și configurează:\n\n1. **Instalare:** `pnpm add -Dw typescript @types/node`\n\n2. **Creare `tsconfig.base.json` la root:**\n```json\n{\n  \"compilerOptions\": {\n    \"target\": \"ES2025\",\n    \"module\": \"NodeNext\",\n    \"moduleResolution\": \"NodeNext\",\n    \"strict\": true,\n    \"esModuleInterop\": true,\n    \"skipLibCheck\": true,\n    \"declaration\": true,\n    \"declarationMap\": true,\n    \"sourceMap\": true,\n    \"outDir\": \"dist\",\n    \"rootDir\": \"src\",\n    \"resolveJsonModule\": true,\n    \"isolatedModules\": true,\n    \"baseUrl\": \".\",\n    \"paths\": {\n      \"@app/*\": [\"packages/*/src\"]\n    }\n  }\n}\n```\n\n3. **Creare `tsconfig.json` în fiecare workspace** care extinde tsconfig.base.json:\n```json\n{\n  \"extends\": \"../../tsconfig.base.json\",\n  \"compilerOptions\": {\n    \"outDir\": \"./dist\",\n    \"rootDir\": \"./src\"\n  },\n  \"include\": [\"src/**/*\"],\n  \"exclude\": [\"node_modules\", \"dist\"]\n}\n```\n\n4. **Adaugă scripturi în root package.json (cu --if-present pentru repo skeleton):**\n- `typecheck`: `pnpm -r --if-present run typecheck`\n- `build`: `pnpm -r --if-present run build`\n\n5. **DECIZIE EXPLICITĂ build strategy:**\n- Backend (apps/backend-worker): folosește `tsc` (nativ Node.js, fără bundler)\n- Frontend (apps/web-admin): folosește `vite build` (integrat cu React Router 7)\n- Packages: folosesc `tsc` pentru tipuri + declarații",
         "cale_implementare": "/Neanelu_Shopify/tsconfig.base.json + /Neanelu_Shopify/*/tsconfig.json",
         "contextul_anterior": "Pachetele sunt inițializate. CONFORM Docs (Stack Tehnologic Complet), TypeScript trebuie configurat ÎNAINTE de hooks/CI pentru a permite typecheck în pre-commit și CI.",
         "validare_task": "Verifică existența `tsconfig.base.json` la root. În fiecare workspace, verifică `tsconfig.json` care extinde base. Rulează `pnpm -w exec tsc --noEmit` la root - nu trebuie să dea erori de config (deși nu există încă cod sursă).",
@@ -690,7 +691,7 @@ Obiectiv: Configurarea mediului local de dezvoltare într-un mod reproductibil �
         "denumire_task": "Pregătire infrastructură OTel (Jaeger ready + skeleton files DOAR)",
         "descriere_task": "**NOTA:** Implementarea completă OTel vine DUPĂ ce există un backend runnable (F2). În F1 pregătim doar INFRASTRUCTURA:\n\n1. **Jaeger este deja în docker-compose** - verifică că pornește și UI-ul e accesibil pe http://localhost:16686\n\n2. **Crează skeleton files:**\n   - `packages/logger/src/index.ts` - export gol, placeholder\n   - `packages/logger/src/otel.ts` - comentariu 'OTel setup va fi implementat în F2'\n\n3. **Adaugă în .env.example** (deja făcut în F0.2.7.1):\n   - OTEL_EXPORTER_OTLP_ENDPOINT\n   - OTEL_SERVICE_NAME\n\n**NU IMPLEMENTA încă:**\n- SDK initialization\n- Trace exporters\n- Logging structurat\n\nAcestea vin în F2-F3 când există un main.ts + healthcheck.",
         "cale_implementare": "packages/logger/src/ (skeleton files)",
-        "contextul_anterior": "Jaeger este disponibil în docker-compose. FÃRĂ un backend runnable, nu putem testa OTel complet.",
+        "contextul_anterior": "Jaeger este disponibil în docker-compose. **CLARIFICARE IMPORTANTĂ:** În F1.2.9 pregătim DOAR infrastructura (Jaeger container + skeleton files pentru packages/logger). NU implementăm OTel SDK complet aici deoarece nu există încă un server care să emită span-uri. **Cronologie OTel:** F1.2.9 = infrastructură → F2 = data layer (fără OTel) → F3.1 = server Fastify → F3.4 = OTel SDK complet cu tracing HTTP/webhooks.",
         "validare_task": "Verifică că Jaeger UI (http://localhost:16686) funcționează. Verifică existența skeleton-urilor în packages/logger/src/. NU aștepta span-uri - ele vor apărea în F2.",
         "outcome_task": "Infrastructura de observabilitate (Jaeger) e pregătită. Skeleton-ul logger + OTel eșafodat, gata pentru implementare în F2.",
         "restrictii_antihalucinatie": "NU încerca să implementezi OTel complet acum - nu ai încă un server care să-l folosească. NU pierde timp cu sampling/tracing fără cod care să emită span-uri."
@@ -705,7 +706,7 @@ Obiectiv: Configurarea mediului local de dezvoltare într-un mod reproductibil �
         "denumire_task": "Instalare dependințe pentru hooks (Husky și lint-staged)",
         "descriere_task": "Adaugă la proiect pachetele necesare pentru implementarea hook-urilor Git de calitate a codului. În directorul rădăcină, rulează: `pnpm add -D husky lint-staged` pentru a instala Husky (gestionarul de hooks Git) și lint-staged (pentru a rula automat lintere pe fișierele staged). Acestea se vor adăuga ca dependențe de dezvoltare în `package.json` (verifică după instalare că apar sub devDependencies). De asemenea, asigură-te că există și ESLint și Prettier instalate (dacă nu, instalează-le tot ca devDependencies: `pnpm add -D eslint prettier @typescript-eslint/parser @typescript-eslint/eslint-plugin eslint-config-prettier`).",
         "cale_implementare": "/Neanelu_Shopify/package.json (devDependencies)",
-        "contextul_anterior": "Structura monorepo este stabilă și serviciile externe configurate. Următorul pas este să ne asigurăm că menținem calitatea codului pe măsură ce dezvoltăm – prin configurarea de lintere și formatare automată la commit.",
+        "contextul_anterior": "Structura monorepo este stabilă și serviciile externe configurate. **IMPORTANT - ACEST TASK INSTALEAZĂ TOATE DEPENDENȚELE:** În F1.3.1 instalăm husky + lint-staged + ESLint + Prettier + plugin-uri TypeScript. F1.3.5 (Crearea configurărilor) creează doar FIȘIERELE de configurare (.eslintrc, .prettierrc), NU instalează pachete - pachetele sunt deja instalate aici în F1.3.1. Această ordine este corectă: instalare pachete → init husky → hook-uri → configurare lint-staged → creare fișiere config.",
         "validare_task": "Verifică secțiunea devDependencies din `package.json` și confirmă prezența pachetelor husky, lint-staged, eslint, prettier și a plugin-urilor/config-urilor ESLint menționate. Comanda de instalare trebuie să se fi încheiat cu succes (fără erori). Poți rula `pnpm ls husky lint-staged` pentru a vedea versiunile instalate și confirmarea că sunt rezolvate corect.",
         "outcome_task": "Dependențele necesare pentru hooks de pre-commit și pentru linting/formatting automat sunt instalate în proiect, pregătind terenul pentru configurarea lor.",
         "restrictii_antihalucinatie": "Nu trece mai departe dacă instalațiile dau erori – asigură-te că ai scris corect numele pachetelor. Nu instala global aceste unelte, ci local, în proiect, ca dependențe. Nu uita să includem și ESLint/Prettier, altfel configurarea hook-urilor nu va putea rula verificările dorite."
@@ -727,7 +728,7 @@ Obiectiv: Configurarea mediului local de dezvoltare într-un mod reproductibil �
         "denumire_task": "Adăugarea hook-ului pre-commit (Husky) pentru lint-staged",
         "descriere_task": "Creează un hook Git pre-commit folosind Husky. Execută comanda: `pnpm husky add .husky/pre-commit 'pnpm lint-staged'`. Aceasta va genera fișierul `.husky/pre-commit` cu permisiuni de executare, care la fiecare commit va rula comanda `pnpm lint-staged`. Deschide fișierul `.husky/pre-commit` și verifică faptul că conține linia de execuție a comenzii de mai sus (și shebang-ul `#!/bin/sh`).\nPrin acest setup, înainte ca un commit să fie înregistrat, lint-staged va rula, permițându-ne să definim acțiuni (lintare, formatare) pe fișierele modificate.",
         "cale_implementare": "/Neanelu_Shopify/.husky/pre-commit",
-        "contextul_anterior": "Husky este instalat și folderul de hook-uri e prezent. Urmează să configurăm efectiv un hook.",
+        "contextul_anterior": "Husky este instalat și folderul de hook-uri e prezent. **CLARIFICARE:** ESLint și Prettier au fost instalate în F1.3.1, deci lint-staged va putea rula comenzile ESLint/Prettier. Fișierele de configurare (.eslintrc, .prettierrc) vor fi create în F1.3.5 DAR pachetele sunt deja disponibile. Hook-ul poate fi creat înainte de fișierele de config deoarece: 1) hook-ul doar invocă `pnpm lint-staged`, 2) lint-staged citește configurația din package.json/lint-staged, 3) ESLint/Prettier funcționează cu default-uri până la crearea fișierelor custom.",
         "validare_task": "Listează fișierele în `.husky/` și confirmă existența `pre-commit`. Conținutul fișierului trebuie să includă comanda `pnpm lint-staged`. Asigură-te că fișierul are flag de executabil (Husky îl setează automat, dar poți verifica proprietățile pe sistem sau observa prefixul în listare `-rwxr-xr-x`). Simulează un commit (fără să finalizezi) cu `git commit -m 'test' --no-verify` ca să vezi că `--no-verify` îl sare, apoi fără acel flag pentru a observa dacă se invocă (poți pune un `echo` temporar în script pentru debug).",
         "outcome_task": "Hook-ul pre-commit este configurat; la fiecare încercare de commit, se va apela lint-staged (pas care urmează a fi configurat) pentru a rula verificările de calitate pe fișierele stagiate.",
         "restrictii_antihalucinatie": "Nu modifica manual fișierul pre-commit decât prin comenzi Husky (pentru a menține formatarea/permisiunile). Nu versiona hook-ul dacă nu conține comanda corectă. Nu uita să anunți echipa că de acum există o verificare automată la commit (pentru a evita confuzii când cineva vede că 'nu merge commit-ul')."
@@ -749,7 +750,7 @@ Obiectiv: Configurarea mediului local de dezvoltare într-un mod reproductibil �
         "denumire_task": "Configurarea acțiunilor lint-staged (ESLint și Prettier)",
         "descriere_task": "Definește în `package.json` (sau într-un fișier separat de configurare) ce comenzi să ruleze lint-staged pe fișierele ce vor fi comise. De exemplu, configurează-l astfel încât pentru fișierele sursă TypeScript/JavaScript (`*.ts, *.tsx, *.js, *.jsx`) să ruleze `eslint --fix`, iar pentru fișiere de cod și documentație (`*.ts, *.tsx, *.js, *.jsx, *.json, *.md`) să ruleze formatarea Prettier (`prettier --write`). Ajustează pattern-urile și comenzile în funcție de nevoile proiectului (de exemplu, poți adăuga verificări pentru fișiere CSS etc.).",
         "cale_implementare": "/Neanelu_Shopify/package.json (secțiunea lint-staged)",
-        "contextul_anterior": "Hook-ul pre-commit invocă lint-staged, dar nu are încă definit ce să facă. Trebuie să specificăm acțiunile de lint/formatare dorite pe fișierele stagiate.",
+        "contextul_anterior": "Hook-ul pre-commit invocă lint-staged, dar nu are încă definit ce să facă. **ORDINE LOGICĂ:** F1.3.1 a instalat ESLint/Prettier. F1.3.3 a creat hook-ul. Acum definim CE comenzi rulează lint-staged. Fișierele de configurare ESLint/Prettier (F1.3.5) pot fi create după deoarece pachetele funcționează cu default-uri. Configurația lint-staged (CE comenzi rulezi) este separată de configurația ESLint/Prettier (CE reguli aplici).",
         "validare_task": "Verifică în `package.json` că secțiunea `lint-staged` există și conține intrările corecte (pattern-urile de fișiere și comenzile). Simulează un caz: modifică un fișier TypeScript intenționat greșit formatat (ex. cu spațieri aiurea), fă `git add` și apoi `git commit -m 'test lint-staged'`. Ar trebui ca Prettier să ruleze și să formateze automat fișierul (poți vedea modificările de format dacă anulezi commit-ul după). De asemenea, ESLint cu --fix ar trebui să corecteze probleme simple. Dacă commit-ul trece (sau este oprit de vreo eroare de lint nereparabilă automat), înseamnă că lint-staged e funcțional.",
         "outcome_task": "Configurația lint-staged este în vigoare, asigurând că înainte de fiecare commit, codul este formatat și verificat conform regulilor stabilite (cel puțin pentru categoriile de fișiere specificate).",
         "restrictii_antihalucinatie": "Nu pune comenzi care modifică fișiere fără să fie și comise (prin design, lint-staged adaugă modificările făcute de Prettier în commit automat). Nu lăsa pattern-uri prea largi care să includă fișiere mari binare sau altele ne-necessare – țintește doar codul sursă. Nu continua fără să testezi că configurația chiar rulează la commit (pentru a evita falsa siguranță)."
@@ -760,7 +761,7 @@ Obiectiv: Configurarea mediului local de dezvoltare într-un mod reproductibil �
         "denumire_task": "Crearea configurărilor ESLint și Prettier",
         "descriere_task": "În rădăcina proiectului, adaugă fișierele de configurare pentru ESLint și Prettier. Creează un fișier `.eslintrc.json` cu o configurație de bază care extinde regulile recomandate pentru JavaScript și TypeScript (de ex. eslint:recommended și plugin:@typescript-eslint/recommended) și include integrarea Prettier (pentru a dezactiva regulile conflictuale de stil). Setează `parser` la `@typescript-eslint/parser` și `plugins` la `[ @typescript-eslint ]`. De asemenea, definește environment-urile relevante (ex: node: true, browser: false, es2020: true).\nCreează și un fișier `.prettierrc` simplu cu reguli de formatare dorite (ex: lățime maximă 100 de caractere, ghilimele simple la stringuri etc., conform preferințelor echipei). Nu uita să adaugi un fișier `.eslintignore` care să excludă `node_modules/` și eventual alte fișiere generate, precum și un `.prettierignore` similar (poți porni de la același conținut ca .eslintignore).",
         "cale_implementare": "/Neanelu_Shopify/.eslintrc.json, /Neanelu_Shopify/.prettierrc",
-        "contextul_anterior": "Am configurat rularea automată a ESLint și Prettier, dar avem nevoie și de fișierele lor de configurare pentru a defini stilul și regulile proiectului.",
+        "contextul_anterior": "**CLARIFICARE FINALĂ - ACEST TASK CREEAZĂ FIȘIERE, NU INSTALEAZĂ PACHETE:** ESLint și Prettier au fost instalate în F1.3.1. Hook-urile sunt configurate în F1.3.3-F1.3.4. Acum creăm fișierele de configurare (.eslintrc.json/ eslint.config.js, .prettierrc, .eslintignore, .prettierignore) pentru a personaliza regulile. Această ordine este INTENȚIONATĂ: pachetele instalate mai întâi permit hook-urilor să funcționeze cu default-uri, iar fișierele de config vin la final pentru personalizare.",
         "validare_task": "Deschide `.eslintrc.json` și verifică că JSON-ul este valid și conține extensiile/pluginurile așteptate. Testează ESLint rulând manual `pnpm eslint .` la rădăcina proiectului – ar trebui să parseze fișierele (chiar dacă încă nu avem cod real, nu trebuie să dea erori de configurare). Verifică `.prettierrc` că e în format JSON valid. Eventual, rulează `pnpm prettier -c '*.ts'` pentru a verifica că Prettier nu găsește probleme de config ('Checked 0 files' e ok dacă nu sunt fișiere; important e să nu dea eroare de sintaxă config).",
         "outcome_task": "Configurările ESLint și Prettier sunt prezente, permițând editorilor și CI-ului (pe viitor) să aplice stilul de cod în mod consistent, conform deciziilor echipei.",
         "restrictii_antihalucinatie": "Nu lăsa configurațiile la voia întâmplării – dacă extensiile recommended nu acoperă tot, discută și ajustează (dar pentru start e ok). Nu include reguli prea stricte care să blocheze development-ul (le poți adăuga treptat). Nu uita să ignorezi node_modules și alte fișiere generate – altfel linterul va irosi timp și va produce fals pozitive."
@@ -874,13 +875,13 @@ Obiectiv: Stabilirea sursei de adevăr (PostgreSQL 18.1), migrații, RLS și see
     [
     {
         "id_task": "F2.1.2.1",
-        "denumire_task": "Activare extensii PostgreSQL baseline (pgcrypto, citext, pg_trgm)",
-        "descriere_task": "**Enterprise DB Setup:** Prima migrație trebuie să activeze extensiile necesare:\n\n**Migrație SQL (0000_enable_extensions.sql):**\n```sql\n-- Extensii necesare pentru schema și performanță\n-- NOTĂ: UUIDv7 este nativ în PG18 (uuidv7()), nu necesită extensie ossp\nCREATE EXTENSION IF NOT EXISTS \"pgcrypto\";\nCREATE EXTENSION IF NOT EXISTS \"citext\";\nCREATE EXTENSION IF NOT EXISTS \"pg_trgm\";\nCREATE EXTENSION IF NOT EXISTS \"btree_gin\";\n```\n\n**Decizie partitionare (documentează explicit):**\n- Pentru 1M+ SKU, partitionarea după `shop_id` crește performanța\n- Dacă NU partiționezi, documentează motivul",
+        "denumire_task": "Activare extensii PostgreSQL baseline (pgcrypto, citext, pg_trgm, pgvector)",
+        "descriere_task": "**Enterprise DB Setup:** Prima migrație trebuie să activeze extensiile necesare:\n\n**Migrație SQL (0000_enable_extensions.sql):**\n```sql\n-- Extensii necesare pentru schema și performanță\n-- NOTĂ: UUIDv7 este nativ în PG18 (uuidv7()), nu necesită extensie ossp\nCREATE EXTENSION IF NOT EXISTS \"pgcrypto\";\nCREATE EXTENSION IF NOT EXISTS \"citext\";\nCREATE EXTENSION IF NOT EXISTS \"pg_trgm\";\nCREATE EXTENSION IF NOT EXISTS \"btree_gin\";\n-- Extensie pentru vector search și deduplicare semantică (redistribuit din F8.3.1)\nCREATE EXTENSION IF NOT EXISTS \"vector\";\n```\n\n**Decizie partitionare (documentează explicit):**\n- Pentru 1M+ SKU, partitionarea după `shop_id` crește performanța\n- Dacă NU partiționezi, documentează motivul",
         "cale_implementare": "/Neanelu_Shopify/packages/database/drizzle/migrations/0000_enable_extensions.sql",
         "contextul_anterior": "drizzle-kit este configurat. Extensiile trebuie activate ÎNAINTE de schema.",
-        "validare_task": "Rulează `SELECT extname FROM pg_extension;` și confirmă prezența extensiilor.",
-        "outcome_task": "PostgreSQL are extensiile necesare pentru UUIDv7, criptare și indexing.",
-        "restrictii_antihalucinatie": "NU sări peste acest pas - schema va eșua fără pgcrypto (pentru auth)."
+        "validare_task": "Rulează `SELECT extname FROM pg_extension;` și confirmă prezența extensiilor (inclusiv 'vector').",
+        "outcome_task": "PostgreSQL are extensiile necesare pentru UUIDv7, criptare, indexing și vector search.",
+        "restrictii_antihalucinatie": "NU sări peste acest pas - schema va eșua fără pgcrypto (pentru auth). pgvector este OBLIGATORIU pentru F2.2.7 (schema vectorială)."
     },
 
     {
@@ -964,6 +965,47 @@ Obiectiv: Stabilirea sursei de adevăr (PostgreSQL 18.1), migrații, RLS și see
         "validare_task": "Rulează `pnpm --filter @app/database run test` local și în CI. Testele trec. Modifică intenționat politica RLS și confirmă că testele eșuează.",
         "outcome_task": "Test automat în CI garantează că RLS nu regresează.",
         "restrictii_antihalucinatie": "NU sări peste acest test - este singura garanție automată de izolare. NU presupune că RLS funcționează doar pentru că l-ai activat."
+    ]
+    ```
+
+### F2.2.x: Schema PIM Core și Vectori (redistribuit din F8)
+
+> [!NOTE]
+> **Redistribuire F8:** Următoarele task-uri (F2.2.5-F2.2.7) au fost mutate din Faza F8 pentru a corecta cronologia. Schema PIM este PREREQUISITE pentru ingestia corectă în F5 și pentru deduplicarea semantică în F6.
+
+    ```JSON
+    [
+    {
+        "id_task": "F2.2.5",
+        "denumire_task": "Schema PIM Core: prod_taxonomy + prod_raw_harvest + prod_core + prod_specs_normalized (redistribuit din F8.2.1)",
+        "descriere_task": "**MUTAT din F8.2.1 - PREREQUISITE pentru F5 (Bulk Ops) și F6 (AI)**\n\nImplementează structura stratificată PIM (4-Layer Architecture):\n\n**1. Governance Layer (prod_taxonomy):**\n```sql\nCREATE TABLE prod_taxonomy (\n  id uuid PRIMARY KEY DEFAULT uuidv7(),\n  parent_id uuid REFERENCES prod_taxonomy(id),\n  name text NOT NULL,\n  attribute_schema jsonb NOT NULL DEFAULT '{}',\n  shopify_taxonomy_id text,\n  created_at timestamptz DEFAULT now(),\n  updated_at timestamptz DEFAULT now()\n);\nCREATE INDEX idx_prod_taxonomy_parent ON prod_taxonomy(parent_id);\nCREATE UNIQUE INDEX idx_prod_taxonomy_shopify_id ON prod_taxonomy(shopify_taxonomy_id) WHERE shopify_taxonomy_id IS NOT NULL;\n```\n\n**2. Raw Ingestion Layer (prod_raw_harvest):**\n```sql\nCREATE TABLE prod_raw_harvest (\n  id uuid PRIMARY KEY DEFAULT uuidv7(),\n  source_url text NOT NULL,\n  source_type text NOT NULL CHECK (source_type IN ('scraping', 'api', 'manual', 'bulk_import')),\n  raw_content text,\n  raw_html text,\n  content_hash text,\n  fetched_at timestamptz DEFAULT now(),\n  processed boolean DEFAULT false\n);\nCREATE INDEX idx_prod_raw_harvest_content_hash ON prod_raw_harvest(content_hash);\nCREATE INDEX idx_prod_raw_harvest_processed ON prod_raw_harvest(processed) WHERE processed = false;\n```\n\n**3. Process Layer (prod_extraction_sessions):**\n```sql\nCREATE TABLE prod_extraction_sessions (\n  id uuid PRIMARY KEY DEFAULT uuidv7(),\n  harvest_id uuid REFERENCES prod_raw_harvest(id) ON DELETE CASCADE,\n  extracted_data jsonb NOT NULL,\n  ai_model text,\n  confidence_score float,\n  created_at timestamptz DEFAULT now()\n);\nCREATE INDEX idx_prod_extraction_sessions_harvest ON prod_extraction_sessions(harvest_id);\n```\n\n**4. Golden Record Layer (prod_core + prod_specs_normalized):**\n```sql\nCREATE TABLE prod_core (\n  id uuid PRIMARY KEY DEFAULT uuidv7(),\n  internal_sku text UNIQUE,\n  canonical_title text NOT NULL,\n  brand text,\n  taxonomy_id uuid REFERENCES prod_taxonomy(id),\n  dedupe_status text DEFAULT 'unique' CHECK (dedupe_status IN ('unique', 'merged', 'suspicious')),\n  created_at timestamptz DEFAULT now(),\n  updated_at timestamptz DEFAULT now()\n);\nCREATE INDEX idx_prod_core_brand ON prod_core(brand);\nCREATE INDEX idx_prod_core_taxonomy ON prod_core(taxonomy_id);\n\nCREATE TABLE prod_specs_normalized (\n  id uuid PRIMARY KEY DEFAULT uuidv7(),\n  product_id uuid REFERENCES prod_core(id) ON DELETE CASCADE,\n  specs jsonb NOT NULL DEFAULT '{}',\n  provenance jsonb NOT NULL DEFAULT '{}',\n  needs_review boolean DEFAULT false,\n  version int DEFAULT 1,\n  created_at timestamptz DEFAULT now()\n);\nCREATE INDEX idx_prod_specs_normalized_specs ON prod_specs_normalized USING GIN(specs);\nCREATE INDEX idx_prod_specs_normalized_product ON prod_specs_normalized(product_id);\n```\n\n**5. Link PIM → Shopify (prod_channel_mappings):**\n```sql\nCREATE TABLE prod_channel_mappings (\n  id uuid PRIMARY KEY DEFAULT uuidv7(),\n  core_id uuid REFERENCES prod_core(id) ON DELETE CASCADE,\n  channel_type text NOT NULL DEFAULT 'shopify',\n  channel_product_id uuid REFERENCES products(id),\n  shopify_gid text,\n  sync_status text CHECK (sync_status IN ('pending', 'synced', 'error', 'manual')),\n  last_synced_at timestamptz,\n  created_at timestamptz DEFAULT now()\n);\nCREATE INDEX idx_prod_channel_mappings_core ON prod_channel_mappings(core_id);\nCREATE INDEX idx_prod_channel_mappings_channel ON prod_channel_mappings(channel_product_id);\n```\n\n**NOTĂ ARHITECTURALĂ:** Aceste tabele NU au RLS deoarece reprezintă PIM global (nu per-tenant). Relația 1:N între prod_core (produs global) și products (produs per-shop) este gestionată prin prod_channel_mappings.",
+        "cale_implementare": "/Neanelu_Shopify/packages/database/src/schema/pim.ts + migrații SQL",
+        "contextul_anterior": "F2.2.1-F2.2.4 definesc schema Shopify Mirror. PIM layer este SURSA de date pentru Shopify products.",
+        "validare_task": "Migrațiile rulează fără erori. Toate tabelele create. FK-uri valide. Indexurile GIN funcționează pe prod_specs_normalized.",
+        "outcome_task": "Schema PIM 4-layer completă, pregătită pentru ingestie în F5 și AI în F6.",
+        "restrictii_antihalucinatie": "NU sări peste acest pas - F5/F6 depind de existența acestei scheme. NU adăuga RLS fără decizie explicită de multi-tenancy pentru PIM."
+    },
+
+    {
+        "id_task": "F2.2.6",
+        "denumire_task": "Import Shopify Standard Taxonomy în prod_taxonomy (redistribuit din F8.2.2)",
+        "descriere_task": "**MUTAT din F8.2.2 - PREREQUISITE pentru validare în F5**\n\nImportă taxonomia oficială Shopify în tabelul prod_taxonomy:\n\n**1. Sursa de date:**\n- GitHub: https://github.com/Shopify/product-taxonomy (JSON/YAML)\n- API Admin GraphQL: `shopProductTaxonomyNode` (opțional, pentru sync live)\n\n**2. Script de import:**\n```typescript\n// packages/database/src/seed/taxonomy.ts\nimport { db } from '../db';\nimport { prodTaxonomy } from '../schema/pim';\n\nconst TAXONOMY_URL = 'https://raw.githubusercontent.com/Shopify/product-taxonomy/main/data/verticals.json';\n\nexport async function seedTaxonomy() {\n  const response = await fetch(TAXONOMY_URL);\n  const data = await response.json();\n  \n  // Procesare recursivă pentru structura arborescentă\n  async function insertCategory(category: any, parentId: string | null = null) {\n    const [inserted] = await db.insert(prodTaxonomy).values({\n      name: category.name,\n      parentId,\n      attributeSchema: category.attributes || {},\n      shopifyTaxonomyId: category.id,\n    }).onConflictDoUpdate({\n      target: prodTaxonomy.shopifyTaxonomyId,\n      set: { name: category.name, attributeSchema: category.attributes, updatedAt: new Date() }\n    }).returning();\n    \n    for (const child of category.children || []) {\n      await insertCategory(child, inserted.id);\n    }\n  }\n  \n  for (const vertical of data.verticals) {\n    await insertCategory(vertical);\n  }\n}\n```\n\n**3. Scripts în package.json:**\n- `db:seed:taxonomy` - import complet\n- `db:seed:taxonomy:update` - update incremental (doar categorii modificate)\n\n**4. Validare la runtime (pentru F5):**\nProdusele ingestionate pot fi validate contra attribute_schema din prod_taxonomy.",
+        "cale_implementare": "/Neanelu_Shopify/packages/database/src/seed/taxonomy.ts",
+        "contextul_anterior": "F2.2.5 a creat tabelul prod_taxonomy. Acum îl populăm cu date oficiale Shopify.",
+        "validare_task": "Rulează `pnpm run db:seed:taxonomy`. Verifică:\n1. COUNT(*) FROM prod_taxonomy > 0\n2. Structura arborescentă: SELECT * FROM prod_taxonomy WHERE parent_id IS NOT NULL\n3. attribute_schema populated pentru categorii principale",
+        "outcome_task": "Taxonomia Shopify importată, gata pentru validare în F5 și mapping în F6.",
+        "restrictii_antihalucinatie": "NU hardcoda categorii - folosește sursa oficială Shopify. NU sări peste acest pas dacă F5 va valida structura produselor."
+    },
+
+    {
+        "id_task": "F2.2.7",
+        "denumire_task": "Schema pgvector: prod_attr_registry + prod_embeddings pentru deduplicare semantică (redistribuit din F8.3.1)",
+        "descriere_task": "**MUTAT din F8.3.1 - PREREQUISITE pentru deduplicare în F5/F6**\n\n**DECIZIE ARHITECTURALĂ (2025):**\n- **pgvector (Postgres):** SOLE VECTOR STORAGE. Nu folosim Redis pentru vectori (doar cache results/limits).\n- **Index Strategy:** HNSW pentru performanță (<10ms latency pentru milioane de vectori).\n\nImplementează registry-ul de atribute și embeddings cu suport vector:\n\n**1. Atributele canonice cu embeddings:**\n```sql\nCREATE TABLE prod_attr_registry (\n  id uuid PRIMARY KEY DEFAULT uuidv7(),\n  code text UNIQUE NOT NULL,\n  label text NOT NULL,\n  data_type text CHECK (data_type IN ('string', 'number', 'boolean', 'array', 'object')),\n  unit text,\n  embedding vector(1536), -- OpenAI text-embedding-3-small (1536 dims)\n  created_at timestamptz DEFAULT now(),\n  updated_at timestamptz DEFAULT now()\n);\n\n-- Index HNSW pentru căutare vectorială rapidă\n-- m=16, ef_construction=64 sunt valori bune pentru <100K atribute\nCREATE INDEX idx_prod_attr_registry_embedding ON prod_attr_registry \n  USING hnsw (embedding vector_cosine_ops)\n  WITH (m = 16, ef_construction = 64);\n```\n\n**2. Dicționarul de sinonime:**\n```sql\nCREATE TABLE prod_attr_synonyms (\n  id uuid PRIMARY KEY DEFAULT uuidv7(),\n  synonym text NOT NULL UNIQUE,\n  registry_id uuid REFERENCES prod_attr_registry(id) ON DELETE CASCADE,\n  confidence float CHECK (confidence >= 0 AND confidence <= 1),\n  source text CHECK (source IN ('manual', 'ai_detected', 'bulk_import')),\n  created_at timestamptz DEFAULT now()\n);\nCREATE INDEX idx_prod_attr_synonyms_registry ON prod_attr_synonyms(registry_id);\nCREATE INDEX idx_prod_attr_synonyms_synonym ON prod_attr_synonyms USING gin(synonym gin_trgm_ops);\n```\n\n**3. Embeddings pentru produse (deduplicare fuzzy):**\n```sql\nCREATE TABLE prod_embeddings (\n  id uuid PRIMARY KEY DEFAULT uuidv7(),\n  product_id uuid REFERENCES prod_core(id) ON DELETE CASCADE,\n  embedding_type text CHECK (embedding_type IN ('title', 'description', 'full', 'title_brand')),\n  embedding vector(1536),\n  content_hash text NOT NULL,\n  model text DEFAULT 'text-embedding-3-small',\n  created_at timestamptz DEFAULT now(),\n  UNIQUE(product_id, embedding_type)\n);\n\n-- Index HNSW pentru deduplicare fuzzy\n-- m=32, ef_construction=128 pentru >1M produse (high quality index)\nCREATE INDEX idx_prod_embeddings_vector ON prod_embeddings \n  USING hnsw (embedding vector_cosine_ops)\n  WITH (m = 32, ef_construction = 128);\n\nCREATE INDEX idx_prod_embeddings_content_hash ON prod_embeddings(content_hash);\n```\n\n**4. Funcții helper pentru căutare vectorială rapidă (Direct DB):**\n```sql\n-- Funcție cu limitare CPU-bound pentru search\nCREATE OR REPLACE FUNCTION find_similar_products(\n  query_embedding vector(1536),\n  similarity_threshold float DEFAULT 0.95,\n  max_results int DEFAULT 10\n)\nRETURNS TABLE (product_id uuid, similarity float) AS $$\n  SELECT e.product_id, 1 - (e.embedding <=> query_embedding) as similarity\n  FROM prod_embeddings e\n  WHERE e.embedding_type = 'title_brand'\n    AND e.embedding <=> query_embedding < (1 - similarity_threshold)\n  ORDER BY e.embedding <=> query_embedding\n  LIMIT max_results;\n$$ LANGUAGE SQL STABLE;\n```",
+        "cale_implementare": "/Neanelu_Shopify/packages/database/src/schema/vectors.ts + migrații SQL",
+        "contextul_anterior": "F2.1.2.1 a activat extensia pgvector. F2.2.5 a creat prod_core. Acum creăm schema optimizată HNSW.",
+        "validare_task": "Migrațiile rulează. Teste:\n1. INSERT un vector de test în prod_attr_registry\n2. Query HNSW returnează rezultate ordonate și rapide (EXPLAIN confirmă index Scan).\n3. find_similar_products() funcționează corect.",
+        "outcome_task": "Schema vectorială unificată în Postgres, fără necesitate de Redis vector store.",
+        "restrictii_antihalucinatie": "NU omite indexul HNSW - este critic pentru pgvector-only. NU include coloane pentru sync status (nu mai avem sync)."
     }
     ]
     ```
@@ -980,7 +1022,7 @@ Obiectiv: Stabilirea sursei de adevăr (PostgreSQL 18.1), migrații, RLS și see
         "contextul_anterior": "Schema este stabilă și migrațiile rulează. Tabelul products există cu toate coloanele + RLS activ.",
         "validare_task": "Rulează `pnpm run db:seed` și confirmă:\n1. 10.000 rânduri în products\n2. Timp < 30s\n3. Re-rularea generează ACELEAȘI date (determinism)\n4. Indexurile GIN funcționează: `EXPLAIN ANALYZE SELECT * FROM products WHERE metafields @> '{\"tags\": [\"sale\"]}'`",
         "outcome_task": "Dataset de 10K produse, deterministic, pentru validarea performanței și CI.",
-        "restrictii_antihalucinatie": "NU folosi seed fără faker.seed() - datele vor fi diferite la fiecare rulare. NU genera < 10K produse - insuficient pentru validarea indexurilor. NU hardcoda secrete." 
+        "restrictii_antihalucinatie": "NU folosi seed fără faker.seed() - datele vor fi diferite la fiecare rulare. NU genera < 10K produse - insuficient pentru validarea indexurilor. NU hardcoda secrete."
     }
     ```
 
@@ -1132,7 +1174,7 @@ Obiectiv: Server HTTP, OAuth offline complet, webhooks ingress cu enqueue minim,
         "denumire_task": "Enqueue minim pentru webhooks (bootstrap înainte de F4 - REZOLVĂ DEPENDENȚA CIRCULARĂ)",
         "descriere_task": "**FIX CRONOLOGIE:** Pentru a elimina blocajul (F3.3 depindea de F4.1), implementează un mecanism MINIM de enqueue pentru webhook jobs direct în apps/backend-worker:\n\n- definește o coadă webhook-queue (BullMQ OSS) cu conexiune Redis\n- exportă un producer simplu enqueueWebhookJob(payload)\n- NU implementa fairness/groups/rate limiting aici\n\nÎn F4.1 vei REFACTORIZA acest cod în packages/queue-manager și vei activa BullMQ Pro Groups.",
         "cale_implementare": "/Neanelu_Shopify/apps/backend-worker/src/queue/webhook-queue.ts",
-        "contextul_anterior": "Redis 8.4 rulează din F1.2; endpoint-ul de webhooks TREBUIE să poată enqueue din F3, nu abia în F4.",
+        "contextul_anterior": "Redis 8.4 rulează din F1.2; endpoint-ul de webhooks TREBUIE să poată enqueue din F3, nu abia în F4. **STRATEGIE INCREMENTALĂ INTENȚIONATĂ:** Această abordare este DELIBERATĂ - în săptămâna 3 creăm cod MINIM inline pentru a debloca funcționalitatea. În săptămâna 4 (F4.1.5) acest cod va fi REFACTORIZAT în packages/queue-manager. Aceasta NU este dependență circulară - este strategie de dezvoltare: 1) funcționalitate minimă (time-to-market), 2) refactorizare (calitate cod). Contractul API implicit: semnătura funcției `enqueueWebhookJob(payload)` definită aici devine contractul; F4.1.5 respectă aceeași semnătură.",
         "validare_task": "Trimite webhook de test și confirmă că job-ul apare în Redis (BullMQ) și că endpoint-ul răspunde rapid.",
         "outcome_task": "Webhooks pot fi enqueue corect încă din F3, fără dependență circulară cu F4.",
         "restrictii_antihalucinatie": "NU implementa fairness/rate limiting aici (sunt în F4). NU procesa job-ul în request. Acest cod TREBUIE refactorizat în F4.1."
@@ -1283,7 +1325,7 @@ Obiectiv: BullMQ Pro + fairness multi-tenant + rate limiting distribuit Shopify 
         "denumire_task": "Refactor: mută enqueue-ul minim din F3 în queue-manager",
         "descriere_task": "**Completează promisiunea din F3.3.3:** Migrează codul de enqueue din apps/backend-worker/src/queue către packages/queue-manager.\n\n**Livrabil:**\n- Endpoint-ul webhooks folosește @app/queue-manager ca producer\n- Codul 'bootstrap' din F3.3.3 devine thin wrapper sau dispare\n- Semantica răspunsului webhook rămâne neschimbată (rapid)",
         "cale_implementare": "/Neanelu_Shopify/apps/backend-worker/src/queue → /Neanelu_Shopify/packages/queue-manager/src",
-        "contextul_anterior": "F3.3.3 a creat enqueue minim cu promisiunea de refactor în F4.1.",
+        "contextul_anterior": "F3.3.3 a creat enqueue minim cu promisiunea de refactor în F4.1. **CONTINUARE STRATEGIE INCREMENTALĂ:** Aceasta este partea 2 a strategiei: săptămâna 3 = cod inline (funcționalitate rapidă), săptămâna 4 = refactorizare (calitate cod). Contractul API `enqueueWebhookJob(payload)` definit în F3.3.3 TREBUIE păstrat pentru a nu sparge codul existent. Refactorizarea mută implementarea, nu schimbă interfața.",
         "validare_task": "Webhook ingress → enqueue funcționează identic, dar prin @app/queue-manager.",
         "outcome_task": "Single source of truth pentru queue infrastructure; eliminare dubluri.",
         "restrictii_antihalucinatie": "NU schimba semantica răspunsului webhook. NU introduce dependență circulară."
@@ -1707,6 +1749,26 @@ Obiectiv: Bulk Operations complet (query + mutation) + streaming JSONL + COPY î
         "validare_task": "Benchmark cu configurații diferite; documentează optimal settings.",
         "outcome_task": "Performance tuning documented și configurable.",
         "restrictii_antihalucinatie": "NU hardcoda valori. NU omite ANALYZE."
+    },
+    {
+        "id_task": "F5.2.9",
+        "denumire_task": "Deduplicare semantică la ingestie (vector similarity pe titlu/brand) - redistribuit din F8.3.1",
+        "descriere_task": "**MUTAT din F8.3.1 - INTEGRARE la ingestie, nu post-processing**\n\nImplementează deduplicare semantică în pipeline-ul de ingestie bulk utilizând pgvector din F2.2.7:\n\n**Flux Deduplicare:**\n```typescript\nasync function checkDuplicate(product: IngestedProduct): Promise<DedupeResult> {\n  // 1. Primary: GTIN/EAN exact match\n  if (product.barcode) {\n    const existing = await db.query(sql`\n      SELECT id FROM prod_core WHERE internal_sku = ${product.barcode}\n    `);\n    if (existing.rows.length > 0) {\n      return { isDuplicate: true, existingId: existing.rows[0].id, method: 'barcode' };\n    }\n  }\n  \n  // 2. Secondary: Vector similarity (dacă embedding disponibil)\n  const embedding = await generateEmbedding(`${product.title} ${product.vendor}`);\n  const similar = await db.query(sql`\n    SELECT product_id, 1 - (embedding <=> ${embedding}) as similarity\n    FROM prod_embeddings\n    WHERE embedding_type = 'title_brand'\n      AND 1 - (embedding <=> ${embedding}) >= ${DEDUPE_SIMILARITY_THRESHOLD}\n    ORDER BY embedding <=> ${embedding}\n    LIMIT 1\n  `);\n  \n  if (similar.rows.length > 0 && similar.rows[0].similarity >= 0.95) {\n    return { isDuplicate: true, existingId: similar.rows[0].product_id, method: 'vector', similarity: similar.rows[0].similarity };\n  }\n  \n  // 3. Suspicious zone: 0.85-0.95 similarity\n  if (similar.rows.length > 0 && similar.rows[0].similarity >= 0.85) {\n    return { isDuplicate: false, suspicious: true, candidateId: similar.rows[0].product_id, similarity: similar.rows[0].similarity };\n  }\n  \n  return { isDuplicate: false, suspicious: false };\n}\n```\n\n**Batch Embedding (pentru eficiență):**\n```typescript\n// Procesare în batch-uri de 100 pentru eficiență cost OpenAI\nconst EMBEDDING_BATCH_SIZE = 100;\n\nasync function batchGenerateEmbeddings(products: IngestedProduct[]): Promise<Map<string, number[]>> {\n  const inputs = products.map(p => `${p.title} ${p.vendor}`);\n  const response = await openai.embeddings.create({\n    model: 'text-embedding-3-small',\n    input: inputs,\n  });\n  return new Map(products.map((p, i) => [p.id, response.data[i].embedding]));\n}\n```\n\n**Thresholds configurabile:**\n- `DEDUPE_SIMILARITY_THRESHOLD = 0.95` (foarte similar = merge automat)\n- `DEDUPE_SUSPICIOUS_THRESHOLD = 0.85` (similar = flag pentru review)\n- `EMBEDDING_MODEL = 'text-embedding-3-small'`\n\n**Acțiuni post-dedupe:**\n- isDuplicate=true → link la prod_core existent, actualizează metadata\n- suspicious=true → creează prod_core nou cu dedupe_status='suspicious'\n- isDuplicate=false → creează prod_core nou cu dedupe_status='unique'",
+        "cale_implementare": "/Neanelu_Shopify/apps/backend-worker/src/processors/bulk-operations/deduplication.ts",
+        "contextul_anterior": "F2.2.7 a creat schema pgvector. F5.2 procesează JSONL și face COPY. Deduplicarea trebuie să ruleze ÎNAINTE de insert în prod_core.",
+        "validare_task": "Ingestează 2 produse cu titluri aproape identice ('iPhone 15 Pro 256GB' și 'iPhone 15 Pro 256 GB'). Verifică că al doilea e linkat la primul, nu duplicat.",
+        "outcome_task": "Zero duplicate la ingestie pentru produse semantic similare.",
+        "restrictii_antihalucinatie": "NU genera embedding per produs individual în loop (prea lent și scump). NU setează threshold sub 0.85 (prea multe false positives). NU sări deduplicarea pentru 'performanță' - e critică pentru PIM."
+    },
+    {
+        "id_task": "F5.2.10",
+        "denumire_task": "Consensus/Arbitration pentru date multi-sursă (prioritizare + Golden Record) - redistribuit din F8.3.2",
+        "descriere_task": "**MUTAT din F8.3.2 - RULEAZĂ la ingestie, nu post-processing**\n\nImplementează logica de arbitraj când există date din mai multe surse pentru același produs:\n\n**Model Sursă:**\n```typescript\ninterface SourcedValue {\n  value: any;\n  source: 'brand' | 'curated' | 'ai_extracted' | 'bulk_import' | 'webhook';\n  confidence: number; // 0-1\n  timestamp: Date;\n  sourceUrl?: string;\n}\n\nconst SOURCE_PRIORITY: Record<string, number> = {\n  'brand': 100,      // Sursa oficială (API brand, website brand)\n  'curated': 80,     // Date verificate manual\n  'ai_extracted': 50, // Extras cu AI din descrieri\n  'bulk_import': 40,  // Import Shopify bulk\n  'webhook': 30,      // Update incremental webhook\n};\n```\n\n**Logica de Rezolvare:**\n```typescript\nfunction resolveConflict(field: string, values: SourcedValue[]): ResolvedValue {\n  // Sort by: priority DESC, confidence DESC, timestamp DESC (newest)\n  const sorted = values.sort((a, b) => \n    (SOURCE_PRIORITY[b.source] - SOURCE_PRIORITY[a.source]) ||\n    (b.confidence - a.confidence) ||\n    (b.timestamp.getTime() - a.timestamp.getTime())\n  );\n  \n  const winner = sorted[0];\n  const alternates = sorted.slice(1);\n  \n  // Flag pentru review dacă există divergență semnificativă\n  const needsReview = alternates.some(alt => \n    alt.confidence > 0.7 && \n    JSON.stringify(alt.value) !== JSON.stringify(winner.value)\n  );\n  \n  return {\n    value: winner.value,\n    provenance: {\n      source: winner.source,\n      confidence: winner.confidence,\n      resolvedAt: new Date(),\n      alternates: alternates.map(v => ({\n        value: v.value,\n        source: v.source,\n        confidence: v.confidence\n      }))\n    },\n    needsReview\n  };\n}\n```\n\n**Integrare în Pipeline:**\n1. La fiecare ingestie, verifică dacă prod_core există\n2. Dacă există, compară fiecare câmp cu valorile existente\n3. Aplică arbitraj pentru câmpurile în conflict\n4. Salvează provenance în prod_specs_normalized.provenance\n5. Setează needs_review=true dacă există divergențe\n\n**Persistență Provenance:**\n```sql\n-- Exemplu prod_specs_normalized.provenance\n{\n  \"title\": {\n    \"source\": \"brand\",\n    \"confidence\": 0.99,\n    \"resolvedAt\": \"2024-01-15T10:30:00Z\",\n    \"alternates\": [\n      { \"value\": \"iPhone 15 Pro\", \"source\": \"bulk_import\", \"confidence\": 0.8 }\n    ]\n  },\n  \"price\": {\n    \"source\": \"webhook\",\n    \"confidence\": 1.0,\n    \"resolvedAt\": \"2024-01-15T14:00:00Z\"\n  }\n}\n```",
+        "cale_implementare": "/Neanelu_Shopify/apps/backend-worker/src/processors/bulk-operations/consensus.ts",
+        "contextul_anterior": "F5.2.9 a identificat duplicatele. Acum rezolvăm conflictele între date din surse diferite pentru același produs.",
+        "validare_task": "Ingestează 2 feed-uri cu același produs dar prețuri diferite (brand=100€, bulk_import=99€). Verifică că Golden Record are preț=100€ (sursa brand) și provenance conține ambele valori.",
+        "outcome_task": "Golden Record de înaltă încredere cu provenance auditabil pentru fiecare câmp.",
+        "restrictii_antihalucinatie": "NU alege random când există conflict - respectă ordinea de prioritate. NU pierde datele alternative - păstrează în provenance. NU ignora timestamp - ultima actualizare contează la egalitate."
     }
     ]
     ```
@@ -1867,79 +1929,52 @@ Obiectiv: embeddings OpenAI Batch + index vectorial în Redis 8.4 + observabilit
     ]
     ```
 
-### F6.2: Redis 8.4 / RediSearch (vector search) + sincronizare hot cache + semantic cache
+### F6.2: pgvector Tuning & Operational Hardening (No Redis Vectors)
+
+> [!IMPORTANT]
+> **Decizie Arhitecturală Finală (2025):** Utilizăm exclusiv `pgvector` pentru vector search. Redis este folosit DOAR pentru Rate Limiting și Exact Cache (cache la nivel de query result), nu pentru stocare vectori.
 
     ```JSON
     [
     {
         "id_task": "F6.2.1",
-        "denumire_task": "Schema RediSearch deterministică: HNSW (Cos, M=40) + Shop Tag",
-        "descriere_task": "Definește FT.CREATE cu parametri expliciți pentru reproductibilitate: HNSW (M=40, EF_CONSTRUCTION=200, DISTANCE_METRIC=COSINE). Fields: vector, product_id, updated_at, shop_id (TAG). Prefix keys: `vec:product:`.",
-        "cale_implementare": "packages/ai-engine/src/vectors/redis/schema-definition.ts",
-        "contextul_anterior": "Redis 8.4 cu module este prerequisite din F1.2; F0/F2 impun multi-tenant safety.",
-        "validare_task": "Index creat cu parametrii specifici; o căutare fără shop_id filter este refuzată de cod.",
-        "outcome_task": "Vector search corect și izolat multi-tenant.",
-        "restrictii_antihalucinatie": "Nu rula vector search fără module; nu accepta căutări cross-tenant."
+        "denumire_task": "pgvector HNSW Tuning & Maintenance Strategy",
+        "descriere_task": "Configurează parametrii optimi pentru indexul HNSW în funcție de volumul de date (1M+ vectors). Definește strategia de mentenanță.\n\n**Tuning (pentru recall > 98% și latency < 10ms):**\n- `m` (max connections): 24-32 (mai mare = search mai rapid, build mai lent/size mai mare)\n- `ef_construction`: 128-256 (calitate index)\n- `ef_search` (runtime): setat dinamic per query (ex: 40-100)\n\n**Maintenance:**\n- Indexul HNSW în pgvector nu necesită `REINDEX` frecvent ca IVFFlat, dar necesită `VACUUM`.\n- Planifică `VACUUM ANALYZE prod_embeddings` săptămânal.\n\n**Resource Guardrails:**\n- `maintenance_work_mem`: creștere temporară în timpul build-ului indexului.\n- `max_parallel_maintenance_workers`: ajustat pentru build rapid.",
+        "cale_implementare": "packages/database/src/tuning/pgvector.ts",
+        "contextul_anterior": "Schema vectorilor creată în F2.2.7. Acum optimizăm pentru query performance.",
+        "validare_task": "Benchmark 100 concurrent queries cu ef_search=40 → latency p95 < 50ms.",
+        "outcome_task": "Index performant și stabil pentru production load.",
+        "restrictii_antihalucinatie": "NU rula REINDEX blocking în producție. Folosește CONCURRENTLY."
     },
     {
         "id_task": "F6.2.2",
-        "denumire_task": "Model chei Redis + upsert/delete sync din Postgres (hot cache)",
-        "descriere_task": "Definește keyspace (ex: vec:product:{shop_id}:{product_id}). Sync incremental: upsert când embedding/content_hash se schimbă, delete/tombstone când produsul e șters (aliniat cu deletes din F5 merge). Decide TTL/eviction policy pentru hot set.",
-        "cale_implementare": "packages/ai-engine/src/vectors/redis/",
-        "contextul_anterior": "Embeddings sunt în Postgres (F6.1); F5 definește tombstones/deletes.",
-        "validare_task": "Upsert reflectă schimbările; delete scoate documentul din index; TTL nu rupe consistența (poate fi reîncărcat).",
-        "outcome_task": "Redis devine hot cache consistent pentru căutare rapidă.",
-        "restrictii_antihalucinatie": "Nu dubla sursa de adevăr: Postgres rămâne cold storage."
+        "denumire_task": "API Vector Search Implementation (pgvector optimized)",
+        "descriere_task": "Implementează endpoint-ul de căutare vectorială folosind `pgvector` cu filtre metadata eficiente.\n\n**Query Pattern:**\n```sql\nSELECT p.id, p.title, 1 - (e.embedding <=> $1) as similarity\nFROM prod_embeddings e\nJOIN prod_core p ON e.product_id = p.id\nWHERE e.embedding_type = 'title_brand'\n  AND p.shop_id = $2 -- RLS enforce\nORDER BY e.embedding <=> $1\nLIMIT $3;\n```\n\n**Optimization:**\n- Asigură-te că `shop_id` filter este eficient (Composite Index sau Partitioning).\n- Folosește `SET LOCAL hnsw.ef_search = 64` înainte de query critic.",
+        "cale_implementare": "apps/backend-worker/src/processors/ai/search.ts",
+        "contextul_anterior": "Înlocuiește vechea abordare Redis. Postgres este singura sursă.",
+        "validare_task": "Results matches expected similarity. EXPLAIN ANALYZE arată folosirea indexului HNSW.",
+        "outcome_task": "Căutare rapidă direct din DB.",
+        "restrictii_antihalucinatie": "Nu uita filtrul de tenant (shop_id)."
     },
     {
         "id_task": "F6.2.3",
-        "denumire_task": "Worker de sincronizare către Redis (queue-based, fairness, backpressure)",
-        "descriere_task": "Adaugă job-uri BullMQ Pro pentru sync embeddings în Redis (per shop group). Respectă concurrency per shop și global; aplică backpressure (dacă Redis latency crește, reduce throughput).",
-        "cale_implementare": "apps/backend-worker/src/processors/ai/ + packages/queue-manager/",
-        "contextul_anterior": "F4 fairness/rate limiting; F5 pipeline are knobs de performanță.",
-        "validare_task": "Cu 2 shop-uri, sync e echitabil; în condiții de Redis lent, job-urile se amână controlat (nu crash).",
-        "outcome_task": "Hot cache se menține actualizat fără a destabiliza sistemul.",
-        "restrictii_antihalucinatie": "Nu face sync necontrolat (fără limite)."
+        "denumire_task": "Redis Rate Limiter (Token Bucket) & Cost Control",
+        "descriere_task": "Implementează controlul costurilor pentru generarea de embeddings (OpenAI) folosind Redis strict pentru countere.\n\n**Mecanism:**\n- Token Bucket per shop (ex: 1000 embeddings/hour).\n- Verificare pre-flight înainte de upsert/query.\n- Chei Redis: `rate:embed:{shop_id}`.\n\n**NU stocăm vectori în Redis.**",
+        "cale_implementare": "packages/ai-engine/src/openai/rate-limiter.ts",
+        "contextul_anterior": "Protecție împotriva abuzului/costurilor imprevizibile.",
+        "validare_task": "Limita atinsă → reject request cu 429.",
+        "outcome_task": "Control bugetar strict.",
+        "restrictii_antihalucinatie": "Nu bloca thread-ul principal."
     },
     {
         "id_task": "F6.2.4",
-        "denumire_task": "Query embedding strategy + Redis Rate Limiter (Token Bucket)",
-        "descriere_task": "Definește explicit cum se calculează embedding-ul interogării: remote OpenAI la request-time cu limite stricte server-side. Implementează Token Bucket în Redis (per shop) pentru a controla costurile. Evită apeluri per-keystroke (debounce UI).",
-        "cale_implementare": "packages/ai-engine/src/openai/query-client.ts",
-        "contextul_anterior": "Cost control și latență sunt critice.",
-        "validare_task": "Rate limiter blochează excesul; debounce funcționează; fallback (ex: lexical) disponibil.",
-        "outcome_task": "Căutare utilizabilă în producție, cu control de cost/latency.",
-        "restrictii_antihalucinatie": "Nu bloca UI pe apeluri lente; nu chema provider la fiecare input change."
-    },
-    {
-        "id_task": "F6.2.5",
-        "denumire_task": "API vector search (topK) + fetch detalii din Postgres (RLS)",
-        "descriere_task": "Endpoint/handler care: (1) obține query vector, (2) rulează FT.SEARCH KNN cu FILTER shop_id, (3) întoarce topK product_ids, (4) fetch detalii din Postgres cu RLS (SET LOCAL).",
-        "cale_implementare": "apps/backend-worker/src/ + packages/ai-engine/src/vectors/redis/ + packages/database/",
-        "contextul_anterior": "RLS e standard (F2/F3). Redis e doar index; datele complete sunt în Postgres.",
-        "validare_task": "Rezultate corecte; latență țintă în dev; niciun leak cross-tenant.",
-        "outcome_task": "Vector search end-to-end funcțional și securizat.",
-        "restrictii_antihalucinatie": "Nu returna date fără verificare shop context."
-    },
-    {
-        "id_task": "F6.2.6",
-        "denumire_task": "Semantic cache (CESC) securizat + PII protection",
-        "descriere_task": "Implementează cache semantic: index separat (FT.CREATE) cu `vector_field`, `query_hash_field` și `shop_id` (TAG). Stochează `sha256(normalized_text)` (NU textul raw). La query: rulează KNN cu `FILTER shop_id` obligatoriu; pe miss rulează vector search-ul principal și scrie în cache.",
-        "cale_implementare": "packages/ai-engine/src/vectors/redis/semantic-cache.ts",
-        "contextul_anterior": "Docs cer explicit CESC; reduce cost și latență pentru query embeddings.",
-        "validare_task": "Hit rate măsurabil; respectă shop_id (izolare garantată via TAG); query text raw NU apare în Redis.",
-        "outcome_task": "Cost și latență controlate pentru căutare semantică.",
-        "restrictii_antihalucinatie": "Nu amesteca cache între magazine; nu stoca PII în cache keys."
-    },
-    {
-        "id_task": "F6.2.7",
-        "denumire_task": "Versionare index + rebuild safe (blue/green) la schimbare model/dims",
-        "descriere_task": "Suport pentru index versioning: index_name include model+dims+versiune. Rebuild în paralel, apoi switch atomic (config). Previne downtime și corupție când schimbi modelul de embeddings.",
-        "cale_implementare": "packages/ai-engine/src/vectors/redis/",
-        "contextul_anterior": "Schimbarea modelului/dims este inevitabilă; trebuie plan operațional.",
-        "validare_task": "Rebuild pe dataset de test; switch fără downtime; queries merg pe noul index după switch.",
-        "outcome_task": "Operare enterprise fără întreruperi la upgrade AI.",
-        "restrictii_antihalucinatie": "Nu reindexa in-place fără plan; nu pierde compatibilitatea."
+        "denumire_task": "Exact Match Cache (Redis) pentru query-uri frecvente",
+        "descriere_task": "Cache simplu (Key-Value) pentru rezultatele finale ale căutării (JSON), pentru a evita hit-uri repetate în DB/OpenAI pentru aceleași interogări.\n\n**Store:** `cache:search:{shop_id}:{hash(query_text)}` -> JSON Result.\n**TTL:** 1-24 ore (în funcție de volatilitatea catalogului).\n**Invalidare:** La update produs, șterge cache keys relevante (sau lasă TTL).",
+        "cale_implementare": "apps/backend-worker/src/processors/ai/cache.ts",
+        "contextul_anterior": "Optimizare pentru 'hot queries' (ex: 'iphone case').",
+        "validare_task": "Second hit → 0ms DB latency, result from Redis.",
+        "outcome_task": "Reducere load DB pentru trafic repetitiv.",
+        "restrictii_antihalucinatie": "Nu fă cache la vectori, doar la rezultatul final (product list)."
     }
     ]
     ```
@@ -2328,84 +2363,50 @@ Obiectiv: hardening, build/publish, deploy, migrații, alerte, DR, Securitate Su
     ]
     ```
 
-## Faza F8: Global PIM & AI Data Factory (Arhitectură Full Stack)
+## Faza F8: Extensii Avansate (Opțional, Post-MVP)
 
-Durată: Săptămâna 9+
-Obiectiv: Implementarea celor 4 Module Critice definite în Arhitectura de Bază de Date (Core, Mirror, PIM, Vectors) pentru a gestiona ciclul de viață complet al datelor.
+Durată: Săptămâna 9+ (opțional, după producție)
+Obiectiv: Extensii specifice care nu sunt strict necesare pentru MVP dar îmbunătățesc operațiunile la scară mare.
 
-### F8.1: MODUL A & B - System Core & Shopify Mirror (High-Performance Sync)
+> [!IMPORTANT]
+> **REDISTRIBUIRE CRONOLOGICĂ:** Componentele originale F8 au fost mutate în fazele corecte pentru a rezolva inversiunea cronologică. Vezi tabelul de mai jos pentru mappingul complet.
+
+### Mapare Redistribuire F8
+
+| Task Original                       | Destinație Nouă        | Motiv Redistribuire                         |
+| ----------------------------------- | ---------------------- | ------------------------------------------- |
+| F8.1.1 (shops, RLS)                 | **ELIMINAT**           | Duplicat cu F2.2.1 (schema inițială)        |
+| F8.1.2 (shopify_products, Bulk Ops) | **ELIMINAT**           | Duplicat cu F2.2.1 + F5 (pipeline ingestie) |
+| F8.1.3 (Inventory Ledger)           | **→ F8.1.1 (păstrat)** | OK ca extensie post-MVP                     |
+| F8.2.1 (PIM 4-Layer)                | **→ F2.2.5**           | Schema PIM e PREREQUISITE pentru F5/F6      |
+| F8.2.2 (Taxonomy Engine)            | **→ F2.2.6**           | Import taxonomy ÎNAINTE de validare în F5   |
+| F8.3.1 (pgvector, deduplicare)      | **→ F2.2.7 + F5.2.9**  | Schema în F2, logica în F5 la ingestie      |
+| F8.3.2 (Consensus Logic)            | **→ F5.2.10**          | Arbitrajul rulează LA ingestie, nu post     |
+| Conflict pgvector↔Redis             | **→ F6.2.8**           | Sync strategy explicit definit              |
+
+### F8.1: Extensii de Inventar (High-Velocity)
 
     ```JSON
     [
     {
         "id_task": "F8.1.1",
-        "denumire_task": "Implementare Modul Core Multi-tenancy (RLS)",
-        "descriere_task": "Creează tabelele `shops`, `app_sessions` și aplică politica RLS globală. Asigură denormalizarea `shop_id` în toate tabelele critice. Implementează mecanismul de sesiune PostgreSQL (`app.current_shop_id`) în middleware-ul Fastify.",
-        "cale_implementare": "packages/database/src/schema/core.ts + apps/backend-worker/src/middleware/tenant.ts",
-        "validare_task": "Interogare SQL 'SELECT * FROM products' returnează doar produsele magazinului curent.",
-        "outcome_task": "Securitate și izolare garantată la nivel de DB."
-    },
-    {
-        "id_task": "F8.1.2",
-        "denumire_task": "Shopify Mirror & JSONB Metafields Strategy",
-        "descriere_task": "Implementează tabelele `shopify_products` și `shopify_variants` folosind coloana `metafields` JSONB. Configurează indexul GIN `jsonb_path_ops` pentru filtrare rapidă. Implementează pipeline-ul de 'Bulk Operations Stitched' care populează aceste tabele.",
-        "cale_implementare": "packages/database/src/schema/mirror.ts + apps/worker/src/jobs/shopifySync.ts",
-        "validare_task": "Filtrare 1M produse după metafield 'material=cotton' în sub 100ms.",
-        "outcome_task": "Oglindă performantă pentru datele externe."
-    },
-    {
-        "id_task": "F8.1.3",
-        "denumire_task": "Inventory Ledger (Append-Only)",
-        "descriere_task": "Implementează sistemul de inventar bazat pe Ledger (`inventory_ledger`). Creează view-ul materializat sau funcția de agregare pentru calculul stocului curent. Configurează Advisory Locks pentru prevenirea overselling-ului.",
-        "cale_implementare": "packages/database/src/schema/inventory.ts + apps/backend-worker/src/services/inventory.ts",
-        "validare_task": "100 update-uri concurente pe același SKU nu generează blocaje (deadlocks).",
-        "outcome_task": "Scalabilitate masivă pentru update-uri de stoc."
+        "denumire_task": "Inventory Ledger (Append-Only High-Velocity) - EXTENSIE POST-MVP",
+        "descriere_task": "**EXTENSIE OPȚIONALĂ** pentru write-heavy workloads de inventar.\n\nNECESAR DOAR CÂND: aveți >50 update-uri/sec pe același SKU sau experimentați locking contention.\n\n**Problema Rezolvată:**\n- UPDATE direct pe quantity → row lock → blocking\n- La 50+ update-uri/sec → deadlocks, timeout-uri\n\n**Soluția Ledger (Append-Only):**\n```sql\nCREATE TABLE inventory_ledger (\n  id uuid PRIMARY KEY DEFAULT uuidv7(),\n  shop_id uuid REFERENCES shops(id),\n  sku text NOT NULL,\n  location_id text,\n  delta int NOT NULL, -- +5 = restock, -1 = sold\n  reason text CHECK (reason IN ('sale', 'return', 'adjustment', 'restock', 'transfer')),\n  reference_id text, -- order_id, transfer_id, etc.\n  created_at timestamptz DEFAULT now()\n);\n\nALTER TABLE inventory_ledger ENABLE ROW LEVEL SECURITY;\nALTER TABLE inventory_ledger FORCE ROW LEVEL SECURITY;\nCREATE POLICY tenant_isolation_inventory_ledger ON inventory_ledger\n  FOR ALL TO app_runtime\n  USING (shop_id = COALESCE(current_setting('app.current_shop_id', true)::uuid, '00000000-0000-0000-0000-000000000000'::uuid));\n\nCREATE INDEX idx_inventory_ledger_sku_location ON inventory_ledger(shop_id, sku, location_id);\nCREATE INDEX idx_inventory_ledger_created ON inventory_ledger(created_at);\n\n-- Materialized View pentru stoc curent (refresh async)\nCREATE MATERIALIZED VIEW inventory_current AS\nSELECT shop_id, sku, location_id, SUM(delta) as quantity\nFROM inventory_ledger\nGROUP BY shop_id, sku, location_id;\n\nCREATE UNIQUE INDEX idx_inventory_current_pk ON inventory_current(shop_id, sku, location_id);\n\n-- Refresh periodic (cron job sau pg_cron)\n-- REFRESH MATERIALIZED VIEW CONCURRENTLY inventory_current;\n```\n\n**Advisory Locks pentru prevenirea overselling:**\n```typescript\nasync function reserveInventory(shopId: string, sku: string, qty: number): Promise<boolean> {\n  return await db.transaction(async (tx) => {\n    // Lock pe SKU specific (atomic, nu blochează alte SKU-uri)\n    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${shopId}||':'||${sku}))`);\n    \n    // Citește stocul curent (din materialized view sau REFRESH pe loc)\n    const current = await tx.query(sql`\n      SELECT COALESCE(SUM(delta), 0) as quantity \n      FROM inventory_ledger \n      WHERE shop_id = ${shopId} AND sku = ${sku}\n    `);\n    \n    if (current.rows[0].quantity < qty) {\n      return false; // Insufficient inventory\n    }\n    \n    // Append delta negativ\n    await tx.insert(inventoryLedger).values({\n      shopId, sku, delta: -qty, reason: 'sale'\n    });\n    \n    return true;\n  });\n}\n```\n\n**Benchmark vs UPDATE direct:**\n| Metrica | UPDATE direct | Ledger Append |\n|---------|--------------|---------------|\n| 10 concurrent/SKU | OK | OK |\n| 50 concurrent/SKU | Timeouts | OK |\n| 100 concurrent/SKU | Deadlocks | OK |\n| Read latency | 1ms | 5ms (MV) sau 20ms (SUM) |",
+        "cale_implementare": "/Neanelu_Shopify/packages/database/src/schema/inventory.ts + apps/backend-worker/src/services/inventory.ts",
+        "contextul_anterior": "F2-F6 definesc flow-ul principal cu UPDATE direct pe quantity. Ledger e migrare pentru scale.",
+        "validare_task": "100 update-uri concurente pe același SKU → zero deadlocks, stoc final corect. Comparative benchmark vs UPDATE direct.",
+        "outcome_task": "Scalabilitate masivă pentru update-uri de stoc în contexte high-velocity.",
+        "restrictii_antihalucinatie": "NU migra la Ledger fără benchmarking - UPDATE direct e OK pentru majoritatea cazurilor. NU uita să refresh-ui materialized view. Advisory lock e pe transaction, nu global."
     }
     ]
     ```
 
-### F8.2: MODUL C - Global Research PIM ("Fabrica de Date")
+### F8.2: Extensii Future (Placeholder)
 
-    ```JSON
-    [
-    {
-        "id_task": "F8.2.1",
-        "denumire_task": "PIM Data Layer (4-Layers Architecture)",
-        "descriere_task": "Implementează structura stratificată: 1. Governance (`prod_taxonomy`), 2. Raw (`prod_raw_harvest`), 3. Process (`prod_extraction_sessions`), 4. Golden (`prod_core`, `prod_specs_normalized`). Asigură relația 1:N între `prod_core` și `shopify_products`.",
-        "cale_implementare": "packages/database/src/schema/pim.ts",
-        "validare_task": "Flux complet de date: Raw -> Extracted -> Normalized -> Golden -> Shopify.",
-        "outcome_task": "Pipeline complet de rafinare a datelor."
-    },
-    {
-        "id_task": "F8.2.2",
-        "denumire_task": "Taxonomy & Governance Engine",
-        "descriere_task": "Importă Taxonomia Shopify în `prod_taxonomy`. Implementează validatorul de schemă JSON care asigură că atributele din `prod_specs_normalized` respectă definițiile categoriei.",
-        "cale_implementare": "apps/research-worker/src/services/taxonomy.ts",
-        "validare_task": "Nu poți salva un produs 'Smartphone' fără atributul 'screen_size'.",
-        "outcome_task": "Date consistente și validate."
-    }
-    ]
-    ```
-
-### F8.3: MODUL D - Attribute Normalization & Vectors (Inteligența)
-
-    ```JSON
-    [
-    {
-        "id_task": "F8.3.1",
-        "denumire_task": "Vector Registry & Semantic Deduplication",
-        "descriere_task": "Implementează `prod_attr_registry` cu suport `pgvector`. Scrie logica de 'Fuzzy Deduplication' care folosește vector embeddings pentru a identifica atributele sinonime (ex: 'Display' vs 'Ecran') și produsele duplicate.",
-        "cale_implementare": "apps/research-worker/src/services/vectorRegistry.ts",
-        "validare_task": "Căutare vectorială identifică 'Greutate' ca sinonim pentru 'Masa' cu scor > 0.9.",
-        "outcome_task": "Eliminarea redundanței și duplicatelor."
-    },
-    {
-        "id_task": "F8.3.2",
-        "denumire_task": "Consensus & Arbitration Logic",
-        "descriere_task": "Implementează logica de arbitraj pentru datele extrase. Dacă 3 surse dau valori diferite, folosește regulile de prioritate (Brand > Sursă > Vector Consensus) pentru a decide valoarea finală în `prod_specs_normalized`.",
-        "cale_implementare": "apps/research-worker/src/ai/consensus.ts",
-        "validare_task": "Conflict rezolvat automat pe baza scorului de încredere al sursei.",
-        "outcome_task": "Golden Record de înaltă încredere."
-    }
-    ]
-    ```
+> [!NOTE]
+> Această secțiune este rezervată pentru extensii viitoare care pot fi adăugate după ce sistemul este în producție și stabil. Exemple:
+>
+> - Multi-warehouse inventory allocation
+> - AI-powered dynamic pricing
+> - Advanced analytics și reporting
+> - Integration cu alte channel-uri (Amazon, eBay, etc.)
