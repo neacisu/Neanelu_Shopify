@@ -1598,7 +1598,7 @@ CREATE POLICY app_sessions_tenant_isolation ON app_sessions
 ALTER TABLE app_sessions FORCE ROW LEVEL SECURITY;
 ```
 
-### Module B: Shopify Mirror
+### Module B: Shopify Mirror RLS
 
 ```sql
 -- shopify_products
@@ -1705,7 +1705,7 @@ ALTER TABLE shop_product_embeddings FORCE ROW LEVEL SECURITY;
 -- Access controlled at application layer for admin users only
 ```
 
-### Module F: AI Batch Processing
+### Module F: AI Batch Processing RLS
 
 ```sql
 -- ai_batches
@@ -1799,7 +1799,7 @@ ALTER TABLE shopify_resource_publications FORCE ROW LEVEL SECURITY;
 -- and inherit tenant context from parent tables
 ```
 
-### Module K: Menus & Navigation
+### Module K: Menus & Navigation RLS
 
 ```sql
 -- shopify_menus
