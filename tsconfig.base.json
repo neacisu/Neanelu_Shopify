@@ -2,12 +2,12 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
     // ============================================
-    // TARGET & MODULE (Node.js 24 LTS - ES2025)
+    // TARGET & MODULE (Node.js 24 LTS - ESNext/ES2025)
     // ============================================
-    "target": "ES2025",
+    "target": "ESNext",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2025"],
+    "lib": ["ESNext"],
 
     // ============================================
     // STRICT MODE (toate verificările activate)

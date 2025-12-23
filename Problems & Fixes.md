@@ -298,7 +298,7 @@ Creați `.env.example` conform listei de mai sus și migrați convenția de la `
 
 **REZOLVAT:** Au fost create fișierele de configurație TypeScript:
 
-- ✅ `tsconfig.base.json` - Configurație base cu ES2025, NodeNext, strict mode complet, path aliases pentru toate pachetele @app/\*
+- ✅ `tsconfig.base.json` - Configurație base cu ESNext (ES2025 compat), NodeNext, strict mode complet, path aliases pentru toate pachetele @app/\*
 - ✅ `tsconfig.json` - Root config pentru typecheck global (noEmit: true)
 
 **Îmbunătățiri față de minimul din F1.1.6.1:**
@@ -322,7 +322,7 @@ Creați `.env.example` conform listei de mai sus și migrați convenția de la `
 ```json
 {
   "compilerOptions": {
-    "target": "ES2025",
+    "target": "ESNext",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
@@ -965,7 +965,7 @@ Inițial, `pgvector` lipsea din F2.2.1 (baseline extensions) și era definită i
 | Cerință               | Status      | Detalii           |
 | --------------------- | ----------- | ----------------- |
 | `tsconfig.base.json`  | ❌ LIPSEȘTE | Trebuie creat     |
-| Target ES2025         | ❌ N/A      | Config inexistent |
+| Target ESNext (2025)  | ❌ N/A      | Config inexistent |
 | Module NodeNext       | ❌ N/A      | Config inexistent |
 | Path aliases `@app/*` | ❌ N/A      | Config inexistent |
 

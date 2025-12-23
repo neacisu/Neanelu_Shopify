@@ -189,7 +189,7 @@ Pentru a susține volumul de 1M+ SKU și procesarea asincronă, arhitectura de p
 * **Acțiune:**  
   `pnpm add -wD typescript @types/node tsx`
 * **Creare tsconfig.base.json:**
-  * `target`: `ES2025` (aliniat cu Node.js 24)
+  * `target`: `ESNext` (aliniat cu Node.js 24/ES2025)
   * `module`: `NodeNext` (ESM nativ)
   * `moduleResolution`: `NodeNext`
   * `strict`: `true`
