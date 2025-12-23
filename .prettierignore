@@ -1,0 +1,32 @@
+# Prettier Ignore
+# Fișiere și directoare care nu trebuie formatate
+
+# Dependencies
+node_modules
+
+# Build outputs
+dist
+build
+.next
+out
+
+# Lock files
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# Generated files
+coverage
+*.min.js
+*.min.css
+
+# Research directories (au propriile configurații)
+Research Produse
+Research Categorii
+
+# Docs (păstrează formatarea manuală)
+Docs/*.md
+
+# Cache
+.turbo
+.cache

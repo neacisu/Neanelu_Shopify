@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    // ============================================
+    // TARGET & MODULE (Node.js 24 LTS - ES2024)
+    // ============================================
+    "target": "ES2024",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2024"],
+
+    // ============================================
+    // STRICT MODE (toate verificările activate)
+    // ============================================
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "useUnknownInCatchVariables": true,
+    "alwaysStrict": true,
+
+    // ============================================
+    // ADDITIONAL CHECKS
+    // ============================================
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "exactOptionalPropertyTypes": true,
+
+    // ============================================
+    // MODULE INTEROP
+    // ============================================
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+
+    // ============================================
+    // OUTPUT (declaration files pentru packages)
+    // ============================================
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src",
+
+    // ============================================
+    // PATH ALIASES (monorepo packages)
+    // ============================================
+    "baseUrl": ".",
+    "paths": {
+      "@app/database": ["packages/database/src"],
+      "@app/shopify-client": ["packages/shopify-client/src"],
+      "@app/queue-manager": ["packages/queue-manager/src"],
+      "@app/ai-engine": ["packages/ai-engine/src"],
+      "@app/config": ["packages/config/src"],
+      "@app/types": ["packages/types/src"],
+      "@app/logger": ["packages/logger/src"]
+    },
+
+    // ============================================
+    // PERFORMANCE & COMPATIBILITY
+    // ============================================
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "incremental": true,
+
+    // ============================================
+    // DECORATORS (pentru Drizzle dacă e nevoie)
+    // ============================================
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
+  },
+
+  // ============================================
+  // EXCLUDERI GLOBALE
+  // ============================================
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    ".next",
+    "coverage",
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "Research Produse",
+    "Research Categorii"
+  ]
+}

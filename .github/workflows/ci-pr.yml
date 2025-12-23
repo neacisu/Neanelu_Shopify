@@ -1,0 +1,160 @@
+# ============================================
+# Neanelu Shopify - CI Pull Request Workflow
+# ============================================
+# Runs on every pull request to main/develop branches
+# Includes: lint, typecheck, test, security scan
+#
+# Required GitHub Secrets:
+# - NPM_TASKFORCESH_TOKEN: BullMQ Pro registry token
+
+name: CI - Pull Request
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '24'
+  PNPM_VERSION: '10'
+
+jobs:
+  # ============================================
+  # Main CI Job: Lint, TypeCheck, Test
+  # ============================================
+  lint-typecheck-test:
+    name: Lint, TypeCheck & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      # PostgreSQL 18 for integration tests
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      # Redis 8 for integration tests (BullMQ, cache)
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          NPM_TASKFORCESH_TOKEN: ${{ secrets.NPM_TASKFORCESH_TOKEN }}
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Type Check
+        run: pnpm typecheck
+
+      - name: Run Tests
+        run: pnpm test
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/test_db
+          REDIS_URL: redis://localhost:6379
+          NODE_ENV: test
+
+      # Upload test results for debugging
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: |
+            **/coverage/
+            **/junit.xml
+          retention-days: 7
+
+  # ============================================
+  # Security Scan: Trivy FS
+  # ============================================
+  security-scan:
+    name: Security Scan (Trivy FS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+          ignore-unfixed: true
+          format: 'table'
+
+      - name: Upload Trivy report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-report
+          path: trivy-results.sarif
+          retention-days: 7
+
+  # ============================================
+  # Docker Smoke Test (optional - needs Dockerfile)
+  # ============================================
+  # Uncomment when Dockerfile is created
+  # docker-smoke:
+  #   name: Docker Build Smoke Test
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 15
+  #   needs: [lint-typecheck-test]
+  #
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Set up Docker Buildx
+  #       uses: docker/setup-buildx-action@v3
+  #
+  #     - name: Build Docker image (no push)
+  #       uses: docker/build-push-action@v6
+  #       with:
+  #         context: .
+  #         push: false
+  #         tags: neanelu-shopify:smoke-test
+  #         cache-from: type=gha
+  #         cache-to: type=gha,mode=max

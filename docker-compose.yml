@@ -1,0 +1,99 @@
+# ============================================
+# Neanelu Shopify - Docker Compose Base
+# ============================================
+# Fișier BASE - setări comune pentru toate mediile
+# Override-urile specifice sunt în docker-compose.dev.yml
+#
+# Utilizare dev: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# Sau simplu: pnpm db:up
+
+services:
+  # ============================================
+  # PostgreSQL 18.1 - Baza de date principală
+  # ============================================
+  db:
+    image: postgres:18-alpine
+    container_name: neanelu_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      # Optimizări pentru JSONB și ingestie masivă (PostgreSQL 18.1)
+      POSTGRES_INITDB_ARGS: '--data-checksums'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - neanelu_network
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    # Optimizări PostgreSQL 18.1 pentru JSONB și COPY FROM STDIN
+    command: >
+      postgres
+      -c shared_buffers=256MB
+      -c work_mem=64MB
+      -c maintenance_work_mem=128MB
+      -c effective_cache_size=512MB
+      -c max_connections=200
+      -c log_statement=none
+      -c log_min_duration_statement=1000
+
+  # ============================================
+  # Redis 8.4 - Cozi BullMQ, Cache, Vector Search
+  # ============================================
+  # NOTĂ: Redis 8.4 include NATIV modulele RediSearch și RedisJSON
+  # Nu mai este nevoie de redis-stack (deprecated Dec 2025)
+  redis:
+    image: redis:8-alpine
+    container_name: neanelu_redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - neanelu_network
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Configurare Redis 8.4 pentru BullMQ + Vector Search
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --tcp-keepalive 300
+
+  # ============================================
+  # Jaeger - Observabilitate/Tracing (OpenTelemetry)
+  # ============================================
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: neanelu_jaeger
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: 'true'
+    networks:
+      - neanelu_network
+
+# ============================================
+# VOLUMES (date persistente)
+# ============================================
+volumes:
+  postgres_data:
+    name: neanelu_postgres_data
+  redis_data:
+    name: neanelu_redis_data
+
+# ============================================
+# NETWORKS
+# ============================================
+networks:
+  neanelu_network:
+    name: neanelu_network
+    driver: bridge

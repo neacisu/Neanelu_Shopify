@@ -38,29 +38,29 @@ Proiectul **Neanelu_Shopify** este o aplicație enterprise destinată gestionăr
 
 **CORECȚIE:** Planul are **9 faze (F0-F8)**, NU 8 faze cum era inițial documentat în cuprins.
 
-| Fază | Denumire | Săptămâna |
-|------|----------|-----------|
-| F0 | Preambul – Standarde DevOps | Pre-start |
-| F1 | Bootstrapping și Configurare Mediu Local | 1 |
-| F2 | Data Layer și Schema Design | 2 |
-| F3 | Core Backend & Shopify Auth | 3 |
-| F4 | Infrastructura de procesare asincronă | 4 |
-| F5 | Pipeline-ul de ingestie "Stitched" | 5-6 |
-| F6 | Integrare AI & Vector Search | 7 |
-| F7 | CI/CD, Observabilitate și Producție | 8 |
-| **F8** | **Global PIM & AI Data Factory** | **9+** |
+| Fază   | Denumire                                 | Săptămâna |
+| ------ | ---------------------------------------- | --------- |
+| F0     | Preambul – Standarde DevOps              | Pre-start |
+| F1     | Bootstrapping și Configurare Mediu Local | 1         |
+| F2     | Data Layer și Schema Design              | 2         |
+| F3     | Core Backend & Shopify Auth              | 3         |
+| F4     | Infrastructura de procesare asincronă    | 4         |
+| F5     | Pipeline-ul de ingestie "Stitched"       | 5-6       |
+| F6     | Integrare AI & Vector Search             | 7         |
+| F7     | CI/CD, Observabilitate și Producție      | 8         |
+| **F8** | **Global PIM & AI Data Factory**         | **9+**    |
 
 ### 1.3 Rezultate Audit
 
-| Categorie | Număr Probleme |
-|-----------|----------------|
-| Inadvertențe Critice (Blockers) | **10** |
-| Inadvertențe Logice/Cronologice | **4** |
+| Categorie                                      | Număr Probleme            |
+| ---------------------------------------------- | ------------------------- |
+| Inadvertențe Critice (Blockers)                | **10**                    |
+| Inadvertențe Logice/Cronologice                | **4**                     |
 | 🔴 **Problemă Majoră F8 (Cronologie Greșită)** | **1** (cu 7 sub-probleme) |
-| Inconsistențe între Documente | **3** |
-| Erori în Schema SQL | **2** |
-| Observații Minore | **6** |
-| **TOTAL** | **26** |
+| Inconsistențe între Documente                  | **3**                     |
+| Erori în Schema SQL                            | **2**                     |
+| Observații Minore                              | **6**                     |
+| **TOTAL**                                      | **26**                    |
 
 ### 1.4 Verdict General
 
@@ -88,26 +88,26 @@ Documentația definește o structură monorepo completă, dar directoarele **NU 
 
 #### Comparație Detaliată
 
-| Element Documentat | Cale Planificată | Stare Reală |
-|--------------------|------------------|-------------|
-| Aplicație Backend | `apps/backend-worker/` | ❌ NU EXISTĂ |
-| Aplicație Frontend | `apps/web-admin/` | ❌ NU EXISTĂ |
-| **Aplicație Research Worker** | `apps/research-worker/` | ❌ NU EXISTĂ (menționat în F8!) |
-| Pachet Database | `packages/database/` | ❌ NU EXISTĂ |
-| Pachet Queue Manager | `packages/queue-manager/` | ❌ NU EXISTĂ |
-| Pachet Config | `packages/config/` | ❌ NU EXISTĂ |
-| Pachet Types | `packages/types/` | ❌ NU EXISTĂ |
-| Pachet Logger | `packages/logger/` | ❌ NU EXISTĂ |
-| Pachet Shopify Client | `packages/shopify-client/` | ❌ NU EXISTĂ |
-| Pachet AI Engine | `packages/ai-engine/` | ❌ NU EXISTĂ |
-| Configurare TypeScript | `tsconfig.base.json` | ❌ NU EXISTĂ |
-| Configurare pnpm | `.npmrc` | ❌ NU EXISTĂ |
-| Docker Compose | `docker-compose.yml` | ❌ NU EXISTĂ |
-| Docker Compose Dev | `docker-compose.dev.yml` | ❌ NU EXISTĂ |
-| ESLint Config | `.eslintrc.json` | ❌ NU EXISTĂ |
-| Prettier Config | `.prettierrc` | ❌ NU EXISTĂ |
-| Environment Example | `.env.example` | ❌ NU EXISTĂ |
-| CI Workflow | `.github/workflows/ci-pr.yml` | ❌ NU EXISTĂ |
+| Element Documentat            | Cale Planificată              | Stare Reală                     |
+| ----------------------------- | ----------------------------- | ------------------------------- |
+| Aplicație Backend             | `apps/backend-worker/`        | ❌ NU EXISTĂ                    |
+| Aplicație Frontend            | `apps/web-admin/`             | ❌ NU EXISTĂ                    |
+| **Aplicație Research Worker** | `apps/research-worker/`       | ❌ NU EXISTĂ (menționat în F8!) |
+| Pachet Database               | `packages/database/`          | ❌ NU EXISTĂ                    |
+| Pachet Queue Manager          | `packages/queue-manager/`     | ❌ NU EXISTĂ                    |
+| Pachet Config                 | `packages/config/`            | ❌ NU EXISTĂ                    |
+| Pachet Types                  | `packages/types/`             | ❌ NU EXISTĂ                    |
+| Pachet Logger                 | `packages/logger/`            | ❌ NU EXISTĂ                    |
+| Pachet Shopify Client         | `packages/shopify-client/`    | ❌ NU EXISTĂ                    |
+| Pachet AI Engine              | `packages/ai-engine/`         | ❌ NU EXISTĂ                    |
+| Configurare TypeScript        | `tsconfig.base.json`          | ✅ Creat (23 Dec 2025)          |
+| Configurare pnpm              | `.npmrc`                      | ✅ Creat (23 Dec 2025)          |
+| Docker Compose                | `docker-compose.yml`          | ✅ Creat (23 Dec 2025)          |
+| Docker Compose Dev            | `docker-compose.dev.yml`      | ✅ Creat (23 Dec 2025)          |
+| ESLint Config                 | `eslint.config.js`            | ✅ Creat (23 Dec 2025)          |
+| Prettier Config               | `.prettierrc`                 | ✅ Creat (23 Dec 2025)          |
+| Environment Example           | `.env.example`                | ✅ Creat (23 Dec 2025)          |
+| CI Workflow                   | `.github/workflows/ci-pr.yml` | ✅ Creat (23 Dec 2025)          |
 
 #### Stare Actuală Repository
 
@@ -159,14 +159,17 @@ mkdir -p packages/ai-engine/src
 
 ---
 
-### 2.2 Lipsă Fișier `.npmrc`
+### 2.2 ~~Lipsă Fișier `.npmrc`~~ ✅ REZOLVAT
 
-**Severitate:** 🔴 CRITIC  
-**Faze afectate:** F0.1.5, F1.1, F4.1.2
+**Severitate:** ~~🔴 CRITIC~~ → ✅ REZOLVAT  
+**Faze afectate:** F0.1.5, F1.1, F4.1.2  
+**Data rezolvării:** 23 decembrie 2025
 
-#### Descriere
+#### ~~Descriere~~ Rezolvare
 
-Documentația (F0.1.5) impune crearea `.npmrc` cu configurații obligatorii, dar fișierul **NU EXISTĂ**.
+~~Documentația (F0.1.5) impune crearea `.npmrc` cu configurații obligatorii, dar fișierul **NU EXISTĂ**.~~
+
+**REZOLVAT:** Fișierul `.npmrc` a fost creat în rădăcina proiectului cu toate configurațiile obligatorii conform F0.1.5.
 
 #### Conținut Necesar (conform F0.1.5)
 
@@ -200,14 +203,17 @@ Creați fișierul `.npmrc` în rădăcina proiectului cu conținutul de mai sus.
 
 ---
 
-### 2.3 Lipsă Fișier `.env.example`
+### 2.3 ~~Lipsă Fișier `.env.example`~~ ✅ REZOLVAT
 
-**Severitate:** 🔴 CRITIC  
-**Faze afectate:** F0.2.7.1, F1.1.10
+**Severitate:** ~~🔴 CRITIC~~ → ✅ REZOLVAT  
+**Faze afectate:** F0.2.7.1, F1.1.10  
+**Data rezolvării:** 23 decembrie 2025
 
-#### Descriere
+#### ~~Descriere~~ Rezolvare
 
-Documentația impune `.env.example` ca template pentru variabilele de mediu, dar fișierul **NU EXISTĂ**.
+~~Documentația impune `.env.example` ca template pentru variabilele de mediu, dar fișierul **NU EXISTĂ**.~~
+
+**REZOLVAT:** Fișierul `.env.example` a fost creat cu toate variabilele obligatorii, plus variabile adiționale pentru rotația cheilor (ENCRYPTION_KEY_VERSION, ENCRYPTION_KEY_V1/V2), DATABASE_URL_MIGRATE pentru migrații, și configurații avansate OpenTelemetry. `.env` este confirmat în `.gitignore`.
 
 #### Variabile Obligatorii (conform F0.2.7.1)
 
@@ -263,6 +269,7 @@ OTEL_SERVICE_NAME=neanelu-shopify
 #### Observație
 
 Există `.env.txt` în repository (ignorat în .gitignore), dar:
+
 1. Convenția de denumire este non-standard
 2. Nu este un template (conține probabil valori reale)
 3. Nu este documentat
@@ -279,21 +286,35 @@ Creați `.env.example` conform listei de mai sus și migrați convenția de la `
 
 ---
 
-### 2.4 Lipsă Configurație TypeScript
+### 2.4 ~~Lipsă Configurație TypeScript~~ ✅ REZOLVAT
 
-**Severitate:** 🔴 CRITIC  
-**Faze afectate:** F1.1.6.1, F1.3
+**Severitate:** ~~🔴 CRITIC~~ → ✅ REZOLVAT  
+**Faze afectate:** F1.1.6.1, F1.3  
+**Data rezolvării:** 23 decembrie 2025
 
-#### Descriere
+#### ~~Descriere~~ Rezolvare
 
-Documentația impune `tsconfig.base.json` la root și configurații per workspace, dar **NU EXISTĂ**.
+~~Documentația impune `tsconfig.base.json` la root și configurații per workspace, dar **NU EXISTĂ**.~~
+
+**REZOLVAT:** Au fost create fișierele de configurație TypeScript:
+
+- ✅ `tsconfig.base.json` - Configurație base cu ES2024, NodeNext, strict mode complet, path aliases pentru toate pachetele @app/\*
+- ✅ `tsconfig.json` - Root config pentru typecheck global (noEmit: true)
+
+**Îmbunătățiri față de minimul din F1.1.6.1:**
+
+- `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes` - type safety maxim
+- `verbatimModuleSyntax` - ESM strict
+- `experimentalDecorators` + `emitDecoratorMetadata` - suport Drizzle
+- Path aliases explicite pentru fiecare pachet (nu generic `@app/*`)
 
 #### Stare Actuală
 
-- ❌ Root `tsconfig.base.json` - **LIPSEȘTE**
-- ❌ `apps/backend-worker/tsconfig.json` - **LIPSEȘTE** (directorul nici nu există)
-- ❌ `apps/web-admin/tsconfig.json` - **LIPSEȘTE**
-- ❌ `packages/*/tsconfig.json` - **LIPSEȘTE**
+- ✅ Root `tsconfig.base.json` - **CREAT** (23 Dec 2025)
+- ✅ Root `tsconfig.json` - **CREAT** (23 Dec 2025)
+- ⏳ `apps/backend-worker/tsconfig.json` - **PENDING** (directorul nici nu există încă)
+- ⏳ `apps/web-admin/tsconfig.json` - **PENDING** (directorul nici nu există încă)
+- ⏳ `packages/*/tsconfig.json` - **PENDING** (directoarele nici nu există încă)
 - ✅ `Research Produse/Scripts/TScripts/tsconfig.json` - Există (pentru research)
 
 #### Conținut Necesar `tsconfig.base.json` (conform F1.1.6.1)
@@ -334,167 +355,121 @@ Documentația impune `tsconfig.base.json` la root și configurații per workspac
 1. Creați `tsconfig.base.json` în root
 2. Creați `tsconfig.json` în fiecare workspace care extinde base
 
----
+### 2.5 ~~Lipsă Configurație ESLint și Prettier~~ ✅ REZOLVAT
 
-### 2.5 Lipsă Configurație ESLint și Prettier
+**Severitate:** ~~🔴 CRITIC~~ → ✅ REZOLVAT  
+**Faze afectate:** F1.3.4, F1.3.5  
+**Data rezolvării:** 23 decembrie 2025
 
-**Severitate:** 🔴 CRITIC  
-**Faze afectate:** F1.3.4, F1.3.5
+#### ~~Descriere~~ Rezolvare
 
-#### Descriere
+~~Documentația (F1.3.5) impune `.eslintrc.json` și `.prettierrc`, dar **NU EXISTĂ**.~~
 
-Documentația (F1.3.5) impune `.eslintrc.json` și `.prettierrc`, dar **NU EXISTĂ**.
+**REZOLVAT:** Au fost create următoarele fișiere de configurare:
 
-#### Impact
+| Fișier             | Descriere                                                |
+| ------------------ | -------------------------------------------------------- |
+| `eslint.config.js` | ESLint 9.x flat config (nou format, nu `.eslintrc.json`) |
+| `.prettierrc`      | Configurație Prettier cu JSON Schema                     |
+| `.prettierignore`  | Excluderi pentru Prettier                                |
 
-1. `pnpm lint` va eșua cu "ESLint configuration not found"
-2. Pre-commit hooks nu pot rula
-3. Codul nu va fi formatat consistent
+**Versiuni instalate (23 Dec 2025):**
 
-#### Remediere
+- `eslint`: 9.39.2
+- `prettier`: 3.7.4
+- `typescript-eslint`: 8.50.1
+- `eslint-config-prettier`: 10.1.8
+- `lint-staged`: 16.2.7
 
-Creați configurațiile conform F1.3.5:
+**Notă importantă:** ESLint 9.x folosește noul format "flat config" (`eslint.config.js`), nu mai suportă `.eslintrc.json`. Configurația include:
 
-**`.eslintrc.json`:**
-```json
-{
-  "root": true,
-  "parser": "@typescript-eslint/parser",
-  "plugins": ["@typescript-eslint"],
-  "extends": [
-    "eslint:recommended",
-    "plugin:@typescript-eslint/recommended",
-    "prettier"
-  ],
-  "env": {
-    "node": true,
-    "es2024": true
-  },
-  "parserOptions": {
-    "ecmaVersion": 2024,
-    "sourceType": "module"
-  },
-  "ignorePatterns": ["node_modules", "dist", "*.js"]
-}
-```
+- TypeScript type-checked linting
+- Ignore patterns pentru Research directories
+- Integrare Prettier (dezactivează reguli conflictuale)
+- Reguli pentru unused vars cu pattern `_` ignore
+- Consistent type imports
 
-**`.prettierrc`:**
-```json
-{
-  "semi": true,
-  "singleQuote": true,
-  "tabWidth": 2,
-  "trailingComma": "es5",
-  "printWidth": 100
-}
-```
+**Verificat:** `pnpm lint` rulează fără erori ✅
 
 ---
 
-### 2.6 Lipsă Docker Compose
+### 2.6 ~~Lipsă Docker Compose~~ ✅ REZOLVAT
 
-**Severitate:** 🔴 CRITIC  
-**Faze afectate:** F1.2
+**Severitate:** ~~🔴 CRITIC~~ → ✅ REZOLVAT  
+**Faze afectate:** F1.2  
+**Data rezolvării:** 23 decembrie 2025
 
-#### Descriere
+#### ~~Descriere~~ Rezolvare
 
-Documentația (F1.2) impune `docker-compose.yml` și `docker-compose.dev.yml` pentru mediul local, dar **NU EXISTĂ**.
+~~Documentația (F1.2) impune `docker-compose.yml` și `docker-compose.dev.yml` pentru mediul local, dar **NU EXISTĂ**.~~
 
-#### Servicii Necesare
+**REZOLVAT:** Au fost create fișierele Docker Compose:
 
-1. **PostgreSQL 18.1** - Baza de date principală
-2. **Redis 8.4** - Cozi, cache, vector search
-3. **Jaeger** - Observabilitate/tracing
+| Fișier                   | Descriere                                                     |
+| ------------------------ | ------------------------------------------------------------- |
+| `docker-compose.yml`     | Base config (servicii comune, volumes, networks)              |
+| `docker-compose.dev.yml` | Dev override (porturi expuse, logging, pgAdmin, RedisInsight) |
+| `.env.compose.example`   | Template pentru variabile Docker (SE COMITE)                  |
 
-#### Impact
+**Servicii configurate:**
 
-1. Dezvoltatorii nu pot porni mediul local
-2. Comanda `pnpm run db:up` menționată în documentație nu funcționează
-3. CI skeleton (F1.4) nu poate rula teste de integrare cu DB
+| Serviciu      | Image                             | Porturi (dev)     |
+| ------------- | --------------------------------- | ----------------- |
+| PostgreSQL 18 | `postgres:18-alpine`              | 5432              |
+| Redis 8       | `redis:8-alpine`                  | 6379              |
+| Jaeger        | `jaegertracing/all-in-one:latest` | 16686, 4317, 4318 |
+| pgAdmin       | `dpage/pgadmin4:latest`           | 5050              |
+| RedisInsight  | `redislabs/redisinsight:latest`   | 5540              |
 
-#### Remediere
+**Scripturi adăugate în package.json:**
 
-Creați `docker-compose.yml` și `docker-compose.dev.yml` conform F1.2.2-F1.2.4.
+- `pnpm db:up` - Pornește containerele
+- `pnpm db:down` - Oprește containerele
+- `pnpm db:logs` - Afișează logurile
+- `pnpm db:restart` - Repornește containerele
+- `pnpm db:clean` - Șterge și volumele (fresh start)
 
----
-
-### 2.7 Lipsă GitHub Actions Workflows
-
-**Severitate:** 🔴 CRITIC  
-**Faze afectate:** F1.4
-
-#### Descriere
-
-Documentația (F1.4.1) impune `.github/workflows/ci-pr.yml` pentru CI pe PR, dar **NU EXISTĂ**.
-
-#### Impact
-
-1. Nu există verificări automate pe PR
-2. Codul poate fi merge-uit fără lint/typecheck/test
-3. Branch protection nu poate fi configurat cu required status checks
-
-#### Remediere
-
-Creați directorul `.github/workflows/` și fișierul `ci-pr.yml` conform F1.4.1.
+**Verificat:** `docker compose config` ✅ valid
 
 ---
 
-### 2.8 Dependențe Lipsă în `package.json`
+### 2.7 ~~Lipsă GitHub Actions Workflows~~ ✅ REZOLVAT
 
-**Severitate:** 🔴 CRITIC  
-**Faze afectate:** F1.3.1
+**Severitate:** ~~🔴 CRITIC~~ → ✅ REZOLVAT  
+**Faze afectate:** F1.4  
+**Data rezolvării:** 23 decembrie 2025
 
-#### Descriere
+**REZOLVAT:** Creat `.github/workflows/ci-pr.yml` cu:
 
-`package.json` actual are doar:
-```json
-"devDependencies": {
-  "@types/node": "^25.0.3",
-  "husky": "^9.0.0",
-  "typescript": "^5.9.3"
-}
-```
-
-#### Dependențe Lipsă (conform F1.3.1)
-
-- `lint-staged` - Pentru pre-commit hooks
-- `eslint` - Linting
-- `@typescript-eslint/parser` - Parser TS pentru ESLint
-- `@typescript-eslint/eslint-plugin` - Reguli TS
-- `eslint-config-prettier` - Integrare ESLint-Prettier
-- `prettier` - Formatare
-
-#### Impact
-
-1. Hook-urile Husky sunt configurate dar nu au ce să ruleze
-2. Scripturile `lint`, `format` din package.json vor eșua
-
-#### Remediere
-
-```bash
-pnpm add -Dw lint-staged eslint @typescript-eslint/parser @typescript-eslint/eslint-plugin eslint-config-prettier prettier
-```
+- Job `lint-typecheck-test` (Node 24, pnpm cache, Postgres 18, Redis 8)
+- Job `security-scan` (Trivy FS pentru CVE)
+- Job `docker-smoke` (comentat până există Dockerfile)
 
 ---
 
-### 2.9 `.husky/` Există dar Conținutul e Necunoscut
+### 2.8 ~~Dependențe Lipsă~~ ✅ REZOLVAT
 
-**Severitate:** 🟠 ÎNALT  
-**Faze afectate:** F1.3
+**Severitate:** ~~🔴 CRITIC~~ → ✅ REZOLVAT  
+**Faze afectate:** F1.3.1  
+**Data rezolvării:** 23 decembrie 2025
 
-#### Descriere
+**REZOLVAT:** Toate dependențele sunt instalate (23 Dec 2025):
 
-Directorul `.husky/` există în repository, dar nu am verificat conținutul hook-urilor.
+- `eslint` 9.39.2
+- `prettier` 3.7.4
+- `typescript-eslint` 8.50.1
+- `lint-staged` 16.2.7
+- `husky` 9.1.7
 
-#### Verificare Necesară
+---
 
-1. Există `.husky/pre-commit`?
-2. Conține `pnpm lint-staged`?
-3. Există `.husky/pre-push`?
+### 2.9 ~~Husky Config~~ ✅ REZOLVAT
 
-#### Remediere
+**Severitate:** ~~🟠 ÎNALT~~ → ✅ REZOLVAT  
+**Faze afectate:** F1.3  
+**Data rezolvării:** 23 decembrie 2025
 
-Verificați și actualizați hook-urile conform F1.3.3 și F1.3.7.1.
+**REZOLVAT:** `.husky/pre-commit` configurat cu `pnpm lint-staged`.
 
 ---
 
@@ -516,6 +491,7 @@ Documentația (F1.1.6.2) impune `"type": "module"` în TOATE package.json pentru
 #### Impact
 
 Fără `type: module`, Node.js va trata fișierele `.js` ca CommonJS și va apărea eroarea:
+
 ```
 SyntaxError: Cannot use import statement outside a module
 ```
@@ -539,6 +515,7 @@ Acestea sunt probleme de **ordonare a task-urilor** care pot cauza blocaje.
 #### Descriere
 
 În Plan_de_implementare.md:
+
 - **F1.1.6.1** configurează TypeScript
 - **F1.3.3-F1.3.4** configurează Husky hooks care rulează `pnpm typecheck`
 - **F1.3.5** creează ESLint/Prettier
@@ -558,6 +535,7 @@ F1.3.5: Creare ESLint/Prettier config    ← PREA TÂRZIU!
 #### Remediere
 
 Reordonați:
+
 1. F1.1.6.1 - TypeScript (OK, deja acolo)
 2. **F1.3.5** - ESLint/Prettier config (MUTAT ÎNAINTE)
 3. F1.3.1 - Instalare husky/lint-staged
@@ -578,12 +556,14 @@ Reordonați:
 #### Problema
 
 F1.2.9 menționează că "OTel setup va fi implementat în F2", dar:
+
 - F2 = Data Layer (PostgreSQL, Drizzle, migrații)
 - Serverul care emite span-uri apare abia în F3.1
 
 #### Clarificare Necesară
 
 F1.2.9 trebuie să specifice explicit:
+
 - "Aici creăm doar infrastructura (Jaeger container + skeleton files)"
 - "Implementarea SDK OTel complet vine în F3.4"
 
@@ -596,11 +576,13 @@ F1.2.9 trebuie să specifice explicit:
 #### Descriere
 
 **F2.3.1 (Seed script)** are precondiția:
+
 > "OBLIGATORIU: Rulează doar după succesul complet al F2.2.1-F2.2.3"
 
 #### Problema
 
 Dar există și:
+
 - F2.2.3.1 - Strategie migrații DevOps
 - F2.2.3.2 - Procedură rotație chei
 
@@ -609,6 +591,7 @@ Acestea sunt DUPĂ F2.2.3 și seed-ul ar trebui să le aștepte.
 #### Remediere
 
 Actualizați precondiția la:
+
 > "OBLIGATORIU: Rulează doar după succesul complet al F2.2.1-F2.2.3.2"
 
 ---
@@ -620,6 +603,7 @@ Actualizați precondiția la:
 #### Descriere
 
 Documentația recunoaște problema:
+
 - F3.3.3 creează enqueue minim pentru webhooks
 - F4.1.5 refactorizează acest cod în packages/queue-manager
 
@@ -631,6 +615,7 @@ Documentația recunoaște problema:
 #### Remediere
 
 Adăugați în F3.3.3:
+
 ```typescript
 // Contract de API pentru enqueue webhook
 // Acest contract TREBUIE respectat și în F4.1.5
@@ -654,29 +639,29 @@ export interface WebhookEnqueueContract {
 
 #### Ce Conține F8
 
-| Sub-fază | Modul | Ce Implementează |
-|----------|-------|------------------|
-| F8.1.1 | Core Multi-tenancy | Tabela `shops`, RLS global, middleware tenant Fastify |
-| F8.1.2 | Shopify Mirror | `shopify_products`, `shopify_variants`, JSONB metafields, Bulk Ops pipeline |
-| F8.1.3 | Inventory Ledger | Append-only inventory system |
-| F8.2.1 | PIM 4-Layer | `prod_taxonomy`, `prod_raw_harvest`, `prod_core`, `prod_specs_normalized` |
-| F8.2.2 | Taxonomy Engine | Import Shopify Taxonomy, validare schemă |
-| F8.3.1 | Vector Registry | `prod_attr_registry` cu `pgvector`, deduplicare semantică |
-| F8.3.2 | Consensus Logic | Arbitraj multi-sursă pentru Golden Record |
+| Sub-fază | Modul              | Ce Implementează                                                            |
+| -------- | ------------------ | --------------------------------------------------------------------------- |
+| F8.1.1   | Core Multi-tenancy | Tabela `shops`, RLS global, middleware tenant Fastify                       |
+| F8.1.2   | Shopify Mirror     | `shopify_products`, `shopify_variants`, JSONB metafields, Bulk Ops pipeline |
+| F8.1.3   | Inventory Ledger   | Append-only inventory system                                                |
+| F8.2.1   | PIM 4-Layer        | `prod_taxonomy`, `prod_raw_harvest`, `prod_core`, `prod_specs_normalized`   |
+| F8.2.2   | Taxonomy Engine    | Import Shopify Taxonomy, validare schemă                                    |
+| F8.3.1   | Vector Registry    | `prod_attr_registry` cu `pgvector`, deduplicare semantică                   |
+| F8.3.2   | Consensus Logic    | Arbitraj multi-sursă pentru Golden Record                                   |
 
 ---
 
 ### 4.2 Analiza Dependențelor - Duplicări și Inversiuni
 
-| Task F8 | Ce Implementează | Dar Este Necesar Pentru... | Conflict |
-|---------|------------------|---------------------------|----------|
-| **F8.1.1** | Tabela `shops`, RLS global | **F2.2.1** deja creează `shops` cu RLS | 🔴 **DUPLICAT** |
-| **F8.1.2** | `shopify_products`, Bulk Ops | **F2.2.1** deja creează `products`; **F5** implementează Bulk Ops | 🔴 **DUPLICAT** |
-| **F8.1.3** | Inventory Ledger | Fără dependență directă în F0-F7 | 🟡 OK ca extensie |
-| **F8.2.1** | PIM 4-Layer (sursa de date) | **F5** (Bulk Ops) și **F6** (AI) ar trebui să consume aceste date | 🔴 **INVERSIUNE** |
-| **F8.2.2** | Taxonomy Engine | Validare în **F5** la ingestie | 🔴 **INVERSIUNE** |
-| **F8.3.1** | pgvector în Postgres | **F6.2** folosește Redis pentru vectori | 🟠 **CONFLICT** |
-| **F8.3.2** | Consensus/Arbitration | Ar trebui să ruleze ÎNAINTE de F5 (ingestie) | 🔴 **INVERSIUNE** |
+| Task F8    | Ce Implementează             | Dar Este Necesar Pentru...                                        | Conflict          |
+| ---------- | ---------------------------- | ----------------------------------------------------------------- | ----------------- |
+| **F8.1.1** | Tabela `shops`, RLS global   | **F2.2.1** deja creează `shops` cu RLS                            | 🔴 **DUPLICAT**   |
+| **F8.1.2** | `shopify_products`, Bulk Ops | **F2.2.1** deja creează `products`; **F5** implementează Bulk Ops | 🔴 **DUPLICAT**   |
+| **F8.1.3** | Inventory Ledger             | Fără dependență directă în F0-F7                                  | 🟡 OK ca extensie |
+| **F8.2.1** | PIM 4-Layer (sursa de date)  | **F5** (Bulk Ops) și **F6** (AI) ar trebui să consume aceste date | 🔴 **INVERSIUNE** |
+| **F8.2.2** | Taxonomy Engine              | Validare în **F5** la ingestie                                    | 🔴 **INVERSIUNE** |
+| **F8.3.1** | pgvector în Postgres         | **F6.2** folosește Redis pentru vectori                           | 🟠 **CONFLICT**   |
+| **F8.3.2** | Consensus/Arbitration        | Ar trebui să ruleze ÎNAINTE de F5 (ingestie)                      | 🔴 **INVERSIUNE** |
 
 ---
 
@@ -727,12 +712,13 @@ F8: PIM + Raw + Golden + Taxonomy ◄── DAR ACESTEA SUNT SURSA DE DATE!
 
 ### 4.4 Conflict Arhitectural: Redis vs. pgvector
 
-| F6.2 (Plan Actual) | F8.3.1 (PIM) | Problema |
-|--------------------|--------------|----------|
-| Redis RediSearch pentru vector search | pgvector în Postgres | **Două surse de vectori!** |
-| Hot cache pentru căutare rapidă | Deduplicare semantică în DB | Sincronizare necesară? |
+| F6.2 (Plan Actual)                    | F8.3.1 (PIM)                | Problema                   |
+| ------------------------------------- | --------------------------- | -------------------------- |
+| Redis RediSearch pentru vector search | pgvector în Postgres        | **Două surse de vectori!** |
+| Hot cache pentru căutare rapidă       | Deduplicare semantică în DB | Sincronizare necesară?     |
 
 **Decizie Necesară (una dintre):**
+
 1. **pgvector = cold storage** + **Redis = hot cache** → OK, dar trebuie sync explicit documentat
 2. **Doar Redis** pentru toate → Simplifică, dar pierde persistență robustă
 3. **Doar pgvector** → Mai lent, dar o singură sursă de adevăr
@@ -787,15 +773,15 @@ F8 - ELIMINAT sau REDEFINIT:
 
 ### 4.7 Tabel Rezumat Redistribuire F8
 
-| Componentă F8 | Destinație Nouă | Motivație |
-|---------------|-----------------|-----------|
-| F8.1.1 (shops, RLS) | ❌ **ELIMINAT** | Deja în F2.2.1-F2.2.3 |
-| F8.1.2 (shopify_products) | ❌ **ELIMINAT** | Deja în F2.2.1 + F5 |
-| F8.1.3 (Inventory Ledger) | 🟡 **F5.x sau păstrat în F8** | Este o extensie, poate rămâne |
-| F8.2.1 (PIM 4-Layer) | 🔴 **→ F2.2.x** | Schema trebuie ÎNAINTE de ingestie |
-| F8.2.2 (Taxonomy Engine) | 🔴 **→ F2.2.x** | Taxonomia trebuie importată ÎNAINTE de F5 |
-| F8.3.1 (pgvector) | 🔴 **→ F2.2.x + F6.x** | Extensie în F2, utilizare în F6 |
-| F8.3.2 (Consensus) | 🔴 **→ F5.x** | Arbitrajul trebuie să ruleze LA ingestie |
+| Componentă F8             | Destinație Nouă               | Motivație                                 |
+| ------------------------- | ----------------------------- | ----------------------------------------- |
+| F8.1.1 (shops, RLS)       | ❌ **ELIMINAT**               | Deja în F2.2.1-F2.2.3                     |
+| F8.1.2 (shopify_products) | ❌ **ELIMINAT**               | Deja în F2.2.1 + F5                       |
+| F8.1.3 (Inventory Ledger) | 🟡 **F5.x sau păstrat în F8** | Este o extensie, poate rămâne             |
+| F8.2.1 (PIM 4-Layer)      | 🔴 **→ F2.2.x**               | Schema trebuie ÎNAINTE de ingestie        |
+| F8.2.2 (Taxonomy Engine)  | 🔴 **→ F2.2.x**               | Taxonomia trebuie importată ÎNAINTE de F5 |
+| F8.3.1 (pgvector)         | 🔴 **→ F2.2.x + F6.x**        | Extensie în F2, utilizare în F6           |
+| F8.3.2 (Consensus)        | 🔴 **→ F5.x**                 | Arbitrajul trebuie să ruleze LA ingestie  |
 
 ---
 
@@ -811,11 +797,11 @@ F8 - ELIMINAT sau REDEFINIT:
 
 Documentele folosesc numerotări diferite și **niciun document nu menționează F8 în cuprins**:
 
-| Document | Numerotare | Faze Menționate | F8? |
-|----------|------------|-----------------|-----|
-| `Plan_de_implementare.md` | F0-F8 | Cuprins: F0-F7, Conținut: F0-F8 | ⚠️ Doar în corp |
-| `DevOps_Plan_Implementare_Shopify_Enterprise.md` | Faza 1-7 | 7 faze | ❌ Nu |
-| `Plan Implementare Aplicatie Completa.md` | Faza 1-6 | 6 faze | ❌ Nu |
+| Document                                         | Numerotare | Faze Menționate                 | F8?             |
+| ------------------------------------------------ | ---------- | ------------------------------- | --------------- |
+| `Plan_de_implementare.md`                        | F0-F8      | Cuprins: F0-F7, Conținut: F0-F8 | ⚠️ Doar în corp |
+| `DevOps_Plan_Implementare_Shopify_Enterprise.md` | Faza 1-7   | 7 faze                          | ❌ Nu           |
+| `Plan Implementare Aplicatie Completa.md`        | Faza 1-6   | 6 faze                          | ❌ Nu           |
 
 #### Mapări (conform DevOps_Plan)
 
@@ -867,13 +853,13 @@ Fie adăugați `apps/research-worker` în pnpm-workspace.yaml și în lista de a
 
 #### Verificare
 
-| Tehnologie | Plan_de_implementare | DevOps_Plan | Stack Tehnologic |
-|------------|---------------------|-------------|------------------|
-| Node.js | 24 LTS / v24.12.0 | 24 LTS | 24 LTS |
-| PostgreSQL | 18.1 | 18.1 | 18.1 |
-| Redis | 8.4 / 8.4.0 | 8.4.0 | 8.4.0 |
-| pnpm | >=10.0.0 | 10.x | 10.x |
-| TypeScript | ^5.9.3 (package.json) | ^5.9.0 | ^5.9.0 |
+| Tehnologie | Plan_de_implementare  | DevOps_Plan | Stack Tehnologic |
+| ---------- | --------------------- | ----------- | ---------------- |
+| Node.js    | 24 LTS / v24.12.0     | 24 LTS      | 24 LTS           |
+| PostgreSQL | 18.1                  | 18.1        | 18.1             |
+| Redis      | 8.4 / 8.4.0           | 8.4.0       | 8.4.0            |
+| pnpm       | >=10.0.0              | 10.x        | 10.x             |
+| TypeScript | ^5.9.3 (package.json) | ^5.9.0      | ^5.9.0           |
 
 ✅ **Consistent** - Variații minore (8.4 vs 8.4.0) acceptabile.
 
@@ -911,6 +897,7 @@ CREATE TABLE prod_master (   -- DUPLICAT!
 #### Impact
 
 Executarea scriptului SQL va eșua cu eroare:
+
 ```
 ERROR: relation "prod_master" already exists
 ```
@@ -941,6 +928,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 #### Documentație Contradictorie
 
 `Arhitectura Baza de Date PostgreSQL Detaliata.md` specifică corect:
+
 > "Tipul coloanei este `uuid`, funcția de generare este `uuidv7()` (nativ în PG18). Cast-ul folosit în RLS este `::uuid`, NU `::UUIDv7`."
 
 #### Remediere
@@ -967,6 +955,7 @@ id UUID PRIMARY KEY DEFAULT uuidv7(),
 #### Descriere
 
 F8.3.1 necesită `pgvector` pentru `prod_attr_registry`, dar:
+
 - F2.2.1 (task extensii) NU include `pgvector`
 - Schema SQL PIM nu are `CREATE EXTENSION IF NOT EXISTS "vector";`
 
@@ -987,61 +976,61 @@ CREATE EXTENSION IF NOT EXISTS "vector";
 
 ### 7.1 Secret Management
 
-| Cerință | Status | Detalii |
-|---------|--------|---------|
-| `.env.example` cu toate variabilele | ❌ LIPSEȘTE | Trebuie creat |
-| `.env` în `.gitignore` | ✅ PREZENT | Linia 13 |
-| `.env.txt` în `.gitignore` | ✅ PREZENT | Linia 18 |
-| `temp-token/` în `.gitignore` | ✅ PREZENT | Linia 90 |
-| OpenBAO documentat | ✅ DOCUMENTAT | În DevOps_Plan |
-| Token-uri NU în cod | ✅ CORECT | Verificat în .gitignore |
+| Cerință                             | Status        | Detalii                 |
+| ----------------------------------- | ------------- | ----------------------- |
+| `.env.example` cu toate variabilele | ❌ LIPSEȘTE   | Trebuie creat           |
+| `.env` în `.gitignore`              | ✅ PREZENT    | Linia 13                |
+| `.env.txt` în `.gitignore`          | ✅ PREZENT    | Linia 18                |
+| `temp-token/` în `.gitignore`       | ✅ PREZENT    | Linia 90                |
+| OpenBAO documentat                  | ✅ DOCUMENTAT | În DevOps_Plan          |
+| Token-uri NU în cod                 | ✅ CORECT     | Verificat în .gitignore |
 
 ---
 
 ### 7.2 Monorepo Structure
 
-| Cerință | Status | Detalii |
-|---------|--------|---------|
-| `pnpm-workspace.yaml` | ✅ EXISTĂ | Definește apps/*, packages/* |
-| `apps/backend-worker` | ❌ LIPSEȘTE | Director inexistent |
-| `apps/web-admin` | ❌ LIPSEȘTE | Director inexistent |
-| `apps/research-worker` | ❌ LIPSEȘTE | Menționat în F8, dar nu în workspace |
-| `packages/*` (7 pachete) | ❌ LIPSEȘTE | Niciun director |
-| ESM `type:module` în root | ✅ PREZENT | package.json root |
-| ESM în toate workspaces | ❌ N/A | Workspaces inexistente |
+| Cerință                   | Status      | Detalii                              |
+| ------------------------- | ----------- | ------------------------------------ |
+| `pnpm-workspace.yaml`     | ✅ EXISTĂ   | Definește apps/_, packages/_         |
+| `apps/backend-worker`     | ❌ LIPSEȘTE | Director inexistent                  |
+| `apps/web-admin`          | ❌ LIPSEȘTE | Director inexistent                  |
+| `apps/research-worker`    | ❌ LIPSEȘTE | Menționat în F8, dar nu în workspace |
+| `packages/*` (7 pachete)  | ❌ LIPSEȘTE | Niciun director                      |
+| ESM `type:module` în root | ✅ PREZENT  | package.json root                    |
+| ESM în toate workspaces   | ❌ N/A      | Workspaces inexistente               |
 
 ---
 
 ### 7.3 CI/CD
 
-| Cerință | Status | Detalii |
-|---------|--------|---------|
-| `.github/workflows/` | ❌ LIPSEȘTE | Director inexistent |
-| Husky hooks | ⚠️ PARȚIAL | `.husky/` există, conținut neverificat |
-| `lint-staged` în devDeps | ❌ LIPSEȘTE | Nu e în package.json |
-| Branch protection | ❓ NECUNOSCUT | Necesită verificare pe GitHub |
+| Cerință                  | Status        | Detalii                                |
+| ------------------------ | ------------- | -------------------------------------- |
+| `.github/workflows/`     | ❌ LIPSEȘTE   | Director inexistent                    |
+| Husky hooks              | ⚠️ PARȚIAL    | `.husky/` există, conținut neverificat |
+| `lint-staged` în devDeps | ❌ LIPSEȘTE   | Nu e în package.json                   |
+| Branch protection        | ❓ NECUNOSCUT | Necesită verificare pe GitHub          |
 
 ---
 
 ### 7.4 TypeScript/ESM
 
-| Cerință | Status | Detalii |
-|---------|--------|---------|
-| `tsconfig.base.json` | ❌ LIPSEȘTE | Trebuie creat |
-| Target ES2024 | ❌ N/A | Config inexistent |
-| Module NodeNext | ❌ N/A | Config inexistent |
-| Path aliases `@app/*` | ❌ N/A | Config inexistent |
+| Cerință               | Status      | Detalii           |
+| --------------------- | ----------- | ----------------- |
+| `tsconfig.base.json`  | ❌ LIPSEȘTE | Trebuie creat     |
+| Target ES2024         | ❌ N/A      | Config inexistent |
+| Module NodeNext       | ❌ N/A      | Config inexistent |
+| Path aliases `@app/*` | ❌ N/A      | Config inexistent |
 
 ---
 
 ### 7.5 Vector Storage Architecture (NOU)
 
-| Cerință | Status | Detalii |
-|---------|--------|---------|
-| pgvector în Postgres | ❌ NEDEFINIT | F8.3.1 îl cere, F2 nu îl include |
-| Redis RediSearch | ✅ DEFINIT | F6.2 îl folosește |
-| Relație pgvector ↔ Redis | ❌ NEDEFINITĂ | Conflict nerezolvat |
-| Hot/Cold strategy | ❌ NEDOCUMENTATĂ | Lipsește decizie arhitecturală |
+| Cerință                  | Status           | Detalii                          |
+| ------------------------ | ---------------- | -------------------------------- |
+| pgvector în Postgres     | ❌ NEDEFINIT     | F8.3.1 îl cere, F2 nu îl include |
+| Redis RediSearch         | ✅ DEFINIT       | F6.2 îl folosește                |
+| Relație pgvector ↔ Redis | ❌ NEDEFINITĂ    | Conflict nerezolvat              |
+| Hot/Cold strategy        | ❌ NEDOCUMENTATĂ | Lipsește decizie arhitecturală   |
 
 ---
 
@@ -1060,6 +1049,7 @@ Există un fișier `oauth-callback-server.js` în root care pare a fi un helper 
 #### Recomandare
 
 Fie:
+
 1. Adăugați un comentariu în fișier explicând scopul temporar
 2. Fie mutați-l în `Research Produse/Scripts/`
 
@@ -1096,8 +1086,9 @@ Migrați la `.env` pentru consistență cu ecosistemul Node.js și documentația
 #### Descriere
 
 `pnpm-workspace.yaml` include:
+
 ```yaml
-- "Research Produse/Scripts/TScripts"
+- 'Research Produse/Scripts/TScripts'
 ```
 
 #### Observație
@@ -1142,11 +1133,11 @@ Creați `CONTRIBUTING.md` cu convențiile de commit și branch naming.
 
 **ÎNAINTE de orice implementare**, trebuie luată o decizie privind F8:
 
-| # | Decizie | Opțiuni | Recomandare |
-|---|---------|---------|-------------|
-| 0.1 | Cronologie F8 | A) Dezasamblare în F2/F5/F6 <br> B) Păstrare ca fază finală | **A) Dezasamblare** |
-| 0.2 | `apps/research-worker` | A) Adăugare în workspace <br> B) Merge în backend-worker | Depinde de complexitate |
-| 0.3 | pgvector vs Redis | A) Ambele (cold/hot) <br> B) Doar Redis <br> C) Doar pgvector | **A) Ambele cu sync definit** |
+| #   | Decizie                | Opțiuni                                                       | Recomandare                   |
+| --- | ---------------------- | ------------------------------------------------------------- | ----------------------------- |
+| 0.1 | Cronologie F8          | A) Dezasamblare în F2/F5/F6 <br> B) Păstrare ca fază finală   | **A) Dezasamblare**           |
+| 0.2 | `apps/research-worker` | A) Adăugare în workspace <br> B) Merge în backend-worker      | Depinde de complexitate       |
+| 0.3 | pgvector vs Redis      | A) Ambele (cold/hot) <br> B) Doar Redis <br> C) Doar pgvector | **A) Ambele cu sync definit** |
 
 ---
 
@@ -1154,44 +1145,44 @@ Creați `CONTRIBUTING.md` cu convențiile de commit și branch naming.
 
 Acestea TREBUIE făcute înainte de primul commit real.
 
-| # | Task | Fișier/Director | Referință |
-|---|------|-----------------|-----------|
-| 1 | Creare `.npmrc` | `/.npmrc` | F0.1.5 |
-| 2 | Creare `.env.example` | `/.env.example` | F0.2.7.1 |
-| 3 | Creare structură directoare (incl. research-worker) | `apps/`, `packages/` | F1.1.1, F1.1.5, F8 |
-| 4 | Creare `tsconfig.base.json` | `/tsconfig.base.json` | F1.1.6.1 |
-| 5 | Creare `.eslintrc.json` | `/.eslintrc.json` | F1.3.5 |
-| 6 | Creare `.prettierrc` | `/.prettierrc` | F1.3.5 |
-| 7 | Instalare dependențe lipsă | `package.json` | F1.3.1 |
-| 8 | Creare `docker-compose.yml` | `/docker-compose.yml` | F1.2.2-F1.2.4 |
-| 9 | Corectare schema SQL (duplicat + uuid-ossp) | `Docs/Schemă_Bază_Date_PIM.sql` | Secțiunea 6 |
-| 10 | Adăugare `pgvector` în extensii | F2.2.1 sau schema SQL | Secțiunea 6.3 |
+| #   | Task                                                | Fișier/Director                 | Referință          |
+| --- | --------------------------------------------------- | ------------------------------- | ------------------ |
+| 1   | Creare `.npmrc`                                     | `/.npmrc`                       | F0.1.5             |
+| 2   | Creare `.env.example`                               | `/.env.example`                 | F0.2.7.1           |
+| 3   | Creare structură directoare (incl. research-worker) | `apps/`, `packages/`            | F1.1.1, F1.1.5, F8 |
+| 4   | Creare `tsconfig.base.json`                         | `/tsconfig.base.json`           | F1.1.6.1           |
+| 5   | Creare `.eslintrc.json`                             | `/.eslintrc.json`               | F1.3.5             |
+| 6   | Creare `.prettierrc`                                | `/.prettierrc`                  | F1.3.5             |
+| 7   | Instalare dependențe lipsă                          | `package.json`                  | F1.3.1             |
+| 8   | Creare `docker-compose.yml`                         | `/docker-compose.yml`           | F1.2.2-F1.2.4      |
+| 9   | Corectare schema SQL (duplicat + uuid-ossp)         | `Docs/Schemă_Bază_Date_PIM.sql` | Secțiunea 6        |
+| 10  | Adăugare `pgvector` în extensii                     | F2.2.1 sau schema SQL           | Secțiunea 6.3      |
 
 ---
 
 ### 9.2 Prioritate ÎNALTĂ - Săptămâna 1
 
-| # | Task | Fișier/Director | Referință |
-|---|------|-----------------|-----------|
-| 11 | **Redistribuire F8 în F2/F5/F6** | `Plan_de_implementare.md` | Secțiunea 4 |
-| 12 | Actualizare cuprins cu F8 (sau eliminare) | `Plan_de_implementare.md` | Secțiunea 5.1 |
-| 13 | Unificare numerotare faze | Toate documentele Docs/ | Secțiunea 5.1 |
-| 14 | Reordonare F1.3.5 înainte de F1.3.3 | `Plan_de_implementare.md` | Secțiunea 3.1 |
-| 15 | Creare CI workflow | `.github/workflows/ci-pr.yml` | F1.4.1 |
-| 16 | Verificare hooks Husky | `.husky/pre-commit` | F1.3.3 |
-| 17 | Documentare Hot/Cold vector strategy | `Docs/` sau `Plan_de_implementare.md` | Secțiunea 7.5 |
+| #   | Task                                      | Fișier/Director                       | Referință     |
+| --- | ----------------------------------------- | ------------------------------------- | ------------- |
+| 11  | **Redistribuire F8 în F2/F5/F6**          | `Plan_de_implementare.md`             | Secțiunea 4   |
+| 12  | Actualizare cuprins cu F8 (sau eliminare) | `Plan_de_implementare.md`             | Secțiunea 5.1 |
+| 13  | Unificare numerotare faze                 | Toate documentele Docs/               | Secțiunea 5.1 |
+| 14  | Reordonare F1.3.5 înainte de F1.3.3       | `Plan_de_implementare.md`             | Secțiunea 3.1 |
+| 15  | Creare CI workflow                        | `.github/workflows/ci-pr.yml`         | F1.4.1        |
+| 16  | Verificare hooks Husky                    | `.husky/pre-commit`                   | F1.3.3        |
+| 17  | Documentare Hot/Cold vector strategy      | `Docs/` sau `Plan_de_implementare.md` | Secțiunea 7.5 |
 
 ---
 
 ### 9.3 Prioritate MEDIE - După F1
 
-| # | Task | Fișier/Director | Referință |
-|---|------|-----------------|-----------|
-| 18 | Documentare contract API F3↔F4 | `Plan_de_implementare.md` | Secțiunea 3.4 |
-| 19 | Clarificare OTel timeline | `Plan_de_implementare.md` | Secțiunea 3.2 |
-| 20 | Creare CONTRIBUTING.md | `/CONTRIBUTING.md` | F0.2.13 |
-| 21 | Mutare/comentare oauth-callback-server.js | `/oauth-callback-server.js` | Secțiunea 8.1 |
-| 22 | Adăugare `apps/research-worker` în pnpm-workspace | `pnpm-workspace.yaml` | Secțiunea 5.2 |
+| #   | Task                                              | Fișier/Director             | Referință     |
+| --- | ------------------------------------------------- | --------------------------- | ------------- |
+| 18  | Documentare contract API F3↔F4                    | `Plan_de_implementare.md`   | Secțiunea 3.4 |
+| 19  | Clarificare OTel timeline                         | `Plan_de_implementare.md`   | Secțiunea 3.2 |
+| 20  | Creare CONTRIBUTING.md                            | `/CONTRIBUTING.md`          | F0.2.13       |
+| 21  | Mutare/comentare oauth-callback-server.js         | `/oauth-callback-server.js` | Secțiunea 8.1 |
+| 22  | Adăugare `apps/research-worker` în pnpm-workspace | `pnpm-workspace.yaml`       | Secțiunea 5.2 |
 
 ---
 
@@ -1201,16 +1192,16 @@ Acestea TREBUIE făcute înainte de primul commit real.
 
 ### 10.1 Scor General Documentație
 
-| Categorie | Scor | Comentariu |
-|-----------|------|------------|
-| **Completitudine** | 9/10 | Acoperire exhaustivă, inclusiv PIM (dar F8 omis din cuprins) |
-| **Nivel de Detaliu** | 10/10 | Task-uri granulare în format JSON structurat |
-| **Consistență Internă** | 5/10 | F8 greșit poziționat, numerotare diferită, duplicate |
-| **Aliniere cu Realitatea** | 3/10 | Diferență mare între target și starea actuală |
-| **Implementabilitate** | 5/10 | F8 blochează cronologia logică |
-| **Securitate** | 8/10 | Bune practici documentate corect |
-| **Arhitectură** | 6/10 | Conflict pgvector/Redis nedefinit |
-| **MEDIE** | **6.6/10** | ↓ Scăzut față de v1.0 din cauza F8 |
+| Categorie                  | Scor       | Comentariu                                                   |
+| -------------------------- | ---------- | ------------------------------------------------------------ |
+| **Completitudine**         | 9/10       | Acoperire exhaustivă, inclusiv PIM (dar F8 omis din cuprins) |
+| **Nivel de Detaliu**       | 10/10      | Task-uri granulare în format JSON structurat                 |
+| **Consistență Internă**    | 5/10       | F8 greșit poziționat, numerotare diferită, duplicate         |
+| **Aliniere cu Realitatea** | 3/10       | Diferență mare între target și starea actuală                |
+| **Implementabilitate**     | 5/10       | F8 blochează cronologia logică                               |
+| **Securitate**             | 8/10       | Bune practici documentate corect                             |
+| **Arhitectură**            | 6/10       | Conflict pgvector/Redis nedefinit                            |
+| **MEDIE**                  | **6.6/10** | ↓ Scăzut față de v1.0 din cauza F8                           |
 
 ---
 
@@ -1252,9 +1243,9 @@ Acestea TREBUIE făcute înainte de primul commit real.
 
 Pe baza analizei, planul definește:
 
-| Nivel | Faze | Ce Acoperă | Status |
-|-------|------|------------|--------|
-| **Shopify Backend Core** | F0-F7 | Sync, Webhooks, Queues, AI embeddings, Production | ✅ Complet |
+| Nivel                             | Faze  | Ce Acoperă                                         | Status                                |
+| --------------------------------- | ----- | -------------------------------------------------- | ------------------------------------- |
+| **Shopify Backend Core**          | F0-F7 | Sync, Webhooks, Queues, AI embeddings, Production  | ✅ Complet                            |
 | **Global PIM cu AI Data Factory** | F0-F8 | + Data Factory, Taxonomy, Multi-source arbitration | ⚠️ Complet dar **cronologie greșită** |
 
 **Concluzie:** Planul este **funcțional complet** pentru ambele scopuri, dar **cronologic incorect** pentru PIM. Fără redistribuirea F8, fluxul de date nu are sens arhitectural.
@@ -1263,11 +1254,11 @@ Pe baza analizei, planul definește:
 
 ## Changelog
 
-| Data | Versiune | Descriere |
-|------|----------|-----------|
-| 2025-12-23 | 1.0 | Audit inițial complet (F0-F7) |
-| 2025-12-23 | 1.1 | Adăugare secțiune F8, analiză cronologie, conflict pgvector/Redis, actualizare scor |
+| Data       | Versiune | Descriere                                                                           |
+| ---------- | -------- | ----------------------------------------------------------------------------------- |
+| 2025-12-23 | 1.0      | Audit inițial complet (F0-F7)                                                       |
+| 2025-12-23 | 1.1      | Adăugare secțiune F8, analiză cronologie, conflict pgvector/Redis, actualizare scor |
 
 ---
 
-*Acest document va fi actualizat pe măsură ce problemele sunt rezolvate.*
+_Acest document va fi actualizat pe măsură ce problemele sunt rezolvate._
