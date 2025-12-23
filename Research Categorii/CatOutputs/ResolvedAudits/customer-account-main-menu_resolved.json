@@ -1,0 +1,28 @@
+[
+  {
+    "id": "gid://shopify/MenuItem/591661072651",
+    "title": "Shop",
+    "type": "FRONTPAGE",
+    "url": "/",
+    "resourceId": null,
+    "parentId": null,
+    "level": 1,
+    "path": "Shop",
+    "tags": "",
+    "link_health": "OK",
+    "details": "Type FRONTPAGE"
+  },
+  {
+    "id": "gid://shopify/MenuItem/575306006795",
+    "title": "Orders",
+    "type": "CUSTOMER_ACCOUNT_PAGE",
+    "url": "https://shopify.com/70449594635/account/orders",
+    "resourceId": "gid://shopify/CustomerAccountPage/94618517771",
+    "parentId": null,
+    "level": 1,
+    "path": "Orders",
+    "tags": "",
+    "link_health": "BROKEN",
+    "details": "Resource deleted or not found via API"
+  }
+]

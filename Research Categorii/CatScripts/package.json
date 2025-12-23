@@ -1,0 +1,16 @@
+{
+  "name": "cat-scripts",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Scripts for Menu/Category bulk operations",
+  "scripts": {
+    "fetch": "tsx fetch_menu_jsonl.ts"
+  },
+  "dependencies": {
+    "@types/node": "^20.0.0"
+  },
+  "devDependencies": {
+    "prettier": "^3.7.4",
+    "tsx": "^4.21.0"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "id": "gid://shopify/Menu/236865716491",
+  "title": "Customer account main menu",
+  "handle": "customer-account-main-menu",
+  "items": [
+    {
+      "id": "gid://shopify/MenuItem/591661072651",
+      "title": "Shop",
+      "url": "/",
+      "type": "FRONTPAGE",
+      "resourceId": null,
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/575306006795",
+      "title": "Orders",
+      "url": "https://shopify.com/70449594635/account/orders",
+      "type": "CUSTOMER_ACCOUNT_PAGE",
+      "resourceId": "gid://shopify/CustomerAccountPage/94618517771",
+      "tags": [],
+      "items": []
+    }
+  ]
+}

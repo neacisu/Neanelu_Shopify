@@ -1,0 +1,71 @@
+{
+  "id": "gid://shopify/Menu/217129025803",
+  "title": "Informații",
+  "handle": "footer",
+  "items": [
+    {
+      "id": "gid://shopify/MenuItem/507851014411",
+      "title": "Căutare în Magazin",
+      "url": "/search",
+      "type": "SEARCH",
+      "resourceId": null,
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/510254383371",
+      "title": "Informații de Contact",
+      "url": "/policies/contact-information",
+      "type": "SHOP_POLICY",
+      "resourceId": "gid://shopify/ShopPolicy/30499045643",
+      "tags": [],
+      "items": [
+        {
+          "id": "gid://shopify/MenuItem/510254416139",
+          "title": "Notificari Legale",
+          "url": "/policies/legal-notice",
+          "type": "SHOP_POLICY",
+          "resourceId": "gid://shopify/ShopPolicy/30499078411",
+          "tags": [],
+          "items": []
+        },
+        {
+          "id": "gid://shopify/MenuItem/510254448907",
+          "title": "Protecția datelor",
+          "url": "/policies/privacy-policy",
+          "type": "SHOP_POLICY",
+          "resourceId": "gid://shopify/ShopPolicy/30498947339",
+          "tags": [],
+          "items": []
+        },
+        {
+          "id": "gid://shopify/MenuItem/510254481675",
+          "title": "Politica de retur",
+          "url": "/policies/refund-policy",
+          "type": "SHOP_POLICY",
+          "resourceId": "gid://shopify/ShopPolicy/30498914571",
+          "tags": [],
+          "items": []
+        },
+        {
+          "id": "gid://shopify/MenuItem/510254514443",
+          "title": "Termeni și conditii",
+          "url": "/policies/terms-of-service",
+          "type": "SHOP_POLICY",
+          "resourceId": "gid://shopify/ShopPolicy/30498980107",
+          "tags": [],
+          "items": []
+        },
+        {
+          "id": "gid://shopify/MenuItem/510254547211",
+          "title": "Modalități de livrare",
+          "url": "/policies/shipping-policy",
+          "type": "SHOP_POLICY",
+          "resourceId": "gid://shopify/ShopPolicy/30499012875",
+          "tags": [],
+          "items": []
+        }
+      ]
+    }
+  ]
+}

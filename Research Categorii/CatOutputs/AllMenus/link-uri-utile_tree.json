@@ -1,0 +1,61 @@
+{
+  "id": "gid://shopify/Menu/227166290187",
+  "title": "Link-uri utile",
+  "handle": "link-uri-utile",
+  "items": [
+    {
+      "id": "gid://shopify/MenuItem/533741011211",
+      "title": "Notificari Legale",
+      "url": "/pages/notificari-legale",
+      "type": "PAGE",
+      "resourceId": "gid://shopify/Page/121291112715",
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/533741043979",
+      "title": "Termeni și Condiții",
+      "url": "/pages/termeni-%C8%99i-condi%C8%9Bii",
+      "type": "PAGE",
+      "resourceId": "gid://shopify/Page/121290916107",
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/533741076747",
+      "title": "Politica de confidențialitate",
+      "url": "/pages/politica-de-confiden%C8%9Bialitate",
+      "type": "PAGE",
+      "resourceId": "gid://shopify/Page/121291047179",
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/533741109515",
+      "title": "Politică de rambursare",
+      "url": "/pages/politica-de-rambursare",
+      "type": "PAGE",
+      "resourceId": "gid://shopify/Page/121290981643",
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/533741142283",
+      "title": "Modalități de livrare",
+      "url": "/pages/modalita%C8%9Bi-de-livrare",
+      "type": "PAGE",
+      "resourceId": "gid://shopify/Page/121290883339",
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/533742485771",
+      "title": "Contact",
+      "url": "/pages/contact",
+      "type": "PAGE",
+      "resourceId": "gid://shopify/Page/113660363019",
+      "tags": [],
+      "items": []
+    }
+  ]
+}

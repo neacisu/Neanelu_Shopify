@@ -1,0 +1,52 @@
+{
+  "id": "gid://shopify/Menu/217326027019",
+  "title": "Meniu principal",
+  "handle": "mega-meniu-principal",
+  "items": [
+    {
+      "id": "gid://shopify/MenuItem/508360196363",
+      "title": "Acasa",
+      "url": "/",
+      "type": "FRONTPAGE",
+      "resourceId": null,
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/508360229131",
+      "title": "Piese Utilaje Agricole",
+      "url": "/collections/piese-de-schimb",
+      "type": "COLLECTION",
+      "resourceId": "gid://shopify/Collection/499439141131",
+      "tags": [],
+      "items": [
+        {
+          "id": "gid://shopify/MenuItem/508444639499",
+          "title": "Organe de asamblare",
+          "url": "#",
+          "type": "HTTP",
+          "resourceId": null,
+          "tags": [],
+          "items": [
+            {
+              "id": "gid://shopify/MenuItem/508360261899",
+              "title": "Rulmenti",
+              "url": "/collections/rulmenti",
+              "type": "COLLECTION",
+              "resourceId": "gid://shopify/Collection/499445432587",
+              "tags": []
+            },
+            {
+              "id": "gid://shopify/MenuItem/508444967179",
+              "title": "Scule de mana",
+              "url": "/collections/scule-si-unelte-de-mana",
+              "type": "COLLECTION",
+              "resourceId": "gid://shopify/Collection/499229327627",
+              "tags": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

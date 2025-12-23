@@ -2328,124 +2328,84 @@ Obiectiv: hardening, build/publish, deploy, migrații, alerte, DR, Securitate Su
     ]
     ```
 
-## Faza F8: Global PIM & AI Data Factory (Săptămâna 9+)
+## Faza F8: Global PIM & AI Data Factory (Arhitectură Full Stack)
 
 Durată: Săptămâna 9+
-Obiectiv: Transformarea platformei într-o "Uzină de Date" care importă haosul extern, îl structurează prin AI și livrează "Golden Records" validate prin consens.
+Obiectiv: Implementarea celor 4 Module Critice definite în Arhitectura de Bază de Date (Core, Mirror, PIM, Vectors) pentru a gestiona ciclul de viață complet al datelor.
 
-### Context Strategic
-
-Nu construim doar un scraper. Construim un **Procesor de Cunoștințe** stratificat:
-
-1. **Taxonomy First:** Importăm standardul Shopify + Google ca "lege".
-2. **Raw Ingestion:** Stocăm orice (HTML/JSON) pentru audit.
-3. **Active Normalization:** Transformăm "synonyms" în atribute standardizate.
-4. **Consensus Voting:** 3 Agenți AI votează adevărul pentru datele critice.
-
-### F8.1: Fundația Datelor (Taxonomy & Registry)
+### F8.1: MODUL A & B - System Core & Shopify Mirror (High-Performance Sync)
 
     ```JSON
     [
     {
         "id_task": "F8.1.1",
-        "denumire_task": "Taxonomy Migration Script (Shopify Import)",
-        "descriere_task": "Scrie un script în `apps/worker` care descarcă release-ul oficial JSON de pe GitHub-ul Shopify. Parsează recursiv categoriile și le inserează în `prod_taxonomy` (PostgreSQL), păstrând ierarhia (parent_id) și mapând `attribute_schema` din fișierele de definiție.",
-        "cale_implementare": "apps/worker/src/jobs/taxonomy/importShopify.ts",
-        "validare_task": "Scriptul rulează idempotently. Baza de date conține ~10k categorii. Ierarhia este navigabilă.",
-        "outcome_task": "Taxonomia este populată automat din sursa oficială."
+        "denumire_task": "Implementare Modul Core Multi-tenancy (RLS)",
+        "descriere_task": "Creează tabelele `shops`, `app_sessions` și aplică politica RLS globală. Asigură denormalizarea `shop_id` în toate tabelele critice. Implementează mecanismul de sesiune PostgreSQL (`app.current_shop_id`) în middleware-ul Fastify.",
+        "cale_implementare": "packages/database/src/schema/core.ts + apps/backend-worker/src/middleware/tenant.ts",
+        "validare_task": "Interogare SQL 'SELECT * FROM products' returnează doar produsele magazinului curent.",
+        "outcome_task": "Securitate și izolare garantată la nivel de DB."
     },
     {
         "id_task": "F8.1.2",
-        "denumire_task": "Attribute Registry Logic",
-        "descriere_task": "Implementează serviciul `AttributeRegistry`. Acesta trebuie să expună metodele `findCanonical(input)` și `registerSynonym(input, canonical_id)`. Include seeding-ul inițial cu atributele standard Shopify (ex: color, size, material).",
-        "cale_implementare": "apps/research-worker/src/registry/attributeService.ts",
-        "validare_task": "Funcția findCanonical('color') returnează ID-ul atributului standard.",
-        "outcome_task": "Sistem centralizat de definire a atributelor."
+        "denumire_task": "Shopify Mirror & JSONB Metafields Strategy",
+        "descriere_task": "Implementează tabelele `shopify_products` și `shopify_variants` folosind coloana `metafields` JSONB. Configurează indexul GIN `jsonb_path_ops` pentru filtrare rapidă. Implementează pipeline-ul de 'Bulk Operations Stitched' care populează aceste tabele.",
+        "cale_implementare": "packages/database/src/schema/mirror.ts + apps/worker/src/jobs/shopifySync.ts",
+        "validare_task": "Filtrare 1M produse după metafield 'material=cotton' în sub 100ms.",
+        "outcome_task": "Oglindă performantă pentru datele externe."
     },
     {
         "id_task": "F8.1.3",
-        "denumire_task": "Vector Engine Setup (pgvector)",
-        "descriere_task": "Activează extensia `vector` în PostgreSQL. Implementează funcția de generare embeddings (OpenAI text-embedding-3-small) pentru etichetele atributelor. Creează indexul HNSW pe coloana `prod_attr_definitions.embedding` pentru căutare rapidă.",
-        "cale_implementare": "packages/database/migrations/00_enable_vector.sql + apps/research-worker/src/registry/vectorSearch.ts",
-        "validare_task": "Query SQL de distanță returnează 'display_resolution' când cauți 'screen clarity'.",
-        "outcome_task": "Capacitatea de a găsi atribute similare semantic."
+        "denumire_task": "Inventory Ledger (Append-Only)",
+        "descriere_task": "Implementează sistemul de inventar bazat pe Ledger (`inventory_ledger`). Creează view-ul materializat sau funcția de agregare pentru calculul stocului curent. Configurează Advisory Locks pentru prevenirea overselling-ului.",
+        "cale_implementare": "packages/database/src/schema/inventory.ts + apps/backend-worker/src/services/inventory.ts",
+        "validare_task": "100 update-uri concurente pe același SKU nu generează blocaje (deadlocks).",
+        "outcome_task": "Scalabilitate masivă pentru update-uri de stoc."
     }
     ]
     ```
 
-### F8.2: Infrastructura de Colectare (Harvesting)
+### F8.2: MODUL C - Global Research PIM ("Fabrica de Date")
 
     ```JSON
     [
     {
         "id_task": "F8.2.1",
-        "denumire_task": "Research Queue Configuration (BullMQ)",
-        "descriere_task": "Configurează o coadă dedicată `research-queue` cu rate-limiting strict per domeniu (ex: 1 req/sec pentru Amazon, 5 req/sec pentru Generic). Implementează mecanismul de exponential backoff pentru erori 429.",
-        "cale_implementare": "apps/research-worker/src/queue/config.ts",
-        "validare_task": "Job-urile se execută secvențial pentru același domeniu, respectând limita.",
-        "outcome_task": "Scraping politicos și rezistent la blocare."
+        "denumire_task": "PIM Data Layer (4-Layers Architecture)",
+        "descriere_task": "Implementează structura stratificată: 1. Governance (`prod_taxonomy`), 2. Raw (`prod_raw_harvest`), 3. Process (`prod_extraction_sessions`), 4. Golden (`prod_core`, `prod_specs_normalized`). Asigură relația 1:N între `prod_core` și `shopify_products`.",
+        "cale_implementare": "packages/database/src/schema/pim.ts",
+        "validare_task": "Flux complet de date: Raw -> Extracted -> Normalized -> Golden -> Shopify.",
+        "outcome_task": "Pipeline complet de rafinare a datelor."
     },
     {
         "id_task": "F8.2.2",
-        "denumire_task": "Crawler Engine w/ Proxy Rotation",
-        "descriere_task": "Implementează clasa `CrawlerEngine` folosind Crawlee (PlaywrightCrawler). Integrează un serviciu de Proxy Rotation (ex: BrightData/Oxylabs API sau listă statică pentru dev). Adaugă logică de 'User-Agent Spoofing' și 'Fingerprint Management'.",
-        "cale_implementare": "apps/research-worker/src/crawler/engine.ts",
-        "validare_task": "Crawler-ul accesează successfully https://httpbin.org/ip prin proxy diferit la fiecare rulare.",
-        "outcome_task": "Capacitatea de a accesa site-uri protejate."
-    },
-    {
-        "id_task": "F8.2.3",
-        "denumire_task": "Raw Data Ingestion Service",
-        "descriere_task": "Implementează serviciul care preia rezultatul Crawler-ului (HTML/JSON) și îl salvează în `prod_raw_harvest`. Calculează hash-ul conținutului pentru a evita duplicarea (idempotency check) dacă pagina nu s-a schimbat.",
-        "cale_implementare": "apps/research-worker/src/ingestion/rawService.ts",
-        "validare_task": "Datele sunt salvate în DB. O a doua rulare identică nu creează duplicat (decât update la fetched_at).",
-        "outcome_task": "Data Lake eficient."
+        "denumire_task": "Taxonomy & Governance Engine",
+        "descriere_task": "Importă Taxonomia Shopify în `prod_taxonomy`. Implementează validatorul de schemă JSON care asigură că atributele din `prod_specs_normalized` respectă definițiile categoriei.",
+        "cale_implementare": "apps/research-worker/src/services/taxonomy.ts",
+        "validare_task": "Nu poți salva un produs 'Smartphone' fără atributul 'screen_size'.",
+        "outcome_task": "Date consistente și validate."
     }
     ]
     ```
 
-### F8.3: AI Processing & Consensus Engine
+### F8.3: MODUL D - Attribute Normalization & Vectors (Inteligența)
 
     ```JSON
     [
     {
         "id_task": "F8.3.1",
-        "denumire_task": "AI Extraction Prompt Engineering (Grounding)",
-        "descriere_task": "Dezvoltă și testează System Prompts pentru LLM. Prompt-ul trebuie să forțeze output JSON strict conform schemei categoriei și să ceară `source_snippet` pentru fiecare câmp. Include mecanism de 'Negative Constraints' (nu inventa!).",
-        "cale_implementare": "apps/research-worker/src/ai/prompts/extraction.ts",
-        "validare_task": "Test case: text 'telefon roșu', cerință 'greutate'. Output: null. (Nu inventează greutate).",
-        "outcome_task": "Prompting robust împotriva halucinațiilor."
+        "denumire_task": "Vector Registry & Semantic Deduplication",
+        "descriere_task": "Implementează `prod_attr_registry` cu suport `pgvector`. Scrie logica de 'Fuzzy Deduplication' care folosește vector embeddings pentru a identifica atributele sinonime (ex: 'Display' vs 'Ecran') și produsele duplicate.",
+        "cale_implementare": "apps/research-worker/src/services/vectorRegistry.ts",
+        "validare_task": "Căutare vectorială identifică 'Greutate' ca sinonim pentru 'Masa' cu scor > 0.9.",
+        "outcome_task": "Eliminarea redundanței și duplicatelor."
     },
     {
         "id_task": "F8.3.2",
-        "denumire_task": "Consensus Orchestrator Flow",
-        "descriere_task": "Implementează logica de Business 'Best of Three'. Lansează 3 apeluri LLM paralele (cu temperatură diferită 0.3, 0.5, 0.7). Implementează algoritmul de comparare a JSON-urilor rezultate. Dacă >66% agenți sunt de acord, validează valoarea.",
+        "denumire_task": "Consensus & Arbitration Logic",
+        "descriere_task": "Implementează logica de arbitraj pentru datele extrase. Dacă 3 surse dau valori diferite, folosește regulile de prioritate (Brand > Sursă > Vector Consensus) pentru a decide valoarea finală în `prod_specs_normalized`.",
         "cale_implementare": "apps/research-worker/src/ai/consensus.ts",
-        "validare_task": "Unit test cu mock inputs (2 identice, 1 diferit). Rezultatul e cel majoritar.",
-        "outcome_task": "Mecanism automat de adevăr."
-    }
-    ]
-    ```
-
-### F8.4: Consolidare & Distribuție
-
-    ```JSON
-    [
-    {
-        "id_task": "F8.4.1",
-        "denumire_task": "Golden Record Merger Logic",
-        "descriere_task": "Implementează `MergerService`. Acesta citește din `prod_extraction_sessions` (date validate) și scrie în `prod_specs`. Aplică reguli de prioritate a surselor (ex: Brand > Retailer). Salvează metadatele în coloana `provenance`.",
-        "cale_implementare": "apps/backend-worker/src/pim/merger.ts",
-        "validare_task": "Tabela `prod_specs` este populată corect. `provenance` arată sursa deciziei.",
-        "outcome_task": "Date finale de producție."
-    },
-    {
-        "id_task": "F8.4.2",
-        "denumire_task": "Channel Sync Trigger",
-        "descriere_task": "Implementează Observer pattern: când `prod_specs` se modifică semnificativ, marchează produsul ca 'dirty' în `prod_channel_mappings` pentru a declanșa sincronizarea spre Shopify/Google.",
-        "cale_implementare": "apps/backend-worker/src/pim/observer.ts",
-        "validare_task": "Update la greutate -> Shopify Mapping devine 'dirty'.",
-        "outcome_task": "Sincronizare automată cu storefront-ul."
+        "validare_task": "Conflict rezolvat automat pe baza scorului de încredere al sursei.",
+        "outcome_task": "Golden Record de înaltă încredere."
     }
     ]
     ```

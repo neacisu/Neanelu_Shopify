@@ -1,0 +1,52 @@
+{
+  "id": "gid://shopify/Menu/217464340747",
+  "title": "Bricolaj",
+  "handle": "bricolaj",
+  "items": [
+    {
+      "id": "gid://shopify/MenuItem/508721299723",
+      "title": "Acasa",
+      "url": "/",
+      "type": "FRONTPAGE",
+      "resourceId": null,
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/508721332491",
+      "title": "Bricolaj",
+      "url": "https://traktors.ro/pages/bricolaj-echipamente-si-materiale",
+      "type": "HTTP",
+      "resourceId": null,
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/508721365259",
+      "title": "Colectii",
+      "url": "/collections",
+      "type": "COLLECTIONS",
+      "resourceId": null,
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/508721398027",
+      "title": "Produse",
+      "url": "/collections/all",
+      "type": "CATALOG",
+      "resourceId": null,
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/508721430795",
+      "title": "Contact",
+      "url": "/pages/contact",
+      "type": "PAGE",
+      "resourceId": "gid://shopify/Page/113660363019",
+      "tags": [],
+      "items": []
+    }
+  ]
+}

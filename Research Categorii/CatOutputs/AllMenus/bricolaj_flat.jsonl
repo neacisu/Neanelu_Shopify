@@ -1,0 +1,5 @@
+{"id":"gid://shopify/MenuItem/508721299723","title":"Acasa","type":"FRONTPAGE","url":"/","resourceId":null,"parentId":null,"level":1,"path":"Acasa","tags":""}
+{"id":"gid://shopify/MenuItem/508721332491","title":"Bricolaj","type":"HTTP","url":"https://traktors.ro/pages/bricolaj-echipamente-si-materiale","resourceId":null,"parentId":null,"level":1,"path":"Bricolaj","tags":""}
+{"id":"gid://shopify/MenuItem/508721365259","title":"Colectii","type":"COLLECTIONS","url":"/collections","resourceId":null,"parentId":null,"level":1,"path":"Colectii","tags":""}
+{"id":"gid://shopify/MenuItem/508721398027","title":"Produse","type":"CATALOG","url":"/collections/all","resourceId":null,"parentId":null,"level":1,"path":"Produse","tags":""}
+{"id":"gid://shopify/MenuItem/508721430795","title":"Contact","type":"PAGE","url":"/pages/contact","resourceId":"gid://shopify/Page/113660363019","parentId":null,"level":1,"path":"Contact","tags":""}

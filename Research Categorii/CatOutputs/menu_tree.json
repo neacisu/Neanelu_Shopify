@@ -1,0 +1,34 @@
+{
+  "id": "gid://shopify/Menu/217128993035",
+  "title": "Main menu",
+  "handle": "main-menu",
+  "items": [
+    {
+      "id": "gid://shopify/MenuItem/507850916107",
+      "title": "Home",
+      "url": "/",
+      "type": "FRONTPAGE",
+      "resourceId": null,
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/507850948875",
+      "title": "Catalog",
+      "url": "/collections",
+      "type": "COLLECTIONS",
+      "resourceId": null,
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/507850981643",
+      "title": "Contact",
+      "url": "/pages/contact",
+      "type": "PAGE",
+      "resourceId": "gid://shopify/Page/113660363019",
+      "tags": [],
+      "items": []
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "id": "gid://shopify/Menu/227166519563",
+  "title": "ANPC",
+  "handle": "anpc",
+  "items": [
+    {
+      "id": "gid://shopify/MenuItem/533741306123",
+      "title": "<img data-srcset=\"https://cdn.shopify.com/s/files/1/0340/2222/8012/files/SOL.png?v=1664867930\" class=\" lazyloaded\" style=\"margin-top:5px;border:none;\" srcset=\"https://cdn.shopify.com/s/files/1/0340/2222/8012/files/SOL.png?v=1664867930\">",
+      "url": "https://ec.europa.eu/consumers/odr/main/index.cfm?event=main.home.chooseLanguage",
+      "type": "HTTP",
+      "resourceId": null,
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/533741338891",
+      "title": "<img data-srcset=\"https://cdn.shopify.com/s/files/1/0340/2222/8012/files/SAL.png?v=1664867930\" class=\" lazyloaded\" style=\"margin-top:5px;border:none;\" srcset=\"https://cdn.shopify.com/s/files/1/0340/2222/8012/files/SAL.png?v=1664867930\">",
+      "url": "https://anpc.ro/ce-este-sal/",
+      "type": "HTTP",
+      "resourceId": null,
+      "tags": [],
+      "items": []
+    }
+  ]
+}

@@ -1,0 +1,93 @@
+[
+  {
+    "id": "gid://shopify/MenuItem/507851014411",
+    "title": "Căutare în Magazin",
+    "type": "SEARCH",
+    "url": "/search",
+    "resourceId": null,
+    "parentId": null,
+    "level": 1,
+    "path": "Căutare în Magazin",
+    "tags": "",
+    "link_health": "OK",
+    "details": "Type SEARCH"
+  },
+  {
+    "id": "gid://shopify/MenuItem/510254383371",
+    "title": "Informații de Contact",
+    "type": "SHOP_POLICY",
+    "url": "/policies/contact-information",
+    "resourceId": "gid://shopify/ShopPolicy/30499045643",
+    "parentId": null,
+    "level": 1,
+    "path": "Informații de Contact",
+    "tags": "",
+    "link_health": "BROKEN",
+    "details": "Resource deleted or not found via API"
+  },
+  {
+    "id": "gid://shopify/MenuItem/510254416139",
+    "title": "Notificari Legale",
+    "type": "SHOP_POLICY",
+    "url": "/policies/legal-notice",
+    "resourceId": "gid://shopify/ShopPolicy/30499078411",
+    "parentId": "gid://shopify/MenuItem/510254383371",
+    "level": 2,
+    "path": "Informații de Contact > Notificari Legale",
+    "tags": "",
+    "link_health": "BROKEN",
+    "details": "Resource deleted or not found via API"
+  },
+  {
+    "id": "gid://shopify/MenuItem/510254448907",
+    "title": "Protecția datelor",
+    "type": "SHOP_POLICY",
+    "url": "/policies/privacy-policy",
+    "resourceId": "gid://shopify/ShopPolicy/30498947339",
+    "parentId": "gid://shopify/MenuItem/510254383371",
+    "level": 2,
+    "path": "Informații de Contact > Protecția datelor",
+    "tags": "",
+    "link_health": "BROKEN",
+    "details": "Resource deleted or not found via API"
+  },
+  {
+    "id": "gid://shopify/MenuItem/510254481675",
+    "title": "Politica de retur",
+    "type": "SHOP_POLICY",
+    "url": "/policies/refund-policy",
+    "resourceId": "gid://shopify/ShopPolicy/30498914571",
+    "parentId": "gid://shopify/MenuItem/510254383371",
+    "level": 2,
+    "path": "Informații de Contact > Politica de retur",
+    "tags": "",
+    "link_health": "BROKEN",
+    "details": "Resource deleted or not found via API"
+  },
+  {
+    "id": "gid://shopify/MenuItem/510254514443",
+    "title": "Termeni și conditii",
+    "type": "SHOP_POLICY",
+    "url": "/policies/terms-of-service",
+    "resourceId": "gid://shopify/ShopPolicy/30498980107",
+    "parentId": "gid://shopify/MenuItem/510254383371",
+    "level": 2,
+    "path": "Informații de Contact > Termeni și conditii",
+    "tags": "",
+    "link_health": "BROKEN",
+    "details": "Resource deleted or not found via API"
+  },
+  {
+    "id": "gid://shopify/MenuItem/510254547211",
+    "title": "Modalități de livrare",
+    "type": "SHOP_POLICY",
+    "url": "/policies/shipping-policy",
+    "resourceId": "gid://shopify/ShopPolicy/30499012875",
+    "parentId": "gid://shopify/MenuItem/510254383371",
+    "level": 2,
+    "path": "Informații de Contact > Modalități de livrare",
+    "tags": "",
+    "link_health": "BROKEN",
+    "details": "Resource deleted or not found via API"
+  }
+]

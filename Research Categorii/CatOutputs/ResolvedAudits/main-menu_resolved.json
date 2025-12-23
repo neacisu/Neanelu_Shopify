@@ -1,0 +1,42 @@
+[
+  {
+    "id": "gid://shopify/MenuItem/507850916107",
+    "title": "Home",
+    "type": "FRONTPAGE",
+    "url": "/",
+    "resourceId": null,
+    "parentId": null,
+    "level": 1,
+    "path": "Home",
+    "tags": "",
+    "link_health": "OK",
+    "details": "Type FRONTPAGE"
+  },
+  {
+    "id": "gid://shopify/MenuItem/507850948875",
+    "title": "Catalog",
+    "type": "COLLECTIONS",
+    "url": "/collections",
+    "resourceId": null,
+    "parentId": null,
+    "level": 1,
+    "path": "Catalog",
+    "tags": "",
+    "link_health": "OK",
+    "details": "Type COLLECTIONS"
+  },
+  {
+    "id": "gid://shopify/MenuItem/507850981643",
+    "title": "Contact",
+    "type": "PAGE",
+    "url": "/pages/contact",
+    "resourceId": "gid://shopify/Page/113660363019",
+    "parentId": null,
+    "level": 1,
+    "path": "Contact",
+    "tags": "",
+    "link_health": "OK",
+    "details": "Valid Page",
+    "target_title": "Contact"
+  }
+]

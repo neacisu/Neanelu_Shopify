@@ -1,0 +1,169 @@
+{
+  "id": "gid://shopify/Menu/227400974603",
+  "title": "Piese de Schimb Vehicule",
+  "handle": "piese-de-schimb-vehicule",
+  "items": [
+    {
+      "id": "gid://shopify/MenuItem/534422389003",
+      "title": "Accesorii auto",
+      "url": "/collections/accesorii-auto",
+      "type": "COLLECTION",
+      "resourceId": "gid://shopify/Collection/499453591819",
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/534422421771",
+      "title": "Acumulatori & Baterii",
+      "url": "/collections/acumulatori",
+      "type": "COLLECTION",
+      "resourceId": "gid://shopify/Collection/499453853963",
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/534422454539",
+      "title": "Anvelope, Camere & Roti",
+      "url": "/collections/anvelope-camere-roti",
+      "type": "COLLECTION",
+      "resourceId": "gid://shopify/Collection/500411269387",
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/534422487307",
+      "title": "Cabluri Alim. Baterie & Borne",
+      "url": "/collections/cabluri-alimentare-baterie",
+      "type": "COLLECTION",
+      "resourceId": "gid://shopify/Collection/500410548491",
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/534422520075",
+      "title": "Lubrifiere (Ulei & Vaseline)",
+      "url": "/collections/lubrifiere-ulei-vaseline",
+      "type": "COLLECTION",
+      "resourceId": "gid://shopify/Collection/499512606987",
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/534422552843",
+      "title": "Lichide Tehnice Vehicule",
+      "url": "/collections/lichide-tehnice-vehicule",
+      "type": "COLLECTION",
+      "resourceId": "gid://shopify/Collection/500410876171",
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/534422585611",
+      "title": "Recuperatoare de Ulei",
+      "url": "/collections/recuperatoare-de-ulei-pe-nea-nelu-ro",
+      "type": "COLLECTION",
+      "resourceId": "gid://shopify/Collection/499821740299",
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/534422618379",
+      "title": "Amortizoare Cauciuc",
+      "url": "/collections/amortizoare-cauciuc",
+      "type": "COLLECTION",
+      "resourceId": "gid://shopify/Collection/499453985035",
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/534422683915",
+      "title": "Cosmetica auto",
+      "url": "/collections/cosmetica-auto",
+      "type": "COLLECTION",
+      "resourceId": "gid://shopify/Collection/501060665611",
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/534422716683",
+      "title": "Accesorii auto sezoniere",
+      "url": "/collections/accesorii-auto-sezoniere",
+      "type": "COLLECTION",
+      "resourceId": "gid://shopify/Collection/501061943563",
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/534422749451",
+      "title": "Suporturi portbagaj auto",
+      "url": "/collections/suporturi-portbagaj-auto",
+      "type": "COLLECTION",
+      "resourceId": "gid://shopify/Collection/501062566155",
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/534422782219",
+      "title": "Scule & echipamente service auto",
+      "url": "/collections/scule-echipamente-service-auto",
+      "type": "COLLECTION",
+      "resourceId": "gid://shopify/Collection/501063352587",
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/534422814987",
+      "title": "Iluminat auto",
+      "url": "/collections/iluminat-auto",
+      "type": "COLLECTION",
+      "resourceId": "gid://shopify/Collection/501066727691",
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/534422847755",
+      "title": "Siguranta rutiera",
+      "url": "/collections/siguranta-rutiera",
+      "type": "COLLECTION",
+      "resourceId": "gid://shopify/Collection/501067907339",
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/534422880523",
+      "title": "Telefon, GPS & Accesorii Auto",
+      "url": "/collections/gps-accesorii-auto",
+      "type": "COLLECTION",
+      "resourceId": "gid://shopify/Collection/501071905035",
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/534422913291",
+      "title": "Accesorii auto interior",
+      "url": "/collections/accesorii-auto-interior",
+      "type": "COLLECTION",
+      "resourceId": "gid://shopify/Collection/501072593163",
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/534422946059",
+      "title": "Accesorii auto exterior",
+      "url": "/collections/accesorii-auto-exterior",
+      "type": "COLLECTION",
+      "resourceId": "gid://shopify/Collection/501074002187",
+      "tags": [],
+      "items": []
+    },
+    {
+      "id": "gid://shopify/MenuItem/534422978827",
+      "title": "Consumabile service auto",
+      "url": "/collections/consumabile-service-auto",
+      "type": "COLLECTION",
+      "resourceId": "gid://shopify/Collection/501074592011",
+      "tags": [],
+      "items": []
+    }
+  ]
+}

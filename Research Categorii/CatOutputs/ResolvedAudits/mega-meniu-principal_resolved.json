@@ -1,0 +1,70 @@
+[
+  {
+    "id": "gid://shopify/MenuItem/508360196363",
+    "title": "Acasa",
+    "type": "FRONTPAGE",
+    "url": "/",
+    "resourceId": null,
+    "parentId": null,
+    "level": 1,
+    "path": "Acasa",
+    "tags": "",
+    "link_health": "OK",
+    "details": "Type FRONTPAGE"
+  },
+  {
+    "id": "gid://shopify/MenuItem/508360229131",
+    "title": "Piese Utilaje Agricole",
+    "type": "COLLECTION",
+    "url": "/collections/piese-de-schimb",
+    "resourceId": "gid://shopify/Collection/499439141131",
+    "parentId": null,
+    "level": 1,
+    "path": "Piese Utilaje Agricole",
+    "tags": "",
+    "link_health": "OK",
+    "details": "Valid (5732 products)",
+    "target_title": "Piese Utilaje Agricole Diverse"
+  },
+  {
+    "id": "gid://shopify/MenuItem/508444639499",
+    "title": "Organe de asamblare",
+    "type": "HTTP",
+    "url": "#",
+    "resourceId": null,
+    "parentId": "gid://shopify/MenuItem/508360229131",
+    "level": 2,
+    "path": "Piese Utilaje Agricole > Organe de asamblare",
+    "tags": "",
+    "link_health": "OK",
+    "details": "Header / No Link"
+  },
+  {
+    "id": "gid://shopify/MenuItem/508360261899",
+    "title": "Rulmenti",
+    "type": "COLLECTION",
+    "url": "/collections/rulmenti",
+    "resourceId": "gid://shopify/Collection/499445432587",
+    "parentId": "gid://shopify/MenuItem/508444639499",
+    "level": 3,
+    "path": "Piese Utilaje Agricole > Organe de asamblare > Rulmenti",
+    "tags": "",
+    "link_health": "OK",
+    "details": "Valid (11230 products)",
+    "target_title": "Rulmenti"
+  },
+  {
+    "id": "gid://shopify/MenuItem/508444967179",
+    "title": "Scule de mana",
+    "type": "COLLECTION",
+    "url": "/collections/scule-si-unelte-de-mana",
+    "resourceId": "gid://shopify/Collection/499229327627",
+    "parentId": "gid://shopify/MenuItem/508444639499",
+    "level": 3,
+    "path": "Piese Utilaje Agricole > Organe de asamblare > Scule de mana",
+    "tags": "",
+    "link_health": "OK",
+    "details": "Valid (3651 products)",
+    "target_title": "Scule & Unelte de Mână"
+  }
+]
