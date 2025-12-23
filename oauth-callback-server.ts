@@ -3,9 +3,9 @@ import url from 'url';
 import 'dotenv/config';
 
 const PORT = 30001;
-const CLIENT_ID = process.env.SHOPIFY_CLIENT_ID;
-const SHOP_DOMAIN = process.env.SHOPIFY_SHOP_DOMAIN;
-const REDIRECT_URI = process.env.SHOPIFY_REDIRECT_URI;
+const CLIENT_ID = process.env['SHOPIFY_CLIENT_ID'];
+const SHOP_DOMAIN = process.env['SHOPIFY_SHOP_DOMAIN'];
+const REDIRECT_URI = process.env['SHOPIFY_REDIRECT_URI'];
 
 if (!CLIENT_ID || !SHOP_DOMAIN || !REDIRECT_URI) {
   console.error(
@@ -18,14 +18,14 @@ const server = http.createServer((req, res) => {
   const parsedUrl = url.parse(req.url ?? '', true);
 
   if (parsedUrl.pathname === '/auth/callback') {
-    const code = parsedUrl.query.code;
+    const code = parsedUrl.query['code'];
 
     if (code && typeof code === 'string') {
       console.info('=== SHOPIFY OAUTH CODE RECEIVED ===');
       console.info('Code:', code);
       console.info('Now run this command to get access token:');
       console.info(
-        `curl -X POST https://${SHOP_DOMAIN}/admin/oauth/access_token -d 'client_id=${CLIENT_ID}&client_secret=${process.env.SHOPIFY_CLIENT_SECRET}&code=${code}'`
+        `curl -X POST https://${SHOP_DOMAIN}/admin/oauth/access_token -d 'client_id=${CLIENT_ID}&client_secret=${process.env['SHOPIFY_CLIENT_SECRET']}&code=${code}'`
       );
 
       res.writeHead(200, { 'Content-Type': 'text/plain' });
