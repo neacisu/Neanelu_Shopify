@@ -24,7 +24,8 @@
     "db:down": "docker compose -f docker-compose.yml -f docker-compose.dev.yml down",
     "db:logs": "docker compose -f docker-compose.yml -f docker-compose.dev.yml logs -f",
     "db:restart": "pnpm db:down && pnpm db:up",
-    "db:clean": "docker compose -f docker-compose.yml -f docker-compose.dev.yml down -v"
+    "db:clean": "docker compose -f docker-compose.yml -f docker-compose.dev.yml down -v",
+    "oauth:server": "tsx oauth-callback-server.ts"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,mjs,cjs}": [
@@ -43,12 +44,14 @@
     "@types/node": "^25.0.3",
     "@typescript-eslint/eslint-plugin": "^8.50.1",
     "@typescript-eslint/parser": "^8.50.1",
+    "dotenv": "^17.2.3",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-import": "^2.32.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
     "prettier": "^3.7.4",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.50.1"
   }

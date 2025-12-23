@@ -17,7 +17,6 @@ export default tseslint.config(
       'Research Produse/**',
       'Research Categorii/**',
       'pnpm-lock.yaml',
-      'oauth-callback-server.js',
     ],
   },
 

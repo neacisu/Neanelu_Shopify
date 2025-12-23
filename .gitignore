@@ -19,7 +19,7 @@ out/
 Research Produse/.env.txt
 
 # Local OAuth helper (contains secrets)
-oauth-callback-server.js
+
 
 # Logs
 *.log
