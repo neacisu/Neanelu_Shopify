@@ -89,7 +89,7 @@ async function main(): Promise<number> {
   if (cli.flags.has('help') || cli.positional.length < 1) {
     console.log(
       [
-        'Usage: sample_by_vendor.ts <bulk-products.jsonl> [--k 3] [--seed 42] [--out Research/TSOutputs/vendor_samples_report.json] [--alphabet-pick] [--alphabet ABCDEFGHIJKLMNOPQRSTUVWXYZ#]',
+        'Usage: sample_by_vendor.ts <bulk-products.jsonl> [--k 3] [--seed 42] [--out Research Produse/TSOutputs/vendor_samples_report.json] [--alphabet-pick] [--alphabet ABCDEFGHIJKLMNOPQRSTUVWXYZ#]',
         '',
         'Count unique vendors in a Shopify bulk JSONL and sample K random products per vendor (with their variants).',
       ].join('\n'),
@@ -107,7 +107,7 @@ async function main(): Promise<number> {
     if (py) return py.randrange(stop);
     return Math.floor(Math.random() * stop);
   };
-  const outPath = String(cli.values.out ?? 'Research/TSOutputs/vendor_samples_report.json');
+  const outPath = String(cli.values.out ?? 'Research Produse/TSOutputs/vendor_samples_report.json');
 
   const alphabetPick = cli.flags.has('alphabet-pick');
   const alphabet = String(cli.values.alphabet ?? 'ABCDEFGHIJKLMNOPQRSTUVWXYZ#');

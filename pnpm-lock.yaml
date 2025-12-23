@@ -18,7 +18,7 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
-  Research/Scripts/TScripts:
+  Research Produse/Scripts/TScripts:
     devDependencies:
       '@types/node':
         specifier: ^24.0.0

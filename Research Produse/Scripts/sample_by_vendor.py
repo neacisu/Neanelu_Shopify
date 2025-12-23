@@ -101,8 +101,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--out",
-        default="Research/Outputs/vendor_samples_report.json",
-        help="Output JSON report path (default: Research/Outputs/vendor_samples_report.json)",
+        default="Research Produse/Outputs/vendor_samples_report.json",
+        help="Output JSON report path (default: Research Produse/Outputs/vendor_samples_report.json)",
     )
     args = parser.parse_args()
 

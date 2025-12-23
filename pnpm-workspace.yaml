@@ -1,4 +1,4 @@
 packages:
-  - 'apps/*'
-  - 'packages/*'
-  - 'Research/Scripts/TScripts'
+  - "apps/*"
+  - "packages/*"
+  - "Research Produse/Scripts/TScripts"

@@ -96,9 +96,9 @@ Interogarea datelor nu se poate face printr-un simplu request. Trebuie construit
 O limitare critică identificată în documentație este restricția privind numărul de conexiuni și complexitatea interogării. Deși API-ul GraphQL permite teoretic interogări complexe, operațiunile Bulk au restricții specifice pentru a preveni timeout-urile. Dacă interogarea depășește complexitatea admisă, operațiunea va eșua cu eroarea TIMEOUT.  
 Soluția este segmentarea interogărilor. În loc de o singură interogare masivă care aduce produse, variante, imagini și metafield-uri simultan, sistemul va lansa operațiuni secvențiale (în limita **1 operațiune activă per magazin** conform **API 2025-10**; versiunea 2026-01 va crește limita la 5 concurente):
 
-1. **Op 1:** Produse de bază \+ Variante (pentru structura de preț și SKU).  
-2. **Op 2:** Produse \+ Metafields (pentru atribute descriptive).  
-3. **Op 3:** Produse \+ Imagini (doar URL-uri pentru procesare ulterioară).
+1. **Op 1:** Produse de bază + Variante (pentru structura de preț și SKU).  
+2. **Op 2:** Produse + Metafields (pentru atribute descriptive).  
+3. **Op 3:** Produse + Imagini (doar URL-uri pentru procesare ulterioară).
 
 #### **2.1.2 Procesarea Fluxului JSONL (Streaming)**
 

@@ -628,11 +628,11 @@ def main() -> int:
   ap = argparse.ArgumentParser(
     description="Fetch Shopify product details for 10 test vendors x 3 products each via Admin GraphQL (CLI can't fetch API objects)."
   )
-  ap.add_argument("--env", default="Research/.env.txt", help="Env file path (default: Research/.env.txt)")
+  ap.add_argument("--env", default="Research Produse/.env.txt", help="Env file path (default: Research Produse/.env.txt)")
   ap.add_argument(
     "--report",
-    default="Research/Outputs/vendor_samples_report.json",
-    help="Input report from JSONL sampling (default: Research/Outputs/vendor_samples_report.json)",
+    default="Research Produse/Outputs/vendor_samples_report.json",
+    help="Input report from JSONL sampling (default: Research Produse/Outputs/vendor_samples_report.json)",
   )
   ap.add_argument("--api-version", default="2025-10", help="Shopify Admin API version")
   ap.add_argument("--vendor-count", type=int, default=10, help="How many vendors to test")
@@ -645,13 +645,13 @@ def main() -> int:
   )
   ap.add_argument(
     "--out-details",
-    default="Research/Outputs/test_vendors_products_details.json",
-    help="Output file with fetched product details (default: Research/Outputs/test_vendors_products_details.json)",
+    default="Research Produse/Outputs/test_vendors_products_details.json",
+    help="Output file with fetched product details (default: Research Produse/Outputs/test_vendors_products_details.json)",
   )
   ap.add_argument(
     "--out-schema",
-    default="Research/Outputs/product_type_fields.json",
-    help="Output file with Product type fields (introspection) (default: Research/Outputs/product_type_fields.json)",
+    default="Research Produse/Outputs/product_type_fields.json",
+    help="Output file with Product type fields (introspection) (default: Research Produse/Outputs/product_type_fields.json)",
   )
   ap.add_argument(
     "--out-everything-query",

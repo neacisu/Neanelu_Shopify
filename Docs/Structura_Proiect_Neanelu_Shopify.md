@@ -19,11 +19,11 @@ Această structură este un **Monorepo pnpm** proiectat pentru a gestiona volume
 
 ### **📌 Layout research (implementat și validat în TS)**
 
-- **/Research/bulk-products.jsonl** (artefact Bulk Ops; foarte mare; nu se comite)
-- **/Research/Scripts/TScripts/** (scripturi TypeScript; execuție: `pnpm exec tsx <script>.ts`)
-- **/Research/TSOutputs/** (output-uri generate; nu se comit)
-- **/Research/Outputs/** (output-uri Python, dacă există; nu se comit)
-- **.env.txt / Research/.env.txt** (secrete locale folosite în research; nu se comit)
+- **/Research Produse/bulk-products.jsonl** (artefact Bulk Ops; foarte mare; nu se comite)
+- **/Research Produse/Scripts/TScripts/** (scripturi TypeScript; execuție: `pnpm exec tsx <script>.ts`)
+- **/Research Produse/TSOutputs/** (output-uri generate; nu se comit)
+- **/Research Produse/Outputs/** (output-uri Python, dacă există; nu se comit)
+- **.env.txt / Research Produse/.env.txt** (secrete locale folosite în research; nu se comit)
 
 ## **📂 Nivel 0: Rădăcina Proiectului (Root)**
 

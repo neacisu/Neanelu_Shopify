@@ -37,7 +37,7 @@ Repo-ul conține:
 
 - `Docs/` – arhitectură + planuri (target-state)
 - `Plan_de_implementare.md` – plan detaliat pe faze (F0–F7), incluzând un addendum cu descoperirile validate în research
-- `Research/` – scripturi și notițe pentru export Bulk + Admin GraphQL
+- `Research Produse/` – scripturi și notițe pentru export Bulk + Admin GraphQL
 
 `README.md` (acest fișier) este sinteza consolidată.
 
@@ -126,7 +126,7 @@ flowchart TD
   Stitch --> Sample[Sampling determinist\n(A-Z + #, primele N produse)]
   Sample --> Fetch[Admin GraphQL fetch\nProduct "TOT" (introspection)]
   Fetch --> Paginate[Paginate connections\nex: metafields]
-  Paginate --> Outputs[Artefacte JSON\n(Research/TSOutputs)]
+  Paginate --> Outputs[Artefacte JSON\n(Research Produse/TSOutputs)]
 ```
 
 ### 4.3 OAuth server-side (flow de producție)
@@ -187,38 +187,38 @@ flowchart TD
 Instalare (în folderul TScripts):
 
 ```bash
-cd /var/www/Neanelu_Shopify/Research/Scripts/TScripts
+cd /var/www/Neanelu_Shopify/Research Produse/Scripts/TScripts
 pnpm install
 ```
 
 Sampling determinist vendor/produs (din JSONL):
 
 ```bash
-pnpm exec tsx sample_by_vendor.ts /var/www/Neanelu_Shopify/Research/bulk-products.jsonl \
+pnpm exec tsx sample_by_vendor.ts /var/www/Neanelu_Shopify/Research Produse/bulk-products.jsonl \
   --k 3 \
   --alphabet-pick \
   --alphabet ABCDEFGHIJKLMNOPQRSTUVWXYZ# \
-  --out /var/www/Neanelu_Shopify/Research/TSOutputs/vendor_samples_report.json
+  --out /var/www/Neanelu_Shopify/Research Produse/TSOutputs/vendor_samples_report.json
 ```
 
 Fetch Product details „TOT / everything”:
 
 ```bash
 pnpm exec tsx fetch_shopify_products.ts \
-  --env /var/www/Neanelu_Shopify/Research/.env.txt \
-  --report /var/www/Neanelu_Shopify/Research/TSOutputs/vendor_samples_report.json \
+  --env /var/www/Neanelu_Shopify/Research Produse/.env.txt \
+  --report /var/www/Neanelu_Shopify/Research Produse/TSOutputs/vendor_samples_report.json \
   --vendor-count 10 \
   --vendor-pick-mode report-order \
   --everything \
   --paginate-variants \
-  --out-details /var/www/Neanelu_Shopify/Research/TSOutputs/products_TOT_10x3.json
+  --out-details /var/www/Neanelu_Shopify/Research Produse/TSOutputs/products_TOT_10x3.json
 ```
 
 Notă: toate secretele rămân locale și nu se comit.
 
 ### 5.3 Python research (opțional)
 
-În `Research/Notes/README.md` există exemple de comenzi pentru scripturile Python (sampling/fetch).
+În `Research Produse/Notes/README.md` există exemple de comenzi pentru scripturile Python (sampling/fetch).
 
 ## 6. Igienă & securitate (foarte important)
 
@@ -239,8 +239,8 @@ Recomandare de practică:
 - `Docs/Strategie_dezvoltare.md` – blueprint tehnologic (arhitectură și pipeline-ul stitched)
 - `Docs/Plan Implementare Aplicatie Completa.md` – arhitectură generală și faze (numerotare diferită)
 - `Docs/Structura_Proiect_Neanelu_Shopify.md` – structura „target-state” + notă despre starea curentă (research)
-- `Research/Notes/README.md` – notițe/entrypoint pentru research
-- `Research/Scripts/TScripts/README.md` – cum se rulează TScripts
+- `Research Produse/Notes/README.md` – notițe/entrypoint pentru research
+- `Research Produse/Scripts/TScripts/README.md` – cum se rulează TScripts
 
 ## 8. Direcția de implementare (high-level, pe faze)
 

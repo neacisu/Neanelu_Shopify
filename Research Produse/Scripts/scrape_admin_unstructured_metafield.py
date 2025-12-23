@@ -12,21 +12,21 @@ Important:
 
 Typical flow:
 1) First run (interactive login), save a storage state:
-   python3 Research/Scripts/scrape_admin_unstructured_metafield.py \
+   python3 Research Produse/Scripts/scrape_admin_unstructured_metafield.py \
      --store-handle d366ab \
      --product-id 8628341506315 \
      --namespace app--3890849--eligibility \
      --key eligibility_details \
-     --storage-state Research/Outputs/admin_storage_state.json \
+     --storage-state Research Produse/Outputs/admin_storage_state.json \
      --headful
 
 2) Next runs (reuse login session, can be headless):
-   python3 Research/Scripts/scrape_admin_unstructured_metafield.py \
+   python3 Research Produse/Scripts/scrape_admin_unstructured_metafield.py \
      --store-handle d366ab \
      --product-id 8628341506315 \
      --namespace app--3890849--eligibility \
      --key eligibility_details \
-     --storage-state Research/Outputs/admin_storage_state.json
+     --storage-state Research Produse/Outputs/admin_storage_state.json
 
 Install deps (once):
   python3 -m pip install --upgrade playwright

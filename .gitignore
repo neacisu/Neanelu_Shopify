@@ -16,7 +16,7 @@ out/
 .env.staging
 # Fișierul cu secretele aplicației
 .env.txt
-Research/.env.txt
+Research Produse/.env.txt
 
 # Local OAuth helper (contains secrets)
 oauth-callback-server.js
@@ -113,10 +113,10 @@ Thumbs.db
 .env.compose.example
 
 # Research / data exports (Shopify)
-Research/Outputs/
-Research/TSOutputs/
-Research/**/*.jsonl
-Research/**/bulk-*.jsonl
+Research Produse/Outputs/
+Research Produse/TSOutputs/
+Research Produse/**/*.jsonl
+Research Produse/**/bulk-*.jsonl
 
 # Husky
 .husky/_

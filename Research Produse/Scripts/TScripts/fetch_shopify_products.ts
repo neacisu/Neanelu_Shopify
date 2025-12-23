@@ -606,8 +606,8 @@ async function main(): Promise<number> {
   if (cli.flags.has('help')) {
     console.log(
       [
-        'Usage: fetch_shopify_products.ts [--env Research/.env.txt] [--report Research/Outputs/vendor_samples_report.json] [--api-version 2025-10]',
-        '       [--vendor-count 10] [--seed 42] [--out-details Research/Outputs/products_TOT_10x3.json]',
+        'Usage: fetch_shopify_products.ts [--env Research Produse/.env.txt] [--report Research Produse/Outputs/vendor_samples_report.json] [--api-version 2025-10]',
+        '       [--vendor-count 10] [--seed 42] [--out-details Research Produse/Outputs/products_TOT_10x3.json]',
         '       [--everything] [--everything-max-depth 2] [--everything-connection-first 50] [--everything-connection-max-fields 25]',
         '       [--everything-skip-fields publishedOnCurrentPublication] [--out-everything-query path] [--everything-query-file path]',
         '       [--paginate-variants] [--paginate-variants-max-pages 10] [--paginate-variants-sleep 0.02]',
@@ -618,15 +618,15 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  const envPath = String(cli.values.env ?? 'Research/.env.txt');
-  const reportPath = String(cli.values.report ?? 'Research/TSOutputs/vendor_samples_report.json');
+  const envPath = String(cli.values.env ?? 'Research Produse/.env.txt');
+  const reportPath = String(cli.values.report ?? 'Research Produse/TSOutputs/vendor_samples_report.json');
   const apiVersion = String(cli.values['api-version'] ?? '2025-10');
   const vendorCount = Number(cli.values['vendor-count'] ?? '10');
   const seed = Number(cli.values.seed ?? '42');
   const vendorPickModeRaw = String(cli.values['vendor-pick-mode'] ?? 'random');
   const vendorPickMode = (vendorPickModeRaw === 'report-order' ? 'report-order' : 'random') as 'random' | 'report-order';
-  const outDetailsPath = String(cli.values['out-details'] ?? 'Research/TSOutputs/products_TOT_10x3.json');
-  const outSchemaPath = String(cli.values['out-schema'] ?? 'Research/TSOutputs/product_type_fields.json');
+  const outDetailsPath = String(cli.values['out-details'] ?? 'Research Produse/TSOutputs/products_TOT_10x3.json');
+  const outSchemaPath = String(cli.values['out-schema'] ?? 'Research Produse/TSOutputs/product_type_fields.json');
   const outEverythingQueryPath = String(cli.values['out-everything-query'] ?? '').trim();
   const everythingQueryFilePath = String(cli.values['everything-query-file'] ?? '').trim();
   const everythingEnabled = cli.flags.has('everything');
