@@ -121,12 +121,12 @@ WHERE id = '{bulk_run_id}';
 
 ## Scenario 3: Download URL Expired
 
-### Symptoms
+### URL Expired Symptoms
 
 - Operation completed but `result_url` returns 403/410
 - Error: "URL signature expired"
 
-### Resolution
+### URL Expired Resolution
 
 1. **Re-run the bulk operation:**
    - Shopify signed URLs expire after 7 days
@@ -151,13 +151,13 @@ WHERE id = '{bulk_run_id}';
 
 ## Scenario 4: Worker OOM During JSONL Processing
 
-### Symptoms
+### OOM Symptoms
 
 - Container restarts during ingest phase
 - Error logs: "JavaScript heap out of memory"
 - Large file size (> 1GB)
 
-### Resolution
+### OOM Resolution
 
 1. **Increase worker memory limit:**
 

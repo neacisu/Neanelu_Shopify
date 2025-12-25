@@ -98,12 +98,12 @@ redis-cli HDEL bull:sync-queue:groups:{shop_id} paused
 
 ## Scenario 2: Bulk Operation Quota Exhausted
 
-### Symptoms
+### Quota Exhausted Symptoms
 
 - Error: "Maximum number of bulk operations reached"
 - New bulk syncs failing to start
 
-### Resolution
+### Quota Exhausted Resolution
 
 1. **Check active operations:**
 
@@ -140,7 +140,7 @@ redis-cli HDEL bull:sync-queue:groups:{shop_id} paused
 
 ## Scenario 3: Shop-wide API Suspension
 
-### Symptoms
+### Suspension Symptoms
 
 - All API calls return 402 or 423
 - Shop may be locked by Shopify
@@ -159,7 +159,7 @@ redis-cli HDEL bull:sync-queue:groups:{shop_id} paused
    -- Check: uninstalled_at, plan_tier
    ```
 
-### Resolution
+### Suspension Resolution
 
 - Contact Shopify Partner Support
 - Review API usage patterns for violations

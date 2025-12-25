@@ -233,7 +233,7 @@ Această corecție este DEJA implementată în Plan_de_implementare.md actualiza
 
 **Fix - În Plan_de_implementare.md, caută și înlocuiește:**
 
-```
+```text
 apps/web → apps/web-admin
 ```
 
@@ -532,24 +532,24 @@ CREATE TABLE api_cost_tracking (
 
 ### Short-term (P1 - Săptămâna Curentă)
 
-6. ✅ Adaugă tabele lipsă: oauth*states, oauth_nonces, webhook_events, rate_limit*\* - **VERIFICAT în Database_Schema_Complete.md v2.4 și Plan_de_implementare.md (F2.2.8-F2.2.12)**
-7. ✅ Adaugă coloane lipsă în shops, bulk_runs - **VERIFICAT în Database_Schema_Complete.md: shopify_shop_id, api_version, webhook_secret în shops**
-8. ✅ Standardizează nomenclatura apps/web-admin - **VERIFICAT: Plan menționează explicit "adoptă nomenclatura: backend-worker, web-admin"**
-9. ✅ Actualizează version counts în Database_Schema_Complete.md - **VERIFICAT: v2.4 raportează corect "63 tables + 4 MVs"**
-10. ✅ Adaugă indexuri pentru performanță - **VERIFICAT: Secțiunea "High-Velocity Performance Indexes" adăugată în Database_Schema_Complete.md**
+1. ✅ Adaugă tabele lipsă: oauth*states, oauth_nonces, webhook_events, rate_limit*\* - **VERIFICAT în Database_Schema_Complete.md v2.4 și Plan_de_implementare.md (F2.2.8-F2.2.12)**
+2. ✅ Adaugă coloane lipsă în shops, bulk_runs - **VERIFICAT în Database_Schema_Complete.md: shopify_shop_id, api_version, webhook_secret în shops**
+3. ✅ Standardizează nomenclatura apps/web-admin - **VERIFICAT: Plan menționează explicit "adoptă nomenclatura: backend-worker, web-admin"**
+4. ✅ Actualizează version counts în Database_Schema_Complete.md - **VERIFICAT: v2.4 raportează corect "63 tables + 4 MVs"**
+5. ✅ Adaugă indexuri pentru performanță - **VERIFICAT: Secțiunea "High-Velocity Performance Indexes" adăugată în Database_Schema_Complete.md**
 
 ### Medium-term (P2 - Înainte de F7)
 
-11. ⬜ Corectează typos și diacritice - **În PROGRES** (necesită audit complet al tuturor docs)
-12. ⬜ Verifică linkuri relative - **În PROGRES**
-13. ✅ Creează runbooks lipsă - **VERIFICAT: openbao-recovery.md, bulk-operation-stuck.md, database-failover.md, rate-limit-emergency.md EXIST în Docs/runbooks/**
-14. ✅ Actualizează versiuni pachete la valori reale - **REZOLVAT:** TypeScript 5.9.3 confirmat ca versiune stabilă; toate docs actualizate
+1. ⬜ Corectează typos și diacritice - **În PROGRES** (necesită audit complet al tuturor docs)
+2. ⬜ Verifică linkuri relative - **În PROGRES**
+3. ✅ Creează runbooks lipsă - **VERIFICAT: openbao-recovery.md, bulk-operation-stuck.md, database-failover.md, rate-limit-emergency.md EXIST în Docs/runbooks/**
+4. ✅ Actualizează versiuni pachete la valori reale - **REZOLVAT:** TypeScript 5.9.3 confirmat ca versiune stabilă; toate docs actualizate
 
 ---
 
 ## Audit Validare (25 Dec 2025)
 
-### Verificări Automate Efectuate:
+### Verificări Automate Efectuate
 
 - ✅ `grep "::UUIDv7"` → 12 rezultate, TOATE în comentarii/documentație care CLARIFICĂ să nu se folosească
 - ✅ `grep "webhook_events"` → Tabel definit în Database_Schema_Complete.md și Plan_de_implementare.md

@@ -107,13 +107,13 @@ This runbook documents recovery procedures for OpenBAO (Vault-compatible secrets
 
 ## Scenario 3: Data Corruption
 
-### Symptoms
+### Corruption Symptoms
 
 - OpenBAO returns errors on secret reads
 - Backend logs show "500 Internal Server Error" from OpenBAO
 - Integrity check fails
 
-### Resolution Steps
+### Corruption Resolution Steps
 
 1. **Stop OpenBAO:**
 
