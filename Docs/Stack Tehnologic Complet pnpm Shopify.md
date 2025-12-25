@@ -285,7 +285,7 @@ Următorul tabel prezintă reconstrucția exactă a secțiunii dependencies și 
 
 | Pachet | Versiune (Est.) | Descriere |
 | :---- | :---- | :---- |
-| **typescript** | ^5.9.0 | Limbajul de bază pentru type safety. Versiunea stabilă curentă (decembrie 2025). |
+| **typescript** | ^5.9.3 | Limbajul de bază pentru type safety. Versiunea stabilă curentă (decembrie 2025). |
 | **vite** | ^7.3.0 | Tool-ul de build de generație nouă, esențial pentru React Router 7\. |
 | **vitest** | ^4.0.16 | Framework de testare unitară, înlocuitor pentru Jest. |
 | **@shopify/app-bridge-types** | ^0.0.15 | Definiții TypeScript pentru App Bridge. |

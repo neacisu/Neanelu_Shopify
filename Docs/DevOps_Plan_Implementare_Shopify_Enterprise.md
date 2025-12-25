@@ -197,7 +197,7 @@ Pentru a susține volumul de 1M+ SKU și procesarea asincronă, arhitectura de p
 * **Fiecare package/app** va avea propriul `tsconfig.json` care extinde `tsconfig.base.json`
 * **ESM Contract:** Fișierul `package.json` al fiecărui package are `"type": "module"` și `"exports"` explicite
 
-> **Notă:** Folosim exclusiv **TypeScript ^5.9.0** - versiunea stabilă curentă (decembrie 2025).
+> **Notă:** Folosim exclusiv **TypeScript ^5.9.3** - versiunea stabilă curentă (decembrie 2025).
 
 ### **1.3. Standardizare Git Hooks**
 

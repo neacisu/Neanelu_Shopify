@@ -6,7 +6,7 @@
 ![Node.js](https://img.shields.io/badge/Node.js-v24_LTS-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18.1-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
 ![Redis](https://img.shields.io/badge/Redis-8.4-DC382D?style=for-the-badge&logo=redis&logoColor=white)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.9.3-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
 ![pnpm](https://img.shields.io/badge/pnpm-10+-F69220?style=for-the-badge&logo=pnpm&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 
@@ -150,7 +150,7 @@ docker compose ps
 | Technology     | Version           | Purpose                                     |
 | -------------- | ----------------- | ------------------------------------------- |
 | **Node.js**    | v24 LTS (Krypton) | Server runtime with native ESM, test runner |
-| **TypeScript** | 5.9.x             | Type safety, modern decorators              |
+| **TypeScript** | 5.9.3             | Type safety, modern decorators              |
 | **pnpm**       | 10.x              | Package manager with workspace support      |
 
 ### Data Layer

@@ -36,13 +36,16 @@
 ### Table: `shops`
 
 | Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
+| -------- | ------ | ------------- | ------------- |
 | id | UUID | PK DEFAULT uuidv7() | Shop identifier |
 | shopify_domain | CITEXT | UNIQUE NOT NULL | myshop.myshopify.com |
+| shopify_shop_id | BIGINT | UNIQUE | Shopify numeric ID for API correlation |
 | plan_tier | VARCHAR(20) | NOT NULL DEFAULT 'basic' | basic/pro/enterprise |
+| api_version | VARCHAR(20) | DEFAULT '2025-10' | Current Shopify API version |
 | access_token_ciphertext | BYTEA | NOT NULL | AES-256-GCM encrypted |
 | access_token_iv | BYTEA | NOT NULL | Initialization vector |
 | access_token_tag | BYTEA | NOT NULL | Auth tag |
+| webhook_secret | BYTEA | | HMAC validation key for webhooks |
 | key_version | INTEGER | NOT NULL DEFAULT 1 | Key rotation version |
 | scopes | TEXT[] | NOT NULL | Granted OAuth scopes |
 | settings | JSONB | DEFAULT '{}' | Shop-level config |
@@ -570,6 +573,9 @@
 | query_type | VARCHAR(50) | | GraphQL query type |
 | status | VARCHAR(20) | NOT NULL DEFAULT 'pending' | pending/running/completed/failed |
 | shopify_operation_id | VARCHAR(100) | | Shopify bulk op GID |
+| api_version | VARCHAR(20) | | Shopify API version used |
+| polling_url | TEXT | | Bulk operation status URL |
+| result_url | TEXT | | Signed JSONL download URL (TTL 7d) |
 | idempotency_key | VARCHAR(100) | UNIQUE | Prevent duplicates |
 | cursor_state | JSONB | | Pagination state |
 | started_at | TIMESTAMPTZ | | |
@@ -2195,6 +2201,32 @@ CREATE INDEX idx_embeddings_vector ON prod_embeddings
 
 -- At query time: SET hnsw.ef_search = 100;
 ```
+
+### High-Velocity Performance Indexes (P1.3)
+
+> **Added 2025-12-25** - Indexes for common query patterns identified in audit
+
+```sql
+-- Inventory ledger (high-velocity tracking)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ledger_shop_variant_date 
+    ON inventory_ledger(shop_id, variant_id, recorded_at DESC);
+
+-- Orders (processed filter for analytics)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_orders_processed 
+    ON shopify_orders(shop_id, processed_at DESC) 
+    WHERE processed_at IS NOT NULL;
+
+-- Audit logs (investigation queries by actor)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_actor 
+    ON audit_logs(actor_type, actor_id);
+
+-- Embeddings (dedup queries for current combined type)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_embeddings_product_current 
+    ON prod_embeddings(product_id) 
+    WHERE embedding_type = 'combined';
+```
+
+> **Note:** Use `CONCURRENTLY` to avoid table locks in production.
 
 ---
 
