@@ -123,7 +123,7 @@ Fișierul pnpm-workspace.yaml utilizează funcționalitatea **Catalogs**, introd
     `react-dom: ^19.0.0`  
   `shopify:`  
     `"@shopify/shopify-api": ^12.1.0`  
-    `"@shopify/shopify-app-express": ^6.0.4`  
+    # NOTĂ: NU folosim @shopify/shopify-app-express - backend-ul folosește Fastify >=5.6.2  
     `"@shopify/app-bridge-react": ^4.2.8`
 
 Această configurare garantează că atât frontend-ul cât și orice pachet UI partajat folosesc exact aceeași versiune de React, evitând erorile de "Invalid Hook Call" cauzate de multiple instanțe de React în bundle.
@@ -205,8 +205,9 @@ Sistemul este complet instrumentat pentru a detecta blocajele și a monitoriza p
 **Dependențe:**
 
 - **@opentelemetry/sdk-node:** Versiunea **^0.208.0**.  
-- **@opentelemetry/auto-instrumentations-node:** Pentru tracing automat al modulelor http, pg, ioredis, express (versiunea **^0.56.0**).  
-- **@opentelemetry/exporter-trace-otlp-http:** Pentru exportul datelor către un backend de monitorizare (ex. Jaeger, Grafana Tempo).
+- **@opentelemetry/auto-instrumentations-node:** Pentru tracing automat al modulelor http, pg, ioredis, **fastify** (versiunea **^0.56.0**).  
+- **@opentelemetry/exporter-trace-otlp-http:** Pentru exportul datelor către un backend de monitorizare (ex. Jaeger, Grafana Tempo).  
+- **@fastify/otel:** Plugin oficial pentru integrarea OpenTelemetry cu Fastify.
 
 ## **5\. Stack-ul Tehnologic Frontend: Era Convergenței React Router 7**
 

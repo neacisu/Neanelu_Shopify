@@ -13,7 +13,7 @@ services:
   # ============================================
   db:
     ports:
-      - '5432:5432'
+      - '65010:5432'
     environment:
       # Log toate statement-urile în dev pentru debugging
       POSTGRES_HOST_AUTH_METHOD: scram-sha-256
@@ -35,7 +35,7 @@ services:
   # ============================================
   redis:
     ports:
-      - '6379:6379'
+      - '65011:6379'
 
   # ============================================
   # Jaeger - Development Override
@@ -43,13 +43,13 @@ services:
   jaeger:
     ports:
       # UI Web Jaeger
-      - '16686:16686'
+      - '65020:16686'
       # OTLP gRPC
-      - '4317:4317'
+      - '65021:4317'
       # OTLP HTTP
-      - '4318:4318'
+      - '65022:4318'
       # Zipkin (pentru compatibilitate)
-      - '9411:9411'
+      - '65023:9411'
 
   # ============================================
   # pgAdmin 4 - GUI pentru PostgreSQL (opțional, doar dev)
@@ -59,7 +59,7 @@ services:
     container_name: neanelu_pgadmin
     restart: unless-stopped
     ports:
-      - '5050:80'
+      - '65030:80'
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
@@ -80,7 +80,7 @@ services:
     container_name: neanelu_redisinsight
     restart: unless-stopped
     ports:
-      - '5540:5540'
+      - '65031:5540'
     volumes:
       - redisinsight_data:/data
     networks:

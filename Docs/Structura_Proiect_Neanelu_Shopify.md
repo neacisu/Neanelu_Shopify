@@ -138,12 +138,24 @@ Interfața admin embedded în Shopify.
 * /app  
   * /routes (File-based routing RR7)  
     * \_index.tsx (Dashboard principal)  
-    * app.products.tsx (Lista produse virtuale)  
+    * app.products.tsx (Lista produse)  
+    * app.queues.tsx (Monitor cozi)  
+    * app.ingestion.tsx (Control ingestie)  
+    * app.search.tsx (AI Search Playground)  
+    * app.settings.tsx (Configurări)  
   * /components  
-    * /polaris-wrappers (Componente native Polaris Web Components)  
+    * /polaris (Wrappers Polaris Web Components 2025-10)  
+    * /domain (Componente specifice: JobsTable, ProductCard, MetricsCharts)  
+    * /layout (AppShell, Navigation, Breadcrumbs, PageHeader)  
+    * /forms (FieldError, FormErrorSummary, validation patterns)  
+    * /errors (ErrorBoundary, SafeComponent, error pages)  
+  * /hooks (Custom hooks: useJobPolling, useRecentSearches, useLogStream)  
+  * /utils (Helpers: api-error.ts, export-helpers.ts)  
   * /shopify.server.ts (Configurare App Bridge Backend)  
+* /e2e (Teste Playwright - critical paths)  
 * /public (Assets statice)  
-* vite.config.ts (Configurare Vite cu plugin-uri Shopify și RR7)
+* vite.config.ts (Configurare Vite cu plugin-uri Shopify și RR7)  
+* vitest.config.ts (Configurare Vitest pentru component testing)
 
 ### **⚙️ /apps/backend-worker (Procesor Asincron \- Node.js v24)**
 
@@ -268,7 +280,7 @@ Interfața admin embedded în Shopify.
 `/**`  
  `* Configurare OpenTelemetry pentru Node.js v24.`  
  `* Instrumentare automată pentru:`  
- `* - Http / Express`  
+ `* - Http / Fastify (NU Express)`  
  `* - PostgreSQL (pg)`  
  `* - Redis (ioredis)`  
  `* - BullMQ`  

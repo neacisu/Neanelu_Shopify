@@ -41,7 +41,7 @@ jobs:
           POSTGRES_PASSWORD: test
           POSTGRES_DB: test_db
         ports:
-          - 5432:5432
+          - 65010:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -52,7 +52,7 @@ jobs:
       redis:
         image: redis:8-alpine
         ports:
-          - 6379:6379
+          - 65011:6379
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
@@ -88,8 +88,8 @@ jobs:
       - name: Run Tests
         run: pnpm test
         env:
-          DATABASE_URL: postgresql://test:test@localhost:5432/test_db
-          REDIS_URL: redis://localhost:6379
+          DATABASE_URL: postgresql://test:test@localhost:65010/test_db
+          REDIS_URL: redis://localhost:65011
           NODE_ENV: test
 
       # Upload test results for debugging

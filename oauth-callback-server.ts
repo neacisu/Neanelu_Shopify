@@ -2,7 +2,7 @@ import http from 'http';
 import url from 'url';
 import 'dotenv/config';
 
-const PORT = 30001;
+const PORT = 65001;
 const CLIENT_ID = process.env['SHOPIFY_CLIENT_ID'];
 const SHOP_DOMAIN = process.env['SHOPIFY_SHOP_DOMAIN'];
 const REDIRECT_URI = process.env['SHOPIFY_REDIRECT_URI'];

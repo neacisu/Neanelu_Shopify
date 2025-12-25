@@ -2,7 +2,7 @@
 
 **Data:** 23 Decembrie 2025
 **Nivel Detaliu:** Exhaustiv (UI/UX Elements, Copy, States)
-**Stack:** Vite 7.3, React Router v7, shadcn/ui 3.6, Tailwind v4, Lucide React Icons
+**Stack:** Vite 7.3, React Router v7, Polaris Web Components 2025-10, Tailwind v4, Lucide React Icons 0.562.0
 
 ---
 
@@ -195,7 +195,7 @@ Fiecare card are: Titlu (text-muted), Valoare (text-2xl bold), Icon (dreapta-sus
 
 ---
 
-## 6. Componente UI (shadcn/ui setup)
+## 6. Componente UI (Polaris Web Components 2025-10 setup)
 
 Primitivele care vor fi instalate și customizate în `apps/web-admin/components/ui/`:
 

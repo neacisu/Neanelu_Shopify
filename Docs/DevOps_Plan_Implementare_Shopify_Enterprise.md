@@ -135,9 +135,9 @@ Pentru a susține volumul de 1M+ SKU și procesarea asincronă, arhitectura de p
 * **Docker Health Check Configuration (Prod):**
   * **API Server:**
 
-    ```yaml
+  ```yaml
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health/ready"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:65000/health/ready"]
       interval: 15s
       timeout: 5s
       retries: 3

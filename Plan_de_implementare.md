@@ -347,7 +347,7 @@ Obiectiv: Stabilirea mediului de lucru și a convențiilor standard (versiuni pl
     {
         "id_task": "F0.2.7.1",
         "denumire_task": "Creare fișier .env.example COMPLET pentru gestionarea secretelor - OBLIGATORIU",
-        "descriere_task": "Creează fișierul `.env.example` la rădăcina proiectului care listează TOATE variabilele de mediu necesare conform DevOps_Plan_Implementare_Shopify_Enterprise.md, cu valori placeholder. Acest fișier SE COMITE în Git și servește ca șablon pentru `.env` (care NU se comite).\n\nConținut **COMPLET** obligatoriu:\n```\n# ============================================\n# DATABASE (PostgreSQL 18.1)\n# ============================================\nDATABASE_URL=postgresql://user:password@localhost:5432/neanelu_shopify\nDB_POOL_SIZE=10\n\n# ============================================\n# REDIS 8.4\n# ============================================\nREDIS_URL=redis://localhost:6379\n\n# ============================================\n# SHOPIFY API\n# ============================================\nSHOPIFY_API_KEY=your_api_key_here\nSHOPIFY_API_SECRET=your_api_secret_here\nSCOPES=read_products,write_products,read_orders\n\n# ============================================\n# BULLMQ PRO (registry privat + runtime)\n# ============================================\nNPM_TASKFORCESH_TOKEN=your_bullmq_pro_npm_token\nBULLMQ_PRO_TOKEN=your_bullmq_pro_license_token\n\n# ============================================\n# OPENAI / AI ENGINE\n# ============================================\nOPENAI_API_KEY=your_openai_api_key\n\n# ============================================\n# SECURITY & ENCRYPTION\n# ============================================\nENCRYPTION_KEY_256=your_32_byte_hex_key_here\n\n# ============================================\n# APPLICATION\n# ============================================\nAPP_HOST=https://localhost:3000\nNODE_ENV=development\nLOG_LEVEL=debug\n\n# ============================================\n# OBSERVABILITY (OpenTelemetry)\n# ============================================\nOTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318\nOTEL_SERVICE_NAME=neanelu-shopify\n```\n\nDe asemenea, confirmă că `.env` este în `.gitignore`.\n\n**Notă pentru staging/prod:** Aceste valori vor fi injectate din OpenBAO (self-hosted, Docker) prin mecanismul de deploy (OpenBAO Agent template → env-file pe host → docker compose --env-file). CI doar declanșează deploy-ul; nu ținem secrete în repo/imagini.",
+        "descriere_task": "Creează fișierul `.env.example` la rădăcina proiectului care listează TOATE variabilele de mediu necesare conform DevOps_Plan_Implementare_Shopify_Enterprise.md, cu valori placeholder. Acest fișier SE COMITE în Git și servește ca șablon pentru `.env` (care NU se comite).\n\nConținut **COMPLET** obligatoriu:\n```\n# ============================================\n# DATABASE (PostgreSQL 18.1)\n# ============================================\nDATABASE_URL=postgresql://user:password@localhost:65010/neanelu_shopify\nDB_POOL_SIZE=10\n\n# ============================================\n# REDIS 8.4\n# ============================================\nREDIS_URL=redis://localhost:65011\n\n# ============================================\n# SHOPIFY API\n# ============================================\nSHOPIFY_API_KEY=your_api_key_here\nSHOPIFY_API_SECRET=your_api_secret_here\nSCOPES=read_products,write_products,read_orders\n\n# ============================================\n# BULLMQ PRO (registry privat + runtime)\n# ============================================\nNPM_TASKFORCESH_TOKEN=your_bullmq_pro_npm_token\nBULLMQ_PRO_TOKEN=your_bullmq_pro_license_token\n\n# ============================================\n# OPENAI / AI ENGINE\n# ============================================\nOPENAI_API_KEY=your_openai_api_key\n\n# ============================================\n# SECURITY & ENCRYPTION\n# ============================================\nENCRYPTION_KEY_256=your_32_byte_hex_key_here\n\n# ============================================\n# APPLICATION\n# ============================================\nAPP_HOST=https://localhost:65000\nNODE_ENV=development\nLOG_LEVEL=debug\n\n# ============================================\n# OBSERVABILITY (OpenTelemetry)\n# ============================================\nOTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:65022\nOTEL_SERVICE_NAME=neanelu-shopify\n```\n\nDe asemenea, confirmă că `.env` este în `.gitignore`.\n\n**Notă pentru staging/prod:** Aceste valori vor fi injectate din OpenBAO (self-hosted, Docker) prin mecanismul de deploy (OpenBAO Agent template → env-file pe host → docker compose --env-file). CI doar declanșează deploy-ul; nu ținem secrete în repo/imagini.",
         "cale_implementare": "/Neanelu_Shopify/.env.example",
         "contextul_anterior": "Fișierul package.json este configurat. CONFORM standardelor DevOps din documentația proiectului, .env.example TREBUIE să existe înainte de primul commit pentru a permite onboarding reproductibil și CI funcțional.",
         "validare_task": "Verifică existența `.env.example` și că include TOATE variabilele obligatorii: DATABASE_URL, REDIS_URL, SHOPIFY_*, NPM_TASKFORCESH_TOKEN, BULLMQ_PRO_TOKEN, OPENAI_API_KEY, ENCRYPTION_KEY_256, APP_HOST, OTEL_EXPORTER_OTLP_ENDPOINT. Confirmă că `.env` apare în `.gitignore`.",
@@ -612,7 +612,7 @@ Obiectiv: Configurarea mediului local de dezvoltare într-un mod reproductibil �
     {
         "id_task": "F1.2.2",
         "denumire_task": "Definire serviciu Postgres (docker-compose base + dev override)",
-        "descriere_task": "Creează `docker-compose.yml` (setări comune) și `docker-compose.dev.yml` (override local). În fișierul base definește serviciul `db` cu imaginea `postgres:18.1-alpine`, volum named și rețea. În override adaugă mapările de port (ex: `5432:5432`) și environment cu referințe din `.env` (POSTGRES_USER/PASSWORD/DB). Astfel, fișierul base rămâne neutru, iar specificul dev stă în override.",
+        "descriere_task": "Creează `docker-compose.yml` (setări comune) și `docker-compose.dev.yml` (override local). În fișierul base definește serviciul `db` cu imaginea `postgres:18.1-alpine`, volum named și rețea. În override adaugă mapările de port (ex: `65010:5432`) și environment cu referințe din `.env` (POSTGRES_USER/PASSWORD/DB). Astfel, fișierul base rămâne neutru, iar specificul dev stă în override.",
         "cale_implementare": "/Neanelu_Shopify/docker-compose.yml (base) și /Neanelu_Shopify/docker-compose.dev.yml (override) — serviciul db",
         "contextul_anterior": "Fișierul .env este pregătit cu variabilele necesare. Începem să definim serviciile containerizate cu separare clară base vs. dev override.",
         "validare_task": "Deschide `docker-compose.yml` și `docker-compose.dev.yml` și verifică secțiunea `db`. Rulează `docker compose -f docker-compose.yml -f docker-compose.dev.yml config` pentru a valida configurația combinată și volumul named.",
@@ -623,21 +623,21 @@ Obiectiv: Configurarea mediului local de dezvoltare într-un mod reproductibil �
     {
         "id_task": "F1.2.3",
         "denumire_task": "Definire serviciu Redis 8.4 (base + dev override)",
-        "descriere_task": "În `docker-compose.yml` (base) adaugă serviciul `redis` cu imagine `redis:8.4` și volum named. În `docker-compose.dev.yml` mapează porturile `6379:6379`. Modulele RedisJSON/RediSearch sunt incluse nativ în Redis 8.4 (nu mai e nevoie de redis-stack).",
+        "descriere_task": "În `docker-compose.yml` (base) adaugă serviciul `redis` cu imagine `redis:8.4` și volum named. În `docker-compose.dev.yml` mapează porturile `65011:6379`. Modulele RedisJSON/RediSearch sunt incluse nativ în Redis 8.4 (nu mai e nevoie de redis-stack).",
         "cale_implementare": "/Neanelu_Shopify/docker-compose.yml și /Neanelu_Shopify/docker-compose.dev.yml (serviciul redis)",
         "contextul_anterior": "Serviciul de bază de date este definit. Următorul serviciu extern este Redis 8.4 pentru cozi, cache și vector search.",
         "validare_task": "Rulează `docker compose -f docker-compose.yml -f docker-compose.dev.yml config` și verifică secțiunea `redis:` (imagine, porturi, volume). Confirmă că volumul named este în secțiunea globală `volumes:`.",
         "outcome_task": "Redis 8.4 este definit cu un fișier base și override dev, păstrând consistența și expunând porturile doar în dev.",
-        "restrictii_antihalucinatie": "Folosește imaginea `redis:8.4` (NU redis-stack care e deprecated Dec 2025). Redis 8.4 include nativ RediSearch/RedisJSON. Nu omite maparea portului 6379."
+        "restrictii_antihalucinatie": "Folosește imaginea `redis:8.4` (NU redis-stack care e deprecated Dec 2025). Redis 8.4 include nativ RediSearch/RedisJSON. Nu omite maparea portului 65011:6379."
     },
 
     {
         "id_task": "F1.2.4",
         "denumire_task": "Definire serviciu Jaeger (base + dev override)",
-        "descriere_task": "Adaugă serviciul `jaeger` în `docker-compose.yml` (base) cu imagine `jaegertracing/all-in-one:1.41`. În `docker-compose.dev.yml` mapează portul UI 16686 (și 6831 dacă e nevoie). Nu sunt necesare variabile custom în dev; all-in-one are configurare implicită.",
+        "descriere_task": "Adaugă serviciul `jaeger` în `docker-compose.yml` (base) cu imagine `jaegertracing/all-in-one:1.41`. În `docker-compose.dev.yml` mapează portul UI 65020:16686 (și 6831 dacă e nevoie). Nu sunt necesare variabile custom în dev; all-in-one are configurare implicită.",
         "cale_implementare": "/Neanelu_Shopify/docker-compose.yml și /Neanelu_Shopify/docker-compose.dev.yml (serviciul jaeger)",
         "contextul_anterior": "Pe lângă DB și cache, sistemul de observabilitate prin tracing este dorit. Definim Jaeger cu separare base/override pentru consistență între medii.",
-        "validare_task": "Rulează `docker compose -f docker-compose.yml -f docker-compose.dev.yml config` și verifică secțiunea `jaeger:` (imagine și porturi). După start, confirmă UI pe http://localhost:16686.",
+        "validare_task": "Rulează `docker compose -f docker-compose.yml -f docker-compose.dev.yml config` și verifică secțiunea `jaeger:` (imagine și porturi). După start, confirmă UI pe http://localhost:65020.",
         "outcome_task": "Jaeger este definit cu fișier base + override dev, completând suita de servicii de suport pentru dezvoltare.",
         "restrictii_antihalucinatie": "Nu expune porturi nenecesare ale Jaeger (doar UI-ul și eventual receiver-ul principal). Nu utiliza o versiune prea veche de Jaeger all-in-one; alege una modernă compatibilă cu OpenTelemetry 2025. Nu continua fără a include acest serviciu dacă monitoringul/tracing-ul este un obiectiv asumat al proiectului."
     },
@@ -656,7 +656,7 @@ Obiectiv: Configurarea mediului local de dezvoltare într-un mod reproductibil �
     {
         "id_task": "F1.2.6",
         "denumire_task": "Verificarea conectivității Postgres și Redis 8.4 (folosind docker exec - NU instalări pe host)",
-        "descriere_task": "**IMPORTANT:** Conform principiului 'nu instalăm Postgres/Redis local', verificările se fac DOAR prin containere.\n\n**1. Verificare Postgres (docker exec):**\n```bash\ndocker compose exec db psql -U shopify -d neanelu_shopify_dev -c 'SELECT 1;'\n```\nTrebuie să returneze `1` fără erori.\n\n**2. Verificare Redis 8.4 (docker exec):**\n```bash\n# PING test\ndocker compose exec redis redis-cli ping\n# Trebuie să returneze PONG\n\n# Verifică module RediSearch/RedisJSON (incluse nativ în Redis 8.4)\ndocker compose exec redis redis-cli MODULE LIST\n# Trebuie să listeze: search, ReJSON, bf (bloom filter), etc.\n\n# Alternativ, test specific RediSearch:\ndocker compose exec redis redis-cli FT._LIST\n# Returnează array gol [] (OK) sau eroare (NOK)\n```\n\n**3. (Opțional) PgAdmin pentru DX:**\nDacă echipa vrea un GUI pentru Postgres, adaugă în docker-compose.dev.yml:\n```yaml\n  pgadmin:\n    image: dpage/pgadmin4:latest\n    ports:\n      - \"5050:80\"\n    environment:\n      PGADMIN_DEFAULT_EMAIL: admin@local.dev\n      PGADMIN_DEFAULT_PASSWORD: admin\n    depends_on:\n      - db\n```\nAccesibil la http://localhost:5050",
+        "descriere_task": "**IMPORTANT:** Conform principiului 'nu instalăm Postgres/Redis local', verificările se fac DOAR prin containere.\n\n**1. Verificare Postgres (docker exec):**\n```bash\ndocker compose exec db psql -U shopify -d neanelu_shopify_dev -c 'SELECT 1;'\n```\nTrebuie să returneze `1` fără erori.\n\n**2. Verificare Redis 8.4 (docker exec):**\n```bash\n# PING test\ndocker compose exec redis redis-cli ping\n# Trebuie să returneze PONG\n\n# Verifică module RediSearch/RedisJSON (incluse nativ în Redis 8.4)\ndocker compose exec redis redis-cli MODULE LIST\n# Trebuie să listeze: search, ReJSON, bf (bloom filter), etc.\n\n# Alternativ, test specific RediSearch:\ndocker compose exec redis redis-cli FT._LIST\n# Returnează array gol [] (OK) sau eroare (NOK)\n```\n\n**3. (Opțional) PgAdmin pentru DX:**\nDacă echipa vrea un GUI pentru Postgres, adaugă în docker-compose.dev.yml:\n```yaml\n  pgadmin:\n    image: dpage/pgadmin4:latest\n    ports:\n      - \"65030:80\"\n    environment:\n      PGADMIN_DEFAULT_EMAIL: admin@local.dev\n      PGADMIN_DEFAULT_PASSWORD: admin\n    depends_on:\n      - db\n```\nAccesibil la http://localhost:65030",
         "cale_implementare": "Conexiuni prin docker exec - NU instalări pe host",
         "contextul_anterior": "Containerele sunt pornite. Trebuie să verificăm conectivitatea FĂRĂ a instala software pe host.",
         "validare_task": "Toate comenzile docker exec returnează succes. MODULE LIST include 'search' și 'ReJSON'. NU ai instalat psql sau redis-cli pe host.",
@@ -689,10 +689,10 @@ Obiectiv: Configurarea mediului local de dezvoltare într-un mod reproductibil �
     {
         "id_task": "F1.2.9",
         "denumire_task": "Pregătire infrastructură OTel (Jaeger ready + skeleton files DOAR)",
-        "descriere_task": "**NOTA:** Implementarea completă OTel vine DUPĂ ce există un backend runnable (F2). În F1 pregătim doar INFRASTRUCTURA:\n\n1. **Jaeger este deja în docker-compose** - verifică că pornește și UI-ul e accesibil pe http://localhost:16686\n\n2. **Crează skeleton files:**\n   - `packages/logger/src/index.ts` - export gol, placeholder\n   - `packages/logger/src/otel.ts` - comentariu 'OTel setup va fi implementat în F2'\n\n3. **Adaugă în .env.example** (deja făcut în F0.2.7.1):\n   - OTEL_EXPORTER_OTLP_ENDPOINT\n   - OTEL_SERVICE_NAME\n\n**NU IMPLEMENTA încă:**\n- SDK initialization\n- Trace exporters\n- Logging structurat\n\nAcestea vin în F2-F3 când există un main.ts + healthcheck.",
+        "descriere_task": "**NOTA:** Implementarea completă OTel vine DUPĂ ce există un backend runnable (F2). În F1 pregătim doar INFRASTRUCTURA:\n\n1. **Jaeger este deja în docker-compose** - verifică că pornește și UI-ul e accesibil pe http://localhost:65020\n\n2. **Crează skeleton files:**\n   - `packages/logger/src/index.ts` - export gol, placeholder\n   - `packages/logger/src/otel.ts` - comentariu 'OTel setup va fi implementat în F2'\n\n3. **Adaugă în .env.example** (deja făcut în F0.2.7.1):\n   - OTEL_EXPORTER_OTLP_ENDPOINT\n   - OTEL_SERVICE_NAME\n\n**NU IMPLEMENTA încă:**\n- SDK initialization\n- Trace exporters\n- Logging structurat\n\nAcestea vin în F2-F3 când există un main.ts + healthcheck.",
         "cale_implementare": "packages/logger/src/ (skeleton files)",
         "contextul_anterior": "Jaeger este disponibil în docker-compose. **CLARIFICARE IMPORTANTĂ:** În F1.2.9 pregătim DOAR infrastructura (Jaeger container + skeleton files pentru packages/logger). NU implementăm OTel SDK complet aici deoarece nu există încă un server care să emită span-uri. **Cronologie OTel:** F1.2.9 = infrastructură → F2 = data layer (fără OTel) → F3.1 = server Fastify → F3.4 = OTel SDK complet cu tracing HTTP/webhooks.",
-        "validare_task": "Verifică că Jaeger UI (http://localhost:16686) funcționează. Verifică existența skeleton-urilor în packages/logger/src/. NU aștepta span-uri - ele vor apărea în F2.",
+        "validare_task": "Verifică că Jaeger UI (http://localhost:65020) funcționează. Verifică existența skeleton-urilor în packages/logger/src/. NU aștepta span-uri - ele vor apărea în F2.",
         "outcome_task": "Infrastructura de observabilitate (Jaeger) e pregătită. Skeleton-ul logger + OTel eșafodat, gata pentru implementare în F2.",
         "restrictii_antihalucinatie": "NU încerca să implementezi OTel complet acum - nu ai încă un server care să-l folosească. NU pierde timp cu sampling/tracing fără cod care să emită span-uri."
     }
@@ -1274,6 +1274,16 @@ Obiectiv: Server HTTP, OAuth offline complet, webhooks ingress cu enqueue minim,
     ```JSON
     [
     {
+        "id_task": "F3.5.0.1",
+        "denumire_task": "Design System Tokens în tailwind.config.ts",
+        "descriere_task": "Definire design tokens: colors (primary, success, warning, error, muted), spacing scale (4/8/12/16/24/32/48/64px), typography scale (h1-h6, body, caption, mono), border-radius, shadows. Export ca CSS variables pentru refolosire în componente Polaris.",
+        "cale_implementare": "/apps/web-admin/tailwind.config.ts, /apps/web-admin/app/globals.css",
+        "contextul_anterior": "Workspace Vite/Tailwind v4 instalat.",
+        "validare_task": "CSS variables exportate și folosite în cel puțin o componentă test.",
+        "outcome_task": "Design system tokens centralizate și reutilizabile.",
+        "restrictii_antihalucinatie": "NU defini culori hardcodate în componente. Toate valorile vin din tokens. P0 - BLOCKER."
+    },
+    {
         "id_task": "F3.5.1",
         "denumire_task": "Setup Workspace: Vite 7.3 & React Router v7",
         "descriere_task": "Inițializează proiectul `apps/web-admin`. Setup package.json cu `react`, `react-dom`, `@shopify/shopify-app-react-router`, `lucide-react`. Configurare `vite.config.ts` cu server proxy (/api -> backend) și plugin Shopify HMR. Configurare `tsconfig.json` cu path aliases (@/*).",
@@ -1285,13 +1295,13 @@ Obiectiv: Server HTTP, OAuth offline complet, webhooks ingress cu enqueue minim,
     },
     {
         "id_task": "F3.5.2",
-        "denumire_task": "Instalare Primitives shadcn/ui & Tailwind v4",
-        "descriere_task": "Instalează Tailwind v4. Rulare init shadcn. Instalează TOATE primitivele: `button`, `badge`, `card`, `input`, `textarea`, `select`, `table`, `progress`, `dialog`, `alert-dialog`, `tabs`, `skeleton`, `tooltip`, `scroll-area`, `sonner` (toast).",
-        "cale_implementare": "/apps/web-admin/components/ui/*",
+        "denumire_task": "Instalare Polaris Web Components 2025-10 & Tailwind v4",
+        "descriere_task": "Instalează Tailwind v4. Instalează @shopify/polaris-web-components@2025-10. Configurează componentele Polaris: `polaris-button`, `polaris-badge`, `polaris-card`, `polaris-text-field`, `polaris-select`, `polaris-data-table`, `polaris-progress-bar`, `polaris-modal`, `polaris-tabs`, `polaris-skeleton`, `polaris-tooltip`, `polaris-toast`.",
+        "cale_implementare": "/apps/web-admin/components/polaris/*",
         "contextul_anterior": "Workspace gata.",
-        "validare_task": "Folder components/ui populat.",
-        "outcome_task": "Component library complet.",
-        "restrictii_antihalucinatie": "Nu amâna instalarea componentelor."
+        "validare_task": "Folder components/polaris populat, componente Polaris importabile.",
+        "outcome_task": "Component library Polaris complet.",
+        "restrictii_antihalucinatie": "Folosește EXCLUSIV Polaris Web Components."
     },
     {
         "id_task": "F3.5.3",
@@ -1312,6 +1322,301 @@ Obiectiv: Server HTTP, OAuth offline complet, webhooks ingress cu enqueue minim,
         "validare_task": "Vizualizare Dashboard corectă.",
         "outcome_task": "Prima pagină UI.",
         "restrictii_antihalucinatie": "Folosește grid layout responsive."
+    },
+    {
+        "id_task": "F3.5.5",
+        "denumire_task": "Layout Shell (AppShell component)",
+        "descriere_task": "Sidebar fix 280px cu navigation, Header cu shop selector + user menu, Main content area cu scroll. Mobile: hamburger menu. Responsive breakpoints: sm (640px), md (768px), lg (1024px), xl (1280px).",
+        "cale_implementare": "/apps/web-admin/app/components/layout/app-shell.tsx",
+        "contextul_anterior": "Design tokens definiți.",
+        "validare_task": "Layout funcționează pe toate breakpoints, sidebar se ascunde pe mobile.",
+        "outcome_task": "App shell responsive complet.",
+        "restrictii_antihalucinatie": "Folosește CSS Grid/Flexbox, NU fixed positioning pentru layout principal."
+    },
+    {
+        "id_task": "F3.5.6",
+        "denumire_task": "Navigation System (NavLink, Breadcrumbs)",
+        "descriere_task": "NavLink cu active state (background, border-left indicator), icons per route (folosește Lucide). Breadcrumbs component pentru navigare contextuală. useLocation() pentru highlighting. Integrare cu React Router v7.",
+        "cale_implementare": "/apps/web-admin/app/components/layout/nav-link.tsx, /apps/web-admin/app/components/layout/breadcrumbs.tsx",
+        "contextul_anterior": "AppShell există.",
+        "validare_task": "Navigarea funcționează, active state vizibil, breadcrumbs se actualizează per route.",
+        "outcome_task": "Sistem de navigare complet cu feedback vizual.",
+        "restrictii_antihalucinatie": "NU folosesc window.location pentru navigare - doar React Router hooks."
+    },
+    {
+        "id_task": "F3.5.7",
+        "denumire_task": "Error Boundaries + Error Pages (404, 500, Offline)",
+        "descriere_task": "React Router errorElement la nivel root și nested routes. Pagini dedicate: 404 (ilustrație, mesaj, link Home), 500 (retry button cu revalidare), Offline (detectare navigator.onLine cu event listeners).",
+        "cale_implementare": "/apps/web-admin/app/components/errors/, /apps/web-admin/app/routes/",
+        "contextul_anterior": "Navigare funcțională.",
+        "validare_task": "Forțează erori și verifică afișarea paginilor corespunzătoare.",
+        "outcome_task": "Error handling robust la nivel de aplicație.",
+        "restrictii_antihalucinatie": "NU afișa stack traces în producție. Logging erori către backend/OTel."
+    },
+    {
+        "id_task": "F3.5.7.1",
+        "denumire_task": "API Error Handling Pattern (loaders/actions)",
+        "descriere_task": "Definire pattern consistent pentru error handling în React Router v7 loaders și actions:\n\n**1. Loader Error Pattern:**\n- try/catch în loader\n- ApiError class cu status, message, retryable\n- throw new Response('Not Found', { status: 404 }) pentru 404\n- throw new Response('Internal Error', { status: 500 }) pentru erori neașteptate\n\n**2. Action Error Pattern (Form Mutations):**\n- return json({ errors: result.errors }, { status: 400 }) pentru validation errors\n- Preserve form state la eroare\n\n**3. Componente helper:**\n- ApiError class în /utils/api-error.ts\n- handleApiError() utility centralizat\n- useRouteError() + isRouteErrorResponse() pattern",
+        "cale_implementare": "/apps/web-admin/app/utils/api-error.ts, /apps/web-admin/app/components/errors/error-list.tsx",
+        "contextul_anterior": "F3.5.7 definește Error Boundaries pentru route errors. Acum extindem la API errors în loaders/actions.",
+        "validare_task": "Simulează eroare API în loader -> afișează error page. Simulează validation error în action -> afișează inline errors fără pierdere form state.",
+        "outcome_task": "Pattern consistent și reutilizabil pentru toate erorile API.",
+        "restrictii_antihalucinatie": "NU folosesc try/catch în componente React pentru fetch - DOAR în loaders/actions. Erorile neașteptate TREBUIE să ajungă la error boundary."
+    },
+    {
+        "id_task": "F3.5.7.2",
+        "denumire_task": "Form Validation Error Display Components",
+        "descriere_task": "Implementare componente pentru afișarea erorilor de validare în formulare:\n\n**1. FieldError component:**\n- Props: name, errors (Record<string, string[]>)\n- Afișează prima eroare pentru câmpul respectiv\n- role='alert' pentru a11y\n\n**2. FormErrorSummary:**\n- Polaris Banner status='critical'\n- Listează toate erorile din formular\n- Afișat deasupra formularului\n\n**3. Integrare cu useActionData + useFetcher:**\n- Preserve form state la eroare (nu reset)\n- Focus pe primul câmp cu eroare (a11y)\n- aria-describedby link între input și error message\n\n**4. Zod integration:**\n- Folosește Zod pentru validare (consistent cu backend)\n- z.object().safeParse() în action",
+        "cale_implementare": "/apps/web-admin/app/components/forms/field-error.tsx, form-error-summary.tsx",
+        "contextul_anterior": "F3.5.7.1 definește pattern pentru returnarea erorilor din actions.",
+        "validare_task": "Submit formular cu date invalide -> erori afișate inline, focus pe primul câmp invalid, form state preserved.",
+        "outcome_task": "UX consistent pentru validation errors în toate formularele.",
+        "restrictii_antihalucinatie": "NU folosesc state local pentru erori - erorile VIN din actionData. Zod pentru validation (consistent cu backend)."
+    },
+    {
+        "id_task": "F3.5.7.3",
+        "denumire_task": "Graceful Degradation Strategy (Component-level fallbacks)",
+        "descriere_task": "Implementare strategie de degradare grațioasă pentru componente non-critice:\n\n**1. SafeComponent wrapper (react-error-boundary):**\n- Fallback UI pentru componente izolate\n- onError callback pentru logging la OTel\n- Reset error state button\n\n**2. ComponentErrorFallback UI:**\n- Card cu mesaj 'Această secțiune nu a putut fi încărcată'\n- Buton 'Reîncearcă' care face reset error boundary\n- NU afișează stack trace în producție\n\n**3. Aplicare pe secțiuni izolate:**\n- Charts/grafice (pot eșua fără a bloca pagina)\n- Widget-uri third-party\n- Secțiuni opționale din dashboard\n\n**4. Document componente critice vs graceful:**\n- Critice: Navigation, Forms, Auth -> eroare = pagină completă\n- Graceful: Charts, Metrics, Activity Feed -> eroare = fallback inline",
+        "cale_implementare": "/apps/web-admin/app/components/errors/safe-component.tsx, component-error-fallback.tsx",
+        "contextul_anterior": "F3.5.7 și F3.5.7.1-2 acoperă route-level și form errors. Acum adăugăm component-level isolation.",
+        "validare_task": "Forțează crash într-un chart -> doar chart-ul afișează fallback, restul paginii funcționează.",
+        "outcome_task": "Reziliență la nivel de componentă, experiență utilizator neîntreruptă.",
+        "restrictii_antihalucinatie": "NU aplicați SafeComponent pe TOTUL - doar pe secțiuni izolate. Erorile critice TREBUIE să ajungă la route error boundary."
+    },
+    {
+        "id_task": "F3.5.8",
+        "denumire_task": "Setup Vitest + Testing Library pentru component testing",
+        "descriere_task": "Configurare vitest.config.ts cu jsdom environment. Instalare @testing-library/react, @testing-library/user-event. Setup file cu custom render (providers wrapper pentru Context/Router). Minim 1 test per component Polaris wrapped.",
+        "cale_implementare": "/apps/web-admin/vitest.config.ts, /apps/web-admin/src/__tests__/",
+        "contextul_anterior": "Componente UI există.",
+        "validare_task": "pnpm -w run test:frontend trece fără erori.",
+        "outcome_task": "Infrastructură de testing pregătită.",
+        "restrictii_antihalucinatie": "NU folosim Jest în frontend - doar Vitest. Tests se rulează în CI."
+    },
+    {
+        "id_task": "F3.5.9",
+        "denumire_task": "TypeScript types shared (@app/types package)",
+        "descriere_task": "Creare packages/types cu: API response types (PaginatedResponse, ErrorResponse), Job/Queue types, Product/Variant types, User/Shop types. Export din package, import în frontend și backend.",
+        "cale_implementare": "/Neanelu_Shopify/packages/types/src/",
+        "contextul_anterior": "Monorepo configurat cu pnpm workspaces.",
+        "validare_task": "Import din @app/types funcționează în ambele apps (backend + frontend).",
+        "outcome_task": "Single source of truth pentru tipuri partajate.",
+        "restrictii_antihalucinatie": "NU duplica tipuri între apps. Toate tipurile comune merg în @app/types."
+    },
+    {
+        "id_task": "F3.5.10",
+        "denumire_task": "API Client setup (fetch wrapper, interceptors, error handling)",
+        "descriere_task": "Wrapper peste fetch cu: base URL config din env, auth header injection (Shopify session token), response type parsing, error normalization. Hook useApiClient() pentru React cu loading/error states.",
+        "cale_implementare": "/apps/web-admin/app/lib/api-client.ts, /apps/web-admin/app/hooks/use-api.ts",
+        "contextul_anterior": "@app/types definite.",
+        "validare_task": "Request către /api/health funcționează cu auth header.",
+        "outcome_task": "Comunicare frontend-backend standardizată.",
+        "restrictii_antihalucinatie": "NU face fetch direct în componente - folosește hooks/loaders."
+    },
+    {
+        "id_task": "F3.5.11",
+        "denumire_task": "Loading/Error/Empty State components (pattern library)",
+        "descriere_task": "Componente reutilizabile: <LoadingState /> (skeleton sau spinner), <ErrorState message retryFn />, <EmptyState icon title description action />. Folosite consistent în toate paginile.",
+        "cale_implementare": "/apps/web-admin/app/components/patterns/",
+        "contextul_anterior": "Componente UI primitive există.",
+        "validare_task": "Fiecare pagină folosește aceste componente pentru cele 3 stări.",
+        "outcome_task": "Pattern library pentru stări de încărcare.",
+        "restrictii_antihalucinatie": "NU implementa loading/error inline în fiecare pagină - refolosește componente."
+    },
+    {
+        "id_task": "F3.5.12",
+        "denumire_task": "Form patterns (validation, error display, submission states)",
+        "descriere_task": "Integrare react-hook-form + zod pentru validare. FormField component cu label, input, error message. Submit button states: idle, loading (spinner), success (checkmark), error (retry).",
+        "cale_implementare": "/apps/web-admin/app/components/forms/",
+        "contextul_anterior": "Pattern components există.",
+        "validare_task": "Form de test funcționează cu validare client-side și server-side.",
+        "outcome_task": "Form handling standardizat în aplicație.",
+        "restrictii_antihalucinatie": "NU validez doar pe client - schema zod partajată cu backend."
+    },
+    {
+        "id_task": "F3.5.13",
+        "denumire_task": "Component Specification Documentation",
+        "descriere_task": "Creare și menținere document Docs/Frontend_Component_Specs.md cu specificații complete:\n\n**Per componentă:**\n- Props table (Prop, Type, Required, Default, Description)\n- States (default, hover, focus, loading, error, disabled)\n- Usage example cu cod TSX\n- Accessibility notes (ARIA, keyboard nav)\n\n**Componente documentate:**\n1. Layout: AppShell, NavLink, Breadcrumbs, PageHeader\n2. Forms: FieldError, FormErrorSummary\n3. Errors: SafeComponent, ErrorBoundary\n4. Domain: JobsTable, MetricCard, LogConsole, ProductCard\n5. Hooks: useJobPolling, useRecentSearches\n\n**Format:** Markdown cu tabele, code blocks, changelog.",
+        "cale_implementare": "Docs/Frontend_Component_Specs.md",
+        "contextul_anterior": "Componentele sunt definite în task-uri dar lipsesc specificații props/states uniformizate.",
+        "validare_task": "Documentul există, conține >15 componente cu props table, cel puțin 5 usage examples, toate hooks documentate.",
+        "outcome_task": "Catalog complet de componente cu API reference pentru dezvoltatori.",
+        "restrictii_antihalucinatie": "NU inventați componente care nu sunt în Plan. Documentați doar ce e definit în task-urile F3-F7."
+    }
+    ]
+    ```
+
+### F3.6: Dashboard Extins (Analytics & Quick Actions)
+
+    ```JSON
+    [
+    {
+        "id_task": "F3.6.1",
+        "denumire_task": "Dashboard: Grafic Timeline Activitate (ultimele 7 zile)",
+        "descriere_task": "Line chart cu Recharts arătând jobs procesate per zi. Hover tooltip cu breakdown per tip job (sync, webhook, bulk, ai-batch). Agregare date din queue-manager + Redis metrics.",
+        "cale_implementare": "/apps/web-admin/app/routes/dashboard/components/ActivityTimeline.tsx",
+        "contextul_anterior": "Dashboard de bază există din F3.5.4. BullMQ cozi definite în F4.1.",
+        "validare_task": "Chart-ul afișează date reale din ultimele 7 zile. Tooltip arată breakdown corect.",
+        "outcome_task": "Vizualizare activitate sistem cu trend zilnic.",
+        "restrictii_antihalucinatie": "NU implementa polling agresiv - max 1 request/minut. Folosește date din cache Redis.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F3.6.2",
+        "denumire_task": "Dashboard: Quick Actions Panel",
+        "descriere_task": "Butoane rapide: Start Sync (trigger manual sync job), Clear Cache (invalidează Redis cache patterns), View Logs (link către observability), Check Health (endpoint health check cu feedback visual). Confirmări modale unde e necesar (Clear Cache).",
+        "cale_implementare": "/apps/web-admin/app/routes/dashboard/components/QuickActionsPanel.tsx",
+        "contextul_anterior": "Dashboard layout există. Backend endpoints pentru sync/health există din F3.",
+        "validare_task": "Fiecare acțiune funcționează și afișează feedback (success/error toast). Clear Cache cere confirmare.",
+        "outcome_task": "Acces rapid la acțiuni comune fără navigare.",
+        "restrictii_antihalucinatie": "NU permite Clear Cache fără confirmare. Rate limit pe Start Sync (max 1/oră).",
+        "prioritate": "P3"
+    },
+    {
+        "id_task": "F3.6.3",
+        "denumire_task": "Dashboard: System Alerts Banner",
+        "descriere_task": "Banner persistent în dashboard când există probleme: Redis down, API slow (latency > 2s), Jobs backlog (> 1000 pending). Dismiss per sesiune (sessionStorage). Culori diferite per severitate (warning/critical).",
+        "cale_implementare": "/apps/web-admin/app/routes/dashboard/components/SystemAlertsBanner.tsx",
+        "contextul_anterior": "Health check endpoint există din F3.1. Observabilitate OTel din F3.4.",
+        "validare_task": "Banner apare când simulezi Redis down. Dismiss persistă în sesiune. Se reafișează la refresh dacă problema persistă.",
+        "outcome_task": "Alertare proactivă pentru administratori.",
+        "restrictii_antihalucinatie": "NU bloca UI-ul cu alerts. Max 3 alerte vizibile simultan. Polling health max 1/30s.",
+        "prioritate": "P2"
+    }
+    ]
+    ```
+
+### F3.7: Shopify Integration UI (Embedded App Foundation)
+
+    ```JSON
+    [
+    {
+        "id_task": "F3.7.1",
+        "denumire_task": "Shopify App Bridge Integration",
+        "descriere_task": "Setup @shopify/app-bridge-react. Provider în root.tsx. Title bar sync cu React Router. Redirect modal handling. Session token authentication.",
+        "cale_implementare": "/apps/web-admin/app/root.tsx + /apps/web-admin/app/shopify/",
+        "contextul_anterior": "OAuth backend gata din F3.2. Frontend layout din F3.5.",
+        "validare_task": "App se încarcă corect în iframe Shopify Admin. Titlul din Title Bar se sincronizează cu ruta curentă.",
+        "outcome_task": "Aplicația embedded funcționează nativ în Shopify Admin.",
+        "restrictii_antihalucinatie": "NU folosiți App Bridge vechi (deprecated). Versiunea trebuie să fie compatibilă cu 2025-10 API.",
+        "prioritate": "P0 - BLOCKER (embedded app)"
+    },
+    {
+        "id_task": "F3.7.2",
+        "denumire_task": "Shop Selector / Multi-shop support UI",
+        "descriere_task": "Dacă userul are acces la multiple shops: dropdown în header pentru switch. Persist selection în session. Reload data on switch.",
+        "cale_implementare": "/apps/web-admin/app/components/layout/ShopSelector.tsx",
+        "contextul_anterior": "App Bridge gata (F3.7.1). Session management din F3.2.",
+        "validare_task": "Dropdown afișează shops disponibile. Switch re-încarcă dashboard cu date din shop-ul selectat.",
+        "outcome_task": "Suport multi-shop pentru agențiile care administrează multiple magazine.",
+        "restrictii_antihalucinatie": "NU stocați shop ID în localStorage (security). Folosiți session server-side.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F3.7.3",
+        "denumire_task": "Session Token Refresh UI (auto + manual)",
+        "descriere_task": "Detectare când session token expiră. Toast warning înainte de expirare. Auto-refresh în background. Fallback: modal 'Session expired, click to refresh'.",
+        "cale_implementare": "/apps/web-admin/app/hooks/useSessionToken.ts + /apps/web-admin/app/components/SessionExpiredModal.tsx",
+        "contextul_anterior": "App Bridge provider gata (F3.7.1).",
+        "validare_task": "Warning toast apare cu 5 minute înainte de expirare. Modal apare dacă auto-refresh eșuează.",
+        "outcome_task": "UX fluid fără întreruperi de sesiune.",
+        "restrictii_antihalucinatie": "NU reîncărcați toată pagina la refresh. Folosiți App Bridge getSessionToken().",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F3.7.4",
+        "denumire_task": "OAuth Callback Handling (frontend side)",
+        "descriere_task": "Pagină /auth/callback care procesează OAuth response. Loading state, error handling, redirect to dashboard on success.",
+        "cale_implementare": "/apps/web-admin/app/routes/auth.callback.tsx",
+        "contextul_anterior": "OAuth backend gata din F3.2. App Bridge din F3.7.1.",
+        "validare_task": "Callback procesează corect success/error. Redirect la dashboard după autentificare.",
+        "outcome_task": "Flow OAuth complet pe partea de frontend.",
+        "restrictii_antihalucinatie": "NU salvați tokens în frontend. Tokens rămân server-side.",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F3.7.5",
+        "denumire_task": "Shopify Admin Redirect Link (open product in Shopify)",
+        "descriere_task": "Button/link pe product cards care deschide produsul în Shopify Admin. Folosește App Bridge pentru navigare în context.",
+        "cale_implementare": "/apps/web-admin/app/components/domain/ShopifyAdminLink.tsx",
+        "contextul_anterior": "App Bridge gata (F3.7.1). Product cards există în UI.",
+        "validare_task": "Click deschide produsul în Shopify Admin fără a părăsi iframe-ul.",
+        "outcome_task": "Navigare fluidă între aplicație și Shopify Admin.",
+        "restrictii_antihalucinatie": "Folosiți App Bridge Redirect, nu window.open.",
+        "prioritate": "P3"
+    }
+    ]
+    ```
+
+### F3.8: Data Fetching Patterns (Arhitectură Frontend)
+
+    ```JSON
+    [
+    {
+        "id_task": "F3.8.1",
+        "denumire_task": "React Router Loaders setup (server state)",
+        "descriere_task": "Definire pattern pentru loader functions în React Router v7. Type-safe cu LoaderFunctionArgs. Error handling standardizat. useLoaderData() usage patterns.",
+        "cale_implementare": "/apps/web-admin/app/routes/*.tsx + /apps/web-admin/app/utils/loaders.ts",
+        "contextul_anterior": "Arhitectura RR7 din F3.5 definește routing. Loaders sunt mecanismul primar pentru data fetching.",
+        "validare_task": "Cel puțin o rută folosește loader + useLoaderData. Errors sunt caught și afișate.",
+        "outcome_task": "Pattern consistent pentru server state în toată aplicația.",
+        "restrictii_antihalucinatie": "NU folosiți fetch direct în componente - loaders sunt single source of truth.",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F3.8.2",
+        "denumire_task": "React Router Actions setup (mutations)",
+        "descriere_task": "Pattern pentru action functions. Form handling cu <Form>. Optimistic UI updates. useActionData() + useFetcher() patterns.",
+        "cale_implementare": "/apps/web-admin/app/routes/*.tsx + /apps/web-admin/app/utils/actions.ts",
+        "contextul_anterior": "Loaders gata (F3.8.1). Actions sunt complementul pentru mutations.",
+        "validare_task": "Form submission folosește <Form> + action. Feedback vizual pe submit.",
+        "outcome_task": "Mutations consistent handled prin RR7 actions.",
+        "restrictii_antihalucinatie": "NU folosiți fetch direct pentru POST/PUT - actions sunt preferați.",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F3.8.3",
+        "denumire_task": "TanStack Query integration (sau decizie de a NU folosi)",
+        "descriere_task": "ADR: folosim TanStack Query pentru polling/real-time SAU doar loaders? Dacă DA: setup QueryClient, devtools, default options (staleTime, cacheTime). Dacă NU: documentează de ce RR7 loaders sunt suficiente.",
+        "cale_implementare": "/apps/web-admin/app/root.tsx (QueryProvider) + /apps/web-admin/app/lib/query-client.ts + ADR doc",
+        "contextul_anterior": "Loaders și Actions gata (F3.8.1-2). Decizie arhitecturală necesară pentru polling.",
+        "validare_task": "ADR documentat cu pro/contra. Dacă TanStack: devtools vizibile în development.",
+        "outcome_task": "Decizie clară și documentată pentru data fetching strategy.",
+        "restrictii_antihalucinatie": "NU adăugați TanStack Query fără justificare - loaders pot fi suficiente.",
+        "prioritate": "P1 - DECIZIE ARHITECTURALĂ"
+    },
+    {
+        "id_task": "F3.8.4",
+        "denumire_task": "Polling pattern pentru long-running operations",
+        "descriere_task": "Hook usePolling(interval, condition). Folosit pentru: job status, ingestion progress, bulk op status. Auto-stop când completed. Integrat cu TanStack Query sau custom implementation.",
+        "cale_implementare": "/apps/web-admin/app/hooks/use-polling.ts",
+        "contextul_anterior": "Decizie TanStack (F3.8.3). Jobs și ingestion au status async.",
+        "validare_task": "Job status se actualizează la interval. Polling oprește automat când job completed.",
+        "outcome_task": "Pattern reutilizabil pentru toate operațiile long-running.",
+        "restrictii_antihalucinatie": "NU faceți polling infinit - condiție de stop obligatorie. Cleanup pe unmount.",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F3.8.5",
+        "denumire_task": "Optimistic Updates pattern",
+        "descriere_task": "Pattern pentru update UI înainte de server response. Rollback on error. Folosit pentru: retry job, delete job, toggle settings. Integrat cu useFetcher() sau TanStack.",
+        "cale_implementare": "/apps/web-admin/app/hooks/use-optimistic.ts + exemple în componente",
+        "contextul_anterior": "Actions gata (F3.8.2). UX premium necesită feedback instant.",
+        "validare_task": "Click pe 'Retry' → UI se actualizează imediat. Error → rollback vizibil.",
+        "outcome_task": "UX fluid pentru acțiuni frecvente.",
+        "restrictii_antihalucinatie": "OBLIGATORIU rollback logic. NU ascundeți erori sub optimistic update.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F3.8.6",
+        "denumire_task": "Cache Invalidation strategy",
+        "descriere_task": "Când invalidăm cache-ul? După mutations, după SSE events, manual refresh. Document strategy per resource type. Implementare cu revalidate (RR7) sau queryClient.invalidate (TanStack).",
+        "cale_implementare": "/apps/web-admin/app/lib/cache-strategy.ts + documentație",
+        "contextul_anterior": "Loaders, actions, polling gata. Cache strategy unifică comportamentul.",
+        "validare_task": "După mutation → lista se actualizează fără page refresh. Documentație existentă.",
+        "outcome_task": "Cache predictibil și consistent.",
+        "restrictii_antihalucinatie": "NU invalidați totul la fiecare mutation - targeted invalidation.",
+        "prioritate": "P2"
     }
     ]
     ```
@@ -1634,6 +1939,61 @@ Obiectiv: BullMQ Pro + fairness multi-tenant + rate limiting distribuit Shopify 
         "validare_task": "Workflow-ul de ștergere fuctionează end-to-end.",
         "outcome_task": "Interactivitate completă.",
         "restrictii_antihalucinatie": "AlertDialog obligatoriu pentru Delete."
+    },
+    {
+        "id_task": "F4.5.4",
+        "denumire_task": "Queue: Tab Workeri Activi (din documentația UI)",
+        "descriere_task": "Implementează Tab 3 'Workeri' în app.queues.tsx: Grid layout cu cards per worker. Fiecare card conține: status badge (Online/Offline cu culori verde/gri), current job (ID + progress), metrici CPU/MEM (mini gauges sau text). Auto-refresh la 5 secunde folosind usePolling hook sau loader revalidation.",
+        "cale_implementare": "/apps/web-admin/app/routes/app.queues.tsx + /apps/web-admin/app/components/domain/worker-card.tsx",
+        "contextul_anterior": "F4.5.1-3 au implementat Metrici și Jobs List. Backend expune /api/queues/workers.",
+        "validare_task": "Grid afișează cards pentru fiecare worker activ cu status real-time.",
+        "outcome_task": "Vizibilitate asupra workerilor activi și sarcinilor curente.",
+        "restrictii_antihalucinatie": "Nu hardcoda numărul de workeri. Badge Online = verde, Offline = gri.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F4.5.5",
+        "denumire_task": "Queue: WebSocket/SSE pentru real-time updates",
+        "descriere_task": "Implementează conectare WebSocket sau SSE la /api/queues/stream pentru actualizări live. Elimină nevoia de polling pentru status updates. Implementează reconnect logic cu exponential backoff (1s, 2s, 4s, max 30s). Event handlers pentru: job.started, job.completed, job.failed, worker.online, worker.offline.",
+        "cale_implementare": "/apps/web-admin/app/hooks/use-queue-stream.ts + /apps/web-admin/app/routes/app.queues.tsx",
+        "contextul_anterior": "Backend F4.4 expune stream endpoint. Frontend folosește polling ineficient.",
+        "validare_task": "Statusurile se actualizează instant fără refresh manual. Reconectare automată după disconnect.",
+        "outcome_task": "UX fluid cu zero lag perceptibil pentru status changes.",
+        "restrictii_antihalucinatie": "Obligatoriu exponential backoff pentru reconnect. Nu polling ca fallback permanent.",
+        "prioritate": "P1 - CRITIC pentru UX"
+    },
+    {
+        "id_task": "F4.5.6",
+        "denumire_task": "Queue: Pagination/Virtual scroll pentru jobs list",
+        "descriere_task": "Pentru liste mari (>1000 jobs), implementează cursor-based pagination sau react-window pentru virtual scrolling. Loader-ul acceptă params: cursor, limit (default 50). Afișează 'Load more' button sau infinite scroll. Pentru virtual scrolling: folosește FixedSizeList din react-window cu row height 48px.",
+        "cale_implementare": "/apps/web-admin/app/components/domain/jobs-table.tsx + /apps/web-admin/app/routes/app.queues.tsx (loader)",
+        "contextul_anterior": "Tabelul curent încarcă toate joburile - probleme de performanță la scală.",
+        "validare_task": "Testează cu 5000+ jobs - UI rămâne responsive (<16ms frame time).",
+        "outcome_task": "Performanță stabilă indiferent de numărul de joburi.",
+        "restrictii_antihalucinatie": "Nu încărca >100 jobs per request. Virtual scroll necesită height fix pe container.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F4.5.7",
+        "denumire_task": "Queue: Bulk Actions (select multiple, retry all, delete all)",
+        "descriere_task": "Adaugă checkbox în fiecare rând din jobs table + checkbox 'Select all' în header. Toolbar contextual apare când items selectate > 0: afișează count, dropdown cu acțiuni (Retry Selected, Delete Selected). Pentru Delete: AlertDialog de confirmare cu mesaj 'Ștergi X joburi?'. Backend batch endpoint: POST /api/queues/jobs/batch cu { action: 'retry'|'delete', ids: [] }.",
+        "cale_implementare": "/apps/web-admin/app/components/domain/jobs-table.tsx + /apps/web-admin/app/routes/app.queues.tsx (action)",
+        "contextul_anterior": "Actualmente doar acțiuni per job individual - ineficient pentru cleanup.",
+        "validare_task": "Selectează 10 joburi, apasă Delete, confirmă - toate sunt șterse într-un singur request.",
+        "outcome_task": "Operațiuni eficiente la scală pentru gestionarea cozilor.",
+        "restrictii_antihalucinatie": "AlertDialog OBLIGATORIU pentru delete. Limit max 100 items per batch.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F4.5.8",
+        "denumire_task": "Queue: Job Detail Modal (full payload, timeline, logs)",
+        "descriere_task": "Click pe job ID → deschide modal/drawer cu: (1) Payload complet - JSON viewer cu syntax highlighting și expand/collapse, (2) Timeline - lista de evenimente: created, started, attempts[], failed/completed at, (3) Logs inline - dacă există, afișate în LogConsole component. Buton 'Copy Payload' pentru debugging.",
+        "cale_implementare": "/apps/web-admin/app/components/domain/job-detail-modal.tsx + /apps/web-admin/app/routes/app.queues.tsx",
+        "contextul_anterior": "Tabelul afișează doar payload truncat - debugging dificil.",
+        "validare_task": "Click pe job → modal cu toate datele. Copy payload funcționează.",
+        "outcome_task": "Debugging complet fără acces direct la Redis/DB.",
+        "restrictii_antihalucinatie": "JSON viewer trebuie să gestioneze payload-uri mari (>100KB) fără lag.",
+        "prioritate": "P2"
     }
     ]
     ```
@@ -1964,6 +2324,56 @@ Obiectiv: Bulk Operations complet (query + mutation) + streaming JSONL + COPY î
         "validare_task": "Logurile apar colorate corect.",
         "outcome_task": "Debug vizual.",
         "restrictii_antihalucinatie": "Font monospace obligatoriu."
+    },
+    {
+        "id_task": "F5.5.4",
+        "denumire_task": "Ingestion: SSE stream pentru live log output",
+        "descriere_task": "Conectare la /api/ingestion/:id/logs/stream folosind EventSource API. Append logs în LogConsole în timp real. Auto-scroll to bottom cu detecție user scroll (pause auto-scroll când utilizatorul scrollează manual). Buton Pause/Resume pentru stream. Reconnect automat la disconnect.",
+        "cale_implementare": "/apps/web-admin/app/hooks/use-log-stream.ts + /apps/web-admin/app/components/domain/log-console.tsx",
+        "contextul_anterior": "LogConsole component gata (F5.5.3). Backend SSE endpoint presupus gata.",
+        "validare_task": "Logurile apar în timp real fără page refresh. Auto-scroll funcționează. Pause/Resume funcțional.",
+        "outcome_task": "Experiență live pentru monitorizare ingestie.",
+        "restrictii_antihalucinatie": "Nu folosiți polling - SSE obligatoriu. Gestionați cleanup la unmount."
+    },
+    {
+        "id_task": "F5.5.5",
+        "denumire_task": "Ingestion: Retry/Resume UI pentru failed ingestions",
+        "descriere_task": "Pagină istoric ingestions cu status (Success/Failed/Partial). Pentru failed: buton 'Retry' care repornește de la ultimul checkpoint (dacă backend suportă). Resume cu progress bar care arată unde s-a oprit. Confirmare dialog înainte de retry.",
+        "cale_implementare": "/apps/web-admin/app/routes/app.ingestion.history.tsx + /apps/web-admin/app/components/domain/retry-dialog.tsx",
+        "contextul_anterior": "Ingestion flow complet (F5.5.1-4).",
+        "validare_task": "Retry pornește job nou cu referință la cel vechi. Progress bar arată starea corectă.",
+        "outcome_task": "Recuperare din erori fără restart complet.",
+        "restrictii_antihalucinatie": "Validați cu backend-ul că retry/resume este suportat înainte de afișare buton."
+    },
+    {
+        "id_task": "F5.5.6",
+        "denumire_task": "Ingestion: History Table (toate rulările anterioare)",
+        "descriere_task": "Tabel cu: data start, durată, rows procesate, status (badge colorat), errors count. Filtrare per status (dropdown). Sortare per coloană. Link către logs (navighează la LogConsole cu job_id). Paginare server-side.",
+        "cale_implementare": "/apps/web-admin/app/routes/app.ingestion.history.tsx + /apps/web-admin/app/components/domain/ingestion-history-table.tsx",
+        "contextul_anterior": "Retry UI gata (F5.5.5).",
+        "validare_task": "Tabelul afișează date reale din API. Filtrele funcționează. Link-urile navighează corect.",
+        "outcome_task": "Vizibilitate completă asupra istoricului.",
+        "restrictii_antihalucinatie": "Paginare obligatorie - nu încărcați toate înregistrările odată."
+    },
+    {
+        "id_task": "F5.5.7",
+        "denumire_task": "Ingestion: Error Details Expandable (click pentru stack trace)",
+        "descriere_task": "În tabelul de erori, rând expandabil (accordion) care arată: error message complet, payload/row care a eșuat, stack trace (dacă disponibil), suggested fix (dacă backend oferă). Copy to clipboard pentru debugging.",
+        "cale_implementare": "/apps/web-admin/app/components/domain/error-details-row.tsx",
+        "contextul_anterior": "History Table gata (F5.5.6).",
+        "validare_task": "Click pe rând expandează detalii. Copy funcționează. Formatare clară pentru stack trace.",
+        "outcome_task": "Debugging eficient fără acces la logs server.",
+        "restrictii_antihalucinatie": "Nu afișați informații sensibile în suggested fix. Sanitizați payload-ul."
+    },
+    {
+        "id_task": "F5.5.8",
+        "denumire_task": "Ingestion: Scheduling UI (programare sync recurent)",
+        "descriere_task": "Form pentru cron schedule: preseturi (Daily at, Weekly on, Custom cron). Preview next 5 runs calculate din cron expression. Enable/Disable toggle pentru schedule activ. Validare cron expression client-side. Timezone selector.",
+        "cale_implementare": "/apps/web-admin/app/routes/app.ingestion.schedule.tsx + /apps/web-admin/app/components/domain/schedule-form.tsx",
+        "contextul_anterior": "Ingestion UI complet (F5.5.1-7).",
+        "validare_task": "Schedule se salvează în backend. Preview arată date corecte. Toggle dezactivează fără ștergere.",
+        "outcome_task": "Automatizare sync fără intervenție manuală.",
+        "restrictii_antihalucinatie": "Validați că backend suportă scheduling. Nu permiteți intervale prea frecvente (min 1h)."
     }
     ]
     ```
@@ -2180,6 +2590,170 @@ Obiectiv: embeddings OpenAI Batch + index vectorial în Redis 8.4 + observabilit
         "validare_task": "Rezultatele apar cu scorul colorat (Verde > 0.9).",
         "outcome_task": "Vizualizare rezultate AI.",
         "restrictii_antihalucinatie": "Afișare clară a scorului."
+    },
+    {
+        "id_task": "F6.4.3",
+        "denumire_task": "Search: Debounce pe input query (300ms)",
+        "descriere_task": "Implementare useDebounce hook cu 300ms delay. Nu trimite request la fiecare keystroke. Loading indicator subtle în input (spinner în dreapta). Afișare 'Typing...' în results area în timpul debounce.",
+        "cale_implementare": "/apps/web-admin/app/hooks/use-debounce.ts + /apps/web-admin/app/routes/app.search.tsx",
+        "contextul_anterior": "Search UI basic gata (F6.4.1-2).",
+        "validare_task": "Network tab arată un singur request după 300ms de la ultima tastă. UX smooth fără flickering.",
+        "outcome_task": "Performanță optimă și reducere load pe backend.",
+        "restrictii_antihalucinatie": "Nu folosiți setTimeout manual - useDebounce hook standardizat."
+    },
+    {
+        "id_task": "F6.4.4",
+        "denumire_task": "Search: Recent Searches (local storage)",
+        "descriere_task": "Salvare ultimele 10 queries în localStorage (deduplicate). Dropdown sub input care apare la focus cu click to reuse. Clear history button (icon X). Persistență cross-session. Afișare timestamp 'searched X ago'.",
+        "cale_implementare": "/apps/web-admin/app/hooks/use-recent-searches.ts + /apps/web-admin/app/components/domain/recent-searches-dropdown.tsx",
+        "contextul_anterior": "Debounce gata (F6.4.3).",
+        "validare_task": "Queries salvate persistă după refresh. Click populează input și execută search. Clear șterge totul.",
+        "outcome_task": "UX îmbunătățit pentru queries repetitive.",
+        "restrictii_antihalucinatie": "Limită strictă 10 entries. Nu stocați date sensibile în localStorage."
+    },
+    {
+        "id_task": "F6.4.5",
+        "denumire_task": "Search: Filters avansate (vendor, price range, category)",
+        "descriere_task": "Extend sidebar cu: multi-select vendors (checkbox list cu search), price range slider (min-max cu input numeric), category tree select (collapsible hierarchy). Filters se combină cu query vectorial. Badge count pe fiecare filter activ. Reset all filters button.",
+        "cale_implementare": "/apps/web-admin/app/components/domain/search-filters.tsx + /apps/web-admin/app/routes/app.search.tsx",
+        "contextul_anterior": "Recent searches gata (F6.4.4).",
+        "validare_task": "Filtrele se aplică corect. Rezultatele reflectă combinația query + filters. URL params sync pentru shareable search.",
+        "outcome_task": "Căutare precisă cu multiple criterii.",
+        "restrictii_antihalucinatie": "Vendors și categories trebuie încărcate dinamic din API, nu hardcodate."
+    },
+    {
+        "id_task": "F6.4.6",
+        "denumire_task": "Search: Export Results (CSV, JSON)",
+        "descriere_task": "Buton 'Export' care apare când există rezultate. Format selection modal: CSV sau JSON. Download instant pentru seturi mici (<1000). Pentru seturi mari: generare async cu progress și notification când e gata. Copy to clipboard alternativă pentru JSON.",
+        "cale_implementare": "/apps/web-admin/app/components/domain/export-results-modal.tsx + /apps/web-admin/app/utils/export-helpers.ts",
+        "contextul_anterior": "Filters avansate gata (F6.4.5).",
+        "validare_task": "CSV deschide corect în Excel. JSON valid parsabil. Download funcționează în toate browserele.",
+        "outcome_task": "Extragere date pentru analiză externă.",
+        "restrictii_antihalucinatie": "Includeți doar câmpurile relevante în export, nu întregul obiect. Respectați limita de export."
+    }
+    ]
+    ```
+
+### F6.5: Settings & Configuration Page
+
+    ```JSON
+    [
+    {
+        "id_task": "F6.5.1",
+        "denumire_task": "Settings Page: General (shop info, preferences)",
+        "descriere_task": "Pagină settings cu tabs design. Tab General: shop name (read-only din API), timezone selector, language preference. Persistare în localStorage + backend pentru preferințe user.",
+        "cale_implementare": "/apps/web-admin/app/routes/app.settings.tsx + /apps/web-admin/app/routes/app.settings.general.tsx",
+        "contextul_anterior": "Layout și navigare gata din F3.5. OAuth gata din F3.2.",
+        "validare_task": "Settings page accesibilă. Timezone change persistă după refresh.",
+        "outcome_task": "Configurare basic pentru preferințe utilizator.",
+        "restrictii_antihalucinatie": "Shop info e read-only. NU permiteți modificări care ar trebui făcute în Shopify Admin.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F6.5.2",
+        "denumire_task": "Settings Page: API & Webhooks",
+        "descriere_task": "Tab API: afișare status conexiune Shopify (green/yellow/red), token expiry warning, webhook URLs configurate (read-only), test webhook button care trimite event și confirmă primire.",
+        "cale_implementare": "/apps/web-admin/app/routes/app.settings.api.tsx + /apps/web-admin/app/components/domain/WebhookTester.tsx",
+        "contextul_anterior": "Webhooks implementate în F3.3. OAuth tokens în F3.2.",
+        "validare_task": "Status afișează corect. Test webhook returns success/failure feedback.",
+        "outcome_task": "Vizibilitate asupra stării integrării Shopify.",
+        "restrictii_antihalucinatie": "NU expuneți API secret sau token values - doar status.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F6.5.3",
+        "denumire_task": "Settings Page: Queue Configuration",
+        "descriere_task": "Tab Queues: adjust concurrency limits (cu warning despre impact), retry policies (max attempts, backoff), DLQ retention days. Admin-only access.",
+        "cale_implementare": "/apps/web-admin/app/routes/app.settings.queues.tsx",
+        "contextul_anterior": "BullMQ Pro gata din F4. DLQ policies din F4.1.4.",
+        "validare_task": "Changes to concurrency apply immediately. Warning modal on risky changes.",
+        "outcome_task": "Fine-tuning operațional pentru queues.",
+        "restrictii_antihalucinatie": "NU permiteți concurrency < 1 sau > 50. Validare pe server obligatorie.",
+        "prioritate": "P3"
+    },
+    {
+        "id_task": "F6.5.4",
+        "denumire_task": "Settings Page: AI Configuration",
+        "descriere_task": "Tab AI: model selection (dropdown cu versiuni disponibile), embedding batch size (default 100), similarity threshold default pentru search (0.7-0.95 slider).",
+        "cale_implementare": "/apps/web-admin/app/routes/app.settings.ai.tsx",
+        "contextul_anterior": "AI engine gata din F6.1-F6.2. Vector search din F6.2.",
+        "validare_task": "Model selection salvează. Threshold slider updates și persistă.",
+        "outcome_task": "Customizare AI behavior per shop.",
+        "restrictii_antihalucinatie": "Threshold range 0.7-0.95 (sub 0.7 = prea multe results, peste 0.95 = prea puține).",
+        "prioritate": "P3"
+    }
+    ]
+    ```
+
+### F6.6: Products UI (Pagină Principală Produse)
+
+    ```JSON
+    [
+    {
+        "id_task": "F6.6.1",
+        "denumire_task": "Products Page: Lista virtualizată produse",
+        "descriere_task": "Pagină /app/products. Tabel virtualizat (react-window) pentru 1M+ produse. Coloane: thumbnail, title, vendor, status, variants count, last synced.",
+        "cale_implementare": "/apps/web-admin/app/routes/app.products.tsx + /apps/web-admin/app/components/domain/ProductsTable.tsx",
+        "contextul_anterior": "Database schema există din F2. API endpoints din F3.",
+        "validare_task": "Tabelul randează smooth 10k+ produse fără lag. Scroll virtualizat funcționează.",
+        "outcome_task": "Pagină principală produse performantă pentru volume mari.",
+        "restrictii_antihalucinatie": "NU încărcați toate produsele în memorie. Paginare + virtualizare obligatorii.",
+        "prioritate": "P1 - PAGINA PRINCIPALĂ"
+    },
+    {
+        "id_task": "F6.6.2",
+        "denumire_task": "Products Page: Filters sidebar",
+        "descriere_task": "Sidebar stânga: filter by vendor (multi-select), filter by status (active/draft/archived), filter by sync status, filter by category.",
+        "cale_implementare": "/apps/web-admin/app/components/domain/ProductsFilters.tsx",
+        "contextul_anterior": "Products table gata (F6.6.1).",
+        "validare_task": "Filtrele modifică URL params și re-filtrează tabelul. Reset clears all.",
+        "outcome_task": "Navigare eficientă prin catalog mare.",
+        "restrictii_antihalucinatie": "Filters persistă în URL pentru share/bookmark.",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F6.6.3",
+        "denumire_task": "Products Page: Search (full-text + vector)",
+        "descriere_task": "Search bar cu toggle: 'Exact match' vs 'Semantic search'. Integrare cu AI Search backend.",
+        "cale_implementare": "/apps/web-admin/app/routes/app.products.tsx",
+        "contextul_anterior": "AI Search gata din F6.1-F6.3. Products page din F6.6.1.",
+        "validare_task": "Toggle schimbă tipul de search. Rezultatele reflectă modul ales.",
+        "outcome_task": "Căutare hibridă exact + vector.",
+        "restrictii_antihalucinatie": "Debounce obligatoriu (vezi F6.4.3).",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F6.6.4",
+        "denumire_task": "Products Page: Product Detail Drawer/Modal",
+        "descriere_task": "Click pe produs → drawer dreapta cu: toate metafields, variante expandabile, sync history, actions (force sync, view in Shopify).",
+        "cale_implementare": "/apps/web-admin/app/components/domain/ProductDetailDrawer.tsx",
+        "contextul_anterior": "Products table gata (F6.6.1).",
+        "validare_task": "Drawer deschide smooth. Metafields afișate corect. Force sync funcționează.",
+        "outcome_task": "Acces rapid la detalii produs fără navigare.",
+        "restrictii_antihalucinatie": "NU încărcați toate variantele la deschidere - lazy load.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F6.6.5",
+        "denumire_task": "Products Page: Bulk Selection + Actions",
+        "descriere_task": "Checkbox selection. Actions: force sync selected, export selected, compare selected (side by side).",
+        "cale_implementare": "/apps/web-admin/app/components/domain/ProductsBulkActions.tsx",
+        "contextul_anterior": "Products table cu selection gata (F6.6.1).",
+        "validare_task": "Select All funcționează pe paginare. Actions aplică pe toate selectate.",
+        "outcome_task": "Operații în masă pe produse.",
+        "restrictii_antihalucinatie": "Limită max 100 produse per operație bulk.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F6.6.6",
+        "denumire_task": "Products Page: Sync Status Indicators",
+        "descriere_task": "Badge per produs: 'Synced', 'Pending', 'Error', 'Never synced'. Tooltip cu last sync time și error message if any.",
+        "cale_implementare": "/apps/web-admin/app/components/domain/SyncStatusBadge.tsx",
+        "contextul_anterior": "Products table gata (F6.6.1). Sync jobs din F5.",
+        "validare_task": "Badge-uri afișează status corect. Tooltip arată detalii on hover.",
+        "outcome_task": "Vizibilitate clară status sincronizare per produs.",
+        "restrictii_antihalucinatie": "Status din cache Redis, nu query DB per produs.",
+        "prioritate": "P2"
     }
     ]
     ```
@@ -2507,6 +3081,163 @@ Obiectiv: hardening, build/publish, deploy, migrații, alerte, DR, Securitate Su
         "validare_task": "Game day executat după runbook; echipa poate urma pașii fără autorul inițial.",
         "outcome_task": "Operații enterprise, predictibile.",
         "restrictii_antihalucinatie": "Nu lăsa runbook-uri ne-testate. Nu include secrete în runbooks."
+    }
+    ]
+    ```
+
+### F7.6: Cross-Cutting Concerns (Frontend Quality)
+
+    ```JSON
+    [
+    {
+        "id_task": "F7.6.1",
+        "denumire_task": "Accessibility Audit + Remediation",
+        "descriere_task": "Rulare axe-core sau Lighthouse accessibility audit. Fix: focus management, ARIA labels pe toate interactive elements, keyboard navigation completă, color contrast WCAG 2.1 AA. Documentare checklist per pagină.",
+        "cale_implementare": "Toate paginile + /apps/web-admin/docs/accessibility-checklist.md",
+        "contextul_anterior": "UI-ul este funcțional dar netestat pentru a11y.",
+        "validare_task": "Lighthouse a11y score >= 90. axe-core 0 critical issues.",
+        "outcome_task": "Aplicație accesibilă conform standardelor enterprise.",
+        "restrictii_antihalucinatie": "NU ignorați warnings - fiecare trebuie fix sau documented exception.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F7.6.2",
+        "denumire_task": "Performance Audit (bundle size, lazy loading)",
+        "descriere_task": "Analyze bundle cu vite-bundle-visualizer. Implement React.lazy() pentru toate routes. Code splitting per feature. Target: <200KB initial JS (gzipped).",
+        "cale_implementare": "/apps/web-admin/vite.config.ts + route lazy loading",
+        "contextul_anterior": "Aplicația funcționează dar bundle size neverificat.",
+        "validare_task": "Build report arată <200KB initial. Routes încărcate lazy confirmate în network tab.",
+        "outcome_task": "Performance optimă pentru load time.",
+        "restrictii_antihalucinatie": "NU lazy-load critical path (app shell). Target e 200KB gzipped, not raw.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F7.6.3",
+        "denumire_task": "E2E Tests cu Playwright (critical paths)",
+        "descriere_task": "Setup Playwright pentru apps/web-admin. Teste pentru: login flow, start ingestion, search product, view queue details, change settings. Run în CI pe PR. Minim 5 teste critice.",
+        "cale_implementare": "/apps/web-admin/e2e/*.spec.ts + playwright.config.ts + CI workflow update",
+        "contextul_anterior": "Unit tests cu Vitest există. E2E testing lipsește.",
+        "validare_task": "pnpm playwright test passes. CI workflow includes E2E step.",
+        "outcome_task": "Critical paths validated end-to-end automat.",
+        "restrictii_antihalucinatie": "NU dependeți de testarea manuală pentru critical paths.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F7.6.4",
+        "denumire_task": "Mobile Responsiveness Pass",
+        "descriere_task": "Test toate paginile pe viewport 375px (iPhone SE). Fix layout breaks, touch targets ≥44px, scrollable tables cu horizontal scroll, collapsible sidebar. Document breakpoints.",
+        "cale_implementare": "Toate paginile + tailwind.config.ts (breakpoints)",
+        "contextul_anterior": "Design e desktop-first. Mobile netestat.",
+        "validare_task": "Toate paginile funcționează pe 375px viewport fără horizontal overflow.",
+        "outcome_task": "Aplicație utilizabilă pe mobile pentru on-the-go access.",
+        "restrictii_antihalucinatie": "NU ascundeți funcționalitate pe mobile - adaptați, nu eliminați.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F7.6.5",
+        "denumire_task": "Dark Mode Support",
+        "descriere_task": "Tailwind dark: variants pe toate componentele. Toggle în header. Persist preference în localStorage. Respect system preference (prefers-color-scheme).",
+        "cale_implementare": "/apps/web-admin/app/root.tsx (theme provider) + componente",
+        "contextul_anterior": "Design system folosește Tailwind. Dark mode neimplementat.",
+        "validare_task": "Toggle funcționează. Preferința persistă. System preference respectată.",
+        "outcome_task": "Dark mode pentru reduced eye strain.",
+        "restrictii_antihalucinatie": "NU uitați charts și imagini - trebuie și ele adaptate.",
+        "prioritate": "P3"
+    },
+    {
+        "id_task": "F7.6.6",
+        "denumire_task": "Keyboard Shortcuts (power users)",
+        "descriere_task": "Global shortcuts: Ctrl+K search, Ctrl+/ help modal, G+D go to dashboard, G+Q go to queues, G+P go to products. Display shortcuts în help modal.",
+        "cale_implementare": "/apps/web-admin/app/hooks/use-keyboard-shortcuts.ts + /apps/web-admin/app/components/domain/HelpModal.tsx",
+        "contextul_anterior": "Navigarea e mouse-based. Power users beneficiază de shortcuts.",
+        "validare_task": "Toate shortcut-urile funcționează. Help modal le listează.",
+        "outcome_task": "Power user experience îmbunătățită.",
+        "restrictii_antihalucinatie": "NU suprascrieți browser shortcuts (Ctrl+T, Ctrl+W etc.).",
+        "prioritate": "P3"
+    },
+    {
+        "id_task": "F7.6.7",
+        "denumire_task": "Internationalization Setup (i18n)",
+        "descriere_task": "Setup react-i18next pentru suport multi-limbă:\n\n**Configurare:**\n- i18next-browser-languagedetector pentru auto-detect\n- react-i18next Provider în root.tsx\n- defaultNS: 'common', fallbackLng: 'en'\n\n**Namespace-uri:**\n- common.json (butoane, labels generice)\n- errors.json (mesaje de eroare)\n- forms.json (validări, placeholders)\n- pages.json (titluri pagini, descrieri)\n\n**Structură fișiere:**\n/apps/web-admin/public/locales/en/*.json\n/apps/web-admin/public/locales/ro/*.json\n\n**Integrare:**\n- Hook useTranslation() în toate componentele text\n- Language selector în Settings page\n- Persist preference în localStorage",
+        "cale_implementare": "/apps/web-admin/app/i18n.ts, /apps/web-admin/public/locales/, /apps/web-admin/app/routes/app.settings.tsx",
+        "contextul_anterior": "Aplicația funcționează doar în engleză. Adăugăm infrastructură pentru localizare.",
+        "validare_task": "Schimbă limba în Settings și verifică că textele se traduc corect. No hardcoded strings în componente UI.",
+        "outcome_task": "Aplicație pregătită pentru localizare EN/RO.",
+        "restrictii_antihalucinatie": "NU traduceți TOATE textele dintr-o dată - setup + 1-2 pagini demo, restul progresiv. Folosiți namespace separation.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F7.6.8",
+        "denumire_task": "Accessibility Checklist per Page",
+        "descriere_task": "Creare checklist a11y per pagină în apps/web-admin/docs/a11y-checklists/:\n\n**Template (WCAG 2.1 AA):**\n- [ ] Interactive elements au focus visible\n- [ ] Color contrast >= 4.5:1\n- [ ] Images au alt text\n- [ ] Form fields au labels\n- [ ] Keyboard navigation funcționează\n- [ ] Error messages cu role='alert'\n\n**Fișiere:** dashboard.a11y.md, products.a11y.md, queues.a11y.md, ingestion.a11y.md, search.a11y.md, settings.a11y.md",
+        "cale_implementare": "/apps/web-admin/docs/a11y-checklists/*.md",
+        "contextul_anterior": "F7.6.1 menționează 'Documentare checklist per pagină'.",
+        "validare_task": "6 fișiere .md create cu checklist completat.",
+        "outcome_task": "Accessibility checklists per page pentru review.",
+        "restrictii_antihalucinatie": "Checklist-ul este MANUAL review, nu doar automated tools.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F7.6.9",
+        "denumire_task": "Definition of Done Template",
+        "descriere_task": "Creare DoD pentru frontend tasks:\n\n**DoD (apps/web-admin/docs/DEFINITION_OF_DONE.md):**\n1. Code Complete: TypeScript strict, ESLint clean\n2. Tested: Unit tests Vitest, coverage >80%\n3. Accessible: Checklist a11y (F7.6.8)\n4. Reviewed: Code review aprobat\n5. Documented: JSDoc, Component specs (F3.5.13)\n\n**Integrare:** Adaugă în .github/PULL_REQUEST_TEMPLATE.md",
+        "cale_implementare": "/apps/web-admin/docs/DEFINITION_OF_DONE.md, /.github/PULL_REQUEST_TEMPLATE.md",
+        "contextul_anterior": "Metrici de succes cer teste în DoD.",
+        "validare_task": "DEFINITION_OF_DONE.md creat, PR template cu DoD checklist.",
+        "outcome_task": "Standard clar pentru 'done' pe frontend tasks.",
+        "restrictii_antihalucinatie": "DoD este CHECKLIST, nu document lung.",
+        "prioritate": "P1"
+    }
+    ]
+    ```
+
+### F7.7: Observability UI (Frontend pentru Debugging)
+
+    ```JSON
+    [
+    {
+        "id_task": "F7.7.1",
+        "denumire_task": "Health Dashboard (system status page)",
+        "descriere_task": "Pagină /app/health. Status cards pentru: API (Fastify), Redis, Postgres, Shopify API (rate limit status), Workers (active count). Green/Yellow/Red indicators. Auto-refresh la 30s.",
+        "cale_implementare": "/apps/web-admin/app/routes/app.health.tsx + /apps/web-admin/app/components/domain/HealthStatusCard.tsx",
+        "contextul_anterior": "Backend health endpoints din F7.1. OTel metrics există.",
+        "validare_task": "Toate cardurile afișează status real. Color coding corect. Auto-refresh funcționează.",
+        "outcome_task": "Vizibilitate instant asupra system health.",
+        "restrictii_antihalucinatie": "NU expuneți internal IPs sau connection strings.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F7.7.2",
+        "denumire_task": "Metrics Visualization (din OTel)",
+        "descriere_task": "Grafice pentru: request latency (p50, p95, p99), queue throughput (jobs/min), error rates (4xx, 5xx), memory usage. Time range selector (1h, 6h, 24h, 7d). Folosiți chart library (Recharts sau similar).",
+        "cale_implementare": "/apps/web-admin/app/routes/app.metrics.tsx + /apps/web-admin/app/components/domain/MetricsCharts.tsx",
+        "contextul_anterior": "OTel collector din F7.1 exportă metrici.",
+        "validare_task": "Charts randează date reale. Time range change updates data.",
+        "outcome_task": "Insights operaționale fără acces la Grafana.",
+        "restrictii_antihalucinatie": "NU încercați să recreați Grafana - doar high-level overview.",
+        "prioritate": "P3"
+    },
+    {
+        "id_task": "F7.7.3",
+        "denumire_task": "Trace Viewer (link to Jaeger/Tempo)",
+        "descriere_task": "Pentru fiecare operație failed, link direct către trace-ul în Jaeger. Format: /trace/{traceId}. Sau embed iframe dacă Jaeger permite. Minimum: copy-able trace ID.",
+        "cale_implementare": "/apps/web-admin/app/components/domain/TraceLink.tsx",
+        "contextul_anterior": "Jaeger rulează din F1.2.4. Trace IDs în logs.",
+        "validare_task": "Link-ul deschide trace-ul corect în Jaeger. TraceId copiabil.",
+        "outcome_task": "Debugging rapid pentru operații failed.",
+        "restrictii_antihalucinatie": "Jaeger URL configurabil (nu hardcodat localhost).",
+        "prioritate": "P3"
+    },
+    {
+        "id_task": "F7.7.4",
+        "denumire_task": "Audit Log UI",
+        "descriere_task": "Pagină cu toate acțiunile user-ului: logins, syncs started, settings changed, exports downloaded. Filterable by date range, action type, user. Paginare pentru volume mari.",
+        "cale_implementare": "/apps/web-admin/app/routes/app.audit.tsx + /apps/web-admin/app/components/domain/AuditLogTable.tsx",
+        "contextul_anterior": "Audit logs persistate în DB din F2.",
+        "validare_task": "Log entries afișate corect. Filters funcționează. Paginare pentru >100 entries.",
+        "outcome_task": "Compliance și debugging pentru acțiuni utilizator.",
+        "restrictii_antihalucinatie": "NU expuneți date sensibile (tokens, passwords). Afișați doar action metadata.",
+        "prioritate": "P3"
     }
     ]
     ```
