@@ -23,16 +23,28 @@ Această arhitectură este proiectată pentru a servi simultan ca **Shopify Ente
 
 ### MODUL A: System Core & Multi-tenancy (Coloana Vertebrală)
 
-Acesta este stratul de securitate și identitate. Toate tabelele de aici au `shop_id` (cu excepția `shops`) și impun RLS.
+Acesta este stratul de securitate și identitate. Toate tabelele de aici au `shop_id` (cu excepția `shops`, `oauth_states`, `feature_flags`, `system_config`) și impun RLS.
 
 **Diagrama ER (Textuală):**
 
-* **`shops`** (`id` UUIDv7 PK, `shopify_domain` TEXT UNIQUE, `plan_tier` ENUM, `access_token` TEXT Encrypted)
-  * *Sursa Adevărului pentru Tenanți.*
-* **`staff_users`** (`id` UUIDv7 PK, `shop_id` FK, `email` TEXT, `role` JSONB)
+* **`shops`** (`id` UUIDv7 PK, `shopify_domain` CITEXT UNIQUE, `plan_tier` VARCHAR, `access_token_ciphertext` BYTEA Encrypted, `webhook_secret` BYTEA, `api_version` VARCHAR, `timezone` VARCHAR, `currency_code` VARCHAR)
+  * *Sursa Adevărului pentru Tenanți. Coloane noi pentru rate limiting și webhook validation.*
+* **`staff_users`** (`id` UUIDv7 PK, `shop_id` FK, `email` CITEXT, `role` JSONB)
   * *Utilizatori cu acces la Dashboard.*
-* **`app_sessions`** (`id` TEXT PK, `shop_id` FK, `payload` JSONB, `expires_at` TIMESTAMPTZ)
+* **`app_sessions`** (`id` VARCHAR PK, `shop_id` FK, `payload` JSONB, `expires_at` TIMESTAMPTZ)
   * *Stocarea sesiunilor OAuth (compatibil Shopify App Bridge).*
+* **`oauth_states`** (`id` UUIDv7 PK, `state` VARCHAR UNIQUE, `shop_domain` CITEXT, `nonce` VARCHAR, `expires_at` TIMESTAMPTZ)
+  * *CSRF protection pentru OAuth flow. Fără RLS - date pre-autentificare.*
+* **`oauth_nonces`** (`id` UUIDv7 PK, `nonce` VARCHAR UNIQUE, `shop_id` FK, `expires_at` TIMESTAMPTZ)
+  * *Replay attack protection pentru OAuth.*
+* **`key_rotations`** (`id` UUIDv7 PK, `key_version_old` INT, `key_version_new` INT, `status` VARCHAR, `records_updated` INT)
+  * *Audit trail pentru rotația cheilor de criptare.*
+* **`feature_flags`** (`id` UUIDv7 PK, `flag_key` VARCHAR UNIQUE, `default_value` BOOLEAN, `rollout_percentage` INT, `conditions` JSONB)
+  * *Feature flag-uri pentru rollout controlat. Nu are RLS - global.*
+* **`system_config`** (`key` VARCHAR PK, `value` JSONB, `is_sensitive` BOOLEAN)
+  * *Configurații persistente la nivel de sistem.*
+* **`migration_history`** (`id` UUIDv7 PK, `migration_name` VARCHAR UNIQUE, `checksum` VARCHAR, `applied_at` TIMESTAMPTZ)
+  * *Tracking migrații DB pentru zero-downtime deploys.*
 
 **Soluția RLS (Row Level Security):**
 
@@ -58,6 +70,9 @@ Oglinda locală pentru datele din Shopify, optimizată pentru Citire, Filtrare �
 * **`shopify_products`** (`id` UUIDv7 PK, `shop_id` FK, `shopify_gid` BIGINT UNIQUE, `title` TEXT, `metafields` JSONB)
 * **`shopify_variants`** (`id` UUIDv7 PK, `product_id` FK, `sku` TEXT, `price` DECIMAL, `inventory_item_id` BIGINT)
 * **`shopify_metaobjects`** (`id` UUIDv7 PK, `type` TEXT, `handle` TEXT, `fields` JSONB)
+* **`webhook_events`** (`id` UUIDv7, `shop_id` FK, `topic` VARCHAR, `payload` JSONB, `hmac_verified` BOOLEAN, `processed_at` TIMESTAMPTZ)
+  * *Coadă async pentru webhook-uri. Partitionată lunar.*
+  * *Pattern: Receive → Queue → Process. Permite retry și observability.*
 
 **Strategia JSONB vs Coloane:**
 
@@ -73,6 +88,13 @@ Oglinda locală pentru datele din Shopify, optimizată pentru Citire, Filtrare �
   * Nu facem `UPDATE quantity SET val = 5`.
   * Facem `INSERT INTO inventory_ledger (sku, delta) VALUES ('SKU1', -1)`.
   * Stocul curent = Suma intrărilor (calculată async sau via Materialized View).
+
+**Strategia de Rate Limiting (Shopify API):**
+
+* **`rate_limit_buckets`** (`shop_id` UUID PK, `tokens_remaining` DECIMAL, `max_tokens` DECIMAL, `refill_rate` DECIMAL, `last_refill_at` TIMESTAMPTZ)
+  * *Token bucket persistent per shop.* Sincronizat cu Redis pentru citiri rapide.
+* **`api_cost_tracking`** (`id` UUIDv7, `shop_id` FK, `operation_type` VARCHAR, `actual_cost` INT, `throttle_status` VARCHAR, `requested_at` TIMESTAMPTZ)
+  * *Partitionată lunar.* Tracking pentru GraphQL cost analysis și alertare.
 
 ---
 
@@ -116,6 +138,9 @@ Sistemul care înțelege că "Ecran" == "Display".
   * *Dicționarul de Sinonime.*
 * **`prod_embeddings`** (`id` UUIDv7 PK, `product_id` FK, `embedding_type` ENUM, `embedding` vector(1536), `content_hash` TEXT)
   * *Vectorii de produs pentru deduplicare și căutare.*
+* **`embedding_batches`** (`id` UUIDv7 PK, `shop_id` FK, `batch_type` VARCHAR, `status` VARCHAR, `openai_batch_id` VARCHAR, `model` VARCHAR, `dimensions` INT)
+  * *Tracking OpenAI Batch Embeddings API.* Procesare async pentru costuri reduse (50% discount).
+  * *Batch types:* product_title, product_description, specs, combined, attribute.
 
 **Strategia Vectorială (Deduplicare Fuzzy):**
 
@@ -127,6 +152,11 @@ Sistemul care înțelege că "Ecran" == "Display".
     2. Query HNSW (`vector <-> embedding`) în `prod_embeddings`.
     3. Dacă distanța < 0.05 -> Este duplicat. Linkuim la `prod_core` existent.
     4. Dacă distanța > 0.05 -> Creăm `prod_core` nou.
+* **Batch Processing Flow:**
+    1. Produse noi colectate în `embedding_batches` (status: pending).
+    2. La 1000+ items sau scheduler -> Submit to OpenAI Batch API.
+    3. Poll pentru completare -> Download results -> Insert în `prod_embeddings`.
+    4. Cost savings: 50% vs real-time embedding calls.
 
 ---
 
@@ -145,5 +175,15 @@ Sistemul care înțelege că "Ecran" == "Display".
 3. **Strategia de Inventar:**
     * Folosim modelul **Ledger (Log-based)** pentru scrieri non-blocante.
     * Calculăm stocul "read-time" sau folosim un tabel de snapshot actualizat asincron pentru interogări rapide.
+
+4. **Strategia de Partitionare:**
+    * **Monthly Partitions:** `audit_logs`, `inventory_ledger`, `prod_raw_harvest`, `webhook_events`, `api_cost_tracking`.
+    * **Retention policies:** 24 luni pentru audit, 7 zile pentru api_cost_tracking, 3 luni pentru webhook_events.
+    * **Automatic partition creation:** Cron job lunar cu `pg_partman` sau script custom.
+
+5. **Schema Summary (v2.4):**
+    * **Total Tables:** 63 + 4 Materialized Views
+    * **Modules:** A (9), B (9), C (6), D (12), E (4), F (3), G (4), H (2), I (3), J (5), K (2), L (3), M (5)
+    * **Key Extensions:** pgvector, pg_trgm, btree_gin, btree_gist, citext
 
 Această arhitectură oferă fundația solidă pentru a scala la 1.7M produse, menținând securitatea și integritatea datelor.

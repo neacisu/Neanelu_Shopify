@@ -1,8 +1,8 @@
-# Neanelu PIM - PostgreSQL Database Schema v2.2 (Complete)
+# Neanelu PIM - PostgreSQL Database Schema v2.4 (Complete)
 
 > **PostgreSQL 18.1** | **pgvector** | **UUIDv7** | **RLS Multi-tenancy**
-> 
-> **Last Updated:** 2025-12-23 | **Total Tables:** 53 + 1 MV | **Status:** ✅ Production Ready
+>
+> **Last Updated:** 2025-12-25 | **Total Tables:** 63 + 4 MVs | **Status:** ✅ Production Ready
 
 ---
 
@@ -94,6 +94,136 @@
 
 - `idx_sessions_shop` ON (shop_id)
 - `idx_sessions_expires` ON (expires_at)
+
+---
+
+### Table: `oauth_states`
+
+> **Purpose:** CSRF protection for OAuth flow (F3.2) - Temporary, no RLS needed
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | UUID | PK DEFAULT uuidv7() | State identifier |
+| state | VARCHAR(64) | UNIQUE NOT NULL | Random state token |
+| shop_domain | CITEXT | NOT NULL | Target shop domain |
+| redirect_uri | TEXT | NOT NULL | Return URL after OAuth |
+| nonce | VARCHAR(64) | NOT NULL | Additional entropy |
+| expires_at | TIMESTAMPTZ | NOT NULL | TTL (5-10 min) |
+| used_at | TIMESTAMPTZ | | When consumed |
+| created_at | TIMESTAMPTZ | DEFAULT now() | |
+
+**Indexes:**
+
+- `idx_oauth_states_state` UNIQUE ON (state)
+- `idx_oauth_states_expires` ON (expires_at) WHERE used_at IS NULL
+
+**Note:** No RLS - pre-authentication table. Cleanup job deletes expired entries.
+
+---
+
+### Table: `oauth_nonces`
+
+> **Purpose:** Replay attack protection for OAuth (F3.2)
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | UUID | PK DEFAULT uuidv7() | Nonce identifier |
+| nonce | VARCHAR(64) | UNIQUE NOT NULL | Random nonce |
+| shop_id | UUID | FK shops(id) | Associated shop |
+| used_at | TIMESTAMPTZ | | When consumed |
+| expires_at | TIMESTAMPTZ | NOT NULL | TTL |
+| created_at | TIMESTAMPTZ | DEFAULT now() | |
+
+**Indexes:**
+
+- `idx_oauth_nonces_nonce` UNIQUE ON (nonce)
+- `idx_oauth_nonces_expires` ON (expires_at)
+
+---
+
+### Table: `key_rotations`
+
+> **Purpose:** Audit trail for encryption key rotation (F2.2.3.2)
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | UUID | PK DEFAULT uuidv7() | Rotation identifier |
+| key_version_old | INTEGER | NOT NULL | Previous key version |
+| key_version_new | INTEGER | NOT NULL | New key version |
+| initiated_by | UUID | FK staff_users(id) | Who started rotation |
+| status | VARCHAR(20) | NOT NULL DEFAULT 'in_progress' | in_progress/completed/failed |
+| records_updated | INTEGER | DEFAULT 0 | Count of re-encrypted records |
+| started_at | TIMESTAMPTZ | DEFAULT now() | |
+| completed_at | TIMESTAMPTZ | | |
+| error_message | TEXT | | If failed |
+
+**Indexes:**
+
+- `idx_key_rotations_status` ON (status) WHERE status = 'in_progress'
+
+---
+
+### Table: `feature_flags`
+
+> **Purpose:** Per-shop feature flag configurations (F7.0)
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | UUID | PK DEFAULT uuidv7() | Flag identifier |
+| flag_key | VARCHAR(100) | UNIQUE NOT NULL | Flag name (e.g., 'bulk_v2') |
+| description | TEXT | | Purpose description |
+| default_value | BOOLEAN | NOT NULL DEFAULT false | Default state |
+| is_active | BOOLEAN | NOT NULL DEFAULT true | Kill switch |
+| rollout_percentage | INTEGER | DEFAULT 0 CHECK (0-100) | Gradual rollout |
+| allowed_shop_ids | UUID[] | DEFAULT '{}' | Whitelist |
+| blocked_shop_ids | UUID[] | DEFAULT '{}' | Blacklist |
+| conditions | JSONB | DEFAULT '{}' | Complex rules |
+| created_by | UUID | FK staff_users(id) | |
+| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+
+**Indexes:**
+
+- `idx_feature_flags_key` UNIQUE ON (flag_key)
+- `idx_feature_flags_active` ON (is_active) WHERE is_active = true
+
+---
+
+### Table: `system_config`
+
+> **Purpose:** Persistent system-wide configuration (F0.1)
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| key | VARCHAR(100) | PK | Config key |
+| value | JSONB | NOT NULL | Config value |
+| description | TEXT | | Purpose |
+| is_sensitive | BOOLEAN | DEFAULT false | Mask in UI |
+| updated_by | UUID | FK staff_users(id) | Last modifier |
+| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| created_at | TIMESTAMPTZ | DEFAULT now() | |
+
+---
+
+### Table: `migration_history`
+
+> **Purpose:** Track DB migrations for zero-downtime deploys (F7.3)
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | UUID | PK DEFAULT uuidv7() | Migration identifier |
+| migration_name | VARCHAR(255) | UNIQUE NOT NULL | Migration file name |
+| checksum | VARCHAR(64) | NOT NULL | SHA-256 of migration |
+| applied_at | TIMESTAMPTZ | DEFAULT now() | When applied |
+| applied_by | VARCHAR(100) | DEFAULT current_user | Role that ran it |
+| execution_time_ms | INTEGER | | Duration |
+| success | BOOLEAN | NOT NULL DEFAULT true | |
+| error_message | TEXT | | If failed |
+
+**Indexes:**
+
+- `idx_migration_name` UNIQUE ON (migration_name)
+- `idx_migration_applied` ON (applied_at DESC)
 
 ---
 
@@ -390,6 +520,41 @@
 
 - `idx_webhooks_shop_gid` UNIQUE ON (shop_id, shopify_gid)
 - `idx_webhooks_shop_topic` ON (shop_id, topic)
+
+---
+
+### Table: `webhook_events`
+
+> **Purpose:** Async webhook processing queue (F3.3) - Partitioned by month
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | UUID | DEFAULT uuidv7() | Event identifier |
+| shop_id | UUID | FK shops(id) | Tenant |
+| topic | VARCHAR(100) | NOT NULL | orders/create, products/update, etc |
+| shopify_webhook_id | VARCHAR(100) | | Original webhook ID |
+| api_version | VARCHAR(20) | | Shopify API version |
+| payload | JSONB | NOT NULL | Full webhook payload |
+| hmac_verified | BOOLEAN | NOT NULL DEFAULT false | HMAC validation passed |
+| received_at | TIMESTAMPTZ | DEFAULT now() | When received |
+| processed_at | TIMESTAMPTZ | | When processed |
+| processing_error | TEXT | | Error if failed |
+| job_id | VARCHAR(255) | | BullMQ job reference |
+| idempotency_key | VARCHAR(255) | | Deduplication key |
+| retry_count | INTEGER | DEFAULT 0 | Processing attempts |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
+| PRIMARY KEY | (id, created_at) | | Composite for partitioning |
+
+**Partitioning:** `PARTITION BY RANGE (created_at)` - Monthly partitions
+
+**Indexes:**
+
+- `idx_webhook_events_unprocessed` ON (shop_id, received_at) WHERE processed_at IS NULL
+- `idx_webhook_events_topic` ON (shop_id, topic)
+- `idx_webhook_events_idempotency` UNIQUE ON (idempotency_key) WHERE idempotency_key IS NOT NULL
+- `idx_webhook_events_payload` GIN ON (payload jsonb_path_ops)
+
+**RLS Policy:** `webhook_events_policy` - shop_id = current_setting('app.current_shop_id')::uuid
 
 ---
 
@@ -997,6 +1162,44 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ---
 
+### Table: `embedding_batches`
+
+> **Purpose:** OpenAI Batch Embeddings API tracking (F6.1) - Specific to embedding workflows
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | UUID | PK DEFAULT uuidv7() | Batch identifier |
+| shop_id | UUID | FK shops(id) | Optional shop scope |
+| batch_type | VARCHAR(30) | NOT NULL CHECK IN (...) | product_title/product_description/specs/combined/attribute |
+| status | VARCHAR(20) | NOT NULL DEFAULT 'pending' | pending/submitted/processing/completed/failed/cancelled |
+| openai_batch_id | VARCHAR(100) | | External OpenAI batch ID |
+| input_file_id | VARCHAR(100) | | OpenAI file ID for input |
+| output_file_id | VARCHAR(100) | | OpenAI file ID for output |
+| error_file_id | VARCHAR(100) | | OpenAI file ID for errors |
+| model | VARCHAR(50) | NOT NULL DEFAULT 'text-embedding-3-small' | Embedding model |
+| dimensions | INTEGER | NOT NULL DEFAULT 1536 | Vector dimensions |
+| total_items | INTEGER | NOT NULL DEFAULT 0 | Items in batch |
+| completed_items | INTEGER | DEFAULT 0 | Successfully completed |
+| failed_items | INTEGER | DEFAULT 0 | Failed items |
+| tokens_used | INTEGER | DEFAULT 0 | Total tokens consumed |
+| estimated_cost | DECIMAL(10,4) | | USD cost estimate |
+| submitted_at | TIMESTAMPTZ | | When submitted to OpenAI |
+| completed_at | TIMESTAMPTZ | | When processing finished |
+| expires_at | TIMESTAMPTZ | | OpenAI result expiration |
+| error_message | TEXT | | Error details if failed |
+| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+
+**Indexes:**
+
+- `idx_embedding_batches_shop` ON (shop_id)
+- `idx_embedding_batches_status` ON (status)
+- `idx_embedding_batches_openai` ON (openai_batch_id) WHERE openai_batch_id IS NOT NULL
+
+**RLS Policy:** `embedding_batches_policy` - shop_id IS NULL OR shop_id = current_setting('app.current_shop_id')::uuid
+
+---
+
 ## Module G: Queue & Job Tracking
 
 ### Table: `job_runs`
@@ -1046,6 +1249,53 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 | error_count | INTEGER | DEFAULT 0 | |
 | created_at | TIMESTAMPTZ | DEFAULT now() | |
 | updated_at | TIMESTAMPTZ | DEFAULT now() | |
+
+---
+
+### Table: `rate_limit_buckets`
+
+> **Purpose:** Token bucket persistence for distributed rate limiting (F4.3)
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| shop_id | UUID | PK FK shops(id) | One bucket per shop |
+| tokens_remaining | DECIMAL(10,2) | NOT NULL DEFAULT 1000 | Current tokens |
+| max_tokens | DECIMAL(10,2) | NOT NULL DEFAULT 1000 | Bucket capacity |
+| refill_rate | DECIMAL(10,4) | NOT NULL DEFAULT 2.0 | Tokens/second |
+| last_refill_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | Last refill time |
+| locked_until | TIMESTAMPTZ | | Backoff lock |
+| consecutive_429_count | INTEGER | DEFAULT 0 | Throttle counter |
+| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+
+**RLS Policy:** `rate_limit_buckets_policy` - shop_id = current_setting('app.current_shop_id')::uuid
+
+---
+
+### Table: `api_cost_tracking`
+
+> **Purpose:** GraphQL cost tracking per request (F4.3) - Partitioned by month
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | UUID | DEFAULT uuidv7() | |
+| shop_id | UUID | FK shops(id) NOT NULL | |
+| operation_type | VARCHAR(50) | NOT NULL | Query type |
+| query_hash | VARCHAR(64) | | Query fingerprint |
+| actual_cost | INTEGER | NOT NULL | Points used |
+| throttle_status | VARCHAR(20) | | THROTTLED if hit limit |
+| available_cost | INTEGER | | Remaining points |
+| restore_rate | DECIMAL(10,2) | | Points/second restore |
+| requested_at | TIMESTAMPTZ | DEFAULT now() | Request timestamp |
+| response_time_ms | INTEGER | | Latency |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
+| PRIMARY KEY | (id, created_at) | | Composite for partitioning |
+
+**Partitioning:** `PARTITION BY RANGE (created_at)` - Monthly partitions, 7-day retention
+
+**Indexes:**
+
+- `idx_api_cost_shop_date` ON (shop_id, requested_at DESC)
+- `idx_api_cost_throttled` ON (shop_id, throttle_status) WHERE throttle_status IS NOT NULL
 
 ---
 
@@ -1952,20 +2202,20 @@ CREATE INDEX idx_embeddings_vector ON prod_embeddings
 
 | Module | Tables | Purpose |
 |--------|--------|---------|
-| A: System Core | 3 | Multi-tenancy, auth, sessions |
-| B: Shopify Mirror | 8 | Shopify data sync |
+| A: System Core | 9 | Multi-tenancy, auth, sessions, OAuth, feature flags, config |
+| B: Shopify Mirror | 9 | Shopify data sync + webhook events |
 | C: Bulk Operations | 6 | Bulk import staging |
 | D: Global PIM | 8+4 = 12 | Product information + proposals + dedup + translations |
 | E: Normalization | 4 | Attributes, PIM vectors + per-shop embeddings |
-| F: AI Batch | 2 | AI processing jobs |
-| G: Queue | 2 | Job tracking |
+| F: AI Batch | 3 | AI processing jobs + embedding batches |
+| G: Queue | 4 | Job tracking + rate limiting |
 | H: Audit | 2 | Observability |
 | I: Inventory | 2+1 MV | High-velocity inventory tracking |
 | J: Media & Publications | 5 | Shopify media, channels |
 | K: Menus | 2 | Navigation structures |
 | L: Scraper | 3 | Web scraping management |
-| M: Analytics | 2 | Precomputed metrics |
-| **Total** | **53 tables + 1 MV** | |
+| M: Analytics | 2+3 MVs | Precomputed metrics + dashboard MVs |
+| **Total** | **63 tables + 4 MVs** | |
 
 ---
 
@@ -2003,3 +2253,4 @@ CREATE INDEX idx_embeddings_vector ON prod_embeddings
 | v2.0 | 2025-12-23 | Added Modules I-M, PIM extensions, RLS complete, data type mapping (51 tables) |
 | v2.2 | 2025-12-23 | Added shop_product_embeddings for per-tenant vector search, complete RLS for all modules |
 | v2.3 | 2025-12-23 | Audit fixes: corrected table counts (53+1MV), fixed ai_batches RLS naming, reordered Module D Additions (53 tables + 1 MV) |
+| v2.4 | 2025-12-25 | Added 10 tables from Problems & Fixes.md audit: oauth_states, oauth_nonces, key_rotations, feature_flags, system_config, migration_history (Module A), webhook_events (Module B), embedding_batches (Module F), rate_limit_buckets, api_cost_tracking (Module G). Added 3 MVs. Total: 63 tables + 4 MVs |

@@ -968,6 +968,24 @@ Obiectiv: Stabilirea sursei de adevăr (PostgreSQL 18.1), migrații, RLS și see
     ]
     ```
 
+### F2.2.4.x: Audit Trail Schema (CONFORM Problems & Fixes.md)
+
+> [!IMPORTANT]
+> **PRIORITATE P0 - ÎNAINTE DE F3:** Aceste task-uri adresează GAP 2.3 din auditul de observabilitate. Audit trail-ul este OBLIGATORIU pentru compliance și investigații de securitate.
+
+    ```JSON
+    {
+        "id_task": "F2.2.4.1",
+        "denumire_task": "Implementare tabela audit_logs cu schema completă și RLS",
+        "descriere_task": "**CONFORM Problems & Fixes.md - Gap 2.3:** Creează tabela audit_logs pentru tracking operațiuni sensibile:\n\n**Schema SQL:**\n```sql\nCREATE TABLE audit_logs (\n  id uuid PRIMARY KEY DEFAULT uuidv7(),\n  timestamp timestamptz DEFAULT now(),\n  action text NOT NULL CHECK (action IN (\n    'oauth_login_success', 'oauth_login_failed', 'oauth_token_refresh',\n    'bulk_operation_started', 'bulk_operation_completed', 'bulk_operation_failed',\n    'key_rotation_initiated', 'key_rotation_completed',\n    'rate_limit_changed', 'config_changed',\n    'data_export_requested', 'admin_action'\n  )),\n  actor_type text CHECK (actor_type IN ('user', 'system', 'scheduler', 'webhook')),\n  actor_id uuid,\n  shop_id uuid REFERENCES shops(id),\n  resource_type text,\n  resource_id uuid,\n  details jsonb NOT NULL DEFAULT '{}',\n  ip_address inet,\n  user_agent text,\n  trace_id text,\n  span_id text\n);\n\nCREATE INDEX idx_audit_logs_shop_timestamp ON audit_logs(shop_id, timestamp DESC);\nCREATE INDEX idx_audit_logs_action ON audit_logs(action);\nCREATE INDEX idx_audit_logs_trace ON audit_logs(trace_id) WHERE trace_id IS NOT NULL;\n\nALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;\nALTER TABLE audit_logs FORCE ROW LEVEL SECURITY;\nCREATE POLICY tenant_isolation_audit_logs ON audit_logs\n  FOR ALL TO app_runtime\n  USING (shop_id = COALESCE(current_setting('app.current_shop_id', true)::uuid, '00000000-0000-0000-0000-000000000000'::uuid));\n```\n\n**Funcție helper pentru logging:**\n```typescript\n// packages/database/src/audit.ts\nexport async function logAuditEvent(\n  action: AuditAction,\n  context: AuditContext\n): Promise<void> {\n  await db.insert(auditLogs).values({\n    action,\n    actorType: context.actorType,\n    actorId: context.actorId,\n    shopId: context.shopId,\n    resourceType: context.resourceType,\n    resourceId: context.resourceId,\n    details: context.details,\n    ipAddress: context.ip,\n    userAgent: context.userAgent,\n    traceId: context.traceId,\n    spanId: context.spanId\n  });\n}\n```",
+        "cale_implementare": "/Neanelu_Shopify/packages/database/src/schema/audit.ts + migrații SQL",
+        "contextul_anterior": "F2.2.4 definește testele RLS. Acesta extinde schema cu audit trail necesar pentru compliance și debugging.",
+        "validare_task": "1. Migrația rulează fără erori\n2. INSERT în audit_logs funcționează cu toate action types\n3. RLS filtrează corect per shop_id\n4. Indexurile sunt create (verify cu \\di)",
+        "outcome_task": "Audit trail operațional pentru toate acțiunile sensibile, cu RLS și indexuri pentru căutare rapidă.",
+        "restrictii_antihalucinatie": "NU omite RLS și FORCE RLS. NU hardcoda action types - folosește CHECK constraint. Trace_id și span_id sunt opționale."
+    }
+    ```
+
 ### F2.2.x: Schema PIM Core și Vectori (redistribuit din F8)
 
 > [!NOTE]
@@ -1006,6 +1024,115 @@ Obiectiv: Stabilirea sursei de adevăr (PostgreSQL 18.1), migrații, RLS și see
         "validare_task": "Migrațiile rulează. Teste:\n1. INSERT un vector de test în prod_attr_registry\n2. Query HNSW returnează rezultate ordonate și rapide (EXPLAIN confirmă index Scan).\n3. find_similar_products() funcționează corect.",
         "outcome_task": "Schema vectorială unificată în Postgres, fără necesitate de Redis vector store.",
         "restrictii_antihalucinatie": "NU omite indexul HNSW - este critic pentru pgvector-only. NU include coloane pentru sync status (nu mai avem sync)."
+    ]
+    ```
+
+### F2.2.8.x: Database Schema Completions (CONFORM Problems & Fixes.md Audit)
+
+> [!IMPORTANT]
+> **PRIORITATE P0/P1 - ÎNAINTE DE F3/F4:** Aceste task-uri adresează GAP-urile identificate în auditul de schema din Problems & Fixes.md. Tabelele OAuth și webhook sunt PREREQUISITE pentru F3.2/F3.3.
+
+    ```JSON
+    [
+    {
+        "id_task": "F2.2.8",
+        "denumire_task": "Creare tabele OAuth (oauth_states, oauth_nonces) pentru F3.2",
+        "descriere_task": "Migrație SQL pentru tabele OAuth necesare F3.2 (CSRF protection + replay protection):\n\n**oauth_states:**\n```sql\nCREATE TABLE oauth_states (\n    id UUID PRIMARY KEY DEFAULT uuidv7(),\n    state VARCHAR(64) UNIQUE NOT NULL,\n    shop_domain CITEXT NOT NULL,\n    redirect_uri TEXT NOT NULL,\n    nonce VARCHAR(64) NOT NULL,\n    expires_at TIMESTAMPTZ NOT NULL,\n    used_at TIMESTAMPTZ,\n    created_at TIMESTAMPTZ DEFAULT now()\n);\nCREATE INDEX idx_oauth_states_expires ON oauth_states(expires_at) WHERE used_at IS NULL;\n```\n\n**oauth_nonces:**\n```sql\nCREATE TABLE oauth_nonces (\n    id UUID PRIMARY KEY DEFAULT uuidv7(),\n    nonce VARCHAR(64) UNIQUE NOT NULL,\n    shop_id UUID REFERENCES shops(id),\n    used_at TIMESTAMPTZ,\n    expires_at TIMESTAMPTZ NOT NULL,\n    created_at TIMESTAMPTZ DEFAULT now()\n);\nCREATE INDEX idx_oauth_nonces_expires ON oauth_nonces(expires_at);\n```\n\n**RLS:** Nu necesită - date temporare pre-autentificare.",
+        "cale_implementare": "/Neanelu_Shopify/packages/database/drizzle/migrations/0010_create_oauth_tables.sql",
+        "contextul_anterior": "F2.2.1-F2.2.7 definesc schema inițială. OAuth tables sunt PREREQUISITE pentru F3.2.",
+        "validare_task": "Migrația rulează fără erori. SELECT COUNT(*) FROM oauth_states returnează 0. Cleanup job poate șterge expired states.",
+        "outcome_task": "Tabele OAuth pregătite pentru flow-ul de autentificare din F3.2.",
+        "restrictii_antihalucinatie": "NU adăuga RLS pe oauth_states - sunt date pre-auth. NU omite TTL/cleanup logic."
+    },
+    {
+        "id_task": "F2.2.9",
+        "denumire_task": "Creare tabelă webhook_events cu partitioning lunar",
+        "descriere_task": "Migrație SQL pentru webhook_events - tabelă partitionată pentru async webhook processing:\n\n```sql\nCREATE TABLE webhook_events (\n    id UUID DEFAULT uuidv7(),\n    shop_id UUID REFERENCES shops(id),\n    topic VARCHAR(100) NOT NULL,\n    shopify_webhook_id VARCHAR(100),\n    api_version VARCHAR(20),\n    payload JSONB NOT NULL,\n    hmac_verified BOOLEAN NOT NULL DEFAULT false,\n    received_at TIMESTAMPTZ DEFAULT now(),\n    processed_at TIMESTAMPTZ,\n    processing_error TEXT,\n    job_id VARCHAR(255),\n    idempotency_key VARCHAR(255),\n    retry_count INTEGER DEFAULT 0,\n    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),\n    PRIMARY KEY (id, created_at)\n) PARTITION BY RANGE (created_at);\n\nCREATE INDEX idx_webhook_events_unprocessed ON webhook_events(shop_id, received_at) WHERE processed_at IS NULL;\nCREATE INDEX idx_webhook_events_topic ON webhook_events(shop_id, topic);\nCREATE UNIQUE INDEX idx_webhook_events_idempotency ON webhook_events(idempotency_key) WHERE idempotency_key IS NOT NULL;\nCREATE INDEX idx_webhook_events_payload ON webhook_events USING GIN(payload jsonb_path_ops);\n\nALTER TABLE webhook_events ENABLE ROW LEVEL SECURITY;\nALTER TABLE webhook_events FORCE ROW LEVEL SECURITY;\nCREATE POLICY webhook_events_tenant_isolation ON webhook_events\n    USING (shop_id = current_setting('app.current_shop_id', true)::uuid);\n```",
+        "cale_implementare": "/Neanelu_Shopify/packages/database/drizzle/migrations/0011_create_webhook_events.sql",
+        "contextul_anterior": "F2.2.8 creează OAuth tables. Webhook events sunt PREREQUISITE pentru F3.3.",
+        "validare_task": "Migrația rulează. Partițiile lunare sunt create. RLS filtrează corect per shop_id.",
+        "outcome_task": "Webhook events table partitionată și cu RLS, pregătită pentru F3.3.",
+        "restrictii_antihalucinatie": "NU omite partitioning - volum mare. NU omite RLS. Index GIN pe payload pentru debugging."
+    },
+    {
+        "id_task": "F2.2.10",
+        "denumire_task": "Creare tabele rate limiting (rate_limit_buckets, api_cost_tracking)",
+        "descriere_task": "Migrații SQL pentru rate limiting distribuit (F4.3):\n\n**rate_limit_buckets:**\n```sql\nCREATE TABLE rate_limit_buckets (\n    shop_id UUID PRIMARY KEY REFERENCES shops(id),\n    tokens_remaining DECIMAL(10,2) NOT NULL DEFAULT 1000,\n    max_tokens DECIMAL(10,2) NOT NULL DEFAULT 1000,\n    refill_rate DECIMAL(10,4) NOT NULL DEFAULT 2.0,\n    last_refill_at TIMESTAMPTZ NOT NULL DEFAULT now(),\n    locked_until TIMESTAMPTZ,\n    consecutive_429_count INTEGER DEFAULT 0,\n    updated_at TIMESTAMPTZ DEFAULT now()\n);\n```\n\n**api_cost_tracking:**\n```sql\nCREATE TABLE api_cost_tracking (\n    id UUID DEFAULT uuidv7(),\n    shop_id UUID NOT NULL REFERENCES shops(id),\n    operation_type VARCHAR(50) NOT NULL,\n    query_hash VARCHAR(64),\n    actual_cost INTEGER NOT NULL,\n    throttle_status VARCHAR(20),\n    available_cost INTEGER,\n    restore_rate DECIMAL(10,2),\n    requested_at TIMESTAMPTZ DEFAULT now(),\n    response_time_ms INTEGER,\n    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),\n    PRIMARY KEY (id, created_at)\n) PARTITION BY RANGE (created_at);\n\nCREATE INDEX idx_api_cost_shop_date ON api_cost_tracking(shop_id, requested_at DESC);\nCREATE INDEX idx_api_cost_throttled ON api_cost_tracking(shop_id, throttle_status) WHERE throttle_status IS NOT NULL;\n```",
+        "cale_implementare": "/Neanelu_Shopify/packages/database/drizzle/migrations/0012_create_rate_limit_tables.sql",
+        "contextul_anterior": "F2.2.9 creează webhook_events. Rate limiting tables sunt PREREQUISITE pentru F4.3.",
+        "validare_task": "Migrațiile rulează. Token bucket poate fi actualizat atomic. Partițiile sunt create.",
+        "outcome_task": "Rate limiting tables pregătite pentru F4.3 cost-based throttling.",
+        "restrictii_antihalucinatie": "NU omite partitioning pe api_cost_tracking. Retenție 7 zile recomandat."
+    },
+    {
+        "id_task": "F2.2.11",
+        "denumire_task": "Adăugare coloane lipsă în tabela shops",
+        "descriere_task": "ALTER TABLE pentru coloane necesare în shops:\n\n```sql\nALTER TABLE shops ADD COLUMN IF NOT EXISTS shopify_shop_id BIGINT;\nALTER TABLE shops ADD COLUMN IF NOT EXISTS api_version VARCHAR(20) DEFAULT '2025-10';\nALTER TABLE shops ADD COLUMN IF NOT EXISTS webhook_secret BYTEA;\nALTER TABLE shops ADD COLUMN IF NOT EXISTS rate_limit_bucket INTEGER DEFAULT 1000;\nALTER TABLE shops ADD COLUMN IF NOT EXISTS last_api_call_at TIMESTAMPTZ;\nALTER TABLE shops ADD COLUMN IF NOT EXISTS shop_owner_email CITEXT;\nALTER TABLE shops ADD COLUMN IF NOT EXISTS timezone VARCHAR(50) DEFAULT 'UTC';\nALTER TABLE shops ADD COLUMN IF NOT EXISTS currency_code VARCHAR(3) DEFAULT 'RON';\nALTER TABLE shops ADD COLUMN IF NOT EXISTS plan_limits JSONB DEFAULT '{}';\n\nCREATE INDEX IF NOT EXISTS idx_shops_shopify_id ON shops(shopify_shop_id) WHERE shopify_shop_id IS NOT NULL;\nALTER TABLE shops ADD CONSTRAINT chk_plan_tier CHECK (plan_tier IN ('basic', 'pro', 'enterprise'));\n```",
+        "cale_implementare": "/Neanelu_Shopify/packages/database/drizzle/migrations/0013_alter_shops_add_columns.sql",
+        "contextul_anterior": "F2.2.10 creează rate_limit_tables. Shops columns sunt necesare pentru webhook correlation și rate limiting.",
+        "validare_task": "Migrația rulează. Toate coloanele există. CHECK constraint respinge valori invalide pentru plan_tier.",
+        "outcome_task": "Tabela shops completă cu toate coloanele necesare pentru F3-F7.",
+        "restrictii_antihalucinatie": "NU folosi UPDATE pentru coloane cu DEFAULT - IF NOT EXISTS gestionează migrația incrementală."
+    },
+    {
+        "id_task": "F2.2.12",
+        "denumire_task": "Adăugare coloane lipsă în tabela bulk_runs + index UNIQUE pentru lock",
+        "descriere_task": "ALTER TABLE pentru bulk_runs + index critic pentru '1 bulk activ per shop':\n\n```sql\nALTER TABLE bulk_runs ADD COLUMN IF NOT EXISTS api_version VARCHAR(20);\nALTER TABLE bulk_runs ADD COLUMN IF NOT EXISTS polling_url TEXT;\nALTER TABLE bulk_runs ADD COLUMN IF NOT EXISTS result_url TEXT;\nALTER TABLE bulk_runs ADD COLUMN IF NOT EXISTS result_size_bytes BIGINT;\nALTER TABLE bulk_runs ADD COLUMN IF NOT EXISTS graphql_query_hash VARCHAR(64);\nALTER TABLE bulk_runs ADD COLUMN IF NOT EXISTS cancelled_by UUID REFERENCES staff_users(id);\nALTER TABLE bulk_runs ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;\nALTER TABLE bulk_runs ADD COLUMN IF NOT EXISTS cost_estimate INTEGER;\n\n-- INDEX CRITIC: Lock 1 bulk activ per shop\nCREATE UNIQUE INDEX IF NOT EXISTS idx_bulk_runs_active_shop \n    ON bulk_runs(shop_id) \n    WHERE status IN ('pending', 'running');\n\n-- CHECK constraint pentru status\nALTER TABLE bulk_runs ADD CONSTRAINT chk_bulk_status \n    CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled'));\n```",
+        "cale_implementare": "/Neanelu_Shopify/packages/database/drizzle/migrations/0014_alter_bulk_runs.sql",
+        "contextul_anterior": "F2.2.11 completează shops. Bulk_runs columns sunt necesare pentru F5.1 lock și tracking.",
+        "validare_task": "Migrația rulează. INSERT al doilea bulk 'running' pentru același shop EȘUEAZĂ cu unique violation.",
+        "outcome_task": "Bulk runs complet cu lock implicit pentru 1 operațiune activă per shop.",
+        "restrictii_antihalucinatie": "NU omite UNIQUE INDEX partial - este CRITIC pentru prevenirea racing conditions în F5."
+    },
+    {
+        "id_task": "F2.2.13",
+        "denumire_task": "Creare trigger functions (update_updated_at, audit_critical_action)",
+        "descriere_task": "Migrație SQL pentru trigger functions standard:\n\n```sql\n-- Auto-update updated_at\nCREATE OR REPLACE FUNCTION update_updated_at()\nRETURNS TRIGGER AS $$\nBEGIN\n    NEW.updated_at = now();\n    RETURN NEW;\nEND;\n$$ LANGUAGE plpgsql;\n\n-- Audit pentru acțiuni critice\nCREATE OR REPLACE FUNCTION audit_critical_action()\nRETURNS TRIGGER AS $$\nBEGIN\n    INSERT INTO audit_logs (shop_id, action, actor_type, resource_type, resource_id, details, trace_id)\n    VALUES (COALESCE(NEW.shop_id, OLD.shop_id), TG_ARGV[0], 'system', TG_TABLE_NAME,\n            COALESCE(NEW.id, OLD.id),\n            jsonb_build_object('operation', TG_OP, 'old', CASE WHEN TG_OP = 'DELETE' THEN row_to_json(OLD) ELSE NULL END,\n                              'new', CASE WHEN TG_OP != 'DELETE' THEN row_to_json(NEW) ELSE NULL END),\n            current_setting('app.trace_id', true));\n    RETURN COALESCE(NEW, OLD);\nEND;\n$$ LANGUAGE plpgsql;\n```",
+        "cale_implementare": "/Neanelu_Shopify/packages/database/drizzle/migrations/0015_create_triggers.sql",
+        "contextul_anterior": "F2.2.12 completează bulk_runs. Triggers asigură consistența datelor automat.",
+        "validare_task": "Funcțiile există. UPDATE pe tabel cu trigger actualizează updated_at. Audit log insert funcționează.",
+        "outcome_task": "Trigger functions pregătite pentru aplicare pe tabele.",
+        "restrictii_antihalucinatie": "NU aplica triggers pe toate tabelele acum - doar definește funcțiile. Aplicarea vine incremental."
+    },
+    {
+        "id_task": "F2.2.14",
+        "denumire_task": "Fix RLS pentru join tables (shop_id denormalization)",
+        "descriere_task": "Adaugă shop_id în join tables și activează RLS:\n\n```sql\n-- shopify_collection_products\nALTER TABLE shopify_collection_products ADD COLUMN IF NOT EXISTS shop_id UUID;\nUPDATE shopify_collection_products scp SET shop_id = sc.shop_id\nFROM shopify_collections sc WHERE scp.collection_id = sc.id AND scp.shop_id IS NULL;\nALTER TABLE shopify_collection_products ALTER COLUMN shop_id SET NOT NULL;\nALTER TABLE shopify_collection_products ENABLE ROW LEVEL SECURITY;\nALTER TABLE shopify_collection_products FORCE ROW LEVEL SECURITY;\nCREATE POLICY scp_tenant_isolation ON shopify_collection_products\n    USING (shop_id = current_setting('app.current_shop_id', true)::uuid);\n\n-- Repetă pentru shopify_product_media, shopify_variant_media\n```",
+        "cale_implementare": "/Neanelu_Shopify/packages/database/drizzle/migrations/0016_fix_rls_join_tables.sql",
+        "contextul_anterior": "F2.2.13 creează triggers. Join tables nu aveau shop_id - securitate RLS incompletă.",
+        "validare_task": "Query fără context pe join tables returnează 0 rânduri (RLS activ).",
+        "outcome_task": "Toate join tables au RLS complet cu shop_id denormalizat.",
+        "restrictii_antihalucinatie": "NU omite FORCE RLS. Populează shop_id înainte de SET NOT NULL."
+    },
+    {
+        "id_task": "F2.2.15",
+        "denumire_task": "Creare indexuri lipsă pentru performanță",
+        "descriere_task": "CREATE INDEX pentru toate indexurile identificate lipsă:\n\n```sql\nCREATE INDEX IF NOT EXISTS idx_ledger_shop_variant_date ON inventory_ledger(shop_id, variant_id, recorded_at DESC);\nCREATE INDEX IF NOT EXISTS idx_orders_processed ON shopify_orders(shop_id, processed_at DESC) WHERE processed_at IS NOT NULL;\nCREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs(actor_type, actor_id);\nCREATE INDEX IF NOT EXISTS idx_embeddings_product_current ON prod_embeddings(product_id) WHERE embedding_type = 'combined';\nCREATE INDEX IF NOT EXISTS idx_jobs_shop_created ON job_runs(shop_id, created_at DESC);\nCREATE INDEX IF NOT EXISTS idx_products_shop_updated ON shopify_products(shop_id, updated_at DESC);\nCREATE INDEX IF NOT EXISTS idx_jobs_group_status ON job_runs(group_id, status);\n```",
+        "cale_implementare": "/Neanelu_Shopify/packages/database/drizzle/migrations/0017_add_missing_indexes.sql",
+        "contextul_anterior": "F2.2.14 fixează RLS. Indexurile asigură performanță la scale.",
+        "validare_task": "EXPLAIN ANALYZE pe query-uri relevante confirmă index scan (nu seq scan).",
+        "outcome_task": "Toate indexurile critice pentru performanță sunt create.",
+        "restrictii_antihalucinatie": "Folosește IF NOT EXISTS pentru idempotency. CONCURRENTLY pentru producție."
+    },
+    {
+        "id_task": "F2.2.16",
+        "denumire_task": "Adăugare CHECK constraints pentru data integrity",
+        "descriere_task": "ADD CONSTRAINT CHECK pentru validare date:\n\n```sql\nALTER TABLE shopify_products ADD CONSTRAINT chk_status CHECK (status IN ('ACTIVE', 'DRAFT', 'ARCHIVED'));\nALTER TABLE bulk_runs ADD CONSTRAINT chk_operation_type CHECK (operation_type IN ('PRODUCTS_EXPORT', 'PRODUCTS_IMPORT', 'ORDERS_EXPORT', 'CUSTOMERS_EXPORT', 'INVENTORY_EXPORT', 'COLLECTIONS_EXPORT'));\nALTER TABLE inventory_ledger ADD CONSTRAINT chk_reason CHECK (reason IN ('SALE', 'RESTOCK', 'ADJUSTMENT', 'RETURN', 'SYNC', 'TRANSFER', 'DAMAGE', 'CORRECTION'));\nCREATE UNIQUE INDEX IF NOT EXISTS idx_shops_active_domain ON shops(shopify_domain) WHERE uninstalled_at IS NULL;\n```",
+        "cale_implementare": "/Neanelu_Shopify/packages/database/drizzle/migrations/0018_add_constraints.sql",
+        "contextul_anterior": "F2.2.15 creează indexuri. Constraints asigură data integrity.",
+        "validare_task": "INSERT cu valoare invalidă pentru status/reason este respins cu constraint violation.",
+        "outcome_task": "Data integrity asigurată prin CHECK constraints și UNIQUE partial indexes.",
+        "restrictii_antihalucinatie": "NU folosi ENUM type - CHECK constraint e mai flexibil pentru ALTER."
+    },
+    {
+        "id_task": "F2.2.17",
+        "denumire_task": "Creare tabelă embedding_batches pentru OpenAI Batch Embeddings API (F6.1)",
+        "descriere_task": "Migrație SQL pentru embedding_batches - tabelă specifică pentru OpenAI Batch API:\n\n```sql\nCREATE TABLE embedding_batches (\n    id UUID PRIMARY KEY DEFAULT uuidv7(),\n    shop_id UUID REFERENCES shops(id),\n    batch_type VARCHAR(30) NOT NULL CHECK (batch_type IN ('product_title', 'product_description', 'specs', 'combined', 'attribute')),\n    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'submitted', 'processing', 'completed', 'failed', 'cancelled')),\n    openai_batch_id VARCHAR(100),\n    input_file_id VARCHAR(100),\n    output_file_id VARCHAR(100),\n    error_file_id VARCHAR(100),\n    model VARCHAR(50) NOT NULL DEFAULT 'text-embedding-3-small',\n    dimensions INTEGER NOT NULL DEFAULT 1536,\n    total_items INTEGER NOT NULL DEFAULT 0,\n    completed_items INTEGER DEFAULT 0,\n    failed_items INTEGER DEFAULT 0,\n    tokens_used INTEGER DEFAULT 0,\n    estimated_cost DECIMAL(10,4),\n    submitted_at TIMESTAMPTZ,\n    completed_at TIMESTAMPTZ,\n    expires_at TIMESTAMPTZ,\n    error_message TEXT,\n    created_at TIMESTAMPTZ DEFAULT now(),\n    updated_at TIMESTAMPTZ DEFAULT now()\n);\n\nCREATE INDEX idx_embedding_batches_shop ON embedding_batches(shop_id);\nCREATE INDEX idx_embedding_batches_status ON embedding_batches(status);\n\nALTER TABLE embedding_batches ENABLE ROW LEVEL SECURITY;\nALTER TABLE embedding_batches FORCE ROW LEVEL SECURITY;\nCREATE POLICY embedding_batches_tenant_isolation ON embedding_batches\n    USING (shop_id IS NULL OR shop_id = current_setting('app.current_shop_id', true)::uuid);\n```",
+        "cale_implementare": "/Neanelu_Shopify/packages/database/drizzle/migrations/0019_create_embedding_batches.sql",
+        "contextul_anterior": "F2.2.16 adaugă constraints. Embedding_batches este PREREQUISITE pentru F6.1 AI embeddings.",
+        "validare_task": "Migrația rulează. RLS filtrează corect. Check constraints respinge batch_type/status invalid.",
+        "outcome_task": "Embedding batches table pregătită pentru OpenAI Batch Embeddings API în F6.",
+        "restrictii_antihalucinatie": "NU confunda cu ai_batches - aceasta e specifică embeddings. DIMENSIUNI 1536 pentru text-embedding-3-small."
     }
     ]
     ```
@@ -1076,6 +1203,19 @@ Obiectiv: Server HTTP, OAuth offline complet, webhooks ingress cu enqueue minim,
         "restrictii_antihalucinatie": "Nu loga payload complet de webhook. Nu loga token-uri Shopify sau cookies de sesiune."
     }
     ]
+    ```
+
+    ```JSON
+    {
+        "id_task": "F3.1.4.1",
+        "denumire_task": "Definire schema unificată de logging cu reguli de redaction PII",
+        "descriere_task": "**CONFORM Problems & Fixes.md - Gap 2.1:** Definește schema obligatorie pentru toate logurile:\n\n**Schema JSON obligatorie:**\n```json\n{\n  \"timestamp\": \"ISO8601\",\n  \"level\": \"debug|info|warn|error|fatal\",\n  \"message\": \"Human-readable message\",\n  \"service\": \"backend-worker|web-admin|queue-manager\",\n  \"env\": \"dev|staging|prod\",\n  \"version\": \"semantic version\",\n  \"requestId\": \"UUID from X-Request-Id\",\n  \"traceId\": \"OTel trace ID\",\n  \"spanId\": \"OTel span ID\",\n  \"shopId\": \"UUID - RLS context\",\n  \"jobId\": \"BullMQ job ID (optional)\",\n  \"bulkRunId\": \"UUID (optional)\",\n  \"userId\": \"UUID (optional, redacted in logs)\",\n  \"error\": {\n    \"code\": \"ERROR_CODE\",\n    \"message\": \"redacted if contains PII\",\n    \"stack\": \"first 3 lines only in prod\"\n  },\n  \"context\": {}\n}\n```\n\n**Reguli de Redaction (packages/logger/src/redaction.ts):**\n- Token-uri: `[REDACTED_TOKEN]`\n- Email: `a***@***.com`\n- Phone: `+40***...XX`\n- API Keys: primele 4 + `***` + ultimele 4\n- Stack traces: truncate la 3 linii în prod\n- Câmpuri sensibile: `password`, `secret`, `token`, `authorization`\n\n**Implementare în @app/logger:**\n```typescript\nimport { pino } from 'pino';\nimport { trace } from '@opentelemetry/api';\n\nconst redactPatterns = [\n  'req.headers.authorization',\n  'req.headers.cookie',\n  '*.password',\n  '*.secret',\n  '*.token',\n  '*.accessToken'\n];\n\nexport const logger = pino({\n  level: process.env.LOG_LEVEL || 'info',\n  redact: {\n    paths: redactPatterns,\n    censor: '[REDACTED]'\n  },\n  base: {\n    service: process.env.OTEL_SERVICE_NAME,\n    env: process.env.NODE_ENV,\n    version: process.env.npm_package_version\n  },\n  mixin: () => ({\n    traceId: trace.getActiveSpan()?.spanContext().traceId,\n    spanId: trace.getActiveSpan()?.spanContext().spanId\n  })\n});\n```",
+        "cale_implementare": "/Neanelu_Shopify/packages/logger/src/schema.ts + packages/logger/src/redaction.ts",
+        "contextul_anterior": "F3.1.4 menționează logging + redaction dar fără schema concretă. Acest task definește contractul explicit.",
+        "validare_task": "1. Logger-ul include toate câmpurile obligatorii\n2. Test: log cu token → [REDACTED] în output\n3. Test: log cu email → a***@***.com\n4. traceId/spanId sunt populate când OTel e activ",
+        "outcome_task": "Schema de logging unificată cross-service, cu redaction automată PII.",
+        "restrictii_antihalucinatie": "NU loga niciodată token-uri în plaintext. Stack traces max 3 linii în prod. Redaction patterns sunt obligatorii."
+    }
     ```
 
 ### F3.2: Implementare OAuth 2.0 (acces offline) cu Shopify și stocare token
@@ -1267,6 +1407,19 @@ Obiectiv: Server HTTP, OAuth offline complet, webhooks ingress cu enqueue minim,
         "restrictii_antihalucinatie": "Nu publica endpoint-uri de metrics public fără auth. Nu instrumenta excesiv (păstrează set minim)."
     }
     ]
+    ```
+
+    ```JSON
+    {
+        "id_task": "F3.4.5",
+        "denumire_task": "Configurare OTel per environment (dev/staging/prod) cu variabile explicite",
+        "descriere_task": "**CONFORM Problems & Fixes.md - Gap 2.7:** Documentează diferențele de configurare OTel per mediu:\n\n**Variabile în .env.example:**\n```bash\n# === Development ===\n# OTEL_SAMPLING_RATIO=1.0          # 100% traces\n# LOG_LEVEL=debug\n# OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317\n# OBS_DEBUG=1                       # verbose OTel diagnostics\n\n# === Staging ===\n# OTEL_SAMPLING_RATIO=0.5          # 50% traces\n# LOG_LEVEL=info\n\n# === Production ===\n# OTEL_SAMPLING_RATIO=0.1          # 10% traces\n# LOG_LEVEL=warn\n# OTEL_ERROR_SAMPLING=1.0          # 100% pentru erori\n```\n\n**Configurare dynamică în packages/config:**\n```typescript\nexport const otelConfig = {\n  samplingRatio: parseFloat(process.env.OTEL_SAMPLING_RATIO || '0.1'),\n  errorSamplingRatio: parseFloat(process.env.OTEL_ERROR_SAMPLING || '1.0'),\n  exporterEndpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || '',\n  debug: process.env.OBS_DEBUG === '1',\n  serviceName: process.env.OTEL_SERVICE_NAME || 'neanelu-shopify'\n};\n```\n\n**CI Configuration (.github/workflows/ci.yml):**\n```yaml\nenv:\n  OTEL_SAMPLING_RATIO: \"1.0\"  # 100% în CI pentru debugging\n  LOG_LEVEL: debug\n  OTEL_EXPORTER_OTLP_ENDPOINT: \"\"  # disabled în CI (no collector)\n```",
+        "cale_implementare": "/.env.example + /packages/config/src/otel.ts + .github/workflows/ci.yml",
+        "contextul_anterior": "F3.4.1-4 configurează OTel dar fără diferențiere dev/staging/prod.",
+        "validare_task": "1. În dev: sampling 100%, LOG_LEVEL=debug\n2. În prod: sampling 10%, LOG_LEVEL=warn\n3. CI: OTel dezactivat (endpoint gol)\n4. Erori: sampling 100% indiferent de mediu",
+        "outcome_task": "Configurare OTel predictibilă și documentată per environment.",
+        "restrictii_antihalucinatie": "NU activa sampling 100% în prod. NU bloca runtime dacă collector e indisponibil."
+    }
     ```
 
 ### F3.5: Fundația Frontend (Vite 7.3, App Shell & Global UI)
@@ -2378,6 +2531,19 @@ Obiectiv: Bulk Operations complet (query + mutation) + streaming JSONL + COPY î
     ]
     ```
 
+    ```JSON
+    {
+        "id_task": "F5.5.9",
+        "denumire_task": "LogConsole component cu transport SSE și trace correlation",
+        "descriere_task": "**CONFORM Problems & Fixes.md - Gap 2.4:** Extinde LogConsole:\n\n**Props Interface:**\n```typescript\ninterface LogConsoleProps {\n  transport: 'sse' | 'websocket' | 'polling';\n  endpoint: string; // /api/logs/stream\n  shopId?: string;\n  levels?: ('debug' | 'info' | 'warn' | 'error')[];\n  onTraceClick?: (traceId: string) => void;\n  jaegerBaseUrl?: string;\n  maxEventsPerSecond?: number; // default: 50\n  bufferSize?: number; // default: 1000\n}\n```\n\n**Backend endpoint:**\n```typescript\n// GET /api/logs/stream?shopId={uuid}&levels=warn,error\nfastify.get('/api/logs/stream', async (request, reply) => {\n  reply.raw.setHeader('Content-Type', 'text/event-stream');\n  reply.raw.setHeader('Cache-Control', 'no-cache');\n  // Stream logs via SSE with filtering\n});\n```",
+        "cale_implementare": "/apps/web-admin/app/components/domain/LogConsole.tsx + /apps/backend-worker/src/routes/logs.ts",
+        "contextul_anterior": "F5.5.3 menționează LogStream dar fără specificații transport.",
+        "validare_task": "1. SSE connection funcționează\n2. Filtrare pe levels\n3. Click pe traceId deschide Jaeger",
+        "outcome_task": "Frontend poate afișa loguri în timp real cu trace correlation.",
+        "restrictii_antihalucinatie": "Filtrare OBLIGATORIE pe shopId. Rate limiting max 50 events/sec."
+    }
+    ```
+
 ## Faza F6: Integrare AI & Vector Search (Săptămâna 7)
 
 Durată: Săptămâna 7
@@ -2893,6 +3059,106 @@ Obiectiv: hardening, build/publish, deploy, migrații, alerte, DR, Securitate Su
         "validare_task": "Deploy rulează cu probes; readiness cade când dependențele critice sunt indisponibile; probele nu produc load excesiv.",
         "outcome_task": "Operare stabilă și rollout sigur.",
         "restrictii_antihalucinatie": "Nu expune probe interne public. Nu face probe care scriu date persistente."
+    }
+    ]
+    ```
+
+### F7.1.x: Loki+Grafana Log Shipping (CONFORM Problems & Fixes.md)
+
+> [!IMPORTANT]
+> **PRIORITATE P1:** Aceste task-uri adresează GAP 2.2 din auditul de observabilitate. Stack-ul Loki+Grafana este OBLIGATORIU pentru log aggregation și debugging în producție.
+
+    ```JSON
+    [
+    {
+        "id_task": "F7.1.1.1",
+        "denumire_task": "Creare config/loki-config.yaml cu schema v13 și retenție 31 zile",
+        "descriere_task": "**CONFORM Problems & Fixes.md - Gap 2.2:** Configurație Loki ≥3.6.3:\n\n```yaml\n# config/loki-config.yaml\nauth_enabled: false\n\nserver:\n  http_listen_port: 3100\n  grpc_listen_port: 9096\n\nlimits_config:\n  ingestion_rate_mb: 10\n  max_streams_per_user: 10000\n  retention_period: 744h  # 31 zile\n\nschema_config:\n  configs:\n    - from: 2025-01-01\n      store: tsdb\n      schema: v13\n      index:\n        prefix: index_\n        period: 24h\n\nstorage_config:\n  tsdb_shipper:\n    active_index_directory: /loki/index\n    cache_location: /loki/cache\n  filesystem:\n    directory: /loki/chunks\n```",
+        "cale_implementare": "/Neanelu_Shopify/config/loki-config.yaml",
+        "contextul_anterior": "OTel Collector există în F7.1.1 dar fără destinație concretă pentru logs.",
+        "validare_task": "Loki pornește cu config-ul specificat. Endpoint /ready returnează 200.",
+        "outcome_task": "Loki configurat pentru 31 zile retenție cu schema v13.",
+        "restrictii_antihalucinatie": "Versiune Loki ≥3.6.3 obligatorie pentru schema v13."
+    },
+    {
+        "id_task": "F7.1.1.2",
+        "denumire_task": "Creare config/otel-collector-config.yaml cu Loki exporter",
+        "descriere_task": "**OTel Collector ≥0.142.0:**\n\n```yaml\nreceivers:\n  otlp:\n    protocols:\n      grpc:\n        endpoint: 0.0.0.0:4317\n      http:\n        endpoint: 0.0.0.0:4318\n\nprocessors:\n  batch:\n    timeout: 5s\n    send_batch_size: 1000\n  memory_limiter:\n    limit_mib: 512\n\nexporters:\n  loki:\n    endpoint: http://loki:3100/loki/api/v1/push\n\nservice:\n  pipelines:\n    logs:\n      receivers: [otlp]\n      processors: [memory_limiter, batch]\n      exporters: [loki]\n```",
+        "cale_implementare": "/Neanelu_Shopify/config/otel-collector-config.yaml",
+        "contextul_anterior": "F7.1.1.1 a creat Loki config.",
+        "validare_task": "OTel Collector pornește și poate conecta la Loki.",
+        "outcome_task": "Pipeline logs: app → OTel → Loki complet.",
+        "restrictii_antihalucinatie": "Memory limiter obligatoriu pentru a preveni OOM."
+    },
+    {
+        "id_task": "F7.1.1.3",
+        "denumire_task": "Adăugare services Loki + Grafana în docker-compose.observability.yml",
+        "descriere_task": "**Docker Compose services:**\n\n```yaml\nservices:\n  loki:\n    image: grafana/loki:3.6.3\n    ports:\n      - \"65023:3100\"\n    volumes:\n      - ./config/loki-config.yaml:/etc/loki/config.yaml\n      - loki-data:/loki\n    healthcheck:\n      test: [\"CMD\", \"wget\", \"--spider\", \"-q\", \"http://localhost:3100/ready\"]\n\n  grafana:\n    image: grafana/grafana:12.3.1\n    ports:\n      - \"65024:3000\"\n    environment:\n      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}\n    volumes:\n      - ./config/grafana/provisioning:/etc/grafana/provisioning\n```",
+        "cale_implementare": "/Neanelu_Shopify/docker-compose.observability.yml",
+        "contextul_anterior": "F7.1.1.1 și F7.1.1.2 definesc configurațiile.",
+        "validare_task": "docker compose -f docker-compose.observability.yml up funcționează.",
+        "outcome_task": "Stack observability containerizat.",
+        "restrictii_antihalucinatie": "Porturi din range 65xxx conform standardului proiectului."
+    },
+    {
+        "id_task": "F7.1.1.4",
+        "denumire_task": "Creare Grafana provisioning (datasources Loki + Jaeger)",
+        "descriere_task": "**Grafana Provisioning:**\n\n```yaml\n# config/grafana/provisioning/datasources/datasources.yaml\napiVersion: 1\ndatasources:\n  - name: Loki\n    type: loki\n    access: proxy\n    url: http://loki:3100\n    jsonData:\n      derivedFields:\n        - name: TraceID\n          matcherRegex: '\"traceId\":\"([a-f0-9]+)\"'\n          url: 'http://jaeger:16686/trace/${__value.raw}'\n          datasourceUid: jaeger\n  - name: Jaeger\n    type: jaeger\n    access: proxy\n    url: http://jaeger:16686\n    uid: jaeger\n```",
+        "cale_implementare": "/Neanelu_Shopify/config/grafana/provisioning/",
+        "contextul_anterior": "F7.1.1.3 adaugă Grafana în compose.",
+        "validare_task": "Grafana pornește cu datasources configurate automat.",
+        "outcome_task": "Grafana provizionat cu trace↔log correlation.",
+        "restrictii_antihalucinatie": "derivedFields pentru trace correlation sunt OBLIGATORII."
+    },
+    {
+        "id_task": "F7.1.1.5",
+        "denumire_task": "Creare Grafana dashboard pentru logs (volume, errors, search)",
+        "descriere_task": "Dashboard JSON cu panels: Log volume per service (bar chart), Error rate trend, Top 10 errors (table), Logs table cu search.",
+        "cale_implementare": "/Neanelu_Shopify/config/grafana/provisioning/dashboards/logs-dashboard.json",
+        "contextul_anterior": "F7.1.1.4 configurează datasources.",
+        "validare_task": "Dashboard vizibil în Grafana. Toate panels afișează date.",
+        "outcome_task": "Dashboard operațional pentru log analysis.",
+        "restrictii_antihalucinatie": "Folosește variabile pentru filtering."
+    },
+    {
+        "id_task": "F7.1.1.6",
+        "denumire_task": "Documentare variabile environment pentru Loki+Grafana în .env.example",
+        "descriere_task": "Adaugă în .env.example:\n```bash\n# Loki+Grafana Stack\nLOKI_VERSION=3.6.3\nGRAFANA_VERSION=12.3.1\nGRAFANA_ADMIN_PASSWORD=changeme_in_production\nLOKI_PORT=65023\nGRAFANA_PORT=65024\nLOKI_RETENTION_PERIOD=744h\n```",
+        "cale_implementare": "/.env.example",
+        "contextul_anterior": "Stack configurat; variabilele trebuie documentate.",
+        "validare_task": ".env.example conține toate variabilele Loki+Grafana.",
+        "outcome_task": "Onboarding clar pentru stack observability.",
+        "restrictii_antihalucinatie": "NU pune parole reale în .env.example."
+    }
+    ]
+    ```
+
+### F7.1.3.x: DB/Redis Observability + SLI/SLO (CONFORM Problems & Fixes.md)
+
+> [!IMPORTANT]
+> **PRIORITATE P2:** Aceste task-uri adresează GAP 2.5 și GAP 2.8 din auditul de observabilitate. DB/Redis monitoring și SLI/SLO sunt necesare pentru operare enterprise.
+
+    ```JSON
+    [
+    {
+        "id_task": "F7.1.3.1",
+        "denumire_task": "DB/Redis Observability: slow query logging, pool saturation, SLOWLOG export",
+        "descriere_task": "**CONFORM Problems & Fixes.md - Gap 2.5:**\n\n**PostgreSQL configurație:**\n```sql\n-- postgresql.conf\nlog_min_duration_statement = 100  -- ms\nlog_statement = 'ddl'\nlog_connections = on\nlog_disconnections = on\n```\n\n**pg_stat_statements:**\n```sql\nCREATE EXTENSION IF NOT EXISTS pg_stat_statements;\n```\n\n**Pool saturation alert:** pool > 80% pentru > 5 min\n\n**Redis SLOWLOG export (job periodic):**\n```typescript\nconst slowLogs = await redis.slowlog('GET', 10);\nlogger.warn('Redis slow commands', { commands: slowLogs });\n```",
+        "cale_implementare": "Infra/ops/db/ + packages/queue-manager/src/jobs/redis-slowlog.ts",
+        "contextul_anterior": "F7.1.3 menționează dashboards dar fără detalii concrete pentru DB/Redis.",
+        "validare_task": "1. Slow queries apar în logs\n2. pg_stat_statements returnează date\n3. Redis SLOWLOG exportat periodic",
+        "outcome_task": "Vizibilitate completă asupra performanței DB/Redis.",
+        "restrictii_antihalucinatie": "log_statement = 'all' ar genera prea mult log; folosește 'ddl' sau 'mod'."
+    },
+    {
+        "id_task": "F7.1.3.2",
+        "denumire_task": "Definire SLI/SLO concrete cu thresholds și alerte",
+        "descriere_task": "**CONFORM Problems & Fixes.md - Gap 2.8:**\n\n**SLI-uri definite:**\n\n| SLI | Target (SLO) | Alertă |\n|-----|--------------|--------|\n| API Latency P99 | < 500ms | > 1s pentru 5 min |\n| API Error Rate | < 1% | > 5% pentru 2 min |\n| Bulk Sync Success | > 95% | < 90% pe batch |\n| Job Processing P95 | < 30s | > 60s |\n| Webhook Response | < 100ms | > 500ms |\n| DB Query P99 | < 100ms | > 500ms |\n\n**Implementare:**\n```yaml\ngroups:\n  - name: SLO Alerts\n    rules:\n      - alert: APILatencyHigh\n        expr: histogram_quantile(0.99, http_request_duration_seconds_bucket) > 1\n        for: 5m\n```",
+        "cale_implementare": "Infra/observability/alerts/ + Docs/slo-definitions.md",
+        "contextul_anterior": "F7.1.4 menționează SLO dar fără valori concrete.",
+        "validare_task": "1. Alertele sunt configurate\n2. Simulează degradare și verifică alertă\n3. Dashboard SLO afișează burn rate",
+        "outcome_task": "SLO-uri măsurabile și alertabile.",
+        "restrictii_antihalucinatie": "SLO-urile trebuie să fie realiste pentru stadiul curent."
     }
     ]
     ```
