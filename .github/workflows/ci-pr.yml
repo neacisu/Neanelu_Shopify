@@ -19,6 +19,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Permissions required for SARIF upload to GitHub Security tab
+permissions:
+  contents: read
+  security-events: write
+
 env:
   NODE_VERSION: '24'
   PNPM_VERSION: '10'
