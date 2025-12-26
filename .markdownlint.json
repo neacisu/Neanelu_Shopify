@@ -1,3 +1,8 @@
 {
+  "MD013": {
+    "line_length": 1500,
+    "heading_line_length": 80,
+    "code_block_line_length": 1500
+  },
   "MD046": false
 }
