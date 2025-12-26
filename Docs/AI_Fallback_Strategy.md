@@ -6,7 +6,10 @@
 
 ## Overview
 
-Această documentație descrie strategia de fallback pentru cazurile când OpenAI API nu este disponibil sau returnează erori. Obiectivul este **graceful degradation** - aplicația trebuie să rămână funcțională chiar și fără componenta AI.
+Această documentație descrie strategia de fallback pentru cazurile când
+OpenAI API nu este disponibil sau returnează erori. Obiectivul este
+**graceful degradation** - aplicația trebuie să rămână funcțională
+chiar și fără componenta AI.
 
 ---
 
@@ -14,13 +17,13 @@ Această documentație descrie strategia de fallback pentru cazurile când OpenA
 
 ### Configurație Curentă
 
-| Setting | Value |
-|---------|-------|
-| Model Embeddings | `text-embedding-3-small` |
-| Dimensiuni Vector | 1536 |
-| Model Chat (future) | `gpt-4o-mini` |
-| Batch API | Enabled |
-| Rate Limit | 10,000 RPM |
+| Setting             | Value                    |
+| ------------------- | ------------------------ |
+| Model Embeddings    | `text-embedding-3-small` |
+| Dimensiuni Vector   | 1536                     |
+| Model Chat (future) | `gpt-4o-mini`            |
+| Batch API           | Enabled                  |
+| Rate Limit          | 10,000 RPM               |
 
 ### Monitorizare Health
 
@@ -235,13 +238,13 @@ const circuitBreaker = {
 
 ### Metrics
 
-| Metric | Alert Threshold | Severity |
-|--------|-----------------|----------|
-| `openai_request_success_rate` | < 95% for 5min | Warning |
-| `openai_request_success_rate` | < 80% for 5min | Critical |
-| `embedding_queue_size` | > 1000 | Warning |
-| `embedding_queue_size` | > 5000 | Critical |
-| `circuit_breaker_state` | OPEN | Critical |
+| Metric                       | Alert Threshold  | Severity |
+| ---------------------------- | ---------------- | -------- |
+| `openai_request_success_rate`| < 95% for 5min   | Warning  |
+| `openai_request_success_rate`| < 80% for 5min   | Critical |
+| `embedding_queue_size`       | > 1000           | Warning  |
+| `embedding_queue_size`       | > 5000           | Critical |
+| `circuit_breaker_state`      | OPEN             | Critical |
 
 ### Dashboards
 
