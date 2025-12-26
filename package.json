@@ -14,7 +14,7 @@
     "build": "pnpm -r run build",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "typecheck": "pnpm -r --if-present run typecheck",
+    "typecheck": "pnpm -w exec tsc --noEmit",
     "test": "pnpm -r --if-present run test",
     "ci": "pnpm lint && pnpm typecheck && pnpm test",
     "format": "prettier --write .",
