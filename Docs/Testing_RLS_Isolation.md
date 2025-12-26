@@ -6,7 +6,9 @@
 
 ## Overview
 
-Acest document definește test cases pentru validarea completă a Row-Level Security (RLS) în contextul multi-tenant. Testele verifică că datele unui shop nu sunt accesibile altui shop.
+Acest document definește test cases pentru validarea completă a
+Row-Level Security (RLS) în contextul multi-tenant. Testele verifică
+că datele unui shop nu sunt accesibile altui shop.
 
 ---
 
@@ -28,9 +30,12 @@ INSERT INTO shops (id, shopify_domain, name) VALUES
 
 -- Create test products for each shop
 INSERT INTO shopify_products (id, shop_id, shopify_id, title) VALUES
-  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 1001, 'Alpha Product 1'),
-  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '11111111-1111-1111-1111-111111111111', 1002, 'Alpha Product 2'),
-  ('cccccccc-cccc-cccc-cccc-cccccccccccc', '22222222-2222-2222-2222-222222222222', 2001, 'Beta Product 1');
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   '11111111-1111-1111-1111-111111111111', 1001, 'Alpha Product 1'),
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+   '11111111-1111-1111-1111-111111111111', 1002, 'Alpha Product 2'),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+   '22222222-2222-2222-2222-222222222222', 2001, 'Beta Product 1');
 ```
 
 ---
@@ -177,11 +182,19 @@ SET LOCAL app.current_shop_id = '11111111-1111-1111-1111-111111111111';
 
 -- Insert new product
 INSERT INTO shopify_products (id, shop_id, shopify_id, title)
-VALUES ('dddddddd-dddd-dddd-dddd-dddddddddddd', '11111111-1111-1111-1111-111111111111', 1003, 'Alpha Product 3');
+VALUES (
+  'dddddddd-dddd-dddd-dddd-dddddddddddd',
+  '11111111-1111-1111-1111-111111111111',
+  1003, 'Alpha Product 3'
+);
 
 -- Try to insert for different shop (should fail or be invisible)
 INSERT INTO shopify_products (id, shop_id, shopify_id, title)
-VALUES ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '22222222-2222-2222-2222-222222222222', 2002, 'Sneaky Beta Product');
+VALUES (
+  'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+  '22222222-2222-2222-2222-222222222222',
+  2002, 'Sneaky Beta Product'
+);
 
 -- Verify current context only sees own products
 SELECT COUNT(*) FROM shopify_products;
@@ -189,7 +202,8 @@ SELECT COUNT(*) FROM shopify_products;
 ROLLBACK;
 ```
 
-**Expected Result:** Policy should prevent inserting for different shop_id OR make it invisible.
+**Expected Result:** Policy should prevent inserting for different
+shop_id OR make it invisible.
 
 ---
 

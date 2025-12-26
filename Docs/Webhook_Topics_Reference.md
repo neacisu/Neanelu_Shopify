@@ -46,11 +46,11 @@ Configurația: `apps/backend-worker/src/webhooks/registry.ts`
 
 ### Inventory
 
-| Topic                      | Pri    | Queue          | Handler                    |
-| -------------------------- | ------ | -------------- | -------------------------- |
-| `inventory_levels/update`  | Normal | sync.inventory | InventoryUpdatedHandler    |
-| `inventory_levels/connect` | Low    | sync.inventory | InventoryConnectedHandler  |
-| `inventory_levels/disconnect` | Low | sync.inventory | InventoryDisconnectedHandler |
+| Topic                      | Prioritate | Coada     | Handler            |
+| -------------------------- | ---------- | --------- | ------------------ |
+| `inv_levels/update`        | Normal     | sync.inv  | InvUpdatedHandler  |
+| `inv_levels/connect`       | Low        | sync.inv  | InvConnectedHandler|
+| `inv_levels/disconnect`    | Low        | sync.inv  | InvDisconnHandler  |
 
 ---
 
