@@ -325,10 +325,15 @@ Recomandare: **Drizzle ORM** (standardul proiectului), conectat la containerul P
 * Generarea fișierului JSONL pentru OpenAI Batch API.  
 * Worker care verifică statusul batch-ului și descarcă rezultatele (embeddings) după 24h.
 
-### **6.2. Redis Vector Search**
+### **6.2. pgvector Integration (PostgreSQL)**
 
-* Crearea indexului în Redis 8.4 (FT.CREATE ... SCHEMA content\_vector VECTOR HNSW ...).  
-* Sincronizarea vectorilor din Postgres (cold storage) în Redis (hot cache) pentru interogări active.
+> **NOTĂ (AUDIT 2025-12-26):** Vector Search este gestionat **exclusiv de pgvector în PostgreSQL**, NU de Redis. Redis rămâne doar pentru: cozi BullMQ, caching, rate limiting.
+
+* **Extensie:** `CREATE EXTENSION IF NOT EXISTS vector;` în migrația inițială.
+* **Coloană embeddings:** `embedding vector(1536)` în tabelele relevante (`prod_embeddings`, `attr_embeddings`).
+* **Index HNSW:** `CREATE INDEX idx_prod_embedding_hnsw ON prod_embeddings USING hnsw (embedding vector_cosine_ops);`
+* **Căutare semantică:** `SELECT * FROM prod_embeddings ORDER BY embedding <=> $query_vector LIMIT 10;`
+* **Avantaje:** Single source of truth, persistență ACID, RLS aplicat pe vectori, fără sincronizare cross-service.
 
 ## **Faza 7: CI/CD, Observabilitate și Producție (Săptămâna 8\)**
 

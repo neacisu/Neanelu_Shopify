@@ -2,7 +2,10 @@
 
 > **PostgreSQL 18.1** | **pgvector** | **UUIDv7** | **RLS Multi-tenancy**
 >
-> **Last Updated:** 2025-12-25 | **Total Tables:** 63 + 4 MVs | **Status:** ✅ Production Ready
+> **Last Updated:** 2025-12-26 | **Total Tables:** 63 + 4 MVs | **Status:** ✅ Production Ready
+>
+> ⚠️ **SOURCE OF TRUTH:** Acest document este sursa definitivă pentru toate schemele de baze de date, inclusiv PIM.
+> Fișierul `Schemă_Bază_Date_PIM.sql` este **DEPRECATED** și nu trebuie folosit pentru implementare.
 
 ---
 
@@ -35,24 +38,24 @@
 
 ### Table: `shops`
 
-| Column | Type | Constraints | Description |
-| -------- | ------ | ------------- | ------------- |
-| id | UUID | PK DEFAULT uuidv7() | Shop identifier |
-| shopify_domain | CITEXT | UNIQUE NOT NULL | myshop.myshopify.com |
-| shopify_shop_id | BIGINT | UNIQUE | Shopify numeric ID for API correlation |
-| plan_tier | VARCHAR(20) | NOT NULL DEFAULT 'basic' | basic/pro/enterprise |
-| api_version | VARCHAR(20) | DEFAULT '2025-10' | Current Shopify API version |
-| access_token_ciphertext | BYTEA | NOT NULL | AES-256-GCM encrypted |
-| access_token_iv | BYTEA | NOT NULL | Initialization vector |
-| access_token_tag | BYTEA | NOT NULL | Auth tag |
-| webhook_secret | BYTEA | | HMAC validation key for webhooks |
-| key_version | INTEGER | NOT NULL DEFAULT 1 | Key rotation version |
-| scopes | TEXT[] | NOT NULL | Granted OAuth scopes |
-| settings | JSONB | DEFAULT '{}' | Shop-level config |
-| installed_at | TIMESTAMPTZ | DEFAULT now() | Install timestamp |
-| uninstalled_at | TIMESTAMPTZ | | Uninstall timestamp |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column                  | Type        | Constraints              | Description                            |
+| ----------------------- | ----------- | ------------------------ | -------------------------------------- |
+| id                      | UUID        | PK DEFAULT uuidv7()      | Shop identifier                        |
+| shopify_domain          | CITEXT      | UNIQUE NOT NULL          | myshop.myshopify.com                   |
+| shopify_shop_id         | BIGINT      | UNIQUE                   | Shopify numeric ID for API correlation |
+| plan_tier               | VARCHAR(20) | NOT NULL DEFAULT 'basic' | basic/pro/enterprise                   |
+| api_version             | VARCHAR(20) | DEFAULT '2025-10'        | Current Shopify API version            |
+| access_token_ciphertext | BYTEA       | NOT NULL                 | AES-256-GCM encrypted                  |
+| access_token_iv         | BYTEA       | NOT NULL                 | Initialization vector                  |
+| access_token_tag        | BYTEA       | NOT NULL                 | Auth tag                               |
+| webhook_secret          | BYTEA       |                          | HMAC validation key for webhooks       |
+| key_version             | INTEGER     | NOT NULL DEFAULT 1       | Key rotation version                   |
+| scopes                  | TEXT[]      | NOT NULL                 | Granted OAuth scopes.                  |
+| settings                | JSONB       | DEFAULT '{}'             | Shop-level config                      |
+| installed_at            | TIMESTAMPTZ | DEFAULT now()            | Install timestamp                      |
+| uninstalled_at          | TIMESTAMPTZ |                          | Uninstall timestamp                    |
+| created_at              | TIMESTAMPTZ | DEFAULT now()            |                                        |
+| updated_at              | TIMESTAMPTZ | DEFAULT now()            |                                        |
 
 **Indexes:**
 
@@ -63,17 +66,17 @@
 
 ### Table: `staff_users`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| email | CITEXT | NOT NULL | |
-| first_name | VARCHAR(100) | | |
-| last_name | VARCHAR(100) | | |
-| role | JSONB | DEFAULT '{"admin":false}' | Role permissions |
-| locale | VARCHAR(10) | DEFAULT 'en' | |
-| last_login_at | TIMESTAMPTZ | | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column        | Type        | Constraints               | Description      |
+| ------------- | ------------| ------------------------- | ---------------- |
+| id            | UUID        | PK DEFAULT uuidv7()       |                  |
+| shop_id       | UUID        | FK shops(id) NOT NULL     |                  |
+| email         | CITEXT      | NOT NULL                  |                  |
+| first_name    | VARCHAR(100)|                           |                  |
+| last_name     | VARCHAR(100)|                           |                  |
+| role          | JSONB       | DEFAULT '{"admin":false}' | Role permissions |
+| locale        | VARCHAR(10) | DEFAULT 'en'              |                  |
+| last_login_at | TIMESTAMPTZ |                           |                  |
+| created_at    | TIMESTAMPTZ | DEFAULT now()             |                  |
 
 **Indexes:**
 
@@ -85,13 +88,13 @@
 
 ### Table: `app_sessions`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | VARCHAR(255) | PK | Session ID |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| payload | JSONB | NOT NULL | Session data |
-| expires_at | TIMESTAMPTZ | NOT NULL | Expiration |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column        | Type        | Constraints           | Description  |
+| ------------- | ------------| --------------------- | ------------ |
+| id            | VARCHAR(255)| PK                    | Session ID   |
+| shop_id       | UUID        | FK shops(id) NOT NULL |              |
+| payload       | JSONB       | NOT NULL              | Session data |
+| expires_at    | TIMESTAMPTZ | NOT NULL              | Expiration   |
+| created_at    | TIMESTAMPTZ | DEFAULT now()         |              |
 
 **Indexes:**
 
@@ -104,16 +107,16 @@
 
 > **Purpose:** CSRF protection for OAuth flow (F3.2) - Temporary, no RLS needed
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | State identifier |
-| state | VARCHAR(64) | UNIQUE NOT NULL | Random state token |
-| shop_domain | CITEXT | NOT NULL | Target shop domain |
-| redirect_uri | TEXT | NOT NULL | Return URL after OAuth |
-| nonce | VARCHAR(64) | NOT NULL | Additional entropy |
-| expires_at | TIMESTAMPTZ | NOT NULL | TTL (5-10 min) |
-| used_at | TIMESTAMPTZ | | When consumed |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column        | Type        | Constraints         | Description            |
+| ------------- | ------------| ------------------- | ---------------------- |
+| id            | UUID        | PK DEFAULT uuidv7() | State identifier       |
+| state         | VARCHAR(64) | UNIQUE NOT NULL     | Random state token     |
+| shop_domain   | CITEXT      | NOT NULL            | Target shop domain     |
+| redirect_uri  | TEXT        | NOT NULL            | Return URL after OAuth |
+| nonce         | VARCHAR(64) | NOT NULL            | Additional entropy     |
+| expires_at    | TIMESTAMPTZ | NOT NULL            | TTL (5-10 min)         |
+| used_at       | TIMESTAMPTZ |                     | When consumed          |
+| created_at    | TIMESTAMPTZ | DEFAULT now()       |                        |
 
 **Indexes:**
 
@@ -128,14 +131,14 @@
 
 > **Purpose:** Replay attack protection for OAuth (F3.2)
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | Nonce identifier |
-| nonce | VARCHAR(64) | UNIQUE NOT NULL | Random nonce |
-| shop_id | UUID | FK shops(id) | Associated shop |
-| used_at | TIMESTAMPTZ | | When consumed |
-| expires_at | TIMESTAMPTZ | NOT NULL | TTL |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column        | Type        | Constraints         | Description      |
+| ------------- | ------------| ------------------- | ---------------- |
+| id            | UUID        | PK DEFAULT uuidv7() | Nonce identifier |
+| nonce         | VARCHAR(64) | UNIQUE NOT NULL     | Random nonce     |
+| shop_id       | UUID        | FK shops(id)        | Associated shop  |
+| used_at       | TIMESTAMPTZ |                     | When consumed    |
+| expires_at    | TIMESTAMPTZ | NOT NULL            | TTL              |
+| created_at    | TIMESTAMPTZ | DEFAULT now()       |                  |
 
 **Indexes:**
 
@@ -148,17 +151,17 @@
 
 > **Purpose:** Audit trail for encryption key rotation (F2.2.3.2)
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | Rotation identifier |
-| key_version_old | INTEGER | NOT NULL | Previous key version |
-| key_version_new | INTEGER | NOT NULL | New key version |
-| initiated_by | UUID | FK staff_users(id) | Who started rotation |
-| status | VARCHAR(20) | NOT NULL DEFAULT 'in_progress' | in_progress/completed/failed |
-| records_updated | INTEGER | DEFAULT 0 | Count of re-encrypted records |
-| started_at | TIMESTAMPTZ | DEFAULT now() | |
-| completed_at | TIMESTAMPTZ | | |
-| error_message | TEXT | | If failed |
+| Column          | Type        | Constraints                    | Description                   |
+| --------------- | ------------| ------------------------------ | ----------------------------- |
+| id              | UUID        | PK DEFAULT uuidv7()            | Rotation identifier           |
+| key_version_old | INTEGER     | NOT NULL                       | Previous key version          |
+| key_version_new | INTEGER     | NOT NULL                       | New key version               |
+| initiated_by    | UUID        | FK staff_users(id)             | Who started rotation          |
+| status          | VARCHAR(20) | NOT NULL DEFAULT 'in_progress' | in_progress/completed/failed  |
+| records_updated | INTEGER     | DEFAULT 0                      | Count of re-encrypted records |
+| started_at      | TIMESTAMPTZ | DEFAULT now()                  |                               |
+| completed_at    | TIMESTAMPTZ |                                |                               |
+| error_message   | TEXT        |                                | If failed                     |
 
 **Indexes:**
 
@@ -170,20 +173,20 @@
 
 > **Purpose:** Per-shop feature flag configurations (F7.0)
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | Flag identifier |
-| flag_key | VARCHAR(100) | UNIQUE NOT NULL | Flag name (e.g., 'bulk_v2') |
-| description | TEXT | | Purpose description |
-| default_value | BOOLEAN | NOT NULL DEFAULT false | Default state |
-| is_active | BOOLEAN | NOT NULL DEFAULT true | Kill switch |
-| rollout_percentage | INTEGER | DEFAULT 0 CHECK (0-100) | Gradual rollout |
-| allowed_shop_ids | UUID[] | DEFAULT '{}' | Whitelist |
-| blocked_shop_ids | UUID[] | DEFAULT '{}' | Blacklist |
-| conditions | JSONB | DEFAULT '{}' | Complex rules |
-| created_by | UUID | FK staff_users(id) | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column             | Type         | Constraints             | Description                |
+| ------------------ | ------------ | ----------------------- | -------------------------- |
+| id                 | UUID         | PK DEFAULT uuidv7()     | Flag identifier            |
+| flag_key           | VARCHAR(100) | UNIQUE NOT NULL         | Flag name (e.g., 'bulk_v2')|
+| description        | TEXT         |                         | Purpose description        |
+| default_value      | BOOLEAN      | NOT NULL DEFAULT false  | Default state              |
+| is_active          | BOOLEAN      | NOT NULL DEFAULT true   | Kill switch                |
+| rollout_percentage | INTEGER      | DEFAULT 0 CHECK (0-100) | Gradual rollout            |
+| allowed_shop_ids   | UUID[]       | DEFAULT '{}'            | Whitelist                  |
+| blocked_shop_ids   | UUID[]       | DEFAULT '{}'            | Blacklist                  |
+| conditions         | JSONB        | DEFAULT '{}'            | Complex rules              |
+| created_by         | UUID         | FK staff_users(id)      |                            |
+| created_at         | TIMESTAMPTZ  | DEFAULT now()           |                            |
+| updated_at         | TIMESTAMPTZ  | DEFAULT now()           |                            |
 
 **Indexes:**
 
@@ -196,15 +199,15 @@
 
 > **Purpose:** Persistent system-wide configuration (F0.1)
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| key | VARCHAR(100) | PK | Config key |
-| value | JSONB | NOT NULL | Config value |
-| description | TEXT | | Purpose |
-| is_sensitive | BOOLEAN | DEFAULT false | Mask in UI |
-| updated_by | UUID | FK staff_users(id) | Last modifier |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column       | Type         | Constraints        | Description   |
+| ------------ | ------------ | ------------------ | ------------- |
+| key          | VARCHAR(100) | PK                 | Config key    |
+| value        | JSONB        | NOT NULL           | Config value  |
+| description  | TEXT         |                    | Purpose       |
+| is_sensitive | BOOLEAN      | DEFAULT false      | Mask in UI    |
+| updated_by   | UUID         | FK staff_users(id) | Last modifier |
+| updated_at   | TIMESTAMPTZ  | DEFAULT now()      |               |
+| created_at   | TIMESTAMPTZ  | DEFAULT now()      |               |
 
 ---
 
@@ -212,16 +215,16 @@
 
 > **Purpose:** Track DB migrations for zero-downtime deploys (F7.3)
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | Migration identifier |
-| migration_name | VARCHAR(255) | UNIQUE NOT NULL | Migration file name |
-| checksum | VARCHAR(64) | NOT NULL | SHA-256 of migration |
-| applied_at | TIMESTAMPTZ | DEFAULT now() | When applied |
-| applied_by | VARCHAR(100) | DEFAULT current_user | Role that ran it |
-| execution_time_ms | INTEGER | | Duration |
-| success | BOOLEAN | NOT NULL DEFAULT true | |
-| error_message | TEXT | | If failed |
+| Column            | Type         | Constraints           | Description          |
+| ----------------- | ------------ | --------------------- | -------------------- |
+| id                | UUID         | PK DEFAULT uuidv7()   | Migration identifier |
+| migration_name    | VARCHAR(255) | UNIQUE NOT NULL       | Migration file name  |
+| checksum          | VARCHAR(64)  | NOT NULL              | SHA-256 of migration |
+| applied_at        | TIMESTAMPTZ  | DEFAULT now()         | When applied         |
+| applied_by        | VARCHAR(100) | DEFAULT current_user  | Role that ran it     |
+| execution_time_ms | INTEGER      |                       | Duration             |
+| success           | BOOLEAN      | NOT NULL DEFAULT true |                      |
+| error_message     | TEXT         |                       | If failed            |
 
 **Indexes:**
 
@@ -234,38 +237,38 @@
 
 ### Table: `shopify_products`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | Internal ID |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| shopify_gid | VARCHAR(100) | NOT NULL | gid://shopify/Product/123 |
-| legacy_resource_id | BIGINT | NOT NULL | Numeric Shopify ID |
-| title | TEXT | NOT NULL | Product title |
-| handle | VARCHAR(255) | NOT NULL | URL handle |
-| description | TEXT | | Plain text |
-| description_html | TEXT | | HTML description |
-| vendor | VARCHAR(255) | | Brand/Vendor |
-| product_type | VARCHAR(255) | | Product type |
-| status | VARCHAR(20) | NOT NULL | ACTIVE/DRAFT/ARCHIVED |
-| tags | TEXT[] | DEFAULT '{}' | Product tags |
-| is_gift_card | BOOLEAN | DEFAULT false | |
-| has_only_default_variant | BOOLEAN | DEFAULT true | |
-| has_out_of_stock_variants | BOOLEAN | DEFAULT false | |
-| requires_selling_plan | BOOLEAN | DEFAULT false | Subscription only |
-| options | JSONB | DEFAULT '[]' | [{name,position,values}] |
-| seo | JSONB | | {title,description} |
-| price_range | JSONB | | {min,max,currency} |
-| compare_at_price_range | JSONB | | {min,max,currency} |
-| featured_image_url | TEXT | | Primary image URL |
-| template_suffix | VARCHAR(100) | | Theme template |
-| category_id | VARCHAR(100) | | Shopify taxonomy ID |
-| metafields | JSONB | DEFAULT '{}' | Key metafields cache |
-| published_at | TIMESTAMPTZ | | Publish date |
-| created_at_shopify | TIMESTAMPTZ | | Shopify created |
-| updated_at_shopify | TIMESTAMPTZ | | Shopify updated |
-| synced_at | TIMESTAMPTZ | DEFAULT now() | Last sync |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column                     | Type         | Constraints           | Description               |
+| -------------------------- | ------------ | --------------------- | ------------------------- |
+| id                         | UUID         | PK DEFAULT uuidv7()   | Internal ID               |
+| shop_id                    | UUID         | FK shops(id) NOT NULL |                           |
+| shopify_gid                | VARCHAR(100) | NOT NULL              | gid://shopify/Product/123 |
+| legacy_resource_id         | BIGINT       | NOT NULL              | Numeric Shopify ID        |
+| title                      | TEXT         | NOT NULL              | Product title             |
+| handle                     | VARCHAR(255) | NOT NULL              | URL handle                |
+| description                | TEXT         |                       | Plain text                |
+| description_html           | TEXT         |                       | HTML description          |
+| vendor                     | VARCHAR(255) |                       | Brand/Vendor              |
+| product_type               | VARCHAR(255) |                       | Product type              |
+| status                     | VARCHAR(20)  | NOT NULL              | ACTIVE/DRAFT/ARCHIVED     |
+| tags                       | TEXT[]       | DEFAULT '{}'          | Product tags              |
+| is_gift_card               | BOOLEAN      | DEFAULT false         |                           |
+| has_only_default_variant   | BOOLEAN      | DEFAULT true          |                           |
+| has_out_of_stock_variants  | BOOLEAN      | DEFAULT false         |                           |
+| requires_selling_plan      | BOOLEAN      | DEFAULT false         | Subscription only         |
+| options                    | JSONB        | DEFAULT '[]'          | [{name,position,values}]  |
+| seo                        | JSONB        |                       | {title,description}       |
+| price_range                | JSONB        |                       | {min,max,currency}        |
+| compare_at_price_range     | JSONB        |                       | {min,max,currency}        |
+| featured_image_url         | TEXT         |                       | Primary image URL         |
+| template_suffix            | VARCHAR(100) |                       | Theme template            |
+| category_id                | VARCHAR(100) |                       | Shopify taxonomy ID       |
+| metafields                 | JSONB        | DEFAULT '{}'          | Key metafields cache      |
+| published_at               | TIMESTAMPTZ  |                       | Publish date              |
+| created_at_shopify         | TIMESTAMPTZ  |                       | Shopify created           |
+| updated_at_shopify         | TIMESTAMPTZ  |                       | Shopify updated           |
+| synced_at                  | TIMESTAMPTZ  | DEFAULT now()         | Last sync                 |
+| created_at                 | TIMESTAMPTZ  | DEFAULT now()         |                           |
+| updated_at                 | TIMESTAMPTZ  | DEFAULT now()         |                           |
 
 **Indexes:**
 
@@ -283,39 +286,39 @@
 
 ### Table: `shopify_variants`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| product_id | UUID | FK shopify_products(id) NOT NULL | |
-| shopify_gid | VARCHAR(100) | NOT NULL | |
-| legacy_resource_id | BIGINT | NOT NULL | |
-| title | VARCHAR(255) | | Variant title |
-| sku | VARCHAR(255) | | Stock keeping unit |
-| barcode | VARCHAR(100) | | UPC/EAN/ISBN |
-| price | DECIMAL(12,2) | NOT NULL | |
-| compare_at_price | DECIMAL(12,2) | | |
-| currency_code | VARCHAR(3) | DEFAULT 'RON' | |
-| cost | DECIMAL(12,2) | | Unit cost |
-| weight | DECIMAL(10,4) | | |
-| weight_unit | VARCHAR(20) | DEFAULT 'KILOGRAMS' | |
-| inventory_quantity | INTEGER | DEFAULT 0 | |
-| inventory_policy | VARCHAR(20) | DEFAULT 'DENY' | DENY/CONTINUE |
-| inventory_item_id | VARCHAR(100) | | Inventory item GID |
-| taxable | BOOLEAN | DEFAULT true | |
-| tax_code | VARCHAR(50) | | Tax code |
-| available_for_sale | BOOLEAN | DEFAULT true | |
-| requires_shipping | BOOLEAN | DEFAULT true | |
-| requires_components | BOOLEAN | DEFAULT false | Bundle variant |
-| position | INTEGER | DEFAULT 1 | Sort order |
-| selected_options | JSONB | DEFAULT '[]' | [{name,value}] |
-| image_url | TEXT | | Variant image |
-| metafields | JSONB | DEFAULT '{}' | |
-| created_at_shopify | TIMESTAMPTZ | | |
-| updated_at_shopify | TIMESTAMPTZ | | |
-| synced_at | TIMESTAMPTZ | DEFAULT now() | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column             | Type           | Constraints                      | Description               |
+| ------------------ | -------------- | -------------------------------- | ------------------------- |
+| id                 | UUID           | PK DEFAULT uuidv7()              | Internal ID               |
+| shop_id            | UUID           | FK shops(id) NOT NULL            |                           |
+| product_id         | UUID           | FK shopify_products(id) NOT NULL |                           |
+| shopify_gid        | VARCHAR(100)   | NOT NULL                         | gid://shopify/Product/123 |
+| legacy_resource_id | BIGINT         | NOT NULL                         | Numeric Shopify ID        |
+| title              | VARCHAR(255)   | NOT NULL                         | Variant title             |
+| sku                | VARCHAR(255)   | NOT NULL                         | Stock keeping unit        |
+| barcode            | VARCHAR(100)   | NOT NULL                         | UPC/EAN/ISBN              |
+| price              | DECIMAL(12,2)  | NOT NULL                         |                           |
+| compare_at_price   | DECIMAL(12,2)  | NOT NULL                         |                           |
+| currency_code      | VARCHAR(3)     | DEFAULT 'RON'                    |                           |
+| cost               | DECIMAL(12,2)  |                                  | Unit cost                 |
+| weight             | DECIMAL(10,4)  |                                  |                           |
+| weight_unit        | VARCHAR(20)    | DEFAULT 'KILOGRAMS'              |                           |
+| inventory_quantity | INTEGER        | DEFAULT 0                        |                           |
+| inventory_policy   | VARCHAR(20)    | DEFAULT 'DENY'                   | DENY/CONTINUE             |
+| inventory_item_id  | VARCHAR(100)   |                                  | Inventory item GID        |
+| taxable            | BOOLEAN        | DEFAULT true                     |                           |
+| tax_code           | VARCHAR(50)    |                                  | Tax code                  |
+| available_for_sale | BOOLEAN        | DEFAULT true                     |                           |
+| requires_shipping  | BOOLEAN        | DEFAULT true                     |                           |
+| requires_components| BOOLEAN        | DEFAULT false                    | Bundle variant            |
+| position           | INTEGER        | DEFAULT 1                        | Sort order                |
+| selected_options   | JSONB          | DEFAULT '[]'                     | [{name,value}]            |
+| image_url          | TEXT           |                                  | Variant image             |
+| metafields         | JSONB          | DEFAULT '{}'                     |                           |
+| created_at_shopify | TIMESTAMPTZ    |                                  |                           |
+| updated_at_shopify | TIMESTAMPTZ    |                                  |                           |
+| synced_at          | TIMESTAMPTZ    | DEFAULT now()                    |                           |
+| created_at         | TIMESTAMPTZ    | DEFAULT now()                    |                           |
+| updated_at         | TIMESTAMPTZ    | DEFAULT now()                    |                           |
 
 **Indexes:**
 
@@ -331,28 +334,28 @@
 
 ### Table: `shopify_collections`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| shopify_gid | VARCHAR(100) | NOT NULL | |
-| legacy_resource_id | BIGINT | NOT NULL | |
-| title | TEXT | NOT NULL | |
-| handle | VARCHAR(255) | NOT NULL | |
-| description | TEXT | | |
-| description_html | TEXT | | |
-| collection_type | VARCHAR(20) | NOT NULL | MANUAL/SMART |
-| sort_order | VARCHAR(50) | | BEST_SELLING/ALPHA etc |
-| rules | JSONB | | Smart collection rules |
-| disjunctive | BOOLEAN | DEFAULT false | OR vs AND rules |
-| seo | JSONB | | |
-| image_url | TEXT | | |
-| products_count | INTEGER | DEFAULT 0 | |
-| template_suffix | VARCHAR(100) | | |
-| published_at | TIMESTAMPTZ | | |
-| synced_at | TIMESTAMPTZ | DEFAULT now() | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column             | Type           | Constraints           | Description                  |
+| ------------------ | -------------- | --------------------- | ---------------------------- |
+| id                 | UUID           | PK DEFAULT uuidv7()   | Internal ID                  |
+| shop_id            | UUID           | FK shops(id) NOT NULL |                              |
+| shopify_gid        | VARCHAR(100)   | NOT NULL              | gid://shopify/Collection/123 |
+| legacy_resource_id | BIGINT         | NOT NULL              | Numeric Shopify ID           |
+| title              | TEXT           | NOT NULL              | Collection title             |
+| handle             | VARCHAR(255)   | NOT NULL              | Collection handle            |
+| description        | TEXT           |                       | Collection description       |
+| description_html   | TEXT           |                       | Collection description HTML  |
+| collection_type    | VARCHAR(20)    | NOT NULL              | MANUAL/SMART                 |
+| sort_order         | VARCHAR(50)    |                       | BEST_SELLING/ALPHA etc       |
+| rules              | JSONB          |                       | Smart collection rules       |
+| disjunctive        | BOOLEAN        | DEFAULT false         | OR vs AND rules              |
+| seo                | JSONB          |                       |                              |
+| image_url          | TEXT           |                       | Collection image             |
+| products_count     | INTEGER        | DEFAULT 0             |                              |
+| template_suffix    | VARCHAR(100)   |                       |                              |
+| published_at       | TIMESTAMPTZ    |                       |                              |
+| synced_at          | TIMESTAMPTZ    | DEFAULT now()         |                              |
+| created_at         | TIMESTAMPTZ    | DEFAULT now()         |                              |
+| updated_at         | TIMESTAMPTZ    | DEFAULT now()         |                              |
 
 **Indexes:**
 
@@ -364,12 +367,12 @@
 
 ### Table: `shopify_collection_products`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| collection_id | UUID | FK shopify_collections(id) | |
-| product_id | UUID | FK shopify_products(id) | |
-| position | INTEGER | DEFAULT 0 | Sort position |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column        | Type        | Constraints                | Description   |
+| ------------- | ----------- | -------------------------- | ------------- |
+| collection_id | UUID        | FK shopify_collections(id) |               |
+| product_id    | UUID        | FK shopify_products(id)    |               |
+| position      | INTEGER     | DEFAULT 0                  | Sort position |
+| created_at    | TIMESTAMPTZ | DEFAULT now()              |               |
 
 **Primary Key:** (collection_id, product_id)
 
@@ -377,49 +380,49 @@
 
 ### Table: `shopify_orders`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| shopify_gid | VARCHAR(100) | NOT NULL | |
-| legacy_resource_id | BIGINT | NOT NULL | |
-| name | VARCHAR(50) | NOT NULL | #1001 format |
-| order_number | INTEGER | NOT NULL | |
-| email | CITEXT | | Customer email |
-| phone | VARCHAR(50) | | |
-| financial_status | VARCHAR(30) | | PENDING/PAID/REFUNDED |
-| fulfillment_status | VARCHAR(30) | | UNFULFILLED/FULFILLED |
-| total_price | DECIMAL(12,2) | NOT NULL | |
-| subtotal_price | DECIMAL(12,2) | | |
-| total_tax | DECIMAL(12,2) | | |
-| total_discounts | DECIMAL(12,2) | | |
-| total_shipping | DECIMAL(12,2) | | |
-| currency_code | VARCHAR(3) | NOT NULL | |
-| presentment_currency | VARCHAR(3) | | Customer currency |
-| line_items | JSONB | NOT NULL | [{variant_id,quantity,price}] |
-| shipping_lines | JSONB | DEFAULT '[]' | |
-| discount_codes | JSONB | DEFAULT '[]' | |
-| shipping_address | JSONB | | |
-| billing_address | JSONB | | |
-| customer_id | UUID | FK shopify_customers(id) | |
-| customer_locale | VARCHAR(10) | | |
-| tags | TEXT[] | DEFAULT '{}' | |
-| note | TEXT | | |
-| note_attributes | JSONB | DEFAULT '[]' | |
-| gateway | VARCHAR(100) | | Payment gateway |
-| payment_terms | JSONB | | B2B terms |
-| risk_level | VARCHAR(20) | | LOW/MEDIUM/HIGH |
-| source_name | VARCHAR(100) | | web/pos/api |
-| source_identifier | VARCHAR(255) | | |
-| cancelled_at | TIMESTAMPTZ | | |
-| cancel_reason | VARCHAR(50) | | |
-| closed_at | TIMESTAMPTZ | | |
-| processed_at | TIMESTAMPTZ | | |
-| created_at_shopify | TIMESTAMPTZ | | |
-| updated_at_shopify | TIMESTAMPTZ | | |
-| synced_at | TIMESTAMPTZ | DEFAULT now() | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column               | Type          | Constraints              | Description                   |
+| -------------------- | ------------- | ------------------------ | ----------------------------- |
+| id                   | UUID          | PK DEFAULT uuidv7()      |                               |
+| shop_id              | UUID          | FK shops(id) NOT NULL    |                               |
+| shopify_gid          | VARCHAR(100)  | NOT NULL                 |                               |
+| legacy_resource_id   | BIGINT        | NOT NULL                 |                               |
+| name                 | VARCHAR(50)   | NOT NULL                 |                               |
+| order_number         | INTEGER       | NOT NULL                 |                               |
+| email                | CITEXT        |                          | Customer email                |
+| phone                | VARCHAR(50)   |                          |                               |
+| financial_status     | VARCHAR(30)   |                          | PENDING/PAID/REFUNDED         |
+| fulfillment_status   | VARCHAR(30)   |                          | UNFULFILLED/FULFILLED         |
+| total_price          | DECIMAL(12,2) | NOT NULL                 |                               |
+| subtotal_price       | DECIMAL(12,2) |                          |                               |
+| total_tax            | DECIMAL(12,2) |                          |                               |
+| total_discounts      | DECIMAL(12,2) |                          |                               |
+| total_shipping       | DECIMAL(12,2) |                          |                               |
+| currency_code        | VARCHAR(3)    | NOT NULL                 |                               |
+| presentment_currency | VARCHAR(3)    |                          | Customer currency             |
+| line_items           | JSONB         | NOT NULL                 | [{variant_id,quantity,price}] |
+| shipping_lines       | JSONB         | DEFAULT '[]'             |                               |
+| discount_codes       | JSONB         | DEFAULT '[]'             |                               |
+| shipping_address     | JSONB         |                          |                               |
+| billing_address      | JSONB         |                          |                               |
+| customer_id          | UUID          | FK shopify_customers(id) |                               |
+| customer_locale      | VARCHAR(10)   |                          |                               |
+| tags                 | TEXT[]        | DEFAULT '{}'             |                               |
+| note                 | TEXT          |                          |                               |
+| note_attributes      | JSONB         | DEFAULT '[]'             |                               |
+| gateway              | VARCHAR(100)  |                          | Payment gateway               |
+| payment_terms        | JSONB         |                          | B2B terms                     |
+| risk_level           | VARCHAR(20)   |                          | LOW/MEDIUM/HIGH               |
+| source_name          | VARCHAR(100)  |                          | web/pos/api                   |
+| source_identifier    | VARCHAR(255)  |                          |                               |
+| cancelled_at         | TIMESTAMPTZ   |                          |                               |
+| cancel_reason        | VARCHAR(50)   |                          |                               |
+| closed_at            | TIMESTAMPTZ   |                          |                               |
+| processed_at         | TIMESTAMPTZ   |                          |                               |
+| created_at_shopify   | TIMESTAMPTZ   |                          |                               |
+| updated_at_shopify   | TIMESTAMPTZ   |                          |                               |
+| synced_at            | TIMESTAMPTZ   | DEFAULT now()            |                               |
+| created_at           | TIMESTAMPTZ   | DEFAULT now()            |                               |
+| updated_at           | TIMESTAMPTZ   | DEFAULT now()            |                               |
 
 **Indexes:**
 
@@ -436,39 +439,39 @@
 
 ### Table: `shopify_customers`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| shopify_gid | VARCHAR(100) | NOT NULL | |
-| legacy_resource_id | BIGINT | NOT NULL | |
-| email | CITEXT | | |
-| phone | VARCHAR(50) | | |
-| first_name | VARCHAR(100) | | |
-| last_name | VARCHAR(100) | | |
-| display_name | VARCHAR(255) | | |
-| state | VARCHAR(20) | DEFAULT 'ENABLED' | ENABLED/DISABLED/INVITED |
-| verified_email | BOOLEAN | DEFAULT false | |
-| accepts_marketing | BOOLEAN | DEFAULT false | |
-| accepts_marketing_updated_at | TIMESTAMPTZ | | |
-| marketing_opt_in_level | VARCHAR(30) | | |
-| orders_count | INTEGER | DEFAULT 0 | |
-| total_spent | DECIMAL(12,2) | DEFAULT 0 | |
-| average_order_amount | DECIMAL(12,2) | | |
-| currency_code | VARCHAR(3) | | |
-| tags | TEXT[] | DEFAULT '{}' | |
-| tax_exempt | BOOLEAN | DEFAULT false | |
-| tax_exemptions | TEXT[] | DEFAULT '{}' | |
-| locale | VARCHAR(10) | | |
-| note | TEXT | | |
-| default_address | JSONB | | |
-| addresses | JSONB | DEFAULT '[]' | |
-| metafields | JSONB | DEFAULT '{}' | |
-| created_at_shopify | TIMESTAMPTZ | | |
-| updated_at_shopify | TIMESTAMPTZ | | |
-| synced_at | TIMESTAMPTZ | DEFAULT now() | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column                       | Type          | Constraints           | Description              |
+| ---------------------------- | ------------- | --------------------- | ------------------------ |
+| id                           | UUID          | PK DEFAULT uuidv7()   |                          |
+| shop_id                      | UUID          | FK shops(id) NOT NULL |                          |
+| shopify_gid                  | VARCHAR(100)  | NOT NULL              |                          |
+| legacy_resource_id           | BIGINT        | NOT NULL              |                          |
+| email                        | CITEXT        |                       |                          |
+| phone                        | VARCHAR(50)   |                       |                          |
+| first_name                   | VARCHAR(100)  |                       |                          |
+| last_name                    | VARCHAR(100)  |                       |                          |
+| display_name                 | VARCHAR(255)  |                       |                          |
+| state                        | VARCHAR(20)   | DEFAULT 'ENABLED'     | ENABLED/DISABLED/INVITED |
+| verified_email               | BOOLEAN       | DEFAULT false         |                          |
+| accepts_marketing            | BOOLEAN       | DEFAULT false         |                          |
+| accepts_marketing_updated_at | TIMESTAMPTZ   |                       |                          |
+| marketing_opt_in_level       | VARCHAR(30)   |                       |                          |
+| orders_count                 | INTEGER       | DEFAULT 0             |                          |
+| total_spent                  | DECIMAL(12,2) | DEFAULT 0             |                          |
+| average_order_amount         | DECIMAL(12,2) |                       |                          |
+| currency_code                | VARCHAR(3)    |                       |                          |
+| tags                         | TEXT[]        | DEFAULT '{}'          |                          |
+| tax_exempt                   | BOOLEAN       | DEFAULT false         |                          |
+| tax_exemptions               | TEXT[]        | DEFAULT '{}'          |                          |
+| locale                       | VARCHAR(10)   |                       |                          |
+| note                         | TEXT          |                       |                          |
+| default_address              | JSONB         |                       |                          |
+| addresses                    | JSONB         | DEFAULT '[]'          |                          |
+| metafields                   | JSONB         | DEFAULT '{}'          |                          |
+| created_at_shopify           | TIMESTAMPTZ   |                       |                          |
+| updated_at_shopify           | TIMESTAMPTZ   |                       |                          |
+| synced_at                    | TIMESTAMPTZ   | DEFAULT now()         |                          |
+| created_at                   | TIMESTAMPTZ   | DEFAULT now()         |                          |
+| updated_at                   | TIMESTAMPTZ   | DEFAULT now()         |                          |
 
 **Indexes:**
 
@@ -481,19 +484,19 @@
 
 ### Table: `shopify_metaobjects`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| shopify_gid | VARCHAR(100) | NOT NULL | |
-| type | VARCHAR(100) | NOT NULL | Metaobject type |
-| handle | VARCHAR(255) | NOT NULL | |
-| display_name | TEXT | | |
-| fields | JSONB | NOT NULL | {key: {type, value}} |
-| capabilities | JSONB | DEFAULT '{}' | |
-| synced_at | TIMESTAMPTZ | DEFAULT now() | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column       | Type         | Constraints           | Description          |
+| ------------ | ------------ | --------------------- | ----------------------|
+| id           | UUID         | PK DEFAULT uuidv7()   |                      |
+| shop_id      | UUID         | FK shops(id) NOT NULL |                      |
+| shopify_gid  | VARCHAR(100) | NOT NULL              |                      |
+| type         | VARCHAR(100) | NOT NULL              | Metaobject type      |
+| handle       | VARCHAR(255) | NOT NULL              |                      |
+| display_name | TEXT         |                       |                      |
+| fields       | JSONB        | NOT NULL              | {key: {type, value}} |
+| capabilities | JSONB        | DEFAULT '{}'          |                      |
+| synced_at    | TIMESTAMPTZ  | DEFAULT now()         |                      |
+| created_at   | TIMESTAMPTZ  | DEFAULT now()         |                      |
+| updated_at   | TIMESTAMPTZ  | DEFAULT now()         |                      |
 
 **Indexes:**
 
@@ -506,18 +509,18 @@
 
 ### Table: `shopify_webhooks`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| shopify_gid | VARCHAR(100) | NOT NULL | |
-| topic | VARCHAR(100) | NOT NULL | orders/create etc |
-| address | TEXT | NOT NULL | Callback URL |
-| format | VARCHAR(10) | DEFAULT 'json' | |
-| api_version | VARCHAR(20) | | |
-| include_fields | TEXT[] | | |
-| metafield_namespaces | TEXT[] | | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column               | Type         | Constraints           | Description       |
+| -------------------- | ------------ | --------------------- | ----------------- |
+| id                   | UUID         | PK DEFAULT uuidv7()   |                   |
+| shop_id              | UUID         | FK shops(id) NOT NULL |                   |
+| shopify_gid          | VARCHAR(100) | NOT NULL              |                   |
+| topic                | VARCHAR(100) | NOT NULL              | orders/create etc |
+| address              | TEXT         | NOT NULL              | Callback URL      |
+| format               | VARCHAR(10)  | DEFAULT 'json'        |                   |
+| api_version          | VARCHAR(20)  |                       |                   |
+| include_fields       | TEXT[]       |                       |                   |
+| metafield_namespaces | TEXT[]       |                       |                   |
+| created_at           | TIMESTAMPTZ  | DEFAULT now()         |                   |
 
 **Indexes:**
 
@@ -530,23 +533,23 @@
 
 > **Purpose:** Async webhook processing queue (F3.3) - Partitioned by month
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | DEFAULT uuidv7() | Event identifier |
-| shop_id | UUID | FK shops(id) | Tenant |
-| topic | VARCHAR(100) | NOT NULL | orders/create, products/update, etc |
-| shopify_webhook_id | VARCHAR(100) | | Original webhook ID |
-| api_version | VARCHAR(20) | | Shopify API version |
-| payload | JSONB | NOT NULL | Full webhook payload |
-| hmac_verified | BOOLEAN | NOT NULL DEFAULT false | HMAC validation passed |
-| received_at | TIMESTAMPTZ | DEFAULT now() | When received |
-| processed_at | TIMESTAMPTZ | | When processed |
-| processing_error | TEXT | | Error if failed |
-| job_id | VARCHAR(255) | | BullMQ job reference |
-| idempotency_key | VARCHAR(255) | | Deduplication key |
-| retry_count | INTEGER | DEFAULT 0 | Processing attempts |
-| created_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
-| PRIMARY KEY | (id, created_at) | | Composite for partitioning |
+| Column             | Type             | Constraints            | Description                |
+| ------------------ | ---------------- | ---------------------- | -------------------------- |
+| id                 | UUID             | DEFAULT uuidv7()       | Event identifier           |
+| shop_id            | UUID             | FK shops(id)           | Tenant                     |
+| topic              | VARCHAR(100)     | NOT NULL               | orders/create, etc         |
+| shopify_webhook_id | VARCHAR(100)     |                        | Original webhook ID        |
+| api_version        | VARCHAR(20)      |                        | Shopify API version        |
+| payload            | JSONB            | NOT NULL               | Full webhook payload       |
+| hmac_verified      | BOOLEAN          | NOT NULL DEFAULT false | HMAC validation passed     |
+| received_at        | TIMESTAMPTZ      | DEFAULT now()          | When received              |
+| processed_at       | TIMESTAMPTZ      |                        | When processed             |
+| processing_error   | TEXT             |                        | Error if failed            |
+| job_id             | VARCHAR(255)     |                        | BullMQ job reference       |
+| idempotency_key    | VARCHAR(255)     |                        | Deduplication key          |
+| retry_count        | INTEGER          | DEFAULT 0              | Processing attempts        |
+| created_at         | TIMESTAMPTZ      | NOT NULL DEFAULT now() |                            |
+| PRIMARY KEY        | (id, created_at) |                        | Composite for partitioning |
 
 **Partitioning:** `PARTITION BY RANGE (created_at)` - Monthly partitions
 
@@ -565,28 +568,28 @@
 
 ### Table: `bulk_runs`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| operation_type | VARCHAR(50) | NOT NULL | PRODUCTS_EXPORT/ORDERS_EXPORT |
-| query_type | VARCHAR(50) | | GraphQL query type |
-| status | VARCHAR(20) | NOT NULL DEFAULT 'pending' | pending/running/completed/failed |
-| shopify_operation_id | VARCHAR(100) | | Shopify bulk op GID |
-| api_version | VARCHAR(20) | | Shopify API version used |
-| polling_url | TEXT | | Bulk operation status URL |
-| result_url | TEXT | | Signed JSONL download URL (TTL 7d) |
-| idempotency_key | VARCHAR(100) | UNIQUE | Prevent duplicates |
-| cursor_state | JSONB | | Pagination state |
-| started_at | TIMESTAMPTZ | | |
-| completed_at | TIMESTAMPTZ | | |
-| records_processed | INTEGER | DEFAULT 0 | |
-| bytes_processed | BIGINT | DEFAULT 0 | |
-| error_message | TEXT | | |
-| retry_count | INTEGER | DEFAULT 0 | |
-| max_retries | INTEGER | DEFAULT 3 | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column               | Type         | Constraints                | Description                        |
+| -------------------- | ------------ | -------------------------- | ---------------------------------- |
+| id                   | UUID         | PK DEFAULT uuidv7()        |                                    |
+| shop_id              | UUID         | FK shops(id) NOT NULL      |                                    |
+| operation_type       | VARCHAR(50)  | NOT NULL                   | PRODUCTS_EXPORT/ORDERS_EXPORT      |
+| query_type           | VARCHAR(50)  |                            | GraphQL query type                 |
+| status               | VARCHAR(20)  | NOT NULL DEFAULT 'pending' | pending/running/completed/failed   |
+| shopify_operation_id | VARCHAR(100) |                            | Shopify bulk op GID                |
+| api_version          | VARCHAR(20)  |                            | Shopify API version used           |
+| polling_url          | TEXT         |                            | Bulk operation status URL          |
+| result_url           | TEXT         |                            | Signed JSONL download URL (TTL 7d) |
+| idempotency_key      | VARCHAR(100) | UNIQUE                     | Prevent duplicates                 |
+| cursor_state         | JSONB        |                            | Pagination state                   |
+| started_at           | TIMESTAMPTZ  |                            |                                    |
+| completed_at         | TIMESTAMPTZ  |                            |                                    |
+| records_processed    | INTEGER      | DEFAULT 0                  |                                    |
+| bytes_processed      | BIGINT       | DEFAULT 0                  |                                    |
+| error_message        | TEXT         |                            |                                    |
+| retry_count          | INTEGER      | DEFAULT 0                  |                                    |
+| max_retries          | INTEGER      | DEFAULT 3                  |                                    |
+| created_at           | TIMESTAMPTZ  | DEFAULT now()              |                                    |
+| updated_at           | TIMESTAMPTZ  | DEFAULT now()              |                                    |
 
 **Indexes:**
 
@@ -598,19 +601,19 @@
 
 ### Table: `bulk_steps`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| bulk_run_id | UUID | FK bulk_runs(id) NOT NULL | |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| step_name | VARCHAR(100) | NOT NULL | download/parse/upsert |
-| status | VARCHAR(20) | NOT NULL DEFAULT 'pending' | |
-| started_at | TIMESTAMPTZ | | |
-| completed_at | TIMESTAMPTZ | | |
-| records_processed | INTEGER | DEFAULT 0 | |
-| error_message | TEXT | | |
-| metadata | JSONB | DEFAULT '{}' | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column            | Type         | Constraints                | Description           |
+| ----------------- | ------------ | -------------------------- | --------------------- |
+| id                | UUID         | PK DEFAULT uuidv7()        |                       |
+| bulk_run_id       | UUID         | FK bulk_runs(id) NOT NULL  |                       |
+| shop_id           | UUID         | FK shops(id) NOT NULL      |                       |
+| step_name         | VARCHAR(100) | NOT NULL                   | download/parse/upsert |
+| status            | VARCHAR(20)  | NOT NULL DEFAULT 'pending' |                       |
+| started_at        | TIMESTAMPTZ  |                            |                       |
+| completed_at      | TIMESTAMPTZ  |                            |                       |
+| records_processed | INTEGER      | DEFAULT 0                  |                       |
+| error_message     | TEXT         |                            |                       |
+| metadata          | JSONB        | DEFAULT '{}'               |                       |
+| created_at        | TIMESTAMPTZ  | DEFAULT now()              |                       |
 
 **Indexes:**
 
@@ -621,35 +624,35 @@
 
 ### Table: `bulk_artifacts`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| bulk_run_id | UUID | FK bulk_runs(id) NOT NULL | |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| artifact_type | VARCHAR(50) | NOT NULL | jsonl/csv |
-| file_path | TEXT | NOT NULL | Local file path |
-| url | TEXT | | Shopify download URL |
-| bytes_size | BIGINT | | |
-| rows_count | INTEGER | | |
-| checksum | VARCHAR(64) | | SHA256 |
-| expires_at | TIMESTAMPTZ | | URL expiration |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column        | Type        | Constraints               | Description          |
+| ------------- | ----------- | ------------------------- | -------------------- |
+| id            | UUID        | PK DEFAULT uuidv7()       |                      |
+| bulk_run_id   | UUID        | FK bulk_runs(id) NOT NULL |                      |
+| shop_id       | UUID        | FK shops(id) NOT NULL     |                      |
+| artifact_type | VARCHAR(50) | NOT NULL                  | jsonl/csv            |
+| file_path     | TEXT        | NOT NULL                  | Local file path      |
+| url           | TEXT        |                           | Shopify download URL |
+| bytes_size    | BIGINT      |                           |                      |
+| rows_count    | INTEGER     |                           |                      |
+| checksum      | VARCHAR(64) |                           | SHA256               |
+| expires_at    | TIMESTAMPTZ |                           | URL expiration       |
+| created_at    | TIMESTAMPTZ | DEFAULT now()             |                      |
 
 ---
 
 ### Table: `bulk_errors`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| bulk_run_id | UUID | FK bulk_runs(id) NOT NULL | |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| error_type | VARCHAR(50) | NOT NULL | PARSE/VALIDATION/DB |
-| error_code | VARCHAR(50) | | |
-| error_message | TEXT | NOT NULL | |
-| line_number | INTEGER | | JSONL line |
-| payload | JSONB | | Failed record |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column        | Type        | Constraints               | Description         |
+| --------------| ----------- | ------------------------- | ------------------- |
+| id            | UUID        | PK DEFAULT uuidv7()       |                     |
+| bulk_run_id   | UUID        | FK bulk_runs(id) NOT NULL |                     |
+| shop_id       | UUID        | FK shops(id) NOT NULL     |                     |
+| error_type    | VARCHAR(50) | NOT NULL                  | PARSE/VALIDATION/DB |
+| error_code    | VARCHAR(50) |                           |                     |
+| error_message | TEXT        | NOT NULL                  |                     |
+| line_number   | INTEGER     |                           | JSONL line          |
+| payload       | JSONB       |                           | Failed record       |
+| created_at    | TIMESTAMPTZ | DEFAULT now()             |                     |
 
 **Indexes:**
 
@@ -662,12 +665,12 @@
 
 Mirrors `shopify_products` structure plus:
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| bulk_run_id | UUID | FK bulk_runs(id) NOT NULL | Source run |
-| imported_at | TIMESTAMPTZ | DEFAULT now() | |
-| validation_status | VARCHAR(20) | DEFAULT 'pending' | pending/valid/invalid |
-| validation_errors | JSONB | DEFAULT '[]' | |
+| Column            | Type        | Constraints               | Description           |
+| ------------------| ------------| ------------------------- | --------------------- |
+| bulk_run_id       | UUID        | FK bulk_runs(id) NOT NULL | Source run            |
+| imported_at       | TIMESTAMPTZ | DEFAULT now()             |                       |
+| validation_status | VARCHAR(20) | DEFAULT 'pending'         | pending/valid/invalid |
+| validation_errors | JSONB       | DEFAULT '[]'              |                       |
 
 **Indexes:**
 
@@ -686,22 +689,22 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ### Table: `prod_taxonomy`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| parent_id | UUID | FK prod_taxonomy(id) | |
-| name | VARCHAR(255) | NOT NULL | Category name |
-| slug | VARCHAR(255) | NOT NULL UNIQUE | URL-safe slug |
-| breadcrumbs | TEXT[] | | Full path array |
-| level | INTEGER | NOT NULL DEFAULT 0 | Depth in tree |
-| attribute_schema | JSONB | DEFAULT '{}' | Required attributes |
-| validation_rules | JSONB | DEFAULT '{}' | |
-| external_mappings | JSONB | DEFAULT '{}' | {shopify, google, facebook} |
-| shopify_taxonomy_id | VARCHAR(100) | | Shopify category ID |
-| is_active | BOOLEAN | DEFAULT true | |
-| sort_order | INTEGER | DEFAULT 0 | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column              | Type         | Constraints          | Description                 |
+| ------------------- | ------------ | ---------------------| --------------------------- |
+| id                  | UUID         | PK DEFAULT uuidv7()  |                             |
+| parent_id           | UUID         | FK prod_taxonomy(id) |                             |
+| name                | VARCHAR(255) | NOT NULL             | Category name               |
+| slug                | VARCHAR(255) | NOT NULL UNIQUE      | URL-safe slug               |
+| breadcrumbs         | TEXT[]       |                      | Full path array             |
+| level               | INTEGER      | NOT NULL DEFAULT 0   | Depth in tree               |
+| attribute_schema    | JSONB        | DEFAULT '{}'         | Required attributes         |
+| validation_rules    | JSONB        | DEFAULT '{}'         |                             |
+| external_mappings   | JSONB        | DEFAULT '{}'         | {shopify, google, facebook} |
+| shopify_taxonomy_id | VARCHAR(100) |                      | Shopify category ID         |
+| is_active           | BOOLEAN      | DEFAULT true         |                             |
+| sort_order          | INTEGER      | DEFAULT 0            |                             |
+| created_at          | TIMESTAMPTZ  | DEFAULT now()        |                             |
+| updated_at          | TIMESTAMPTZ  | DEFAULT now()        |                             |
 
 **Indexes:**
 
@@ -714,44 +717,44 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ### Table: `prod_sources`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| name | VARCHAR(100) | NOT NULL UNIQUE | Source name |
-| source_type | VARCHAR(50) | NOT NULL | SUPPLIER/MANUFACTURER/SCRAPER |
-| base_url | TEXT | | |
-| priority | INTEGER | DEFAULT 50 | Conflict resolution |
-| trust_score | DECIMAL(3,2) | DEFAULT 0.5 | 0.0-1.0 |
-| config | JSONB | DEFAULT '{}' | Scraper config |
-| rate_limit | JSONB | | {requests_per_second} |
-| auth_config | JSONB | | Encrypted credentials ref |
-| is_active | BOOLEAN | DEFAULT true | |
-| last_harvest_at | TIMESTAMPTZ | | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column          | Type         | Constraints         | Description                   |
+| --------------- | ------------ | ------------------- | ----------------------------- |
+| id              | UUID         | PK DEFAULT uuidv7() |                               |
+| name            | VARCHAR(100) | NOT NULL UNIQUE     | Source name                   |
+| source_type     | VARCHAR(50)  | NOT NULL            | SUPPLIER/MANUFACTURER/SCRAPER |
+| base_url        | TEXT         |                     |                               |
+| priority        | INTEGER      | DEFAULT 50          | Conflict resolution           |
+| trust_score     | DECIMAL(3,2) | DEFAULT 0.5         | 0.0-1.0                       |
+| config          | JSONB        | DEFAULT '{}'        | Scraper config                |
+| rate_limit      | JSONB        |                     | {requests_per_second}         |
+| auth_config     | JSONB        |                     | Encrypted credentials ref     |
+| is_active       | BOOLEAN      | DEFAULT true        |                               |
+| last_harvest_at | TIMESTAMPTZ  |                     |                               |
+| created_at      | TIMESTAMPTZ  | DEFAULT now()       |                               |
+| updated_at      | TIMESTAMPTZ  | DEFAULT now()       |                               |
 
 ---
 
 ### Table: `prod_raw_harvest`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| source_id | UUID | FK prod_sources(id) NOT NULL | |
-| target_sku | VARCHAR(100) | | Matched SKU if known |
-| source_url | TEXT | NOT NULL | Scraped URL |
-| source_product_id | VARCHAR(255) | | External product ID |
-| raw_html | TEXT | | Full HTML |
-| raw_json | JSONB | | Structured data |
-| http_status | INTEGER | | Response code |
-| response_headers | JSONB | | |
-| fetched_at | TIMESTAMPTZ | DEFAULT now() | |
-| processing_status | VARCHAR(20) | DEFAULT 'pending' | pending/processed/failed |
-| processing_error | TEXT | | |
-| processed_at | TIMESTAMPTZ | | |
-| content_hash | VARCHAR(64) | | SHA256 for dedup |
-| ttl_expires_at | TIMESTAMPTZ | | Cache expiration |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column            | Type         | Constraints                  | Description              |
+| ----------------- | ------------ | ---------------------------- | ------------------------ |
+| id                | UUID         | PK DEFAULT uuidv7()          |                          |
+| source_id         | UUID         | FK prod_sources(id) NOT NULL |                          |
+| target_sku        | VARCHAR(100) |                              | Matched SKU if known     |
+| source_url        | TEXT         | NOT NULL                     | Scraped URL              |
+| source_product_id | VARCHAR(255) |                              | External product ID      |
+| raw_html          | TEXT         |                              | Full HTML                |
+| raw_json          | JSONB        |                              | Structured data          |
+| http_status       | INTEGER      |                              | Response code            |
+| response_headers  | JSONB        |                              |                          |
+| fetched_at        | TIMESTAMPTZ  | DEFAULT now()                |                          |
+| processing_status | VARCHAR(20)  | DEFAULT 'pending'            | pending/processed/failed |
+| processing_error  | TEXT         |                              |                          |
+| processed_at      | TIMESTAMPTZ  |                              |                          |
+| content_hash      | VARCHAR(64)  |                              | SHA256 for dedup         |
+| ttl_expires_at    | TIMESTAMPTZ  |                              | Cache expiration         |
+| created_at        | TIMESTAMPTZ  | DEFAULT now()                |                          |
 
 **Indexes:**
 
@@ -767,20 +770,20 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ### Table: `prod_extraction_sessions`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| harvest_id | UUID | FK prod_raw_harvest(id) NOT NULL | |
-| agent_version | VARCHAR(50) | NOT NULL | AI model version |
-| model_name | VARCHAR(100) | | gpt-4o/gemini-pro |
-| extracted_specs | JSONB | NOT NULL | {key: value} pairs |
-| grounding_snippets | JSONB | | Source text evidence |
-| confidence_score | DECIMAL(3,2) | | 0.0-1.0 overall |
-| field_confidences | JSONB | | Per-field scores |
-| tokens_used | INTEGER | | API tokens consumed |
-| latency_ms | INTEGER | | Processing time |
-| error_message | TEXT | | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column             | Type         | Constraints                      | Description          |
+| ------------------ | ------------ | -------------------------------- | -------------------- |
+| id                 | UUID         | PK DEFAULT uuidv7()              |                      |
+| harvest_id         | UUID         | FK prod_raw_harvest(id) NOT NULL |                      |
+| agent_version      | VARCHAR(50)  | NOT NULL                         | AI model version     |
+| model_name         | VARCHAR(100) |                                  | gpt-4o/gemini-pro    |
+| extracted_specs    | JSONB        | NOT NULL                         | {key: value} pairs   |
+| grounding_snippets | JSONB        |                                  | Source text evidence |
+| confidence_score   | DECIMAL(3,2) |                                  | 0.0-1.0 overall      |
+| field_confidences  | JSONB        |                                  | Per-field scores     |
+| tokens_used        | INTEGER      |                                  | API tokens consumed  |
+| latency_ms         | INTEGER      |                                  | Processing time      |
+| error_message      | TEXT         |                                  |                      |
+| created_at         | TIMESTAMPTZ  | DEFAULT now()                    |                      |
 
 **Indexes:**
 
@@ -792,25 +795,25 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ### Table: `prod_master`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | Golden record ID |
-| internal_sku | VARCHAR(100) | UNIQUE NOT NULL | Master SKU |
-| canonical_title | TEXT | NOT NULL | Resolved title |
-| brand | VARCHAR(255) | | |
-| manufacturer | VARCHAR(255) | | |
-| mpn | VARCHAR(100) | | Manufacturer part # |
-| gtin | VARCHAR(14) | | Global Trade Item # |
-| taxonomy_id | UUID | FK prod_taxonomy(id) | |
-| dedupe_status | VARCHAR(20) | DEFAULT 'unique' | unique/merged/duplicate |
-| dedupe_cluster_id | UUID | | Cluster reference |
-| primary_source_id | UUID | FK prod_sources(id) | |
-| lifecycle_status | VARCHAR(20) | DEFAULT 'active' | active/discontinued/draft |
-| quality_score | DECIMAL(3,2) | | 0.0-1.0 |
-| needs_review | BOOLEAN | DEFAULT false | |
-| review_notes | TEXT | | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column            | Type         | Constraints          | Description               |
+| ------------------| ------------ | ---------------------| --------------------------|
+| id                | UUID         | PK DEFAULT uuidv7()  | Golden record ID          |
+| internal_sku      | VARCHAR(100) | UNIQUE NOT NULL      | Master SKU                |
+| canonical_title   | TEXT         | NOT NULL             | Resolved title            |
+| brand             | VARCHAR(255) |                      |                           |
+| manufacturer      | VARCHAR(255) |                      |                           |
+| mpn               | VARCHAR(100) |                      | Manufacturer part #       |
+| gtin              | VARCHAR(14)  |                      | Global Trade Item #       |
+| taxonomy_id       | UUID         | FK prod_taxonomy(id) |                           |
+| dedupe_status     | VARCHAR(20)  | DEFAULT 'unique'     | unique/merged/duplicate   |
+| dedupe_cluster_id | UUID         |                      | Cluster reference         |
+| primary_source_id | UUID         | FK prod_sources(id)  |                           |
+| lifecycle_status  | VARCHAR(20)  | DEFAULT 'active'     | active/discontinued/draft |
+| quality_score     | DECIMAL(3,2) |                      | 0.0-1.0                   |
+| needs_review      | BOOLEAN      | DEFAULT false        |                           |
+| review_notes      | TEXT         |                      |                           |
+| created_at        | TIMESTAMPTZ  | DEFAULT now()        |                           |
+| updated_at        | TIMESTAMPTZ  | DEFAULT now()        |                           |
 
 **Indexes:**
 
@@ -825,19 +828,19 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ### Table: `prod_specs_normalized`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| product_id | UUID | FK prod_master(id) NOT NULL | |
-| specs | JSONB | NOT NULL | {attr_code: {value, unit}} |
-| raw_specs | JSONB | | Original before normalization |
-| provenance | JSONB | NOT NULL | {source_id, extraction_id, timestamp} |
-| version | INTEGER | NOT NULL DEFAULT 1 | Spec version |
-| is_current | BOOLEAN | DEFAULT true | Latest version |
-| needs_review | BOOLEAN | DEFAULT false | |
-| review_reason | VARCHAR(100) | | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column        | Type           | Constraints                 | Description                           |
+| --------------| -------------- | --------------------------- | ------------------------------------- |
+| id            | UUID           | PK DEFAULT uuidv7()         |                                       |
+| product_id    | UUID           | FK prod_master(id) NOT NULL |                                       |
+| specs         | JSONB          | NOT NULL                    | {attr_code: {value, unit}}            |
+| raw_specs     | JSONB          |                             | Original before normalization         |
+| provenance    | JSONB          | NOT NULL                    | {source_id, extraction_id, timestamp} |
+| version       | INTEGER        | NOT NULL DEFAULT 1          | Spec version                          |
+| is_current    | BOOLEAN        | DEFAULT true                | Latest version                        |
+| needs_review  | BOOLEAN        | DEFAULT false               |                                       |
+| review_reason | VARCHAR(100)   |                             |                                       |
+| created_at    | TIMESTAMPTZ    | DEFAULT now()               |                                       |
+| updated_at    | TIMESTAMPTZ    | DEFAULT now()               |                                       |
 
 **Indexes:**
 
@@ -850,20 +853,19 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ### Table: `prod_semantics`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| product_id | UUID | PK FK prod_master(id) | |
-| title_master | TEXT | NOT NULL | SEO-optimized title |
-| description_master | TEXT | | Long description |
-| description_short | VARCHAR(500) | | Summary |
-| ai_summary | TEXT | | AI-generated summary |
-| keywords | TEXT[] | | Search keywords |
-| keywords_graph | JSONB | | Related terms graph |
-| json_ld_schema | JSONB | | Schema.org Product |
-| search_vector | TSVECTOR | | Full-text search |
-| locale | VARCHAR(10) | DEFAULT 'ro' | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column             | Type         | Constraints           | Description          |
+| ------------------ | ------------ | --------------------- | -------------------- |
+| product_id         | UUID         | PK FK prod_master(id) |                      |
+| title_master       | TEXT         | NOT NULL              | SEO-optimized title  |
+| description_master | TEXT         |                       | Long description     |
+| description_short  | VARCHAR(500) |                       | Summary              |
+| ai_summary         | TEXT         |                       | AI-generated summary |
+| keywords           | TEXT[]       |                       | Search keywords      |
+| keywords_graph     | JSONB        |                       | Related terms graph  |
+| json_ld_schema     | JSONB        |                       | Schema.org Product   |
+| search_vector      | TSVECTOR     |                       | Full-text search     |
+| locale             | VARCHAR(10)  | DEFAULT 'ro'          |                      |
+| updated_at         | TIMESTAMPTZ  | DEFAULT now()         |                      |
 
 **Indexes:**
 
@@ -874,20 +876,20 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ### Table: `prod_channel_mappings`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| product_id | UUID | FK prod_master(id) NOT NULL | |
-| channel | VARCHAR(50) | NOT NULL | shopify/google/facebook |
-| shop_id | UUID | FK shops(id) | For Shopify channel |
-| external_id | VARCHAR(255) | NOT NULL | Channel product ID |
-| sync_status | VARCHAR(20) | DEFAULT 'pending' | pending/synced/error |
-| last_pushed_at | TIMESTAMPTZ | | |
-| last_pulled_at | TIMESTAMPTZ | | |
-| channel_meta | JSONB | DEFAULT '{}' | Channel-specific data |
-| error_message | TEXT | | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column         | Type         | Constraints                 | Description             |
+| -------------- | ------------ | --------------------------- | ----------------------- |
+| id             | UUID         | PK DEFAULT uuidv7()         |                         |
+| product_id     | UUID         | FK prod_master(id) NOT NULL | Target product          |
+| channel        | VARCHAR(50)  | NOT NULL                    | shopify/google/facebook |
+| shop_id        | UUID         | FK shops(id)                | For Shopify channel     |
+| external_id    | VARCHAR(255) | NOT NULL                    | Channel product ID      |
+| sync_status    | VARCHAR(20)  | DEFAULT 'pending'           | pending/synced/error    |
+| last_pushed_at | TIMESTAMPTZ  |                             |                         |
+| last_pulled_at | TIMESTAMPTZ  |                             |                         |
+| channel_meta   | JSONB        | DEFAULT '{}'                | Channel-specific data   |
+| error_message  | TEXT         |                             |                         |
+| created_at     | TIMESTAMPTZ  | DEFAULT now()               |                         |
+| updated_at     | TIMESTAMPTZ  | DEFAULT now()               |                         |
 
 **Indexes:**
 
@@ -903,25 +905,25 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ### Table: `prod_proposals`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| product_id | UUID | FK prod_master(id) NOT NULL | Target product |
-| field_path | TEXT | NOT NULL | JSON path: 'specs.weight_kg' |
-| current_value | JSONB | | Existing value |
-| proposed_value | JSONB | NOT NULL | New proposed value |
-| extraction_session_id | UUID | FK prod_extraction_sessions(id) | Source extraction |
-| source_id | UUID | FK prod_sources(id) | Source reference |
-| confidence_score | DECIMAL(3,2) | | 0.0-1.0 |
-| proposal_status | VARCHAR(20) | DEFAULT 'pending' | pending/approved/rejected/merged/superseded |
-| priority | INTEGER | DEFAULT 0 | Higher = more urgent |
-| reviewed_by | UUID | FK staff_users(id) | |
-| reviewed_at | TIMESTAMPTZ | | |
-| review_notes | TEXT | | |
-| auto_approved | BOOLEAN | DEFAULT false | AI auto-approval |
-| expires_at | TIMESTAMPTZ | | Auto-reject deadline |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column                | Type           | Constraints                     | Description                                 |
+| --------------------- | -------------- | ------------------------------- | ------------------------------------------- |
+| id                    | UUID           | PK DEFAULT uuidv7()             |                                             |
+| product_id            | UUID           | FK prod_master(id) NOT NULL     | Target product                              |
+| field_path            | TEXT           | NOT NULL                        | JSON path: 'specs.weight_kg'                |
+| current_value         | JSONB          |                                 | Existing value                              |
+| proposed_value        | JSONB          | NOT NULL                        | New proposed value                          |
+| extraction_session_id | UUID           | FK prod_extraction_sessions(id) | Source extraction                           |
+| source_id             | UUID           | FK prod_sources(id)             | Source reference                            |
+| confidence_score      | DECIMAL(3,2)   |                                 | 0.0-1.0                                     |
+| proposal_status       | VARCHAR(20)    | DEFAULT 'pending'               | pending/approved/rejected/merged/superseded |
+| priority              | INTEGER        | DEFAULT 0                       | Higher = more urgent                        |
+| reviewed_by           | UUID           | FK staff_users(id)              |                                             |
+| reviewed_at           | TIMESTAMPTZ    |                                 |                                             |
+| review_notes          | TEXT           |                                 |                                             |
+| auto_approved         | BOOLEAN        | DEFAULT false                   | AI auto-approval                            |
+| expires_at            | TIMESTAMPTZ    |                                 | Auto-reject deadline                        |
+| created_at            | TIMESTAMPTZ    | DEFAULT now()                   |                                             |
+| updated_at            | TIMESTAMPTZ    | DEFAULT now()                   |                                             |
 
 **Indexes:**
 
@@ -935,19 +937,19 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ### Table: `prod_dedupe_clusters`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | Cluster ID |
-| cluster_type | VARCHAR(30) | NOT NULL | EXACT_MATCH/FUZZY/SEMANTIC |
-| match_criteria | JSONB | NOT NULL | {fields, thresholds} |
-| canonical_product_id | UUID | FK prod_master(id) | Golden record |
-| member_count | INTEGER | DEFAULT 1 | Number of products |
-| confidence_score | DECIMAL(3,2) | | Average similarity |
-| status | VARCHAR(20) | DEFAULT 'pending' | pending/confirmed/rejected/merged |
-| reviewed_by | UUID | FK staff_users(id) | |
-| reviewed_at | TIMESTAMPTZ | | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column               | Type         | Constraints         | Description                       |
+| -------------------- | ------------ | ------------------- | --------------------------------- |
+| id                   | UUID         | PK DEFAULT uuidv7() |                                   |
+| cluster_type         | VARCHAR(30)  | NOT NULL            | EXACT_MATCH/FUZZY/SEMANTIC        |
+| match_criteria       | JSONB        | NOT NULL            | {fields, thresholds}              |
+| canonical_product_id | UUID         | FK prod_master(id)  | Golden record                     |
+| member_count         | INTEGER      | DEFAULT 1           | Number of products                |
+| confidence_score     | DECIMAL(3,2) |                     | Average similarity                |
+| status               | VARCHAR(20)  | DEFAULT 'pending'   | pending/confirmed/rejected/merged |
+| reviewed_by          | UUID         | FK staff_users(id)  |                                   |
+| reviewed_at          | TIMESTAMPTZ  |                     |                                   |
+| created_at           | TIMESTAMPTZ  | DEFAULT now()       |                                   |
+| updated_at           | TIMESTAMPTZ  | DEFAULT now()       |                                   |
 
 **Indexes:**
 
@@ -959,14 +961,14 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ### Table: `prod_dedupe_cluster_members`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| cluster_id | UUID | FK prod_dedupe_clusters(id) NOT NULL | |
-| product_id | UUID | FK prod_master(id) NOT NULL | |
-| similarity_score | DECIMAL(5,4) | | Similarity to canonical |
-| match_fields | JSONB | | Which fields matched |
-| is_canonical | BOOLEAN | DEFAULT false | Is this the golden record |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column           | Type           | Constraints                          | Description               |
+| ---------------- | -------------- | ------------------------------------ | ------------------------- |
+| cluster_id       | UUID           | FK prod_dedupe_clusters(id) NOT NULL |                           |
+| product_id       | UUID           | FK prod_master(id) NOT NULL          |                           |
+| similarity_score | DECIMAL(5,4)   |                                      | Similarity to canonical   |
+| match_fields     | JSONB          |                                      | Which fields matched      |
+| is_canonical     | BOOLEAN        | DEFAULT false                        | Is this the golden record |
+| created_at       | TIMESTAMPTZ    | DEFAULT now()                        |                           |
 
 **Primary Key:** (cluster_id, product_id)
 
@@ -979,22 +981,22 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ### Table: `prod_translations`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| product_id | UUID | FK prod_master(id) NOT NULL | |
-| locale | VARCHAR(10) | NOT NULL | en/ro/de/fr etc |
-| title | TEXT | | Translated title |
-| description | TEXT | | Translated description |
-| description_short | VARCHAR(500) | | |
-| keywords | TEXT[] | | Localized keywords |
-| seo_title | VARCHAR(255) | | |
-| seo_description | TEXT | | |
-| translation_source | VARCHAR(30) | | manual/ai/import |
-| quality_score | DECIMAL(3,2) | | Translation quality |
-| is_approved | BOOLEAN | DEFAULT false | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column             | Type         | Constraints                  | Description            |
+| ------------------ | ------------ | ---------------------------- | ---------------------- |
+| id                 | UUID         | PK DEFAULT uuidv7()          |                        |
+| product_id         | UUID         | FK prod_master(id) NOT NULL  |                        |
+| locale             | VARCHAR(10)  | NOT NULL                     | en/ro/de/fr etc        |
+| title              | TEXT         |                              | Translated title       |
+| description        | TEXT         |                              | Translated description |
+| description_short  | VARCHAR(500) |                              |                        |
+| keywords           | TEXT[]       |                              | Localized keywords     |
+| seo_title          | VARCHAR(255) |                              |                        |
+| seo_description    | TEXT         |                              |                        |
+| translation_source | VARCHAR(30)  |                              | manual/ai/import       |
+| quality_score      | DECIMAL(3,2) |                              | Translation quality    |
+| is_approved        | BOOLEAN      | DEFAULT false                |                        |
+| created_at         | TIMESTAMPTZ  | DEFAULT now()                |                        |
+| updated_at         | TIMESTAMPTZ  | DEFAULT now()                |                        |
 
 **Indexes:**
 
@@ -1007,25 +1009,25 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ### Table: `prod_attr_definitions`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| code | VARCHAR(100) | UNIQUE NOT NULL | Canonical attr code |
-| label | VARCHAR(255) | NOT NULL | Display label |
-| description | TEXT | | |
-| data_type | VARCHAR(30) | NOT NULL | string/number/boolean/enum |
-| unit | VARCHAR(50) | | Default unit |
-| unit_family | VARCHAR(50) | | length/weight/volume |
-| allowed_values | JSONB | | Enum values |
-| validation_regex | VARCHAR(255) | | Input validation |
-| is_required | BOOLEAN | DEFAULT false | |
-| is_variant_level | BOOLEAN | DEFAULT false | |
-| is_searchable | BOOLEAN | DEFAULT true | |
-| is_filterable | BOOLEAN | DEFAULT true | |
-| display_order | INTEGER | DEFAULT 0 | |
-| embedding | VECTOR(1536) | | Semantic embedding |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column           | Type         | Constraints         | Description                |
+| ---------------- | ------------ | ------------------- | -------------------------- |
+| id               | UUID         | PK DEFAULT uuidv7() |                            |
+| code             | VARCHAR(100) | UNIQUE NOT NULL     | Canonical attr code        |
+| label            | VARCHAR(255) | NOT NULL            | Display label              |
+| description      | TEXT         |                     |                            |
+| data_type        | VARCHAR(30)  | NOT NULL            | string/number/boolean/enum |
+| unit             | VARCHAR(50)  |                     | Default unit               |
+| unit_family      | VARCHAR(50)  |                     | length/weight/volume       |
+| allowed_values   | JSONB        |                     | Enum values                |
+| validation_regex | VARCHAR(255) |                     | Input validation           |
+| is_required      | BOOLEAN      | DEFAULT false       |                            |
+| is_variant_level | BOOLEAN      | DEFAULT false       |                            |
+| is_searchable    | BOOLEAN      | DEFAULT true        |                            |
+| is_filterable    | BOOLEAN      | DEFAULT true        |                            |
+| display_order    | INTEGER      | DEFAULT 0           |                            |
+| embedding        | VECTOR(1536) |                     | Semantic embedding         |
+| created_at       | TIMESTAMPTZ  | DEFAULT now()       |                            |
+| updated_at       | TIMESTAMPTZ  | DEFAULT now()       |                            |
 
 **Indexes:**
 
@@ -1037,16 +1039,16 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ### Table: `prod_attr_synonyms`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| definition_id | UUID | FK prod_attr_definitions(id) NOT NULL | |
-| synonym_text | VARCHAR(255) | NOT NULL | Alternate name |
-| locale | VARCHAR(10) | DEFAULT 'ro' | |
-| source | VARCHAR(50) | | manual/ai/import |
-| confidence_score | DECIMAL(3,2) | DEFAULT 1.0 | |
-| is_approved | BOOLEAN | DEFAULT false | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column           | Type         | Constraints                           | Description       |
+| ---------------- | ------------ | ------------------------------------- | ----------------- |
+| id               | UUID         | PK DEFAULT uuidv7()                   |                   |
+| definition_id    | UUID         | FK prod_attr_definitions(id) NOT NULL |                   |
+| synonym_text     | VARCHAR(255) | NOT NULL                              | Alternate name    |
+| locale           | VARCHAR(10)  | DEFAULT 'ro'                          |                   |
+| source           | VARCHAR(50)  |                                       | manual/ai/import  |
+| confidence_score | DECIMAL(3,2) | DEFAULT 1.0                           |                   |
+| is_approved      | BOOLEAN      | DEFAULT false                         |                   |
+| created_at       | TIMESTAMPTZ  | DEFAULT now()                         |                   |
 
 **Indexes:**
 
@@ -1058,16 +1060,16 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ### Table: `prod_embeddings`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| product_id | UUID | FK prod_master(id) NOT NULL | |
-| embedding_type | VARCHAR(50) | NOT NULL | title/description/specs/combined |
-| embedding | VECTOR(1536) | NOT NULL | OpenAI ada-002 |
-| content_hash | VARCHAR(64) | NOT NULL | Source content hash |
-| model_version | VARCHAR(50) | NOT NULL | text-embedding-3-small |
-| dimensions | INTEGER | DEFAULT 1536 | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column         | Type         | Constraints                 | Description                      |
+| -------------- | ------------ | --------------------------- | -------------------------------- |
+| id             | UUID         | PK DEFAULT uuidv7()         |                                  |
+| product_id     | UUID         | FK prod_master(id) NOT NULL |                                  |
+| embedding_type | VARCHAR(50)  | NOT NULL                    | title/description/specs/combined |
+| embedding      | VECTOR(1536) | NOT NULL                    | OpenAI ada-002                   |
+| content_hash   | VARCHAR(64)  | NOT NULL                    | Source content hash              |
+| model_version  | VARCHAR(50)  | NOT NULL                    | text-embedding-3-small           |
+| dimensions     | INTEGER      | DEFAULT 1536                |                                  |
+| created_at     | TIMESTAMPTZ  | DEFAULT now()               |                                  |
 
 **Indexes:**
 
@@ -1081,21 +1083,21 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 > **Per-tenant vector search** (conform F6.1.1) - separat de `prod_embeddings` (PIM global)
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) NOT NULL | Tenant isolation |
-| product_id | UUID | FK shopify_products(id) NOT NULL | Shop product ref |
-| embedding_type | VARCHAR(50) | NOT NULL | title/description/combined |
-| embedding | VECTOR(1536) | NOT NULL | OpenAI embedding |
-| content_hash | VARCHAR(64) | NOT NULL | For change detection |
-| model_version | VARCHAR(50) | NOT NULL | text-embedding-3-small |
-| dimensions | INTEGER | DEFAULT 1536 | |
-| status | VARCHAR(20) | DEFAULT 'pending' | pending/ready/failed |
-| error_message | TEXT | | |
-| generated_at | TIMESTAMPTZ | | When embedding was generated |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column         | Type         | Constraints                      | Description                      |
+| -------------- | ------------ | -------------------------------- | -------------------------------- |
+| id             | UUID         | PK DEFAULT uuidv7()              |                                  |
+| shop_id        | UUID         | FK shops(id) NOT NULL            | Tenant isolation                 |
+| product_id     | UUID         | FK shopify_products(id) NOT NULL | Shop product ref                 |
+| embedding_type | VARCHAR(50)  | NOT NULL                         | title/description/combined       |
+| embedding      | VECTOR(1536) | NOT NULL                         | OpenAI embedding                 |
+| content_hash   | VARCHAR(64)  | NOT NULL                         | For change detection             |
+| model_version  | VARCHAR(50)  | NOT NULL                         | text-embedding-3-small           |
+| dimensions     | INTEGER      | DEFAULT 1536                     |                                  |
+| status         | VARCHAR(20)  | DEFAULT 'pending'                | pending/ready/failed             |
+| error_message  | TEXT         |                                  |                                  |
+| generated_at   | TIMESTAMPTZ  |                                  | When embedding was generated     |
+| created_at     | TIMESTAMPTZ  | DEFAULT now()                    |                                  |
+| updated_at     | TIMESTAMPTZ  | DEFAULT now()                    |                                  |
 
 **Indexes:**
 
@@ -1112,25 +1114,25 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ### Table: `ai_batches`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) | Optional shop scope |
-| provider | VARCHAR(20) | NOT NULL | openai/anthropic |
-| provider_batch_id | VARCHAR(100) | | External batch ID |
-| batch_type | VARCHAR(50) | NOT NULL | embedding/extraction/enrichment |
-| status | VARCHAR(20) | DEFAULT 'pending' | pending/submitted/processing/completed/failed |
-| request_count | INTEGER | NOT NULL DEFAULT 0 | |
-| completed_count | INTEGER | DEFAULT 0 | |
-| error_count | INTEGER | DEFAULT 0 | |
-| total_tokens | INTEGER | DEFAULT 0 | |
-| estimated_cost | DECIMAL(10,4) | | |
-| submitted_at | TIMESTAMPTZ | | |
-| completed_at | TIMESTAMPTZ | | |
-| expires_at | TIMESTAMPTZ | | Result expiration |
-| error_message | TEXT | | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column            | Type          | Constraints                | Description                                   |
+| ----------------- | ------------- | -------------------------- | --------------------------------------------- |
+| id                | UUID          | PK DEFAULT uuidv7()        |                                               |
+| shop_id           | UUID          | FK shops(id)               | Optional shop scope                           |
+| provider          | VARCHAR(20)   | NOT NULL                   | openai/anthropic                              |
+| provider_batch_id | VARCHAR(100)  |                            | External batch ID                             |
+| batch_type        | VARCHAR(50)   | NOT NULL                   | embedding/extraction/enrichment               |
+| status            | VARCHAR(20)   | DEFAULT 'pending'          | pending/submitted/processing/completed/failed |
+| request_count     | INTEGER       | NOT NULL DEFAULT 0         |                                               |
+| completed_count   | INTEGER       | DEFAULT 0                  |                                               |
+| error_count       | INTEGER       | DEFAULT 0                  |                                               |
+| total_tokens      | INTEGER       | DEFAULT 0                  |                                               |
+| estimated_cost    | DECIMAL(10,4) |                            |                                               |
+| submitted_at      | TIMESTAMPTZ   |                            |                                               |
+| completed_at      | TIMESTAMPTZ   |                            |                                               |
+| expires_at        | TIMESTAMPTZ   |                            | Result expiration                             |
+| error_message     | TEXT          |                            |                                               |
+| created_at        | TIMESTAMPTZ   | DEFAULT now()              |                                               |
+| updated_at        | TIMESTAMPTZ   | DEFAULT now()              |                                               |
 
 **Indexes:**
 
@@ -1142,22 +1144,22 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ### Table: `ai_batch_items`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| batch_id | UUID | FK ai_batches(id) NOT NULL | |
-| shop_id | UUID | FK shops(id) | |
-| entity_type | VARCHAR(50) | NOT NULL | product/harvest/spec |
-| entity_id | UUID | NOT NULL | Reference ID |
-| custom_id | VARCHAR(100) | | Provider custom ID |
-| input_content | TEXT | NOT NULL | Request content |
-| content_hash | VARCHAR(64) | NOT NULL | Dedup hash |
-| status | VARCHAR(20) | DEFAULT 'pending' | |
-| output_content | TEXT | | Response |
-| tokens_used | INTEGER | | |
-| error_message | TEXT | | |
-| processed_at | TIMESTAMPTZ | | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column         | Type         | Constraints                | Description          |
+| -------------- | ------------ | -------------------------- | -------------------- |
+| id             | UUID         | PK DEFAULT uuidv7()        |                      |
+| batch_id       | UUID         | FK ai_batches(id) NOT NULL |                      |
+| shop_id        | UUID         | FK shops(id)               |                      |
+| entity_type    | VARCHAR(50)  | NOT NULL                   | product/harvest/spec |
+| entity_id      | UUID         | NOT NULL                   | Reference ID         |
+| custom_id      | VARCHAR(100) |                            | Provider custom ID   |
+| input_content  | TEXT         | NOT NULL                   | Request content      |
+| content_hash   | VARCHAR(64)  | NOT NULL                   | Dedup hash           |
+| status         | VARCHAR(20)  | DEFAULT 'pending'          |                      |
+| output_content | TEXT         |                            | Response             |
+| tokens_used    | INTEGER      |                            |                      |
+| error_message  | TEXT         |                            |                      |
+| processed_at   | TIMESTAMPTZ  |                            |                      |
+| created_at     | TIMESTAMPTZ  | DEFAULT now()              |                      |
 
 **Indexes:**
 
@@ -1172,29 +1174,29 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 > **Purpose:** OpenAI Batch Embeddings API tracking (F6.1) - Specific to embedding workflows
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | Batch identifier |
-| shop_id | UUID | FK shops(id) | Optional shop scope |
-| batch_type | VARCHAR(30) | NOT NULL CHECK IN (...) | product_title/product_description/specs/combined/attribute |
-| status | VARCHAR(20) | NOT NULL DEFAULT 'pending' | pending/submitted/processing/completed/failed/cancelled |
-| openai_batch_id | VARCHAR(100) | | External OpenAI batch ID |
-| input_file_id | VARCHAR(100) | | OpenAI file ID for input |
-| output_file_id | VARCHAR(100) | | OpenAI file ID for output |
-| error_file_id | VARCHAR(100) | | OpenAI file ID for errors |
-| model | VARCHAR(50) | NOT NULL DEFAULT 'text-embedding-3-small' | Embedding model |
-| dimensions | INTEGER | NOT NULL DEFAULT 1536 | Vector dimensions |
-| total_items | INTEGER | NOT NULL DEFAULT 0 | Items in batch |
-| completed_items | INTEGER | DEFAULT 0 | Successfully completed |
-| failed_items | INTEGER | DEFAULT 0 | Failed items |
-| tokens_used | INTEGER | DEFAULT 0 | Total tokens consumed |
-| estimated_cost | DECIMAL(10,4) | | USD cost estimate |
-| submitted_at | TIMESTAMPTZ | | When submitted to OpenAI |
-| completed_at | TIMESTAMPTZ | | When processing finished |
-| expires_at | TIMESTAMPTZ | | OpenAI result expiration |
-| error_message | TEXT | | Error details if failed |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column          | Type          | Constraints                               | Description                                                |
+| --------------- | ------------- | ----------------------------------------- | ---------------------------------------------------------- |
+| id              | UUID          | PK DEFAULT uuidv7()                       | Batch identifier                                           |
+| shop_id         | UUID          | FK shops(id)                              | Optional shop scope                                        |
+| batch_type      | VARCHAR(30)   | NOT NULL CHECK IN (...)                   | product_title/product_description/specs/combined/attribute |
+| status          | VARCHAR(20)   | NOT NULL DEFAULT 'pending'                | pending/submitted/processing/completed/failed/cancelled    |
+| openai_batch_id | VARCHAR(100)  |                                           | External OpenAI batch ID                                   |
+| input_file_id   | VARCHAR(100)  |                                           | OpenAI file ID for input                                   |
+| output_file_id  | VARCHAR(100)  |                                           | OpenAI file ID for output                                  |
+| error_file_id   | VARCHAR(100)  |                                           | OpenAI file ID for errors                                  |
+| model           | VARCHAR(50)   | NOT NULL DEFAULT 'text-embedding-3-small' | Embedding model                                            |
+| dimensions      | INTEGER       | NOT NULL DEFAULT 1536                     | Vector dimensions                                          |
+| total_items     | INTEGER       | NOT NULL DEFAULT 0                        | Items in batch                                             |
+| completed_items | INTEGER       | DEFAULT 0                                 | Successfully completed                                     |
+| failed_items    | INTEGER       | DEFAULT 0                                 | Failed items                                               |
+| tokens_used     | INTEGER       | DEFAULT 0                                 | Total tokens consumed                                      |
+| estimated_cost  | DECIMAL(10,4) |                                           | USD cost estimate                                          |
+| submitted_at    | TIMESTAMPTZ   |                                           | When submitted to OpenAI                                   |
+| completed_at    | TIMESTAMPTZ   |                                           | When processing finished                                   |
+| expires_at      | TIMESTAMPTZ   |                                           | OpenAI result expiration                                   |
+| error_message   | TEXT          |                                           | Error details if failed                                    |
+| created_at      | TIMESTAMPTZ   | DEFAULT now()                             |                                                            |
+| updated_at      | TIMESTAMPTZ   | DEFAULT now()                             |                                                            |
 
 **Indexes:**
 
@@ -1210,25 +1212,25 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ### Table: `job_runs`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) | |
-| queue_name | VARCHAR(100) | NOT NULL | BullMQ queue |
-| job_id | VARCHAR(255) | NOT NULL | BullMQ job ID |
-| job_name | VARCHAR(100) | NOT NULL | Job type |
-| status | VARCHAR(20) | NOT NULL | waiting/active/completed/failed |
-| priority | INTEGER | DEFAULT 0 | |
-| attempts | INTEGER | DEFAULT 0 | |
-| max_attempts | INTEGER | DEFAULT 3 | |
-| payload | JSONB | NOT NULL | Job data |
-| result | JSONB | | Job result |
-| error_message | TEXT | | |
-| error_stack | TEXT | | |
-| started_at | TIMESTAMPTZ | | |
-| completed_at | TIMESTAMPTZ | | |
-| failed_at | TIMESTAMPTZ | | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column        | Type         | Constraints         | Description                     |
+| ------------- | ------------ | ------------------- | ------------------------------- |
+| id            | UUID         | PK DEFAULT uuidv7() |                                 |
+| shop_id       | UUID         | FK shops(id)        |                                 |
+| queue_name    | VARCHAR(100) | NOT NULL            | BullMQ queue                    |
+| job_id        | VARCHAR(255) | NOT NULL            | BullMQ job ID                   |
+| job_name      | VARCHAR(100) | NOT NULL            | Job type                        |
+| status        | VARCHAR(20)  | NOT NULL            | waiting/active/completed/failed |
+| priority      | INTEGER      | DEFAULT 0           |                                 |
+| attempts      |  INTEGER     | DEFAULT 0           |                                 |
+| max_attempts  | INTEGER      | DEFAULT 3           |                                 |
+| payload       | JSONB        | NOT NULL            | Job data                        |
+| result        | JSONB        |                     | Job result                      |
+| error_message | TEXT         |                     |                                 |
+| error_stack   | TEXT         |                     |                                 |
+| started_at    | TIMESTAMPTZ  |                     |                                 |
+| completed_at  | TIMESTAMPTZ  |                     |                                 |
+| failed_at     | TIMESTAMPTZ  |                     |                                 |
+| created_at    | TIMESTAMPTZ  | DEFAULT now()       |                                 |
 
 **Indexes:**
 
@@ -1240,21 +1242,21 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ### Table: `scheduled_tasks`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) | |
-| task_name | VARCHAR(100) | NOT NULL | |
-| cron_expression | VARCHAR(100) | NOT NULL | |
-| queue_name | VARCHAR(100) | NOT NULL | Target queue |
-| job_data | JSONB | DEFAULT '{}' | |
-| is_active | BOOLEAN | DEFAULT true | |
-| last_run_at | TIMESTAMPTZ | | |
-| next_run_at | TIMESTAMPTZ | | |
-| run_count | INTEGER | DEFAULT 0 | |
-| error_count | INTEGER | DEFAULT 0 | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column          | Type         | Constraints         | Description  |
+| --------------- | ------------ | ------------------- | ------------ |
+| id              | UUID         | PK DEFAULT uuidv7() |              |
+| shop_id         | UUID         | FK shops(id)        |              |
+| task_name       | VARCHAR(100) | NOT NULL            |              |
+| cron_expression | VARCHAR(100) | NOT NULL            |              |
+| queue_name      | VARCHAR(100) | NOT NULL            | Target queue |
+| job_data        | JSONB        | DEFAULT '{}'        |              |
+| is_active       | BOOLEAN      | DEFAULT true        |              |
+| last_run_at     | TIMESTAMPTZ  |                     |              |
+| next_run_at     | TIMESTAMPTZ  |                     |              |
+| run_count       | INTEGER      | DEFAULT 0           |              |
+| error_count     | INTEGER      | DEFAULT 0           |              |
+| created_at      | TIMESTAMPTZ  | DEFAULT now()       |              |
+| updated_at      | TIMESTAMPTZ  | DEFAULT now()       |              |
 
 ---
 
@@ -1262,16 +1264,16 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 > **Purpose:** Token bucket persistence for distributed rate limiting (F4.3)
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| shop_id | UUID | PK FK shops(id) | One bucket per shop |
-| tokens_remaining | DECIMAL(10,2) | NOT NULL DEFAULT 1000 | Current tokens |
-| max_tokens | DECIMAL(10,2) | NOT NULL DEFAULT 1000 | Bucket capacity |
-| refill_rate | DECIMAL(10,4) | NOT NULL DEFAULT 2.0 | Tokens/second |
-| last_refill_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | Last refill time |
-| locked_until | TIMESTAMPTZ | | Backoff lock |
-| consecutive_429_count | INTEGER | DEFAULT 0 | Throttle counter |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column                | Type          | Constraints            | Description.        |
+| --------------------- | ------------- | ---------------------- | ------------------- |
+| shop_id               | UUID          | PK FK shops(id)        | One bucket per shop |
+| tokens_remaining      | DECIMAL(10,2) | NOT NULL DEFAULT 1000  | Current tokens      |
+| max_tokens            | DECIMAL(10,2) | NOT NULL DEFAULT 1000  | Bucket capacity     |
+| refill_rate           | DECIMAL(10,4) | NOT NULL DEFAULT 2.0   | Tokens/second       |
+| last_refill_at        | TIMESTAMPTZ   | NOT NULL DEFAULT now() | Last refill time    |
+| locked_until          | TIMESTAMPTZ   |                        | Backoff lock        |
+| consecutive_429_count | INTEGER       | DEFAULT 0              | Throttle counter    |
+| updated_at            | TIMESTAMPTZ   | DEFAULT now()          |                     |
 
 **RLS Policy:** `rate_limit_buckets_policy` - shop_id = current_setting('app.current_shop_id')::uuid
 
@@ -1281,20 +1283,20 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 > **Purpose:** GraphQL cost tracking per request (F4.3) - Partitioned by month
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| operation_type | VARCHAR(50) | NOT NULL | Query type |
-| query_hash | VARCHAR(64) | | Query fingerprint |
-| actual_cost | INTEGER | NOT NULL | Points used |
-| throttle_status | VARCHAR(20) | | THROTTLED if hit limit |
-| available_cost | INTEGER | | Remaining points |
-| restore_rate | DECIMAL(10,2) | | Points/second restore |
-| requested_at | TIMESTAMPTZ | DEFAULT now() | Request timestamp |
-| response_time_ms | INTEGER | | Latency |
-| created_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
-| PRIMARY KEY | (id, created_at) | | Composite for partitioning |
+| Column           | Type             | Constraints            | Description                |
+| ---------------- | ---------------- | ---------------------- | -------------------------- |
+| id               | UUID             | PK DEFAULT uuidv7()    |                            |
+| shop_id          | UUID             | FK shops(id) NOT NULL  |                            |
+| operation_type   | VARCHAR(50)      | NOT NULL               | Query type                 |
+| query_hash       | VARCHAR(64)      |                        | Query fingerprint          |
+| actual_cost      | INTEGER          | NOT NULL               | Points used                |
+| throttle_status  | VARCHAR(20)      |                        | THROTTLED if hit limit     |
+| available_cost   | INTEGER          |                        | Remaining points           |
+| restore_rate     | DECIMAL(10,2)    |                        | Points/second restore      |
+| requested_at     | TIMESTAMPTZ      | DEFAULT now()          | Request timestamp          |
+| response_time_ms | INTEGER          |                        | Latency                    |
+| created_at       | TIMESTAMPTZ      | NOT NULL DEFAULT now() |                            |
+| PRIMARY KEY      | (id, created_at) |                        | Composite for partitioning |
 
 **Partitioning:** `PARTITION BY RANGE (created_at)` - Monthly partitions, 7-day retention
 
@@ -1309,19 +1311,19 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ### Table: `audit_logs`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) | |
-| user_id | UUID | FK staff_users(id) | |
-| action | VARCHAR(100) | NOT NULL | create/update/delete |
-| entity_type | VARCHAR(100) | NOT NULL | Table name |
-| entity_id | UUID | NOT NULL | Record ID |
-| changes | JSONB | | {old, new} values |
-| ip_address | INET | | |
-| user_agent | TEXT | | |
-| request_id | VARCHAR(100) | | Trace correlation |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column      | Type         | Constraints         | Description          |
+| ----------- | ------------ | ------------------- | -------------------- |
+| id          | UUID         | PK DEFAULT uuidv7() |                      |
+| shop_id     | UUID         | FK shops(id)        |                      |
+| user_id     | UUID         | FK staff_users(id)  |                      |
+| action      | VARCHAR(100) | NOT NULL            | create/update/delete |
+| entity_type | VARCHAR(100) | NOT NULL            | Table name           |
+| entity_id   | UUID         | NOT NULL            | Record ID            |
+| changes     | JSONB        |                     | {old, new} values    |
+| ip_address  | INET         |                     |                      |
+| user_agent  | TEXT         |                     |                      |
+| request_id  | VARCHAR(100) |                     | Trace correlation    |
+| created_at  | TIMESTAMPTZ  | DEFAULT now()       |                      |
 
 **Indexes:**
 
@@ -1336,19 +1338,19 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ### Table: `sync_checkpoints`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| resource_type | VARCHAR(50) | NOT NULL | products/orders/customers |
-| last_sync_at | TIMESTAMPTZ | NOT NULL | |
-| last_cursor | VARCHAR(255) | | Pagination cursor |
-| records_synced | INTEGER | DEFAULT 0 | |
-| status | VARCHAR(20) | DEFAULT 'idle' | idle/running/error |
-| error_message | TEXT | | |
-| metadata | JSONB | DEFAULT '{}' | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column         | Type         | Constraints           | Description               |
+| -------------- | ------------ | --------------------- | ------------------------- |
+| id             | UUID         | PK DEFAULT uuidv7()   |                           |
+| shop_id        | UUID         | FK shops(id) NOT NULL |                           |
+| resource_type  | VARCHAR(50)  | NOT NULL              | products/orders/customers |
+| last_sync_at   | TIMESTAMPTZ  | NOT NULL              |                           |
+| last_cursor    | VARCHAR(255) |                       | Pagination cursor         |
+| records_synced | INTEGER      | DEFAULT 0             |                           |
+| status         | VARCHAR(20)  | DEFAULT 'idle'        | idle/running/error        |
+| error_message  | TEXT         |                       |                           |
+| metadata       | JSONB        | DEFAULT '{}'          |                           |
+| created_at     | TIMESTAMPTZ  | DEFAULT now()         |                           |
+| updated_at     | TIMESTAMPTZ  | DEFAULT now()         |                           |
 
 **Indexes:**
 
@@ -1362,22 +1364,22 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ### Table: `inventory_ledger`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | Entry ID |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| variant_id | UUID | FK shopify_variants(id) NOT NULL | |
-| sku | VARCHAR(255) | | Denormalized for queries |
-| location_id | VARCHAR(100) | | Shopify location GID |
-| delta | INTEGER | NOT NULL | +/- quantity change |
-| reason | VARCHAR(50) | NOT NULL | SALE/RESTOCK/ADJUSTMENT/RETURN/SYNC/TRANSFER |
-| reference_type | VARCHAR(50) | | order/transfer/bulk_run |
-| reference_id | VARCHAR(255) | | Order ID, sync run ID, etc. |
-| previous_quantity | INTEGER | | Quantity before change |
-| new_quantity | INTEGER | | Quantity after change |
-| cost_per_unit | DECIMAL(12,2) | | Unit cost at time of change |
-| recorded_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | Business timestamp |
-| created_at | TIMESTAMPTZ | DEFAULT now() | System timestamp |
+| Column            | Type          | Constraints                      | Description                                    |
+| ----------------- | ------------- | -------------------------------- | ---------------------------------------------- |
+| id                | UUID          | PK DEFAULT uuidv7()              | Entry ID                                       |
+| shop_id           | UUID          | FK shops(id) NOT NULL            |                                                |
+| variant_id        | UUID          | FK shopify_variants(id) NOT NULL |                                                |
+| sku               | VARCHAR(255)  |                                  | Denormalized for queries                       |
+| location_id       | VARCHAR(100)  |                                  | Shopify location GID                           |
+| delta             | INTEGER       | NOT NULL                         | +/- quantity change                            |
+| reason            | VARCHAR(50)   | NOT NULL                         | SALE/RESTOCK/ADJUSTMENT/RETURN/SYNC/TRANSFER   |
+| reference_type    | VARCHAR(50)   |                                  | order/transfer/bulk_run                        |
+| reference_id      | VARCHAR(255)  |                                  | Order ID, sync run ID, etc.                    |
+| previous_quantity | INTEGER       |                                  | Quantity before change                         |
+| new_quantity      | INTEGER       |                                  | Quantity after change                          |
+| cost_per_unit     | DECIMAL(12,2) |                                  | Unit cost at time of change                    |
+| recorded_at       | TIMESTAMPTZ   | NOT NULL DEFAULT now()           | Business timestamp                             |
+| created_at        | TIMESTAMPTZ   | DEFAULT now()                    | System timestamp                               |
 
 **Indexes:**
 
@@ -1416,20 +1418,20 @@ CREATE INDEX idx_inventory_current_quantity ON inventory_current(quantity);
 
 ### Table: `inventory_locations`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| shopify_gid | VARCHAR(100) | NOT NULL | |
-| legacy_resource_id | BIGINT | | |
-| name | VARCHAR(255) | NOT NULL | Location name |
-| address | JSONB | | Full address object |
-| is_active | BOOLEAN | DEFAULT true | |
-| is_primary | BOOLEAN | DEFAULT false | Default fulfillment |
-| fulfills_online_orders | BOOLEAN | DEFAULT true | |
-| synced_at | TIMESTAMPTZ | DEFAULT now() | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column                 | Type         | Constraints           | Description         |
+| ---------------------- | ------------ | --------------------- | ------------------- |
+| id                     | UUID         | PK DEFAULT uuidv7()   |                     |
+| shop_id                | UUID         | FK shops(id) NOT NULL |                     |
+| shopify_gid            | VARCHAR(100) | NOT NULL              |                     |
+| legacy_resource_id     | BIGINT       |                       |                     |
+| name                   | VARCHAR(255) | NOT NULL              | Location name       |
+| address                | JSONB        |                       | Full address object |
+| is_active              | BOOLEAN      | DEFAULT true          |                     |
+| is_primary             | BOOLEAN      | DEFAULT false         | Default fulfillment |
+| fulfills_online_orders | BOOLEAN      | DEFAULT true          |                     |
+| synced_at              | TIMESTAMPTZ  | DEFAULT now()         |                     |
+| created_at             | TIMESTAMPTZ  | DEFAULT now()         |                     |
+| updated_at             | TIMESTAMPTZ  | DEFAULT now()         |                     |
 
 **Indexes:**
 
@@ -1446,28 +1448,28 @@ CREATE INDEX idx_inventory_current_quantity ON inventory_current(quantity);
 
 ### Table: `shopify_media`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| shopify_gid | VARCHAR(100) | NOT NULL | gid://shopify/MediaImage/123 |
-| legacy_resource_id | BIGINT | | |
-| media_type | VARCHAR(30) | NOT NULL | IMAGE/VIDEO/MODEL_3D/EXTERNAL_VIDEO |
-| alt | TEXT | | Alt text |
-| status | VARCHAR(20) | NOT NULL | UPLOADED/PROCESSING/READY/FAILED |
-| mime_type | VARCHAR(100) | | image/jpeg, video/mp4 |
-| file_size | BIGINT | | Bytes |
-| width | INTEGER | | Pixels |
-| height | INTEGER | | Pixels |
-| duration | INTEGER | | Video duration ms |
-| url | TEXT | | CDN URL |
-| preview_url | TEXT | | Preview/thumbnail URL |
-| sources | JSONB | DEFAULT '[]' | [{url, mimeType, format}] |
-| metadata | JSONB | DEFAULT '{}' | Type-specific metadata |
-| created_at_shopify | TIMESTAMPTZ | | |
-| synced_at | TIMESTAMPTZ | DEFAULT now() | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column             | Type        | Constraints           | Description                         |
+| ------------------ | ----------- | --------------------- | ----------------------------------- |
+| media_id           | UUID        | PK DEFAULT uuidv7()   | local media id                      |
+| shop_id            | UUID        | FK shops(id) NOT NULL | shopify media id                    |
+| shopify_gid        | VARCHAR(100)| NOT NULL              | gid://shopify/MediaImage/123        |
+| legacy_resource_id | BIGINT      |                       |                                     |
+| media_type         | VARCHAR(30) | NOT NULL              | IMAGE/VIDEO/MODEL_3D/EXTERNAL_VIDEO |
+| alt                | TEXT        |                       | Alt text                            |
+| status             | VARCHAR(20) | NOT NULL              | UPLOADED/PROCESSING/READY/FAILED    |
+| mime_type          | VARCHAR(100)|                       | image/jpeg, video/mp4               |
+| file_size          | BIGINT      |                       | Bytes                               |
+| width              | INTEGER     |                       | Pixels                              |
+| height             | INTEGER     |                       | Pixels                              |
+| duration           | INTEGER     |                       | Video duration ms                   |
+| url                | TEXT        |                       | CDN URL                             |
+| preview_url        | TEXT        |                       | Preview/thumbnail URL               |
+| sources            | JSONB       | DEFAULT '[]'          | [{url, mimeType, format}]           |
+| metadata           | JSONB       | DEFAULT '{}'          | Type-specific metadata              |
+| created_at_shopify | TIMESTAMPTZ |                       |                                     |
+| synced_at          | TIMESTAMPTZ | DEFAULT now()         |                                     |
+| created_at         | TIMESTAMPTZ | DEFAULT now()         |                                     |
+| updated_at         | TIMESTAMPTZ | DEFAULT now()         |                                     |
 
 **Indexes:**
 
@@ -1481,13 +1483,13 @@ CREATE INDEX idx_inventory_current_quantity ON inventory_current(quantity);
 
 ### Table: `shopify_product_media`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| product_id | UUID | FK shopify_products(id) NOT NULL | |
-| media_id | UUID | FK shopify_media(id) NOT NULL | |
-| position | INTEGER | DEFAULT 0 | Sort order |
-| is_featured | BOOLEAN | DEFAULT false | Featured media |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column      | Type        | Constraints                      | Description    |
+| ----------- | ----------- | -------------------------------- | -------------- |
+| product_id  | UUID        | FK shopify_products(id) NOT NULL |                |
+| media_id    | UUID        | FK shopify_media(id) NOT NULL    |                |
+| position    | INTEGER     | DEFAULT 0                        | Sort order     |
+| is_featured | BOOLEAN     | DEFAULT false                    | Featured media |
+| created_at  | TIMESTAMPTZ | DEFAULT now()                    |                |
 
 **Primary Key:** (product_id, media_id)
 
@@ -1500,12 +1502,12 @@ CREATE INDEX idx_inventory_current_quantity ON inventory_current(quantity);
 
 ### Table: `shopify_variant_media`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| variant_id | UUID | FK shopify_variants(id) NOT NULL | |
-| media_id | UUID | FK shopify_media(id) NOT NULL | |
-| position | INTEGER | DEFAULT 0 | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column     | Type         | Constraints                      | Description     |
+| ---------- | ------------ | -------------------------------- | --------------- |
+| variant_id | UUID         | FK shopify_variants(id) NOT NULL |                 |
+| media_id   | UUID         | FK shopify_media(id) NOT NULL    |                 |
+| position   | INTEGER      | DEFAULT 0                        | Sort order      |
+| created_at | TIMESTAMPTZ  | DEFAULT now()                    |                 |
 
 **Primary Key:** (variant_id, media_id)
 
@@ -1513,19 +1515,19 @@ CREATE INDEX idx_inventory_current_quantity ON inventory_current(quantity);
 
 ### Table: `shopify_publications`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| shopify_gid | VARCHAR(100) | NOT NULL | |
-| name | VARCHAR(255) | NOT NULL | Channel name |
-| catalog_type | VARCHAR(50) | | APP/MARKET/COMPANY_LOCATION |
-| supports_future_publishing | BOOLEAN | DEFAULT false | |
-| auto_publish | BOOLEAN | DEFAULT false | |
-| is_active | BOOLEAN | DEFAULT true | |
-| synced_at | TIMESTAMPTZ | DEFAULT now() | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column                     | Type         | Constraints                   | Description                 |
+| -------------------------- | ------------ | ----------------------------- | --------------------------- |
+| id                         | UUID         | PK DEFAULT uuidv7()           |                             |
+| shop_id                    | UUID         | FK shops(id) NOT NULL         |                             |
+| shopify_gid                | VARCHAR(100) | NOT NULL                      |                             |
+| name                       | VARCHAR(255) | NOT NULL                      | Channel name                |
+| catalog_type               | VARCHAR(50)  |                               | APP/MARKET/COMPANY_LOCATION |
+| supports_future_publishing | BOOLEAN      | DEFAULT false                 |                             |
+| auto_publish               | BOOLEAN      | DEFAULT false                 |                             |
+| is_active                  | BOOLEAN      | DEFAULT true                  |                             |
+| synced_at                  | TIMESTAMPTZ  | DEFAULT now()                 |                             |
+| created_at                 | TIMESTAMPTZ  | DEFAULT now()                 |                             |
+| updated_at                 | TIMESTAMPTZ  | DEFAULT now()                 |                             |
 
 **Indexes:**
 
@@ -1538,18 +1540,18 @@ CREATE INDEX idx_inventory_current_quantity ON inventory_current(quantity);
 
 ### Table: `shopify_resource_publications`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| publication_id | UUID | FK shopify_publications(id) NOT NULL | |
-| resource_type | VARCHAR(50) | NOT NULL | Product/Collection |
-| resource_id | UUID | NOT NULL | shopify_products.id or shopify_collections.id |
-| is_published | BOOLEAN | NOT NULL DEFAULT false | |
-| published_at | TIMESTAMPTZ | | |
-| publish_date | TIMESTAMPTZ | | Scheduled publish |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column         | Type        | Constraints                          | Description                                   |
+| -------------- | ----------- | ------------------------------------ | --------------------------------------------- |
+| id             | UUID        | PK DEFAULT uuidv7()                  |                                               |
+| shop_id        | UUID        | FK shops(id) NOT NULL                |                                               |
+| publication_id | UUID        | FK shopify_publications(id) NOT NULL |                                               |
+| resource_type  | VARCHAR(50) | NOT NULL                             | Product/Collection                            |
+| resource_id    | UUID        | NOT NULL                             | shopify_products.id or shopify_collections.id |
+| is_published   | BOOLEAN     | NOT NULL DEFAULT false               |                                               |
+| published_at   | TIMESTAMPTZ |                                      |                                               |
+| publish_date   | TIMESTAMPTZ | Scheduled publish                    |                                               |
+| created_at     | TIMESTAMPTZ | DEFAULT now()                        |                                               |
+| updated_at     | TIMESTAMPTZ | DEFAULT now()                        |                                               |
 
 **Indexes:**
 
@@ -1565,17 +1567,17 @@ CREATE INDEX idx_inventory_current_quantity ON inventory_current(quantity);
 
 ### Table: `shopify_menus`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| shopify_gid | VARCHAR(100) | NOT NULL | |
-| title | TEXT | NOT NULL | Menu name |
-| handle | VARCHAR(255) | NOT NULL | URL handle |
-| items_count | INTEGER | DEFAULT 0 | |
-| synced_at | TIMESTAMPTZ | DEFAULT now() | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column.     | Type         | Constraints           | Description.     |
+| ----------- | ------------ | --------------------- | ---------------- |
+| id          | UUID         | PK DEFAULT uuidv7()   | internal menu id |
+| shop_id     | UUID         | FK shops(id) NOT NULL | shop id          |
+| shopify_gid | VARCHAR(100) | NOT NULL              | shopify menu id  |
+| title       | TEXT         | NOT NULL              | Menu name        |
+| handle      | VARCHAR(255) | NOT NULL              | URL handle       |
+| items_count | INTEGER      | DEFAULT 0             | no. of items     |
+| synced_at   | TIMESTAMPTZ  | DEFAULT now()         |                  |
+| created_at  | TIMESTAMPTZ  | DEFAULT now()         |                  |
+| updated_at  | TIMESTAMPTZ  | DEFAULT now()         |                  |
 
 **Indexes:**
 
@@ -1588,22 +1590,22 @@ CREATE INDEX idx_inventory_current_quantity ON inventory_current(quantity);
 
 ### Table: `shopify_menu_items`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| menu_id | UUID | FK shopify_menus(id) NOT NULL | |
-| shopify_gid | VARCHAR(100) | NOT NULL | |
-| parent_item_id | UUID | FK shopify_menu_items(id) | Self-reference for tree |
-| title | TEXT | NOT NULL | Display text |
-| url | TEXT | | Link URL |
-| item_type | VARCHAR(50) | | FRONTPAGE/COLLECTION/PAGE/PRODUCT/BLOG/ARTICLE/HTTP |
-| resource_id | VARCHAR(100) | | Referenced resource GID |
-| position | INTEGER | DEFAULT 0 | Sort order |
-| level | INTEGER | DEFAULT 0 | Depth in tree |
-| path | TEXT[] | | Materialized path for breadcrumbs |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column         | Type         | Constraints                   | Description                                         |
+| -------------- | ------------ | ----------------------------- | --------------------------------------------------- |
+| id             | UUID         | PK DEFAULT uuidv7()           |                                                     |
+| shop_id        | UUID         | FK shops(id) NOT NULL         |                                                     |
+| menu_id        | UUID         | FK shopify_menus(id) NOT NULL |                                                     |
+| shopify_gid    | VARCHAR(100) | NOT NULL                      |                                                     |
+| parent_item_id | UUID         | FK shopify_menu_items(id)     | Self-reference for tree                             |
+| title          | TEXT         | NOT NULL                      | Display text                                        |
+| url            | TEXT         |                               | Link URL                                            |
+| item_type      | VARCHAR(50)  |                               | FRONTPAGE/COLLECTION/PAGE/PRODUCT/BLOG/ARTICLE/HTTP |
+| resource_id    | VARCHAR(100) |                               | Referenced resource GID                             |
+| position       | INTEGER      | DEFAULT 0                     | Sort order                                          |
+| level          | INTEGER      | DEFAULT 0                     | Depth in tree                                       |
+| path           | TEXT[]       |                               | Materialized path for breadcrumbs                   |
+| created_at     | TIMESTAMPTZ  | DEFAULT now()                 |                                                     |
+| updated_at     | TIMESTAMPTZ  | DEFAULT now()                 |                                                     |
 
 **Indexes:**
 
@@ -1623,25 +1625,25 @@ CREATE INDEX idx_inventory_current_quantity ON inventory_current(quantity);
 
 ### Table: `scraper_configs`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| source_id | UUID | FK prod_sources(id) NOT NULL | |
-| name | VARCHAR(100) | NOT NULL | Config name |
-| scraper_type | VARCHAR(50) | NOT NULL | CHEERIO/PLAYWRIGHT/PUPPETEER |
-| target_url_pattern | TEXT | NOT NULL | URL regex pattern |
-| selectors | JSONB | NOT NULL | CSS/XPath selectors |
-| pagination_config | JSONB | | {type, selector, maxPages} |
-| rate_limit | JSONB | | {requestsPerSecond, minDelay} |
-| retry_config | JSONB | | {maxRetries, backoffMs} |
-| headers | JSONB | DEFAULT '{}' | Custom headers |
-| cookies | JSONB | DEFAULT '{}' | |
-| proxy_config | JSONB | | Proxy settings |
-| is_active | BOOLEAN | DEFAULT true | |
-| last_run_at | TIMESTAMPTZ | | |
-| success_rate | DECIMAL(5,2) | | % successful |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
-| updated_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column             | Type         | Constraints                  | Description                   |
+| ------------------ | ------------ | ---------------------------- | ----------------------------- |
+| id                 | UUID         | PK DEFAULT uuidv7()          |                               |
+| source_id          | UUID         | FK prod_sources(id) NOT NULL |                               |
+| name               | VARCHAR(100) | NOT NULL                     | Config name                   |
+| scraper_type       | VARCHAR(50)  | NOT NULL                     | CHEERIO/PLAYWRIGHT/PUPPETEER  |
+| target_url_pattern | TEXT         | NOT NULL                     | URL regex pattern             |
+| selectors          | JSONB        | NOT NULL                     | CSS/XPath selectors           |
+| pagination_config  | JSONB        |                              | {type, selector, maxPages}    |
+| rate_limit         | JSONB        |                              | {requestsPerSecond, minDelay} |
+| retry_config       | JSONB        |                              | {maxRetries, backoffMs}       |
+| headers            | JSONB        | DEFAULT '{}'                 | Custom headers                |
+| cookies            | JSONB        | DEFAULT '{}'                 |                               |
+| proxy_config       | JSONB        |                              | Proxy settings                |
+| is_active          | BOOLEAN      | DEFAULT true                 |                               |
+| last_run_at        | TIMESTAMPTZ  |                              |                               |
+| success_rate       | DECIMAL(5,2) |                              | % successful                  |
+| created_at         | TIMESTAMPTZ  | DEFAULT now()                |                               |
+| updated_at         | TIMESTAMPTZ  | DEFAULT now()                |                               |
 
 **Indexes:**
 
@@ -1652,24 +1654,24 @@ CREATE INDEX idx_inventory_current_quantity ON inventory_current(quantity);
 
 ### Table: `scraper_runs`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| config_id | UUID | FK scraper_configs(id) NOT NULL | |
-| source_id | UUID | FK prod_sources(id) NOT NULL | |
-| status | VARCHAR(20) | NOT NULL DEFAULT 'pending' | pending/running/completed/failed/cancelled |
-| trigger_type | VARCHAR(30) | | manual/scheduled/webhook |
-| target_urls | TEXT[] | | Specific URLs to scrape |
-| pages_crawled | INTEGER | DEFAULT 0 | |
-| products_found | INTEGER | DEFAULT 0 | |
-| products_updated | INTEGER | DEFAULT 0 | |
-| errors_count | INTEGER | DEFAULT 0 | |
-| error_log | JSONB | DEFAULT '[]' | [{url, error, timestamp}] |
-| started_at | TIMESTAMPTZ | | |
-| completed_at | TIMESTAMPTZ | | |
-| duration_ms | INTEGER | | Total runtime |
-| memory_peak_mb | INTEGER | | Peak memory usage |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column           | Type        | Constraints                     | Description                                |
+| ---------------- | ----------- | ------------------------------- | ------------------------------------------ |
+| id               | UUID        | PK DEFAULT uuidv7()             |                                            |
+| config_id        | UUID        | FK scraper_configs(id) NOT NULL |                                            |
+| source_id        | UUID        | FK prod_sources(id) NOT NULL    |                                            |
+| status           | VARCHAR(20) | NOT NULL DEFAULT 'pending'      | pending/running/completed/failed/cancelled |
+| trigger_type     | VARCHAR(30) |                                 | manual/scheduled/webhook                   |
+| target_urls      | TEXT[]      |                                 | Specific URLs to scrape                    |
+| pages_crawled    | INTEGER     | DEFAULT 0                       |                                            |
+| products_found   | INTEGER     | DEFAULT 0                       |                                            |
+| products_updated | INTEGER     | DEFAULT 0                       |                                            |
+| errors_count     | INTEGER     | DEFAULT 0                       |                                            |
+| error_log        | JSONB       | DEFAULT '[]'                    | [{url, error, timestamp}]                  |
+| started_at       | TIMESTAMPTZ |                                 |                                            |
+| completed_at.    | TIMESTAMPTZ |                                 |                                            |
+| duration_ms      | INTEGER     |                                 | Total runtime                              |
+| memory_peak_mb.  | INTEGER     |                                 | Peak memory usage                          |
+| created_at       | TIMESTAMPTZ | DEFAULT now()                   |                                            |
 
 **Indexes:**
 
@@ -1681,21 +1683,21 @@ CREATE INDEX idx_inventory_current_quantity ON inventory_current(quantity);
 
 ### Table: `scraper_queue`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| config_id | UUID | FK scraper_configs(id) NOT NULL | |
-| url | TEXT | NOT NULL | URL to scrape |
-| priority | INTEGER | DEFAULT 0 | Higher = first |
-| depth | INTEGER | DEFAULT 0 | Crawl depth from seed |
-| parent_url | TEXT | | Referring URL |
-| status | VARCHAR(20) | DEFAULT 'pending' | pending/processing/completed/failed |
-| attempts | INTEGER | DEFAULT 0 | |
-| max_attempts | INTEGER | DEFAULT 3 | |
-| last_attempt_at | TIMESTAMPTZ | | |
-| next_attempt_at | TIMESTAMPTZ | | Backoff time |
-| error_message | TEXT | | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column          | Type         | Constraints                     | Description                         |
+| --------------- | ------------ | ------------------------------- | ----------------------------------- |
+| id              | UUID         | PK DEFAULT uuidv7()             |                                     |
+| config_id       | UUID         | FK scraper_configs(id) NOT NULL |                                     |
+| url             | TEXT         | NOT NULL                        | URL to scrape                       |
+| priority        | INTEGER      | DEFAULT 0                       | Higher = first                      |
+| depth           | INTEGER      | DEFAULT 0                       | Crawl depth from seed               |
+| parent_url      | TEXT         |                                 | Referring URL                       |
+| status          | VARCHAR(20)  | DEFAULT 'pending'               | pending/processing/completed/failed |
+| attempts        | INTEGER      | DEFAULT 0                       |                                     |
+| max_attempts    | INTEGER      | DEFAULT 3                       |                                     |
+| last_attempt_at | TIMESTAMPTZ  |                                 |                                     |
+| next_attempt_at | TIMESTAMPTZ  |                                 | Backoff time                        |
+| error_message   | TEXT         |                                 |                                     |
+| created_at      | TIMESTAMPTZ  | DEFAULT now()                   |                                     |
 
 **Indexes:**
 
@@ -1711,25 +1713,25 @@ CREATE INDEX idx_inventory_current_quantity ON inventory_current(quantity);
 
 ### Table: `analytics_daily_shop`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| date | DATE | NOT NULL | Report date |
-| orders_count | INTEGER | DEFAULT 0 | |
-| orders_total | DECIMAL(14,2) | DEFAULT 0 | |
-| orders_avg | DECIMAL(12,2) | | |
-| products_synced | INTEGER | DEFAULT 0 | |
-| variants_synced | INTEGER | DEFAULT 0 | |
-| customers_new | INTEGER | DEFAULT 0 | |
-| inventory_value | DECIMAL(14,2) | | Total inventory cost |
-| low_stock_count | INTEGER | DEFAULT 0 | Items below threshold |
-| out_of_stock_count | INTEGER | DEFAULT 0 | |
-| bulk_runs_count | INTEGER | DEFAULT 0 | |
-| bulk_runs_failed | INTEGER | DEFAULT 0 | |
-| api_calls_count | INTEGER | DEFAULT 0 | |
-| webhook_events_count | INTEGER | DEFAULT 0 | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column               | Type          | Constraints           | Description |
+| -------------------- | ------------- | --------------------- | ----------- |
+| id                   | UUID          | PK DEFAULT uuidv7()   |             |
+| shop_id              | UUID          | FK shops(id) NOT NULL |             |
+| date                 | DATE          | NOT NULL              |             |
+| orders_count         | INTEGER       | DEFAULT 0             |             |
+| orders_total         | DECIMAL(14,2) | DEFAULT 0             |             |
+| orders_avg           | DECIMAL(12,2) | DEFAULT 0             |             |
+| products_synced      | INTEGER       | DEFAULT 0             |             |
+| variants_synced      | INTEGER       | DEFAULT 0             |             |
+| customers_new        | INTEGER       | DEFAULT 0             |             |
+| inventory_value      | DECIMAL(14,2) | DEFAULT 0             |             |
+| low_stock_count      | INTEGER       | DEFAULT 0             |             |
+| out_of_stock_count   | INTEGER       | DEFAULT 0             |             |
+| bulk_runs_count      | INTEGER       | DEFAULT 0             |             |
+| bulk_runs_failed     | INTEGER       | DEFAULT 0             |             |
+| api_calls_count      | INTEGER       | DEFAULT 0             |             |
+| webhook_events_count | INTEGER       | DEFAULT 0             |             |
+| created_at           | TIMESTAMPTZ   | DEFAULT now()         |             |
 
 **Indexes:**
 
@@ -1742,22 +1744,22 @@ CREATE INDEX idx_inventory_current_quantity ON inventory_current(quantity);
 
 ### Table: `analytics_product_performance`
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK DEFAULT uuidv7() | |
-| shop_id | UUID | FK shops(id) NOT NULL | |
-| product_id | UUID | FK shopify_products(id) NOT NULL | |
-| period_start | DATE | NOT NULL | |
-| period_end | DATE | NOT NULL | |
-| period_type | VARCHAR(20) | NOT NULL | daily/weekly/monthly |
-| views_count | INTEGER | DEFAULT 0 | If tracked |
-| orders_count | INTEGER | DEFAULT 0 | |
-| units_sold | INTEGER | DEFAULT 0 | |
-| revenue | DECIMAL(12,2) | DEFAULT 0 | |
-| avg_order_value | DECIMAL(12,2) | | |
-| return_rate | DECIMAL(5,2) | | % returned |
-| inventory_turnover | DECIMAL(8,4) | | |
-| created_at | TIMESTAMPTZ | DEFAULT now() | |
+| Column             | Type          | Constraints                      | Description.         |
+| ------------------ | ------------- | -------------------------------- | -------------------- |
+| id                 | UUID          | PK DEFAULT uuidv7()              |                      |
+| shop_id            | UUID          | FK shops(id) NOT NULL            |                      |
+| product_id         | UUID          | FK shopify_products(id) NOT NULL |                      |
+| period_start       | DATE          | NOT NULL                         |                      |
+| period_end         | DATE          | NOT NULL                         |                      |
+| period_type        | VARCHAR(20)   | NOT NULL                         | daily/weekly/monthly |
+| views_count        | INTEGER       | DEFAULT 0                        | If tracked           |
+| orders_count       | INTEGER       | DEFAULT 0                        |                      |
+| units_sold         | INTEGER       | DEFAULT 0                        |                      |
+| revenue            | DECIMAL(12,2) | DEFAULT 0                        |                      |
+| avg_order_value    | DECIMAL(12,2) | DEFAULT 0                        |                      |
+| return_rate        | DECIMAL(5,2)  | DEFAULT 0                        | % returned           |
+| inventory_turnover | DECIMAL(8,4)  |                                  |                      |
+| created_at         | TIMESTAMPTZ   | DEFAULT now()                    |                      |
 
 **Indexes:**
 
@@ -1791,24 +1793,24 @@ CREATE EXTENSION IF NOT EXISTS "pgstattuple";         -- Tuple-level statistics
 
 > **Reference:** Shopify Admin GraphQL API 2025-01
 
-| Shopify GraphQL Type | PostgreSQL Type | Notes |
-|---------------------|-----------------|-------|
-| `ID!` | `VARCHAR(100)` | GID format: gid://shopify/Product/123 |
-| `UnsignedInt64` | `BIGINT` | Legacy numeric IDs |
-| `String` / `String!` | `TEXT` or `VARCHAR(n)` | Use TEXT for unbounded |
-| `HTML` | `TEXT` | Store raw HTML |
-| `URL` | `TEXT` | Full URL strings |
-| `DateTime` | `TIMESTAMPTZ` | Always timezone-aware |
-| `Date` | `DATE` | Date only |
-| `Boolean` | `BOOLEAN` | |
-| `Int` | `INTEGER` | |
-| `Float` | `DECIMAL(12,4)` | Use DECIMAL for precision |
-| `Money` | `DECIMAL(12,2)` | Currency amounts |
-| `Decimal` | `DECIMAL(12,4)` | High precision decimals |
-| `[String!]!` (tags) | `TEXT[]` | Array with GIN index |
-| `ENUM` (ProductStatus) | `VARCHAR(20) CHECK` | Use CHECK constraint |
-| `JSON` / Object | `JSONB` | Use JSONB, not JSON |
-| `Connection` (edges) | Normalized table | M:N relationship tables |
+| Shopify GraphQL Type   | PostgreSQL Type        | Notes                                 |
+| ---------------------- | ---------------------- | ------------------------------------- |
+| `ID!`                  | `TEXT`                 | GID format: gid://shopify/Product/123 |
+| `UnsignedInt64`        | `BIGINT`               | Legacy numeric IDs                    |
+| `String` / `String!`   | `TEXT` or `VARCHAR(n)` | Use TEXT for unbounded                |
+| `HTML`                 | `TEXT`                 | Store raw HTML                        |
+| `URL`                  | `TEXT`                 | Full URL strings                      |
+| `DateTime`             | `TIMESTAMPTZ`          | Always timezone-aware                 |
+| `Date`                 | `DATE`                 | Date only                             |
+| `Boolean`              | `BOOLEAN`              |                                       |
+| `Int`                  | `INTEGER`              |                                       |
+| `Float`                | `DECIMAL(12,4)`        | Use DECIMAL for precision             |
+| `Money`                | `DECIMAL(12,2)`        | Currency amounts                      |
+| `Decimal`              | `DECIMAL(12,4)`        | High precision decimals               |
+| `[String!]!` (tags)    | `TEXT[]`               | Array with GIN index                  |
+| `ENUM` (ProductStatus) | `VARCHAR(20) CHECK`    | Use CHECK constraint                  |
+| `JSON` / Object        | `JSONB`                | Use JSONB, not JSON                   |
+| `Connection` (edges)   | Normalized table       | M:N relationship tables               |
 
 ### ENUM Value Mappings
 
@@ -2232,22 +2234,22 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_embeddings_product_current
 
 ## Table Summary
 
-| Module | Tables | Purpose |
-|--------|--------|---------|
-| A: System Core | 9 | Multi-tenancy, auth, sessions, OAuth, feature flags, config |
-| B: Shopify Mirror | 9 | Shopify data sync + webhook events |
-| C: Bulk Operations | 6 | Bulk import staging |
-| D: Global PIM | 8+4 = 12 | Product information + proposals + dedup + translations |
-| E: Normalization | 4 | Attributes, PIM vectors + per-shop embeddings |
-| F: AI Batch | 3 | AI processing jobs + embedding batches |
-| G: Queue | 4 | Job tracking + rate limiting |
-| H: Audit | 2 | Observability |
-| I: Inventory | 2+1 MV | High-velocity inventory tracking |
-| J: Media & Publications | 5 | Shopify media, channels |
-| K: Menus | 2 | Navigation structures |
-| L: Scraper | 3 | Web scraping management |
-| M: Analytics | 2+3 MVs | Precomputed metrics + dashboard MVs |
-| **Total** | **63 tables + 4 MVs** | |
+| Module                  | Tables                | Purpose                                                     |
+| ----------------------- | --------------------- | ----------------------------------------------------------- |
+| A: System Core          | 9                     | Multi-tenancy, auth, sessions, OAuth, feature flags, config |
+| B: Shopify Mirror       | 9                     | Shopify data sync + webhook events                          |
+| C: Bulk Operations      | 6                     | Bulk import staging                                         |
+| D: Global PIM           | 8+4 = 12              | Product information + proposals + dedup + translations      |
+| E: Normalization        | 4                     | Attributes, PIM vectors + per-shop embeddings               |
+| F: AI Batch             | 3                     | AI processing jobs + embedding batches                      |
+| G: Queue                | 4                     | Job tracking + rate limiting                                |
+| H: Audit                | 2                     | Observability                                               |
+| I: Inventory            | 2+1 MV                | High-velocity inventory tracking                            |
+| J: Media & Publications | 5                     | Shopify media, channels                                     |
+| K: Menus                | 2                     | Navigation structures                                       |
+| L: Scraper              | 3                     | Web scraping management                                     |
+| M: Analytics            | 2+3 MVs               | Precomputed metrics + dashboard MVs                         |
+| **Total**               | **63 tables + 4 MVs** |                                                             |
 
 ---
 
@@ -2255,7 +2257,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_embeddings_product_current
 
 > **Dependency-aware migration sequence for drizzle-kit**
 
-```
+```text
 1. Extensions (pgcrypto, citext, pg_trgm, btree_gin, btree_gist, vector)
 2. UUIDv7 function (if not PG18.1)
 3. Module A: shops → staff_users → app_sessions
@@ -2369,10 +2371,10 @@ CREATE TRIGGER key_rotations_audit_trigger
 
 ## Version History
 
-| Version | Date | Changes |
-|---------|------|---------|
-| v1.0 | 2025-12-20 | Initial schema (33 tables) |
-| v2.0 | 2025-12-23 | Added Modules I-M, PIM extensions, RLS complete, data type mapping (51 tables) |
-| v2.2 | 2025-12-23 | Added shop_product_embeddings for per-tenant vector search, complete RLS for all modules |
-| v2.3 | 2025-12-23 | Audit fixes: corrected table counts (53+1MV), fixed ai_batches RLS naming, reordered Module D Additions (53 tables + 1 MV) |
-| v2.4 | 2025-12-25 | Added 10 tables from Problems & Fixes.md audit: oauth_states, oauth_nonces, key_rotations, feature_flags, system_config, migration_history (Module A), webhook_events (Module B), embedding_batches (Module F), rate_limit_buckets, api_cost_tracking (Module G). Added 3 MVs. Total: 63 tables + 4 MVs |
+| Version | Date       | Changes                                                                                                                    |
+| ------- | ---------- | -------------------------------------------------------------------------------------------------------------------------- |
+| v1.0    | 2025-12-20 | Initial schema (33 tables)                                                                                                 |
+| v2.0    | 2025-12-23 | Added Modules I-M, PIM extensions, RLS complete, data type mapping (51 tables)                                             |
+| v2.2    | 2025-12-23 | Added shop_product_embeddings for per-tenant vector search, complete RLS for all modules                                   |
+| v2.3    | 2025-12-23 | Audit fixes: corrected table counts (53+1MV), fixed ai_batches RLS naming, reordered Module D Additions (53 tables + 1 MV) |
+| v2.4    | 2025-12-25 | Added 10 tables from Problems & Fixes.md audit: oauth_states, oauth_nonces,  key_rotations, feature_flags, system_config, migration_history (Module A), webhook_events (Module B), embedding_batches (Module F), rate_limit_buckets, api_cost_tracking (Module G). Added 3 MVs. Total: 63 tables + 4 MVs |

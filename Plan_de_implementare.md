@@ -1880,6 +1880,164 @@ Obiectiv: Server HTTP, OAuth offline complet, webhooks ingress cu enqueue minim,
     ]
     ```
 
+### F3.9: Core UI Components Avansate (Audit Frontend - Săptămâna 3-4)
+
+> **Origine:** Audit Frontend 2025-12-26 - Componente lipsă identificate în `FRONTEND_AUDIT_COMPLET_2025-12-26.md`
+> **Dependențe:** F3.5 (Foundation), F3.8 (Data Fetching Patterns)
+
+    ```JSON
+    [
+    {
+        "id_task": "F3.9.1",
+        "denumire_task": "VirtualizedList Component",
+        "descriere_task": "Implementare VirtualizedList cu @tanstack/react-virtual pentru liste 10k+ itemi. Props: items, renderItem, estimateSize, overscan, loadMore, isLoading. Features: virtualizare eficientă, infinite scroll, keyboard navigation.",
+        "cale_implementare": "/apps/web-admin/app/components/ui/VirtualizedList.tsx",
+        "contextul_anterior": "F3.5.2 are polaris-data-table dar nu virtualizare pentru liste mari.",
+        "validare_task": "Lista cu 10000 itemi se renderează instant, scroll smooth 60fps.",
+        "outcome_task": "Componenta reutilizabilă pentru orice listă mare.",
+        "restrictii_antihalucinatie": "NU re-implementați virtualizare - folosiți @tanstack/react-virtual.",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F3.9.2",
+        "denumire_task": "JsonViewer Component",
+        "descriere_task": "Implementare JsonViewer cu syntax highlighting și expand/collapse. Props: data, collapsed, theme, copyable, maxHeight. Features: nested objects, copy to clipboard, search within JSON.",
+        "cale_implementare": "/apps/web-admin/app/components/ui/JsonViewer.tsx",
+        "contextul_anterior": "LogConsole din F3.5 afișează text plain, nu JSON structurat.",
+        "validare_task": "JSON de 100 nivele se afișează corect, expand/collapse funcțional.",
+        "outcome_task": "Vizualizare JSON enterprise-grade pentru debugging.",
+        "restrictii_antihalucinatie": "Folosiți react-json-view-lite, NU implementați parser custom.",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F3.9.3",
+        "denumire_task": "Timeline Component",
+        "descriere_task": "Timeline verticală pentru activity logs. Props: events, orientation, loading, loadMore. Features: grupare per zi, relative timestamps, expandable details, infinite scroll.",
+        "cale_implementare": "/apps/web-admin/app/components/ui/Timeline.tsx",
+        "contextul_anterior": "F3.6.1 ActivityTimeline menționat dar nespecificat.",
+        "validare_task": "Timeline cu 100+ events grupate per zi, expand funcțional.",
+        "outcome_task": "Componenta refolosibilă pentru activity logs.",
+        "restrictii_antihalucinatie": "Folosiți date-fns pentru grouping.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F3.9.4",
+        "denumire_task": "TreeView Component",
+        "descriere_task": "TreeView pentru structuri ierarhice. Props: data, selected, expanded, onSelect, onExpand, multiSelect, draggable. Features: expand/collapse, multi-select, drag & drop, lazy loading.",
+        "cale_implementare": "/apps/web-admin/app/components/ui/TreeView.tsx",
+        "contextul_anterior": "Taxonomy în PIM necesită tree navigation (F8.2.1).",
+        "validare_task": "TreeView cu 500 nodes, expand/collapse smooth, drag works.",
+        "outcome_task": "Componenta pentru structuri arborescente.",
+        "restrictii_antihalucinatie": "Folosiți @dnd-kit/core pentru drag-drop.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F3.9.5",
+        "denumire_task": "Charts Library - Recharts Integration",
+        "descriere_task": "Setup recharts: theme integration cu design tokens, ChartContainer wrapper, ChartTooltip/Legend/Grid styled. Base exports pentru toate chart types.",
+        "cale_implementare": "/apps/web-admin/app/components/charts/index.ts",
+        "contextul_anterior": "Auditul identifică charts ca lipsă completă.",
+        "validare_task": "ChartContainer responsive, theme colors aplicate.",
+        "outcome_task": "Foundation pentru chart components.",
+        "restrictii_antihalucinatie": "Folosiți recharts, NU Chart.js.",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F3.9.6",
+        "denumire_task": "LineChart Component",
+        "descriere_task": "LineChart pe recharts. Props: data, lines, xAxisKey, height, showGrid, showTooltip, showLegend. Variants: simple, multi-line, area fill.",
+        "cale_implementare": "/apps/web-admin/app/components/charts/LineChart.tsx",
+        "contextul_anterior": "F3.9.5 chart foundation.",
+        "validare_task": "LineChart cu 3 linii, 100 puncte, tooltip funcțional.",
+        "outcome_task": "Chart pentru trends.",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F3.9.7",
+        "denumire_task": "BarChart Component",
+        "descriere_task": "BarChart pe recharts. Props: data, bars, layout, stacked, showValues. Variants: simple, grouped, stacked, horizontal.",
+        "cale_implementare": "/apps/web-admin/app/components/charts/BarChart.tsx",
+        "contextul_anterior": "F3.9.5 chart foundation.",
+        "validare_task": "BarChart stacked cu 5 categorii, legend funcțional.",
+        "outcome_task": "Chart pentru comparisons.",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F3.9.8",
+        "denumire_task": "PieChart și DonutChart",
+        "descriere_task": "Pie/Donut charts pe recharts. Props: data, showLabels, showLegend. DonutChart: innerRadius, centerLabel. Features: hover highlight, click handler.",
+        "cale_implementare": "/apps/web-admin/app/components/charts/PieChart.tsx, DonutChart.tsx",
+        "contextul_anterior": "F3.9.5 chart foundation.",
+        "validare_task": "DonutChart cu 8 segmente, center label, hover works.",
+        "outcome_task": "Charts pentru distributions.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F3.9.9",
+        "denumire_task": "Sparkline Component",
+        "descriere_task": "Sparkline minimalist. Props: data, width, height, color, showChange, trend. Features: inline cu text, no axes, trend indicator.",
+        "cale_implementare": "/apps/web-admin/app/components/charts/Sparkline.tsx",
+        "contextul_anterior": "MetricCard din F3.5 are loc pentru sparkline.",
+        "validare_task": "Sparkline 50px width inline, smooth rendering.",
+        "outcome_task": "Micro-chart pentru inline trends.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F3.9.10",
+        "denumire_task": "GaugeChart Component",
+        "descriere_task": "GaugeChart pentru metrics. Props: value, min, max, thresholds, size, showValue. Features: semi-circle, color zones, animated needle.",
+        "cale_implementare": "/apps/web-admin/app/components/charts/GaugeChart.tsx",
+        "contextul_anterior": "F7.7.1 HealthDashboard necesită gauges.",
+        "validare_task": "GaugeChart cu 3 thresholds, animated needle.",
+        "outcome_task": "Visual indicator pentru scalar metrics.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F3.9.11",
+        "denumire_task": "SearchInput cu Autocomplete",
+        "descriere_task": "SearchInput avansat. Props: value, onChange, onSearch, suggestions, debounceMs, loading, recentSearches. Features: debounce, dropdown sugestions, keyboard nav, recent searches.",
+        "cale_implementare": "/apps/web-admin/app/components/ui/SearchInput.tsx",
+        "contextul_anterior": "useRecentSearches hook există (F3.5), UI lipsește.",
+        "validare_task": "SearchInput cu 20 suggestions, keyboard nav, debounce works.",
+        "outcome_task": "Search experience enterprise-grade.",
+        "restrictii_antihalucinatie": "Folosiți Polaris Autocomplete pattern.",
+        "prioritate": "P0"
+    },
+    {
+        "id_task": "F3.9.12",
+        "denumire_task": "DateRangePicker Component",
+        "descriere_task": "DateRangePicker. Props: value, onChange, minDate, maxDate, presets, locale. Features: dual calendar, presets, keyboard nav. Presets: Today, Last 7 days, This month, etc.",
+        "cale_implementare": "/apps/web-admin/app/components/ui/DateRangePicker.tsx",
+        "contextul_anterior": "Nicio componentă date picker în documentație.",
+        "validare_task": "DateRangePicker cu presets, range selection, responsive.",
+        "outcome_task": "Date filtering pentru reports.",
+        "restrictii_antihalucinatie": "Folosiți react-day-picker.",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F3.9.13",
+        "denumire_task": "MultiSelect cu Tags",
+        "descriere_task": "MultiSelect component. Props: value, onChange, options, maxItems, allowCreate, searchable. Features: tags în input, dropdown cu checkboxes, keyboard nav.",
+        "cale_implementare": "/apps/web-admin/app/components/ui/MultiSelect.tsx",
+        "contextul_anterior": "Polaris are Select dar nu multi-select avansat.",
+        "validare_task": "MultiSelect cu 50 options, search, create new.",
+        "outcome_task": "Multi-value selection.",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F3.9.14",
+        "denumire_task": "FileUpload cu Drag and Drop",
+        "descriere_task": "FileUpload component. Props: onUpload, accept, maxSize, maxFiles, preview. Features: drag & drop, validation, progress bars, thumbnails.",
+        "cale_implementare": "/apps/web-admin/app/components/ui/FileUpload.tsx",
+        "contextul_anterior": "Import UI (F6.6.4) necesită file upload.",
+        "validare_task": "FileUpload acceptă 5 files, drag-drop, progress, validation.",
+        "outcome_task": "File upload UX modern.",
+        "restrictii_antihalucinatie": "Folosiți react-dropzone.",
+        "prioritate": "P1"
+    }
+    ]
+    ```
+
 ## Faza F4: Infrastructura de procesare asincronă (Săptămâna 4)
 
 Durată: Săptămâna 4
@@ -3036,6 +3194,50 @@ Obiectiv: embeddings OpenAI Batch + index vectorial în Redis 8.4 + observabilit
         "outcome_task": "Vizibilitate clară status sincronizare per produs.",
         "restrictii_antihalucinatie": "Status din cache Redis, nu query DB per produs.",
         "prioritate": "P2"
+    },
+    {
+        "id_task": "F6.6.7",
+        "denumire_task": "Product Detail Page (Dedicated Route)",
+        "descriere_task": "Pagină dedicată /app/products/:id (nu doar drawer). Secțiuni: Overview (imagine, titlu, vendor, status), Variants Table (toate variantele cu inventar), Metafields Browser (grupate per namespace), Sync History (timeline), AI Insights (embeddings status, semantic neighbors).",
+        "cale_implementare": "/apps/web-admin/app/routes/app.products.$id.tsx",
+        "contextul_anterior": "F6.6.4 are drawer, dar lipsește pagină full pentru deep dive.",
+        "validare_task": "Pagina încarcă complet în <500ms. Toate secțiunile funcționale.",
+        "outcome_task": "Deep inspection pentru singur produs.",
+        "restrictii_antihalucinatie": "Lazy-load secțiuni on scroll, nu toate datele upfront.",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F6.6.8",
+        "denumire_task": "Product Editor Page",
+        "descriere_task": "Pagină /app/products/:id/edit pentru editare metafields și AI attributes. Permite editare title_master, description_master din PIM. Form validation cu Zod schema. Optimistic updates cu React Router actions.",
+        "cale_implementare": "/apps/web-admin/app/routes/app.products.$id.edit.tsx",
+        "contextul_anterior": "F6.6.7 Product Detail ca read-only base.",
+        "validare_task": "Form salvează modificări în DB. Validation errors afișate inline.",
+        "outcome_task": "Editare manuală produse în app.",
+        "restrictii_antihalucinatie": "NU editați direct Shopify din UI - doar datele locale PIM.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F6.6.9",
+        "denumire_task": "Products Import UI (CSV/JSON)",
+        "descriere_task": "Pagină /app/products/import. Upload CSV sau JSON cu produs data. Preview parsed data în tabel. Validation errors highlighted per row. Dry-run mode pentru preview fără save. Progress tracking pentru import large.",
+        "cale_implementare": "/apps/web-admin/app/routes/app.products.import.tsx",
+        "contextul_anterior": "F3.9.14 FileUpload component gata.",
+        "validare_task": "Import 1000 produse din CSV în <30s. Errors per row afișate corect.",
+        "outcome_task": "Bulk import produse din fișiere externe.",
+        "restrictii_antihalucinatie": "Parseați pe server, nu în browser pentru files mari.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F6.6.10",
+        "denumire_task": "Products Export UI",
+        "descriere_task": "Export button pe Products page. Modal cu options: format (CSV/JSON/Excel), columns to include (checkboxes), include variants (yes/no), filters applied (export doar filtrele curente). Download async pentru exports mari cu progress.",
+        "cale_implementare": "/apps/web-admin/app/components/domain/ProductsExportModal.tsx",
+        "contextul_anterior": "F6.6.1 Products page gata cu filtre.",
+        "validare_task": "Export 10k produse generează file corect. Download triggered la completare.",
+        "outcome_task": "Export produse pentru analysis externă.",
+        "restrictii_antihalucinatie": "Export pe server, stream direct to download, nu in-memory.",
+        "prioritate": "P2"
     }
     ]
     ```
@@ -3650,6 +3852,70 @@ Obiectiv: hardening, build/publish, deploy, migrații, alerte, DR, Securitate Su
         "outcome_task": "Compliance și debugging pentru acțiuni utilizator.",
         "restrictii_antihalucinatie": "NU expuneți date sensibile (tokens, passwords). Afișați doar action metadata.",
         "prioritate": "P3"
+    }
+    ]
+    ```
+
+### F7.8: Frontend Hooks Library (Audit Frontend - Săptămâna 8)
+
+> **Origine:** Audit Frontend 2025-12-26 - Doar 2 hooks documentate din 16+ necesare
+> **Dependențe:** F3.5 (Foundation), F3.8 (Data Fetching Patterns)
+
+    ```JSON
+    [
+    {
+        "id_task": "F7.8.1",
+        "denumire_task": "Data Fetching Hooks",
+        "descriere_task": "Custom hooks pentru data fetching cu React Router loaders:\n\n**useProducts(options):** Fetch products cu filters, paginare, search. Returns {products, isLoading, error, page, totalPages, refetch}.\n\n**useProduct(id):** Fetch single product cu variants și metafields.\n\n**useJobs(queueName):** Fetch queue jobs cu status filter.\n\n**useMetrics(endpoint):** Fetch metrics data pentru charts.\n\nToate hooks folosesc React Router loaders/actions pattern.",
+        "cale_implementare": "/apps/web-admin/app/hooks/useProducts.ts, useProduct.ts, useJobs.ts, useMetrics.ts",
+        "contextul_anterior": "F3.8 definește data fetching patterns. Lips hooks concrete.",
+        "validare_task": "useProducts returnează datele corect cu loading state.",
+        "outcome_task": "Data fetching standardizat în toată aplicația.",
+        "restrictii_antihalucinatie": "Folosiți React Router loaders, NU TanStack Query ca default.",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F7.8.2",
+        "denumire_task": "Real-time Hooks",
+        "descriere_task": "Hooks pentru actualizări real-time:\n\n**useLiveQueue(queueName):** SSE connection pentru queue status updates. Auto-reconnect on disconnect.\n\n**useLiveMetrics(endpoint):** Polling pentru metrics la interval configurable.\n\n**useLiveSync(shopId):** SSE pentru sync progress notifications.\n\nToate hooks au cleanup pe unmount și error handling.",
+        "cale_implementare": "/apps/web-admin/app/hooks/useLiveQueue.ts, useLiveMetrics.ts, useLiveSync.ts",
+        "contextul_anterior": "useJobPolling există (F3.5), dar lipsesc alte real-time hooks.",
+        "validare_task": "SSE connection stabilă. Updates primite în <100ms.",
+        "outcome_task": "Real-time experience pentru monitoring.",
+        "restrictii_antihalucinatie": "SSE > WebSocket pentru unidirectional updates.",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F7.8.3",
+        "denumire_task": "UI State Hooks",
+        "descriere_task": "Hooks pentru UI state management:\n\n**useTableState(initialSort):** Sort, filter, pagination state for tables. Persists to URL params.\n\n**useBulkSelection(items):** Checkbox selection logic. Select all, select page, clear, isSelected.\n\n**useFormState(schema, initialValues):** Form state cu Zod validation.\n\n**useDialog():** Open/close state pentru modals. Returns {isOpen, open, close, toggle}.",
+        "cale_implementare": "/apps/web-admin/app/hooks/useTableState.ts, useBulkSelection.ts, useFormState.ts, useDialog.ts",
+        "contextul_anterior": "Nu există hooks UI state documentate.",
+        "validare_task": "useTableState sync-ează cu URL. useBulkSelection select all works.",
+        "outcome_task": "UI state logic reutilizabilă.",
+        "restrictii_antihalucinatie": "NU folosiți global state (Redux/Zustand) pentru local UI state.",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F7.8.4",
+        "denumire_task": "Utility Hooks",
+        "descriere_task": "Hooks utilitare:\n\n**useCopyToClipboard():** Copy text cu success feedback.\n\n**useLocalStorage(key, defaultValue):** Persist state în localStorage.\n\n**useDarkMode():** Toggle dark/light mode.\n\n**useDebounce(value, delay):** Debounced value pentru search inputs.\n\n**useMediaQuery(query):** Responsive breakpoint detection.",
+        "cale_implementare": "/apps/web-admin/app/hooks/useCopyToClipboard.ts, useLocalStorage.ts, useDarkMode.ts, useDebounce.ts, useMediaQuery.ts",
+        "contextul_anterior": "F7.6.5 menționează dark mode dar fără hook.",
+        "validare_task": "Toate utility hooks funcționează correct în isolation.",
+        "outcome_task": "Utility functions ca reusable hooks.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F7.8.5",
+        "denumire_task": "Keyboard Shortcuts Hook",
+        "descriere_task": "Hook useKeyboardShortcuts pentru global shortcuts:\n\n**Props:**\n- shortcuts: Array<{key, ctrl?, alt?, shift?, handler}>\n- enabled?: boolean (disable temporar)\n- scope?: string (pentru nested contexts)\n\n**Default shortcuts:**\n- Ctrl+K: Open global search\n- Ctrl+/: Show shortcuts help\n- Escape: Close current modal\n- Ctrl+S: Save current form",
+        "cale_implementare": "/apps/web-admin/app/hooks/useKeyboardShortcuts.ts",
+        "contextul_anterior": "F7.6.6 menționează keyboard shortcuts, acest hook le implementează.",
+        "validare_task": "Shortcuts funcționale. No conflicts cu browser defaults.",
+        "outcome_task": "Keyboard navigation enterprise.",
+        "restrictii_antihalucinatie": "Respectați keyboard accessibility - nu override vital browser shortcuts.",
+        "prioritate": "P1"
     }
     ]
     ```
