@@ -63,6 +63,24 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  apps/backend-worker: {}
+
+  apps/web-admin: {}
+
+  packages/ai-engine: {}
+
+  packages/config: {}
+
+  packages/database: {}
+
+  packages/logger: {}
+
+  packages/queue-manager: {}
+
+  packages/shopify-client: {}
+
+  packages/types: {}
+
 packages:
 
   '@esbuild/aix-ppc64@0.27.2':
