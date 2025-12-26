@@ -1,3 +1,15 @@
+-- ⚠️ DEPRECATED (2025-12-26): This file is LEGACY/RESEARCH only.
+-- ============================================================
+-- SOURCE OF TRUTH: Docs/Database_Schema_Complete.md
+-- ============================================================
+-- This schema was used for initial PIM research. For production,
+-- use the unified schema in Database_Schema_Complete.md which has:
+-- - Consistent table naming (prod_master, prod_attr_definitions)
+-- - Full RLS policies
+-- - Complete indexing strategy
+-- - Integration with all F2-F8 phases
+-- ============================================================
+
 -- Neanelu PIM Database Schema (PostgreSQL 18.1)
 -- Strategy: Vertical Partitioning + Global Research Harvesting
 

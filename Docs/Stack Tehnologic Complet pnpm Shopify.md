@@ -160,6 +160,21 @@ Pentru a asigura compatibilitatea deplină cu template-urile Shopify App și Rea
 
 Setarea @taskforcesh:registry este obligatorie pentru a putea instala pachetul @taskforcesh/bullmq-pro, care nu este disponibil în registrul public npmjs.org. Token-ul trebuie injectat prin variabila de mediu NPM\_TASKFORCESH\_TOKEN în pipeline-ul CI/CD și în mediul local.
 
+### **3.3 De ce Drizzle ORM și nu Prisma? (CONFORM AUDIT 2025-12-26)**
+
+Alegerea **Drizzle ORM** în locul Prisma este motivată de cerințele specifice ale arhitecturii enterprise:
+
+| Criteriu | Drizzle ORM | Prisma | Winner |
+|----------|-------------|--------|--------|
+| **SQL Predictibil** | SQL generat 1:1, ușor de debugat | Query engine opac | Drizzle |
+| **pg-copy-streams** | Suport nativ pentru COPY protocol | Nu suportă | Drizzle |
+| **Bundle Size** | ~50KB (esențial pentru workers) | ~2MB+ cu engine | Drizzle |
+| **TypeScript JSONB** | Tipuri flexibile pentru JSONB | Schema rigidă | Drizzle |
+| **RLS Compatibility** | Migrații SQL manuale = control total | Migrații automate pot conflicta | Drizzle |
+| **Connection Pooling** | pg driver nativ | Connection pool propriu | Drizzle |
+
+**Concluzie:** Pentru un sistem care procesează 1M+ SKU cu streaming și RLS multi-tenant, Drizzle oferă controlul și performanța necesare.
+
 ## **4\. Stack-ul Tehnologic Backend: Ingestie Masivă și Procesare Asincronă**
 
 Backend-ul reprezintă motorul de procesare al aplicației. Obiectivul său principal este de a prelua datele de la Shopify prin API-ul GraphQL Admin (versiunea 2025-10) folosind operațiuni Bulk, de a le procesa eficient și de a menține starea sincronizată.

@@ -77,7 +77,7 @@ Un aspect crucial în această sub-fază este proiectarea schemei pentru a supor
 
 #### **1.1.2 Stocarea Vectorială și Caching Semantic: Redis 8.4**
 
-Deși PostgreSQL oferă extensia pgvector, arhitectura recomandă utilizarea **Redis 8.4** (cu modulele RediSearch și RedisJSON) pentru stratul de căutare vectorială și caching semantic. Motivul este latența: în scenariile de e-commerce, căutarea trebuie să returneze rezultate în sub 100ms. Redis, operând integral în memorie, oferă performanțe superioare pentru algoritmii de tip HNSW (Hierarchical Navigable Small World) comparativ cu stocarea pe disc.  
+Deși PostgreSQL oferă extensia pgvector, arhitectura recomandă utilizarea **Redis 8.4** (cu modulele RediSearch și RedisJSON) pentru stratul de caching semantic. **NOTĂ (AUDIT 2025-12-26): Vector Search este gestionat exclusiv de pgvector (PostgreSQL), NU de Redis.** Redis servește pentru caching și cozi, nu pentru vector storage. Motivul alegerii pgvector: reduce costurile RAM și complexitatea sincronizării.  
 Redis va servi o triplă funcție:
 
 1. **Backend pentru Cozi (BullMQ):** Gestionarea stării job-urilor asincrone.  
@@ -236,7 +236,7 @@ Implementarea acestei aplicații necesită o disciplină arhitecturală strictă
 | :---- | :---- | :---- |
 | **Ingestie 1M+ Produse** | GraphQL Bulk Operations \+ Node.js Streams | Evită limitele de rată API și consumul excesiv de memorie RAM. |
 | **Multi-Tenancy Echitabil** | BullMQ Pro Groups | Previne blocarea resurselor de către un singur comerciant ("Noisy Neighbor"). |
-| **Căutare Semantică Rapidă** | Redis 8.4 (RediSearch) | Performanță sub-ms pentru vector search față de disk-based DBs. |
+| **Căutare Semantică Rapidă** | pgvector (PostgreSQL) | Vector search persistat în Postgres, Redis doar pentru cache. (AUDIT 2025-12-26: pgvector = source of truth) |
 | **Costuri AI Reduse** | OpenAI Batch API \+ Semantic Caching (Redis) | Reducere costuri cu 50-90% prin batching și caching contextual. |
 | **Filtrare Dinamică** | Metafield Definitions Programatice | Permite filtrarea nativă în Shopify Storefront 2.0. |
 | **Stabilitate Job-uri** | Offline Access Tokens cu Refresh | Asigură continuitatea proceselor lungi (\>24h). |

@@ -69,13 +69,13 @@ Lansarea PostgreSQL 18.1 în noiembrie 2025 3 a redefinit modul în care arhitec
 
 ### **2.3 Redis 8.4.0 și Ecosistemul BullMQ**
 
-Redis 8.4.0 (cu module **RediSearch** și **RedisJSON** integrate nativ) este distribuția standard pentru proiect: susține cozi BullMQ, caching semantic și vector search (F6.2). Imaginea recomandată pentru compose este `redis:8.4`, care aduce și beneficiile runtime-ului (durabilitate îmbunătățită, structuri probabilistice, sharded Pub/Sub, +30% throughput față de 8.2).
+Redis 8.4.0 (cu module **RediSearch** și **RedisJSON** integrate nativ) este distribuția standard pentru proiect: susține cozi BullMQ, caching și rate limiting. **IMPORTANT (AUDIT 2025-12-26): Vector Search este gestionat exclusiv de pgvector (PostgreSQL), NU de Redis.** Redis rămâne pentru: cozi, cache, rate limiting, bloom filters. Imaginea recomandată pentru compose este `redis:8.4`.
 
 **Sinergia Redis 8.4.0 - BullMQ:**
 
 - **Structuri Probabilistice:** Filtrele Bloom și Cuckoo native în Redis 8.4.0 permit deduplicarea eficientă a milioanelor de evenimente webhook (ex. PRODUCTS_UPDATE) înainte ca acestea să intre în coada de procesare, economisind resurse de calcul valoroase.
 - **Sharded Pub/Sub:** Îmbunătățește scalabilitatea comunicării între workerii BullMQ distribuiți în cluster, eliminând gâtuirile de rețea prezente în versiunile anterioare.
-- **RediSearch/RedisJSON:** Modulele incluse în Redis 8.4 activează indexarea vectorială și operațiile JSON necesare pentru caching semantic și pentru sincronizarea embedding-urilor între PostgreSQL și hot cache.
+- **RediSearch/RedisJSON:** Modulele incluse în Redis 8.4 sunt folosite pentru indexarea JSON și operațiile de caching. **Vector Search se face cu pgvector în PostgreSQL** pentru a reduce costurile RAM și complexitatea sincronizării.
 
 ---
 
