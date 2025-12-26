@@ -181,16 +181,16 @@ docker exec db pg_restore -U shopify -d neanelu_shopify_prod /backups/pre_deploy
 
 ## Emergency Contacts
 
-| Role | Contact | Availability |
-|------|---------|--------------|
-| On-Call Engineer | TBD | 24/7 |
-| Database Admin | TBD | Business hours |
-| Shopify Support | <partners@shopify.com> | Business hours |
+| Role              | Contact                | Availability.  |
+| ----------------- | ---------------------- | -------------- |
+| On-Call Engineer  | TBD                    | 24/7           |
+| Database Admin    | TBD                    | Business hours |
+| Shopify Support   | <partners@shopify.com> | Business hours |
 
 ---
 
 ## Deployment Log
 
-| Date | Version | Deployer | Status | Notes |
-|------|---------|----------|--------|-------|
-| YYYY-MM-DD | v1.0.0 | Name | ✅ | Initial production deployment |
+| Date       | Version | Deployer | Status | Notes                         |
+| ---------- | ------- | -------- | ------ | ----------------------------- |
+| YYYY-MM-DD | v1.0.0  | Name     | ✅     | Initial production deployment |
