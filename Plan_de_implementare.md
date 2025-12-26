@@ -83,6 +83,8 @@ Locație: Monorepo public pnpm (open-source, licență MIT), sistem bare-metal (
 
 40. Faza F8: Extensii Avansate (Opțional, Post-MVP)
 
+41. Sprint Plan: Execuție și PR-uri (56 PRs, 8 Săptămâni)
+
 ## 1. Introducere
 
 Documentația aferentă proiectului Manager Shopify cuprinde mai multe materiale ce descriu arhitectura și planul de implementare pentru o aplicație Shopify de tip enterprise, capabilă să gestioneze un volum masiv de date (peste 1 milion de SKU-uri). Analiza critică a acestor documente evidențiază atât o viziune unitară, cât și unele inadvertențe și erori ce trebuie reconciliate în planul final: - Structura pe faze și sub-faze: Planul tehnic este împărțit în etape DevOps (Faze F0–F7 în prezentul document) ce progresează de la configurarea mediului de dezvoltare, la implementarea stratului de date, logica de business, integrarea AI și, în final, livrarea în producție cu CI/CD și monitorizare. Documentul „Plan Implementare Aplicație Completă” prezintă o structurare similară (Faza 1–6), însă cu o grupare ușor diferită a priorităților (de exemplu, guvernanța multi-tenant și echitatea resurselor apar ca fază separată spre final, pe când în planul DevOps acestea sunt adresate mai devreme, în faza de infrastructură asincronă). Pentru coerentizare, planul final aliniază aceste faze într-o secvență logică F0–F7 care acoperă toate aspectele.
@@ -4019,3 +4021,340 @@ Obiectiv: Extensii specifice care nu sunt strict necesare pentru MVP dar îmbun�
     }
     ]
     ```
+
+---
+
+## Sprint Plan: Execuție și PR-uri
+
+> [!IMPORTANT]
+> Această secțiune definește planul de execuție pe **8 săptămâni** cu **56 PR-uri** granulare și branch-uri Git pentru implementarea completă a proiectului.
+
+### Git Branch Strategy
+
+| Branch Type | Pattern                         | Example                       | Description |
+| ----------- | ------------------------------- | ----------------------------- | ----------- |
+| Main        | `main`                          | Protected, requires PR review |             |
+| Feature     | `feature/F{phase}-{short-desc}` | `feature/F1-monorepo-setup`   |             |
+| PR Branch   | `pr/F{phase}.{task}-{desc}`     | `pr/F1.1-workspace-init`      |             |
+| Hotfix      | `hotfix/{desc}`                 | `hotfix/oauth-callback`       |             |
+
+---
+
+### Sprint 1 (Săptămâna 1): Foundation & Monorepo Setup
+
+#### F1.1: Workspace și Structură Monorepo
+
+| PR #   | Branch                   | Tasks                                                                | Dependențe |
+| ------ | ------------------------ | -------------------------------------------------------------------- | ---------- |
+| PR-001 | `pr/F1.1-workspace-init` | F1.1.1-F1.1.5 (pnpm workspaces, tsconfig, packages)                  | -          |
+| PR-002 | `pr/F1.2-docker-dev`     | F1.2.1-F1.2.5 (Docker Compose dev, Postgres 18.1, Redis 8.4, Jaeger) | PR-001     |
+
+#### F1.3: Code Quality & Git Hooks
+
+| PR #   | Branch                  | Tasks                                                | Dependențe |
+| ------ | ----------------------- | ---------------------------------------------------- | ---------- |
+| PR-003 | `pr/F1.3-quality-tools` | F1.3.1-F1.3.7 (Husky, lint-staged, ESLint, Prettier) | PR-001     |
+
+#### F1.4: CI Skeleton
+
+| PR #   | Branch                | Tasks                                               | Dependențe     |
+| ------ | --------------------- | --------------------------------------------------- | -------------- |
+| PR-004 | `pr/F1.4-ci-skeleton` | F1.4.1-F1.4.3 (ci-pr.yml, docker smoke, trivy scan) | PR-002, PR-003 |
+
+**Sprint 1 Deliverables:**
+
+- ✅ Monorepo funcțional cu pnpm workspaces
+- ✅ Docker Compose pentru development
+- ✅ Git hooks pentru calitate cod
+- ✅ CI pipeline bazic pe PR
+
+---
+
+### Sprint 2 (Săptămâna 2): Data Layer & Schema Design
+
+#### F2.1: ORM & Database Config
+
+| PR #   | Branch                  | Tasks                                                    | Dependențe |
+| ------ | ----------------------- | -------------------------------------------------------- | ---------- |
+| PR-005 | `pr/F2.1-drizzle-setup` | F2.1.1-F2.1.2 (Drizzle ORM, pg driver, migrations setup) | PR-002     |
+
+#### F2.2: Schema & RLS
+
+| PR #   | Branch                         | Tasks                                                              | Dependențe |
+| ------ | ------------------------------ | ------------------------------------------------------------------ | ---------- |
+| PR-006 | `pr/F2.2-extensions`           | F2.1.2.1 (pgcrypto, citext, pg_trgm, pgvector)                     | PR-005     |
+| PR-007 | `pr/F2.2-roles-bootstrap`      | F2.1.2.2 (app_migrator, app_runtime roles)                         | PR-006     |
+| PR-008 | `pr/F2.2-core-schema`          | F2.2.1 (shops, products, tokens, bulk_runs - UUIDv7)               | PR-007     |
+| PR-009 | `pr/F2.2-rls-policies`         | F2.2.2-F2.2.4 (RLS, SET LOCAL, integration tests)                  | PR-008     |
+| PR-010 | `pr/F2.2-pim-schema`           | F2.2.5-F2.2.7 (prod_taxonomy, prod_core, pgvector embeddings)      | PR-009     |
+| PR-011 | `pr/F2.2-oauth-webhook-tables` | F2.2.8-F2.2.17 (oauth_states, webhook_events, rate_limit, constr.) | PR-009     |
+
+#### F2.3: Seed Data
+
+| PR #   | Branch              | Tasks                              | Dependențe |
+| ------ | ------------------- | ---------------------------------- | ---------- |
+| PR-012 | `pr/F2.3-seed-data` | F2.3.1 (10K produse deterministic) | PR-010     |
+
+**Sprint 2 Deliverables:**
+
+- ✅ Schema completă PostgreSQL 18.1
+- ✅ RLS pentru multi-tenancy
+- ✅ Extensii (pgvector, pg_trgm)
+- ✅ Seed data pentru development
+
+---
+
+### Sprint 3 (Săptămâna 3): Core Backend & Shopify Auth
+
+#### F3.1: HTTP Server
+
+| PR #   | Branch                   | Tasks                                               | Dependențe |
+| ------ | ------------------------ | --------------------------------------------------- | ---------- |
+| PR-013 | `pr/F3.1-fastify-server` | F3.1.1-F3.1.4 (Fastify, config, hardening, logging) | PR-009     |
+
+#### F3.2: OAuth Implementation
+
+| PR #   | Branch               | Tasks                                                  | Dependențe     |
+| ------ | -------------------- | ------------------------------------------------------ | -------------- |
+| PR-014 | `pr/F3.2-oauth-flow` | F3.2.1-F3.2.7 (OAuth routes, token storage, lifecycle) | PR-013, PR-011 |
+
+#### F3.3: Webhooks Ingress
+
+| PR #   | Branch             | Tasks                                            | Dependențe |
+| ------ | ------------------ | ------------------------------------------------ | ---------- |
+| PR-015 | `pr/F3.3-webhooks` | F3.3.1-F3.3.7 (HMAC, enqueue minim, deduplicare) | PR-014     |
+
+#### F3.4: OTel Early
+
+| PR # | Branch | Tasks | Dependențe |
+| PR-016 | `pr/F3.4-otel-http` | F3.4.1-F3.4.5 (OpenTelemetry, spans, metrics) | PR-015 |
+
+#### F3.5: Frontend Foundation
+
+| PR #   | Branch               | Tasks                                                       | Dependențe |
+| ------ | -------------------- | ----------------------------------------------------------- | ---------- |
+| PR-017 | `pr/F3.5-vite-setup` | F3.5.0.1-F3.5.4 (Vite, Tailwind, Polaris, Dashboard)        | PR-001     |
+| PR-018 | `pr/F3.5-app-shell`  | F3.5.5-F3.5.9 (Layout, Navigation, Error Handling, Testing) | PR-017     |
+| PR-019 | `pr/F3.5-patterns`   | F3.5.10-F3.5.13 (API Client, State Components, Forms)       | PR-018     |
+
+**Sprint 3 Deliverables:**
+
+- ✅ Backend HTTP server (Fastify)
+- ✅ OAuth Shopify complet
+- ✅ Webhooks endpoint cu HMAC
+- ✅ Frontend shell cu Polaris
+
+---
+
+### Sprint 4 (Săptămâna 4): Async Processing Infrastructure
+
+#### F4.1: Queue Manager
+
+| PR #   | Branch                     | Tasks                                             | Dependențe |
+| ------ | -------------------------- | ------------------------------------------------- | ---------- |
+| PR-020 | `pr/F4.1-queue-manager`    | F4.1.1-F4.1.4 (BullMQ Pro, taxonomie cozi, DLQ)   | PR-015     |
+| PR-021 | `pr/F4.1-refactor-enqueue` | F4.1.5-F4.1.8 (Refactor din F3, worker hardening) | PR-020     |
+
+#### F4.2: Fairness Multi-tenant
+
+| PR #   | Branch                    | Tasks                                                    | Dependențe |
+| ------ | ------------------------- | -------------------------------------------------------- | ---------- |
+| PR-022 | `pr/F4.2-groups-fairness` | F4.2.1-F4.2.6 (BullMQ Groups, RLS wrapper, prioritizare) | PR-021     |
+
+#### F4.3: Rate Limiting
+
+| PR #   | Branch                  | Tasks                                          | Dependențe |
+| ------ | ----------------------- | ---------------------------------------------- | ---------- |
+| PR-023 | `pr/F4.3-rate-limiting` | F4.3.1-F4.3.6 (Lua script, backoff, bulk lock) | PR-022     |
+
+#### F4.4: Queue Observability
+
+| PR #   | Branch               | Tasks                                            | Dependențe |
+| ------ | -------------------- | ------------------------------------------------ | ---------- |
+| PR-024 | `pr/F4.4-queue-otel` | F4.4.1-F4.4.5 (Spans, metrics, logs pentru cozi) | PR-023     |
+
+#### F4.5: Queue UI
+
+| PR #   | Branch             | Tasks                                            | Dependențe     |
+| ------ | ------------------ | ------------------------------------------------ | -------------- |
+| PR-025 | `pr/F4.5-queue-ui` | F4.5.1-F4.5.8 (Metrici, Jobs List, Workers, SSE) | PR-024, PR-019 |
+
+**Sprint 4 Deliverables:**
+
+- ✅ BullMQ Pro cu fairness
+- ✅ Rate limiting distribuit
+- ✅ Queue observability
+- ✅ Queue monitoring UI
+
+---
+
+### Sprint 5-6 (Săptămânile 5-6): Bulk Ingestion Pipeline
+
+#### F5.1: Bulk Operations Orchestrator
+
+| PR #   | Branch                 | Tasks                                             | Dependențe |
+| ------ | ---------------------- | ------------------------------------------------- | ---------- |
+| PR-026 | `pr/F5.1-orchestrator` | F5.1.1-F5.1.3 (Orchestrator, state machine, lock) | PR-023     |
+| PR-027 | `pr/F5.1-poller`       | F5.1.4-F5.1.5 (Poller, rate limit integration)    | PR-026     |
+| PR-028 | `pr/F5.1-queries`      | F5.1.6-F5.1.7 (Stitched queries, failure policy)  | PR-027     |
+| PR-029 | `pr/F5.1-mutations`    | F5.1.8-F5.1.9 (Bulk mutations, reconciliere)      | PR-028     |
+
+#### F5.2: Streaming Pipeline
+
+| PR #   | Branch                    | Tasks                                                   | Dependențe     |
+| ------ | ------------------------- | ------------------------------------------------------- | -------------- |
+| PR-030 | `pr/F5.2-streaming`       | F5.2.1-F5.2.3 (Download, parse JSONL)                   | PR-029         |
+| PR-031 | `pr/F5.2-stitching`       | F5.2.4, F5.2.11 (Transform, parent-child remap)         | PR-030         |
+| PR-032 | `pr/F5.2-copy-merge`      | F5.2.5-F5.2.8 (COPY writer, staging, merge, checkpoint) | PR-031         |
+| PR-033 | `pr/F5.2-dedup-consensus` | F5.2.9-F5.2.10 (Deduplicare semantică, consensus)       | PR-032, PR-010 |
+
+#### F5.3: Ingestion Observability
+
+| PR #   | Branch        | Tasks                              | Dependențe |
+| ------ | ------------- | ---------------------------------- | ---------- |
+| PR-034 | `pr/F5.3-obs` | F5.3.1-F5.3.2 (OTel spans, events) | PR-033     |
+
+#### F5.4: Testing & Hardening
+
+| PR #   | Branch          | Tasks                                                | Dependențe |
+| ------ | --------------- | ---------------------------------------------------- | ---------- |
+| PR-035 | `pr/F5.4-tests` | F5.4.1-F5.4.4 (Unit, integration, chaos, load tests) | PR-034     |
+
+#### F5.5: Ingestion UI
+
+| PR #   | Branch                 | Tasks                                                      | Dependențe     |
+| ------ | ---------------------- | ---------------------------------------------------------- | -------------- |
+| PR-036 | `pr/F5.5-ingestion-ui` | F5.5.1-F5.5.9 (Progress, Log Console, History, Scheduling) | PR-035, PR-025 |
+
+**Sprint 5-6 Deliverables:**
+
+- ✅ Bulk Operations complete
+- ✅ Streaming JSONL pipeline
+- ✅ COPY în Postgres cu staging
+- ✅ Deduplicare semantică
+- ✅ Ingestion UI
+
+---
+
+### Sprint 7 (Săptămâna 7): AI & Vector Search
+
+#### F6.1: Embeddings Pipeline
+
+| PR #   | Branch                        | Tasks                                      | Dependențe |
+| ------ | ----------------------------- | ------------------------------------------ | ---------- |
+| PR-037 | `pr/F6.1-embeddings-schema`   | F6.1.1-F6.1.2 (Schema, content builder)    | PR-010     |
+| PR-038 | `pr/F6.1-batch-orchestration` | F6.1.3-F6.1.5 (OpenAI Batch, poll, upsert) | PR-037     |
+| PR-039 | `pr/F6.1-backfill`            | F6.1.6-F6.1.7 (Retry, backfill)            | PR-038     |
+
+#### F6.2: pgvector Optimization
+
+| PR #   | Branch             | Tasks                                                | Dependențe |
+| ------ | ------------------ | ---------------------------------------------------- | ---------- |
+| PR-040 | `pr/F6.2-pgvector` | F6.2.1-F6.2.4 (HNSW tuning, API search, Redis cache) | PR-039     |
+
+#### F6.3: AI Observability & Testing
+
+| PR #   | Branch           | Tasks                                    | Dependențe |
+| ------ | ---------------- | ---------------------------------------- | ---------- |
+| PR-041 | `pr/F6.3-ai-obs` | F6.3.1-F6.3.5 (OTel AI, tests, runbooks) | PR-040     |
+
+#### F6.4-F6.6: AI & Products UI
+
+| PR #   | Branch                | Tasks                                                 | Dependențe     |
+| ------ | --------------------- | ----------------------------------------------------- | -------------- |
+| PR-042 | `pr/F6.4-search-ui`   | F6.4.1-F6.4.6 (Search Playground)                     | PR-041, PR-036 |
+| PR-043 | `pr/F6.5-settings-ui` | F6.5.1-F6.5.4 (Settings pages)                        | PR-042         |
+| PR-044 | `pr/F6.6-products-ui` | F6.6.1-F6.6.10 (Products page, detail, import/export) | PR-043         |
+
+**Sprint 7 Deliverables:**
+
+- ✅ OpenAI Batch Embeddings
+- ✅ pgvector optimizat
+- ✅ AI Search UI
+- ✅ Products management UI
+
+---
+
+### Sprint 8 (Săptămâna 8): Production & CI/CD
+
+#### F7.0: Production Foundation
+
+| PR #   | Branch                 | Tasks                                             | Dependențe |
+| ------ | ---------------------- | ------------------------------------------------- | ---------- |
+| PR-045 | `pr/F7.0-adr-platform` | F7.0.1-F7.0.2 (ADR, Ansible, Docker Compose)      | PR-044     |
+| PR-046 | `pr/F7.0-infra`        | F7.0.3-F7.0.7 (Postgres, Redis, Secrets, Ingress) | PR-045     |
+
+#### F7.1: Observability Production
+
+| PR #   | Branch                 | Tasks                                                     | Dependențe |
+| ------ | ---------------------- | --------------------------------------------------------- | ---------- |
+| PR-047 | `pr/F7.1-otel-prod`    | F7.1.1-F7.1.5 (OTel Collector, sampling, dashboards, SLO) | PR-046     |
+| PR-048 | `pr/F7.1-loki-grafana` | F7.1.1.1-F7.1.1.6 (Loki, Grafana provisioning)            | PR-047     |
+| PR-049 | `pr/F7.1-sli-slo`      | F7.1.3.1-F7.1.3.2 (DB/Redis obs, SLI/SLO)                 | PR-048     |
+
+#### F7.2: Build & Supply Chain
+
+| PR #   | Branch                | Tasks                                      | Dependențe |
+| ------ | --------------------- | ------------------------------------------ | ---------- |
+| PR-050 | `pr/F7.2-docker-prod` | F7.2.1-F7.2.4 (Multi-stage, SBOM, scanări) | PR-049     |
+
+#### F7.3: CI/CD Complet
+
+| PR #   | Branch                | Tasks                                                 | Dependențe |
+| ------ | --------------------- | ----------------------------------------------------- | ---------- |
+| PR-051 | `pr/F7.3-ci-complete` | F7.3.1-F7.3.6 (CI complet, CD staging/prod, migrații) | PR-050     |
+
+#### F7.4: Disaster Recovery
+
+| PR #   | Branch       | Tasks                                                 | Dependențe |
+| ------ | ------------ | ----------------------------------------------------- | ---------- |
+| PR-052 | `pr/F7.4-dr` | F7.4.1-F7.4.5 (Backups, Redis, kill-switch, DR drill) | PR-051     |
+
+#### F7.5: Production Readiness
+
+| PR #   | Branch        | Tasks                                                      | Dependențe |
+| ------ | ------------- | ---------------------------------------------------------- | ---------- |
+| PR-053 | `pr/F7.5-sre` | F7.5.1-F7.5.4 (Resurse, scaling, runbooks, 10K simulation) | PR-052     |
+
+#### F7.6-F7.8: Frontend Quality
+
+| PR #   | Branch                     | Tasks                                            | Dependențe |
+| ------ | -------------------------- | ------------------------------------------------ | ---------- |
+| PR-054 | `pr/F7.6-frontend-quality` | F7.6.1-F7.6.9 (A11y, performance, E2E, i18n)     | PR-044     |
+| PR-055 | `pr/F7.7-obs-ui`           | F7.7.1-F7.7.4 (Health dashboard, metrics, audit) | PR-054     |
+| PR-056 | `pr/F7.8-hooks-library`    | F7.8.1-F7.8.5 (Data, real-time, UI hooks)        | PR-055     |
+
+**Sprint 8 Deliverables:**
+
+- ✅ Infrastructure production-ready
+- ✅ CI/CD complet cu CD staging/prod
+- ✅ Observability stack (Loki, Grafana)
+- ✅ DR procedures
+- ✅ Frontend quality & hooks
+
+---
+
+### Summary: PR Count per Sprint
+
+| Sprint | Săptămâna | PRs                  | Focus                    |
+| ------ | --------- | -------------------- | ------------------------ |
+| S1     | W1        | PR-001 → PR-004 (4)  | Foundation               |
+| S2     | W2        | PR-005 → PR-012 (8)  | Data Layer               |
+| S3     | W3        | PR-013 → PR-019 (7)  | Backend + Frontend Shell |
+| S4     | W4        | PR-020 → PR-025 (6)  | Async Processing         |
+| S5-6   | W5-6      | PR-026 → PR-036 (11) | Bulk Ingestion           |
+| S7     | W7        | PR-037 → PR-044 (8)  | AI & Vector Search       |
+| S8     | W8        | PR-045 → PR-056 (12) | Production               |
+
+> **Total: 56 PRs**
+
+---
+
+### Decizii Necesare Înainte de Start
+
+> [!WARNING]
+> Următoarele decizii trebuie luate explicit înainte de Sprint 1:
+
+1. **F1.3.7.1:** Pre-push hook pentru teste SAU teste doar în CI?
+2. **F3.8.3:** TanStack Query SAU doar React Router loaders?
+3. **F7.0.1:** Platformă deploy (confirmare bare metal + Docker Compose)?
