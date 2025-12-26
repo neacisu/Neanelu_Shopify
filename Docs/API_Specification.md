@@ -11,6 +11,10 @@
 - **Development:** `http://localhost:65000/api`
 - **Production:** `https://api.neanelu.shop/api`
 
+> **Notă:** Webhook-urile sunt expuse la `/webhooks/:topic`, NU sub prefixul `/api/`. Vezi secțiunea [3. Webhook Endpoints](#3-webhook-endpoints).
+>
+> Pentru codurile de eroare complete, consultă [Error_Codes_Reference.md](./Error_Codes_Reference.md).
+
 ### Authentication
 
 Toate endpoint-urile (cu excepția OAuth și health) necesită autentificare:

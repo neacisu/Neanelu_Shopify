@@ -248,7 +248,7 @@ Recomandare: **Drizzle ORM** (standardul proiectului), conectat la containerul P
 
 ### **3.1. Server Setup (Node.js v24)**
 
-* Inițializare server (Fastify sau Hono pentru performanță, sau Remix dacă se folosește șablonul Shopify App).  
+* Inițializare server (Fastify >=5.6.2 - standardul proiectului; NU Express, NU Hono).  
 * Configurare pnpm pentru a importa tipurile partajate din packages/database.
 
 ### **3.2. Implementare OAuth 2.0 (Offline Access)**

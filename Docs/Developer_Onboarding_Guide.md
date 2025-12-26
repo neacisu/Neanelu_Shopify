@@ -8,6 +8,7 @@
 ## 🎯 Obiectiv
 
 După parcurgerea acestui ghid, vei putea:
+
 - Rula aplicația local
 - Înțelege structura proiectului
 - Face primul commit
@@ -18,13 +19,13 @@ După parcurgerea acestui ghid, vei putea:
 
 ### Software Necesar
 
-| Software | Versiune Minimă | Verificare |
-|----------|-----------------|------------|
-| Node.js | v24.0.0+ (LTS Krypton) | `node -v` |
-| pnpm | v10.0.0+ | `pnpm -v` |
-| Docker | v24.0.0+ | `docker -v` |
-| Docker Compose | v2.20.0+ | `docker compose version` |
-| Git | v2.40.0+ | `git -v` |
+| Software       | Versiune Minimă        | Verificare               |
+|----------------|------------------------|--------------------------|
+| Node.js        | v24.0.0+ (LTS Krypton) | `node -v`                |
+| pnpm           | v10.0.0+               | `pnpm -v`                |
+| Docker         | v24.0.0+               | `docker -v`              |
+| Docker Compose | v2.20.0+               | `docker compose version` |
+| Git            | v2.40.0+               | `git -v`                 |
 
 ### Instalare Node.js 24
 
@@ -141,10 +142,20 @@ pnpm install
 ```
 
 **Erori comune:**
+
 - `401 Unauthorized` → Token-ul NPM nu e setat corect
 - `403 Forbidden` → Nu ai acces la registry-ul BullMQ Pro
 
-### Pasul 5: Pornire Infrastructură Docker
+### Pasul 5: Configurare Docker Environment
+
+```bash
+# Copiază template-ul pentru Docker Compose
+cp .env.compose.example .env.compose
+
+# Editează dacă e necesar (de obicei valorile default sunt OK pentru dev)
+```
+
+### Pasul 6: Pornire Infrastructură Docker
 
 ```bash
 # Pornește PostgreSQL, Redis, Jaeger
@@ -154,19 +165,19 @@ pnpm run db:up
 docker compose ps
 ```
 
-### Pasul 6: Rulare Migrații
+### Pasul 7: Rulare Migrații
 
 ```bash
 pnpm run db:migrate
 ```
 
-### Pasul 7: (Opțional) Seed Data
+### Pasul 8: (Opțional) Seed Data
 
 ```bash
 pnpm run db:seed
 ```
 
-### Pasul 8: Pornire Aplicație
+### Pasul 9: Pornire Aplicație
 
 ```bash
 # Modul dezvoltare (watch mode)
@@ -174,15 +185,16 @@ pnpm run dev
 ```
 
 Aplicația va fi disponibilă la:
-- Backend API: http://localhost:65000
-- Health Check: http://localhost:65000/health/ready
-- Jaeger UI: http://localhost:65020
+
+- Backend API: <http://localhost:65000>
+- Health Check: <http://localhost:65000/health/ready>
+- Jaeger UI: <http://localhost:65020>
 
 ---
 
 ## 📁 Structura Proiectului
 
-```
+```text
 /Neanelu_Shopify
 ├── apps/
 │   ├── backend-worker/     # API + Worker (Fastify + BullMQ)
@@ -221,17 +233,17 @@ pnpm test -- --coverage
 
 ## 🔧 Comenzi Utile
 
-| Comandă | Descriere |
-|---------|-----------|
-| `pnpm dev` | Pornește totul în watch mode |
-| `pnpm build` | Build producție |
-| `pnpm lint` | Verificare ESLint |
-| `pnpm format` | Formatare Prettier |
-| `pnpm typecheck` | Verificare TypeScript |
-| `pnpm db:up` | Pornește Docker containers |
-| `pnpm db:down` | Oprește Docker containers |
-| `pnpm db:migrate` | Rulează migrații |
-| `pnpm db:studio` | Deschide Drizzle Studio |
+| Comandă           | Descriere                    |
+|-------------------|------------------------------|
+| `pnpm dev`        | Pornește totul în watch mode |
+| `pnpm build`      | Build producție              |
+| `pnpm lint`       | Verificare ESLint            |
+| `pnpm format`     | Formatare Prettier           |
+| `pnpm typecheck`  | Verificare TypeScript        |
+| `pnpm db:up`      | Pornește Docker containers   |
+| `pnpm db:down`    | Oprește Docker containers    |
+| `pnpm db:migrate` | Rulează migrații             |
+| `pnpm db:studio`  | Deschide Drizzle Studio      |
 
 ---
 
@@ -239,7 +251,7 @@ pnpm test -- --coverage
 
 ### Branch Naming
 
-```
+```text
 feat/descriere-scurta    # Feature nou
 fix/issue-123-descriere  # Bug fix
 chore/update-deps        # Mentenanță
@@ -247,7 +259,7 @@ chore/update-deps        # Mentenanță
 
 ### Commit Messages (Conventional Commits)
 
-```
+```text
 feat: add product sync functionality
 fix: resolve webhook timeout issue
 docs: update onboarding guide
@@ -257,6 +269,7 @@ chore: update dependencies
 ### Pre-commit Hooks
 
 La fiecare commit, Husky rulează automat:
+
 - ESLint
 - Prettier
 - TypeScript check
@@ -318,12 +331,11 @@ pnpm lint:fix
 ## 🆘 Suport
 
 Dacă ai probleme:
+
 1. Verifică `#dev-help` pe Slack/Discord
 2. Caută în issues pe GitHub
 3. Contactează maintainer-ul principal
 
 ---
 
-**Bun venit în echipă! 🎉**
-
-
+> **Bun venit în echipă! 🎉**

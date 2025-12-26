@@ -104,6 +104,9 @@ appendfilename appendonly.aof
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_DIR="/backup/redis"
 
+# Store current LASTSAVE timestamp before triggering backup
+LAST_SAVE=$(redis-cli LASTSAVE)
+
 # Trigger BGSAVE
 redis-cli BGSAVE
 
@@ -130,7 +133,7 @@ find "${BACKUP_DIR}" -name "dump_*.rdb" -mtime +7 -delete
 docker compose stop backend-worker
 
 # Step 2: Stop PostgreSQL
-docker compose stop postgres
+docker compose stop db
 
 # Step 3: Remove corrupted data
 rm -rf /data/postgres/*
@@ -149,13 +152,13 @@ recovery_target_action = 'promote'
 EOF
 
 # Step 7: Start PostgreSQL
-docker compose up -d postgres
+docker compose up -d db
 
 # Step 8: Monitor recovery
-docker logs -f postgres 2>&1 | grep -i recovery
+docker compose logs -f db 2>&1 | grep -i recovery
 
 # Step 9: Verify data
-docker exec postgres psql -U neanelu -c "SELECT count(*) FROM shopify_products;"
+docker compose exec db psql -U neanelu -c "SELECT count(*) FROM shopify_products;"
 
 # Step 10: Resume services
 docker compose up -d backend-worker
@@ -248,7 +251,7 @@ redis-cli DBSIZE
 
 ## 7. Related Runbooks
 
-- [Database Failover](file:///var/www/Neanelu_Shopify/Docs/runbooks/database-failover.md)
-- [OpenBAO Recovery](file:///var/www/Neanelu_Shopify/Docs/runbooks/openbao-recovery.md)
-- [Rate Limit Emergency](file:///var/www/Neanelu_Shopify/Docs/runbooks/rate-limit-emergency.md)
-- [Bulk Operation Stuck](file:///var/www/Neanelu_Shopify/Docs/runbooks/bulk-operation-stuck.md)
+- [Database Failover](./database-failover.md)
+- [OpenBAO Recovery](./openbao-recovery.md)
+- [Rate Limit Emergency](./rate-limit-emergency.md)
+- [Bulk Operation Stuck](./bulk-operation-stuck.md)

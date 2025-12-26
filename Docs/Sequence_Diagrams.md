@@ -42,7 +42,7 @@ sequenceDiagram
     participant W as Worker
     participant DB as PostgreSQL
 
-    S->>H: POST /api/webhooks (HMAC signed)
+    S->>H: POST /webhooks/:topic (HMAC signed)
     H->>H: Verify HMAC (constant-time)
     H->>H: Extract topic + shop_id
     H->>R: enqueue(webhook-queue, payload)

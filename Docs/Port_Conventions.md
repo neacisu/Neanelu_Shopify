@@ -10,6 +10,7 @@
 Toate serviciile folosesc porturi în range-ul **65xxx** pentru a evita conflicte cu servicii standard.
 
 **Format:** `65[GROUP][ID]`
+
 - **65 0 xx** - Application Services
 - **65 1 xx** - Data Services (DB, Cache)
 - **65 2 xx** - Observability Services
@@ -21,37 +22,37 @@ Toate serviciile folosesc porturi în range-ul **65xxx** pentru a evita conflict
 
 ### Application Services (650xx)
 
-| Serviciu | Port Dev | Port Prod | Intern/Extern | Note |
-|----------|----------|-----------|---------------|------|
-| Backend API (Fastify) | 65000 | 65000 | Extern (via Traefik) | Health: /health/ready |
-| Frontend Web Admin | 65001 | N/A | Intern | Servit de backend în prod |
-| Worker (nu expune port) | N/A | N/A | N/A | Comunică doar via Redis |
+| Serviciu                | Port Dev | Port Prod | Intern/Extern        | Note                      |
+|-------------------------|----------|-----------|----------------------|---------------------------|
+| Backend API (Fastify)   | 65000    | 65000     | Extern (via Traefik) | Health: /health/ready     |
+| Frontend Web Admin      | 65001    | N/A       | Intern               | Servit de backend în prod |
+| Worker (nu expune port) | N/A      | N/A       | N/A                  | Comunică doar via Redis   |
 
 ### Data Services (651xx)
 
-| Serviciu | Port Dev | Port Prod | Intern/Extern | Note |
-|----------|----------|-----------|---------------|------|
-| PostgreSQL 18.1 | 65010 | N/A | Intern only în prod | Container name: `postgres` |
-| Redis 8.4 | 65011 | N/A | Intern only în prod | Container name: `redis` |
+| Serviciu            | Port Dev | Port Prod | Intern/Extern        | Note                      |
+|---------------------|----------|-----------|----------------------|---------------------------|
+| PostgreSQL 18.1     | 65010    | N/A       | Intern only în prod  | Service name: `db`        |
+| Redis 8.4           | 65011    | N/A       | Intern only în prod  | Container name: `redis`   |
 
 ### Observability Services (652xx)
 
-| Serviciu | Port Dev | Port Prod | Intern/Extern | Note |
-|----------|----------|-----------|---------------|------|
-| Jaeger UI | 65020 | 65020 | Admin only | Traces visualization |
-| Jaeger Collector gRPC | 65021 | N/A | Intern | OTLP gRPC receiver |
-| OTel Collector OTLP | 65022 | 65022 | Intern | App → Collector |
-| Loki | 65023 | N/A | Intern | Logs aggregation |
-| Grafana | 65024 | 65024 | Admin only | Dashboards |
-| Prometheus | 65025 | 65025 | Admin only | Metrics storage |
+| Serviciu              | Port Dev | Port Prod | Intern/Extern | Note                 |
+|-----------------------|----------|-----------|---------------|----------------------|
+| Jaeger UI             | 65020    | 65020     | Admin only    | Traces visualization |
+| Jaeger Collector gRPC | 65021    | N/A       | Intern        | OTLP gRPC receiver   |
+| OTel Collector OTLP   | 65022    | 65022     | Intern        | App → Collector      |
+| Loki                  | 65023    | N/A       | Intern        | Logs aggregation     |
+| Grafana               | 65024    | 65024     | Admin only    | Dashboards           |
+| Prometheus            | 65025    | 65025     | Admin only    | Metrics storage      |
 
 ### Admin/Debug Tools (653xx)
 
-| Serviciu | Port Dev | Port Prod | Intern/Extern | Note |
-|----------|----------|-----------|---------------|------|
-| PgAdmin (opțional) | 65030 | N/A | Dev only | DB admin GUI |
-| Redis Commander (opțional) | 65031 | N/A | Dev only | Redis admin GUI |
-| Bull Board (opțional) | 65032 | N/A | Dev only | Queue monitoring |
+| Serviciu                   | Port Dev | Port Prod | Intern/Extern | Note             |
+|----------------------------|----------|-----------|---------------|------------------|
+| PgAdmin (opțional)         | 65030    | N/A       | Dev only      | DB admin GUI     |
+| Redis Commander (opțional) | 65031    | N/A       | Dev only      | Redis admin GUI  |
+| Bull Board (opțional)      | 65032    | N/A       | Dev only      | Queue monitoring |
 
 ---
 
@@ -113,11 +114,11 @@ GRAFANA_URL=http://localhost:65024
 
 În producție, doar porturile esențiale sunt expuse prin Traefik reverse proxy:
 
-| Path | Target | Port |
-|------|--------|------|
-| `/` | backend-api | 65000 |
-| `/grafana` | grafana | 65024 |
-| `/jaeger` | jaeger | 65020 |
+| Path       | Target      | Port  |
+|------------|-------------|-------|
+| `/`        | backend-api | 65000 |
+| `/grafana` | grafana     | 65024 |
+| `/jaeger`  | jaeger      | 65020 |
 
 Toate celelalte servicii comunică pe rețeaua internă Docker (`internal_net`).
 
@@ -149,8 +150,6 @@ redis-cli -p 65011 ping
 
 ## Changelog
 
-| Data | Schimbare |
-|------|-----------|
+| Data       | Schimbare                    |
+|------------|------------------------------|
 | 2025-12-26 | Document creat conform audit |
-
-
