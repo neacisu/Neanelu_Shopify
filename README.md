@@ -1,7 +1,5 @@
 # Neanelu Shopify
 
-<div align="center">
-
 ![Shopify](https://img.shields.io/badge/Shopify-Enterprise-96BF48?style=for-the-badge&logo=shopify&logoColor=white)
 ![Node.js](https://img.shields.io/badge/Node.js-v24_LTS-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18.1-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
@@ -10,11 +8,9 @@
 ![pnpm](https://img.shields.io/badge/pnpm-10+-F69220?style=for-the-badge&logo=pnpm&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 
-**Enterprise-grade Shopify Application for 1M+ SKU Management**
+## Enterprise-grade Shopify Application for 1M+ SKU Management
 
 [Quick Start](#3-quick-start) • [Architecture](#5-architecture) • [Documentation](#9-documentation-index) • [Contributing](#11-contributing)
-
-</div>
 
 ---
 
@@ -102,28 +98,11 @@
 ### Installation
 
 \`\`\`bash
-
-# Clone repository
-
-git clone https://github.com/your-org/Neanelu_Shopify.git
+git clone <https://github.com/your-org/Neanelu_Shopify.git>
 cd Neanelu_Shopify
-
-# Install dependencies
-
 pnpm install
-
-# Copy environment template
-
 cp .env.example .env
-
-# Edit .env with your values (see .env.example for guidance)
-
-# Start infrastructure (PostgreSQL 18.1, Redis 8.4, Jaeger)
-
 pnpm db:up
-
-# Verify services
-
 docker compose ps
 \`\`\`
 
@@ -432,7 +411,7 @@ See: [oauth-callback-server.ts](oauth-callback-server.ts)
 
 ### 7.5 App-Owned Metafields Limitation
 
-> ⚠️ **Critical**: Metafields with namespace \`app--<id>--\*\` are **only visible** to the owning app.
+> ⚠️ **Critical**: Metafields with namespace \`app--[id]--\*\` are **only visible** to the owning app.
 
 - Staff/Admin tokens cannot read these metafields
 - Other apps see empty results
@@ -453,41 +432,33 @@ See: [oauth-callback-server.ts](oauth-callback-server.ts)
 
 ### Running Research Scripts
 
-All TypeScript research scripts run via \`pnpm exec tsx\`:
+All TypeScript research scripts run via `pnpm exec tsx`:
 
-\`\`\`bash
-
-# Navigate to research scripts directory
-
+```bash
 cd "Research Produse/Scripts/TScripts"
 pnpm install
+pnpm exec tsx sample_by_vendor.ts ../../bulk-products.jsonl \
+  --k 3 \
+  --alphabet-pick \
+  --out ../../TSOutputs/vendor_samples_report.json
 
-# Deterministic vendor/product sampling from JSONL
-
-pnpm exec tsx sample_by_vendor.ts ../../bulk-products.jsonl \\
---k 3 \\
---alphabet-pick \\
---out ../../TSOutputs/vendor_samples_report.json
-
-# Fetch full product details ("everything" mode with pagination)
-
-pnpm exec tsx fetch_shopify_products.ts \\
---env ../../.env.txt \\
---report ../../TSOutputs/vendor_samples_report.json \\
---vendor-count 10 \\
---everything \\
---paginate-variants \\
---out-details ../../TSOutputs/products_TOT.json
-\`\`\`
+pnpm exec tsx fetch_shopify_products.ts \
+  --env ../../.env.txt \
+  --report ../../TSOutputs/vendor_samples_report.json \
+  --vendor-count 10 \
+  --everything \
+  --paginate-variants \
+  --out-details ../../TSOutputs/products_TOT.json
+```
 
 ### Testing Strategy
 
-| Layer           | Framework     | Command                               |
-| --------------- | ------------- | ------------------------------------- |
-| **Backend**     | \`node:test\` | \`node --test --watch\`               |
-| **Frontend**    | Vitest        | \`pnpm --filter @app/web-admin test\` |
-| **Integration** | Custom        | With ephemeral containers             |
-| **Load**        | k6            | \`k6 run tests/load/\*.js\`           |
+| Layer           | Framework   | Command                             |
+| --------------- | ----------- | ----------------------------------- |
+| **Backend**     | `node:test` | `node --test --watch`               |
+| **Frontend**    | Vitest      | `pnpm --filter @app/web-admin test` |
+| **Integration** | Custom      | With ephemeral containers           |
+| **Load**        | k6          | `k6 run tests/load/*.js`            |
 
 > **Note**: Jest is **NOT** used in this project.
 
@@ -505,19 +476,23 @@ pnpm exec tsx fetch_shopify_products.ts \\
 
 See [.env.example](.env.example) for the complete list:
 
-| Variable                  | Required | Description                      |
-| ------------------------- | -------- | -------------------------------- |
-| \`SHOPIFY_API_KEY\`       | ✓        | Shopify app API key              |
-| \`SHOPIFY_API_SECRET\`    | ✓        | Shopify app secret               |
-| \`DATABASE_URL\`          | ✓        | PostgreSQL connection string     |
-| \`REDIS_URL\`             | ✓        | Redis connection string          |
-| \`NPM_TASKFORCESH_TOKEN\` | ✓        | BullMQ Pro registry token        |
-| \`ENCRYPTION_KEY_256\`    | ✓        | AES-256 key for token encryption |
-| \`OPENAI_API_KEY\`        | ✓        | OpenAI API key for embeddings    |
+| Variable                | Required | Description                      |
+| ----------------------- | -------- | -------------------------------- |
+| `SHOPIFY_API_KEY`       | ✓        | Shopify app API key              |
+| `SHOPIFY_API_SECRET`    | ✓        | Shopify app secret               |
+| `DATABASE_URL`          | ✓        | PostgreSQL connection string     |
+| `REDIS_URL`             | ✓        | Redis connection string          |
+| `NPM_TASKFORCESH_TOKEN` | ✓        | BullMQ Pro registry token        |
+| `ENCRYPTION_KEY_256`    | ✓        | AES-256 key for token encryption |
+| `OPENAI_API_KEY`        | ✓        | OpenAI API key for embeddings    |
 
 ---
 
 ## 9. Documentation Index
+
+> [!IMPORTANT]
+> **Source of Truth:** [Plan_de_implementare.md](Plan_de_implementare.md) este documentul master pentru planul de implementare.
+> Toate celelalte documente din `Docs/` sunt complementare și fac referință la planul principal.
 
 ### 📋 Core Documents
 
@@ -596,21 +571,21 @@ The project follows a phased approach documented in [Plan_de_implementare.md](Pl
 
 ### Code Quality Standards
 
-- All code must pass \`pnpm lint\` and \`pnpm typecheck\`
+- All code must pass `pnpm lint` and `pnpm typecheck`
 - Pre-commit hooks enforce formatting (Prettier) and linting (ESLint)
-- Backend tests use \`node:test\`, frontend uses Vitest
+- Backend tests use `node:test`, frontend uses Vitest
 
 ### Commit Convention
 
-\`\`\`
-<type>(<scope>): <descripti footer]
-\`\`\`
+```text
+[type]([scope]): [description] [optional body] [optional footer]
+```
 
-**Types**: \`feat\`, \`fix\`, \`docs\`, \`style\`, \`refactor\`, \`test\`, \`chore\`
+**Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
 
 ### Pull Request Process
 
-1. Create feature branch from \`main\`
+1. Create feature branch from `main`
 2. Ensure CI passes (lint, typecheck, test)
 3. Update documentation if needed
 4. Request review from maintainers
@@ -648,10 +623,6 @@ Please report security issues via private disclosure to the maintainers.
 
 ---
 
-<div align="center">
-
-**Built with ❤️ for Shopify Enterprise Scale**
+## Built with ❤️ for Shopify Enterprise Scale
 
 [Documentation](Docs/) • [Implementation Plan](Plan_de_implementare.md) • [Report Issues](https://github.com/your-org/Neanelu_Shopify/issues)
-
-</div>

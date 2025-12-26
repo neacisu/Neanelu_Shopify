@@ -147,6 +147,39 @@ Acest addendum reflectă lucrurile pe care le-am validat practic în research (i
 - Scripturile TypeScript se rulează prin `pnpm exec tsx` (ESM-friendly), fără a impune tool-uri globale.
 - Output-urile research sunt separate și nu se comit (artefacte mari/generate).
 
+### G. Cost & Performance Estimates (CONFORM AUDIT 2025-12-26)
+
+**Estimări pentru operații 1M+ SKU:**
+
+| Operație              | Timp Estimat           | Cost API         | Note                         |
+| --------------------- | ---------------------- | ---------------- | ---------------------------- |
+| Full Sync 1M products | ~5.7 zile la 2 req/sec | ~50K cost points | Bulk Operations reduc la ore |
+| Bulk Export 1M        | 2-4 ore                | ~1000 points/op  | Streaming JSONL              |
+| Bulk Import 1M        | 2-4 ore                | ~1000 points/op  | pg-copy-streams              |
+| Embedding 1M products | ~24h batch             | $50-100 OpenAI   | Batch API 50% discount       |
+
+**Estimări Infrastructure (bare metal):**
+
+| Componenta        | Specificații Minime         | Cost/lună (estimate) |
+| ----------------- | --------------------------- | -------------------- |
+| PostgreSQL Server | 32GB RAM, 4 cores, 1TB NVMe | $150-300             |
+| Redis Server      | 16GB RAM, 2 cores           | $50-100              |
+| API/Worker Server | 16GB RAM, 4 cores           | $100-200             |
+| Backup Storage    | 2TB S3-compatible           | $40-80               |
+| **Total estimat** | -                           | **$340-680/lună**    |
+
+**Metrici performanță target:**
+
+| Operație              | Latență Target | Throughput Target |
+| --------------------- | -------------- | ----------------- |
+| Webhook ingress (p99) | <200ms         | 1000/min/shop     |
+| Bulk ingest rate      | -              | >50 products/sec  |
+| Vector search (p99)   | <50ms          | 100 queries/sec   |
+| Dashboard load        | <2s            | -                 |
+
+> [!NOTE]
+> Aceste estimări sunt bazate pe research și trebuie validate în F7.5.4 (SRE Review 10K SKU).
+
 Faza F0: Preambul – Standarde DevOps și pregătire inițială
 Durată: Pregătire inițială (înainte de startul implementării)
 Obiectiv: Stabilirea mediului de lucru și a convențiilor standard (versiuni platformă, unelte, structură de proiect), astfel încât dezvoltarea să înceapă pe baze solide și uniforme pentru toți membrii echipei.
@@ -262,7 +295,20 @@ Obiectiv: Stabilirea mediului de lucru și a convențiilor standard (versiuni pl
         "validare_task": "Asigură-te că regulile dorite sunt bine definite. De exemplu, decide dacă vei folosi ESLint cu configurația recomandată de Airbnb sau Google și dacă vei integra Prettier cu ESLint. Un mod de validare: scrie un exemplu de cod deliberat neformatat și gândește ce reguli ar trebui să se aplice – verifică dacă setul ales acoperă aceste situații. Finalizarea acestui pas rezultă într-o listă de pachete de instalat și un draft al fișierelor de configurare pentru ESLint/Prettier, gata de implementare în faza următoare.",
         "outcome_task": "Strategia de asigurare a calității codului este definită (tool-urile de linting și formatare, împreună cu regulile dorite), permițând implementarea rapidă a acestora odată ce structura proiectului este creată.",
         "restrictii_antihalucinatie": "Nu instala încă pachetele de lint/format (acest pas este pregătitor). Nu impune reguli de cod contradictorii cu stack-ul (ex: nu activa reguli de browser pentru un proiect Node). Nu ignora importanța acestui pas – nu continua fără a clarifica instrumentele de calitate."
+    },
+
+    {
+        "id_task": "F0.1.11",
+        "denumire_task": "Monitorizare compatibilitate API Shopify 2025-10 + strategie fallback",
+        "descriere_task": "**CONFORM AUDIT 2025-12-26:** Documentează strategia de compatibilitate pentru versiuni API speculative:\n\n**Versiune curentă target:** 2025-10 (Release Q4 2025)\n\n**Strategie Fallback:**\n1. **Monitorizare:** Urmărește Shopify changelog pentru breaking changes\n2. **Fallback version:** 2025-07 (stabil, testat)\n3. **Environment variable:** `SHOPIFY_API_VERSION=2025-10` cu fallback la `2025-07`\n\n**Implementare în packages/config:**\n```typescript\nexport const SHOPIFY_API_VERSION = \n  process.env.SHOPIFY_API_VERSION || '2025-10';\n\nexport const SHOPIFY_FALLBACK_VERSION = '2025-07';\n\nexport function getApiVersion(): string {\n  // La erori de compatibilitate, folosește fallback\n  return SHOPIFY_API_VERSION;\n}\n```\n\n**Acțiuni la incompatibilitate:**\n- Schimbă `SHOPIFY_API_VERSION` la `2025-07` în .env\n- Log și alertă pentru investigare\n- Deschide issue pe GitHub pentru tracking",
+        "cale_implementare": "/Neanelu_Shopify/packages/config/src/shopify.ts",
+        "contextul_anterior": "Versiunile pinned (Postgres 18.1, Redis 8.4, Node 24) sunt stabile. API Shopify 2025-10 e speculativă.",
+        "validare_task": "1. SHOPIFY_API_VERSION e configurabil din env\n2. Fallback la 2025-07 funcționează\n3. Documentația menționează strategia",
+        "outcome_task": "Proiectul are strategie clară pentru versiuni API viitoare.",
+        "restrictii_antihalucinatie": "NU presupune că 2025-10 va fi 100% compatibil. DOCUMENTEAZĂ fallback explicit."
     }
+    ]
+    ```
 
 ### F0.2: Inițializare repository de cod și structura de bază a proiectului
 
@@ -1281,6 +1327,16 @@ Obiectiv: Server HTTP, OAuth offline complet, webhooks ingress cu enqueue minim,
         "validare_task": "Rulează testele local și în CI; confirmă că un bug introdus intenționat face testele să eșueze.",
         "outcome_task": "Auth acoperit de teste, reducând riscul de regresii.",
         "restrictii_antihalucinatie": "Nu folosi Jest. Nu introduce teste care depind de secrete reale Shopify."
+    },
+    {
+        "id_task": "F3.2.7",
+        "denumire_task": "Refactor Research OAuth to Production",
+        "descriere_task": "**CONFORM Audit 2025-12-26:** Migrează codul research OAuth (`oauth-callback-server.ts` din root) în producție:\n\n**De la:** `/oauth-callback-server.ts` (script standalone research)\n**La:** `/apps/backend-worker/src/auth/` (integrat în aplicația principală)\n\n**Pași:**\n1. Extrage logica core (token exchange, criptare) în `packages/database/src/auth/`\n2. Integrează în rutele F3.2.2/F3.2.3 deja definite\n3. Șterge fișierul research sau marchează-l deprecated\n4. Actualizează .gitignore pentru artefacte research\n\n**Notă:** Codul research a validat flow-ul OAuth headless. Acum trebuie integrat în arhitectura monorepo.",
+        "cale_implementare": "/oauth-callback-server.ts → /apps/backend-worker/src/auth/",
+        "contextul_anterior": "F3.2.1-F3.2.6 definesc OAuth production dar codul research există izolat.",
+        "validare_task": "1. oauth-callback-server.ts e șters sau marcat deprecated\n2. Flow-ul OAuth funcționează end-to-end în apps/backend-worker\n3. Nu există cod duplicat",
+        "outcome_task": "Cod research migrat în producție, fără technical debt.",
+        "restrictii_antihalucinatie": "NU păstra cod duplicat. NU hardcoda secrete în migrarea codului."
     }
     ]
     ```
@@ -1981,13 +2037,13 @@ Obiectiv: BullMQ Pro + fairness multi-tenant + rate limiting distribuit Shopify 
     },
     {
         "id_task": "F4.3.5",
-        "denumire_task": "Semaphore/lock per shop pentru Bulk Operations (concurență 1)",
-        "descriere_task": "Implementează lock distribuit pentru Bulk Operations:\n\n**Reguli:**\n- 1 bulk activ per shop la un moment dat\n- Lock cu TTL (+ renew dacă e necesar)\n- Al doilea job bulk așteaptă/delayed până lock-ul e eliberat\n\n**Redis implementation:** SETNX + TTL + Lua atomic.",
+        "denumire_task": "Semaphore/lock per shop pentru Bulk Operations (concurență 1) - INTEGRAT CU FAIRNESS",
+        "descriere_task": "**CONFORM AUDIT 2025-12-26:** Implementează lock distribuit pentru Bulk Operations, INTEGRAT cu BullMQ Groups pentru consistență cu fairness multi-tenant:\n\n**Reguli:**\n- 1 bulk activ per shop la un moment dat\n- Lock cu TTL (+ renew dacă e necesar)\n- Al doilea job bulk așteaptă/delayed până lock-ul e eliberat\n\n**INTEGRARE CU FAIRNESS (F4.2 Groups):**\n- Lock-ul folosește **group ID (shopId)** pentru consistență cu fairness\n- Key pattern: `bulk-lock:${shopId}` aliniat cu BullMQ group ID\n- Când lock-ul e activ pentru un shop, alte jobs din același group așteaptă\n- Jobs din alte groups (alte shops) NU sunt afectate\n\n**Redis implementation:**\n```lua\n-- Lua script pentru atomic lock cu group awareness\nlocal lockKey = 'bulk-lock:' .. KEYS[1] -- shopId\nlocal groupKey = 'bullmq:groups:' .. KEYS[1]\nlocal ttl = tonumber(ARGV[1]) or 1800000 -- 30 min default\n\nif redis.call('SET', lockKey, ARGV[2], 'NX', 'PX', ttl) then\n  return 1 -- Lock acquired\nelse\n  return 0 -- Lock exists, job should wait\nend\n```\n\n**Verificare consistență:**\n- Lock key și group key TREBUIE să folosească același shopId\n- Nu există race condition deoarece ambele operații sunt per-shop",
         "cale_implementare": "/Neanelu_Shopify/packages/queue-manager/src/locks",
-        "contextul_anterior": "F5 va folosi acest lock pentru orchestrarea bulk operations.",
-        "validare_task": "Două job-uri bulk simultane pentru același shop → al doilea așteaptă.",
-        "outcome_task": "Concurrency control pentru bulk operations.",
-        "restrictii_antihalucinatie": "Lock-ul nu trebuie să blocheze alte shops (aliniat cu fairness)."
+        "contextul_anterior": "F4.2 definește BullMQ Groups per shopId. Lock-ul TREBUIE să fie aliniat.",
+        "validare_task": "1. Două job-uri bulk simultane pentru același shop → al doilea așteaptă\n2. Job-uri pentru shops diferite → procesare paralelă (nu se blochează reciproc)\n3. Lock key pattern matches group key pattern",
+        "outcome_task": "Concurrency control pentru bulk ops, integrat cu fairness multi-tenant.",
+        "restrictii_antihalucinatie": "Lock-ul NU trebuie să blocheze alte shops (aliniat cu fairness). shopId din lock TREBUIE să fie identic cu groupId din BullMQ."
     },
     {
         "id_task": "F4.3.6",
@@ -3310,6 +3366,26 @@ Obiectiv: hardening, build/publish, deploy, migrații, alerte, DR, Securitate Su
         "validare_task": "Exercițiu: oprești bulk fără să afectezi login; revii fără inconsistent data.",
         "outcome_task": "Control operațional real.",
         "restrictii_antihalucinatie": "Nu opri prin \"kill -9\" ca procedură standard. Nu porni backfill fără fereastră operațională."
+    },
+    {
+        "id_task": "F7.4.4",
+        "denumire_task": "Backup Scripts Automation (pg_dump + WAL archiving)",
+        "descriere_task": "**CONFORM Audit 2025-12-26:** Implementează scripturi automatizate pentru backup PostgreSQL:\n\n**Scripturi necesare:**\n1. `/opt/scripts/pg_backup.sh` - Daily base backup cu pg_basebackup\n2. `/opt/scripts/archive_wal.sh` - WAL archiving pentru PITR\n3. `/opt/scripts/redis_backup.sh` - Hourly Redis RDB snapshot\n\n**Cron jobs:**\n```bash\n# Daily full backup at 2 AM\n0 2 * * * /opt/scripts/pg_backup.sh\n# Hourly Redis snapshot\n0 * * * * /opt/scripts/redis_backup.sh\n```\n\n**Configurare PostgreSQL:**\n```\narchive_mode = on\narchive_command = 'gzip < %p > /backup/wal/%f.gz'\n```\n\n**Documentație:** Vezi Docs/runbooks/DR_Runbook.md pentru detalii complete.",
+        "cale_implementare": "/opt/scripts/pg_backup.sh, redis_backup.sh + cron config",
+        "contextul_anterior": "F7.4.1 menționează PITR dar fără scripturi concrete.",
+        "validare_task": "1. Backup-urile rulează conform cron\n2. Verificare integritate cu pg_verifybackup\n3. Retenție 7 zile funcțională",
+        "outcome_task": "Backup-uri automate și verificabile pentru producție.",
+        "restrictii_antihalucinatie": "NU stoca backup-uri necriptate. NU omite verificarea automată."
+    },
+    {
+        "id_task": "F7.4.5",
+        "denumire_task": "DR Drill Documentation și Procedură",
+        "descriere_task": "**CONFORM Audit 2025-12-26:** Creează documentația și procedura pentru DR drills trimestriale:\n\n**Fișier creat:** Docs/runbooks/DR_Runbook.md\n\n**Conținut:**\n- PITR restore steps cu exemple SQL\n- Redis recovery procedure\n- Full system recovery checklist\n- RPO/RTO targets și măsurare\n- Quarterly drill checklist\n\n**Drill procedure:**\n1. Schedule 4h maintenance window\n2. Fresh pg_dump before drill\n3. Simulate failure (stop PostgreSQL)\n4. Execute recovery steps\n5. Measure RTO/RPO actual\n6. Document lessons learned",
+        "cale_implementare": "Docs/runbooks/DR_Runbook.md",
+        "contextul_anterior": "F7.4.1-F7.4.4 definesc backup-uri dar fără procedură de test.",
+        "validare_task": "DR drill executat și documentat. RTO/RPO confirmate.",
+        "outcome_task": "Disaster recovery verificat practic, nu doar teoretic.",
+        "restrictii_antihalucinatie": "NU declara DR ready fără cel puțin un drill reușit."
     }
     ]
     ```
@@ -3347,6 +3423,16 @@ Obiectiv: hardening, build/publish, deploy, migrații, alerte, DR, Securitate Su
         "validare_task": "Game day executat după runbook; echipa poate urma pașii fără autorul inițial.",
         "outcome_task": "Operații enterprise, predictibile.",
         "restrictii_antihalucinatie": "Nu lăsa runbook-uri ne-testate. Nu include secrete în runbooks."
+    },
+    {
+        "id_task": "F7.5.4",
+        "denumire_task": "SRE Review: Simulare pipeline cu 10K mock SKU",
+        "descriere_task": "**CONFORM AUDIT 2025-12-26:** Validare fezabilitate prin simulare practică:\n\n**Obiectiv:** Rulează full pipeline simulation cu 10.000 produse mock pentru validare performanță și identificare bottlenecks.\n\n**Scenarii de test:**\n1. **Bulk Ingest:** 10K products JSONL → streaming → DB în < 5 minute\n2. **Webhook Storm:** 1000 webhooks/min pentru același shop → queue handling OK\n3. **Rate Limiting:** Simulează 429 responses → backoff funcționează\n4. **Multi-tenant Fairness:** 3 shops cu volume diferite → niciun shop blocat\n5. **Memory Profile:** Worker memory stable (no leaks) pe parcursul testului\n\n**Tooling:**\n- k6 pentru load testing HTTP\n- Custom script pentru mock Shopify Bulk Operation response\n- Prometheus/Grafana pentru metrics collection\n\n**Metrici target:**\n| Metric | Target | Alert Threshold |\n|--------|--------|-----------------|\n| Ingest rate | >50 products/sec | <30 products/sec |\n| Webhook latency p99 | <200ms | >500ms |\n| Queue backlog | <1000 jobs | >5000 jobs |\n| Worker memory | <512MB | >800MB |\n\n**Output:** Raport de performanță documentat în Docs/SRE_Performance_Report.md",
+        "cale_implementare": "tests/load/ + Docs/SRE_Performance_Report.md",
+        "contextul_anterior": "F7.5.1-F7.5.3 definesc infrastructure. SRE review validează că totul funcționează la scale.",
+        "validare_task": "1. Test 10K SKU finalizat fără erori\n2. Toate metricile în target\n3. Raport de performanță generat",
+        "outcome_task": "Validation practică: sistemul funcționează pentru 1M+ SKU (extrapolat de la 10K test).",
+        "restrictii_antihalucinatie": "NU declara production-ready fără acest test. NU extrapola fără date reale."
     }
     ]
     ```
@@ -3555,3 +3641,55 @@ Obiectiv: Extensii specifice care nu sunt strict necesare pentru MVP dar îmbun�
 > - AI-powered dynamic pricing
 > - Advanced analytics și reporting
 > - Integration cu alte channel-uri (Amazon, eBay, etc.)
+
+### F8.3: Frontend Extensions (Post-MVP, Target Q1 2026)
+
+> [!IMPORTANT]
+> **CONFORM AUDIT 2025-12-26:** Această secțiune extinde UI-ul minimal din F3-F4 cu interfețe complete pentru admin.
+>
+> **Target Timeline:** Q1 2026 (după stabilizare backend în producție)
+
+    ```JSON
+    [
+    {
+        "id_task": "F8.3.1",
+        "denumire_task": "Product Editor UI - Editare produse cu pre-populare Shopify",
+        "descriere_task": "**Timeline: Q1 2026**\n\nImplementează interfață completă de editare produse:\n\n**Componente:**\n- ProductForm cu toate câmpurile din schema Shopify\n- MediaUploader pentru imagini (drag & drop)\n- VariantsTable cu inline editing\n- MetafieldsEditor pentru custom fields\n- PublishingControls (status, channels)\n\n**Flow:**\n1. Fetch produs existent de pe Shopify (pre-populare)\n2. Edit în UI local\n3. Save → validare → push la Shopify via GraphQL\n\n**Tech:**\n- React Hook Form pentru validare\n- Polaris components (Form, Select, TextField)\n- Optimistic updates cu rollback",
+        "cale_implementare": "/apps/web-admin/app/routes/products.$id.edit",
+        "contextul_anterior": "F3.5-F3.8 definesc shell-ul UI. F8.3 extinde cu funcționalitate completă.",
+        "validare_task": "Poți edita un produs existent și vedea modificarea pe Shopify.",
+        "outcome_task": "Admin poate gestiona produse direct din aplicație.",
+        "restrictii_antihalucinatie": "NU implementa bulk edit în această iterație. Start simplu, extend progresiv."
+    },
+    {
+        "id_task": "F8.3.2",
+        "denumire_task": "AI Search Playground UI - Interfață căutare semantic",
+        "descriere_task": "**Timeline: Q1 2026**\n\nImplementează interfață pentru căutare AI semantică:\n\n**Componente:**\n- SearchInput cu autocomplete\n- ResultsGrid cu thumbnail + similarity score\n- FiltersSidebar (categorie, brand, preț)\n- SimilarProductsPanel pentru deduplicare vizuală\n\n**Features:**\n- Natural language queries ('roșu pentru copii sub 100 lei')\n- Display similarity percentage pentru debugging\n- Compare mode pentru produse similare\n- Export results (CSV, JSON)\n\n**Integration:**\n- pgvector search din F6.4\n- OpenAI embeddings cache\n- Real-time results (<50ms)",
+        "cale_implementare": "/apps/web-admin/app/routes/search.ai",
+        "contextul_anterior": "F6.4 implementează backend AI search. Acesta e UI-ul companion.",
+        "validare_task": "Căutare 'bluză albastră' returnează rezultate relevante cu score.",
+        "outcome_task": "Utilizatorii pot căuta produse semantic, nu doar keyword match.",
+        "restrictii_antihalucinatie": "NU suporta multi-modal search (imagini) în V1. Text only."
+    },
+    {
+        "id_task": "F8.3.3",
+        "denumire_task": "Settings & Configuration Pages - Gestiune configurări aplicație",
+        "descriere_task": "**Timeline: Q1 2026**\n\nImplementează pagini de configurare pentru aplicație:\n\n**Pagini:**\n1. **API Settings** - Shopify API version, rate limits, refresh tokens\n2. **Queue Settings** - Worker concurrency, retry limits, priorities\n3. **AI Settings** - OpenAI model selection, embedding parameters\n4. **Notification Settings** - Slack webhooks, email alerts\n5. **User Management** - Roles (admin/viewer), permissions\n\n**Componente:**\n- SettingsLayout cu sidebar navigation\n- SettingsForm reusable pentru fiecare secțiune\n- SecretInput pentru sensitive fields (masked)\n- TestConnection buttons pentru validare\n\n**Persistare:**\n- settings_config table în DB\n- Environment override pentru producție",
+        "cale_implementare": "/apps/web-admin/app/routes/settings._index + settings.$section",
+        "contextul_anterior": "F3.5 definește layout. Settings necesită implementare post-MVP.",
+        "validare_task": "Schimbarea worker concurrency se reflectă în comportamentul real.",
+        "outcome_task": "Configurare aplicație fără acces la cod sau environment variables.",
+        "restrictii_antihalucinatie": "NU permite schimbarea secrets din UI - doar view masked."
+    },
+    {
+        "id_task": "F8.3.4",
+        "denumire_task": "Dashboard Advanced - KPIs extinse și analytics",
+        "descriere_task": "**Timeline: Q1 2026**\n\nExtinde dashboard-ul de bază cu metrici avansate:\n\n**Widgets noi:**\n- SyncProgress per shop (timeline)\n- ErrorHotspots (produse cu cele mai multe erori)\n- CostBreakdown (API calls per feature)\n- PerformanceTrends (graphs pe 7/30 zile)\n\n**Features:**\n- Date range picker global\n- Export dashboard ca PDF/PNG\n- Scheduled reports via email\n- Customizable layout (drag & drop widgets)\n\n**Data source:**\n- analytics_daily care agregă din event logs\n- Materialized views pentru performanță",
+        "cale_implementare": "/apps/web-admin/app/routes/dashboard + analytics",
+        "contextul_anterior": "F4.5 definește dashboard minimal. F8.3 extinde pentru operational insight.",
+        "validare_task": "Dashboard arată metrics reale din ultimele 30 zile.",
+        "outcome_task": "Vizibilitate completă în operațiunile aplicației.",
+        "restrictii_antihalucinatie": "NU calcula analytics în real-time - folosește pre-agregat data."
+    }
+    ]
+    ```
