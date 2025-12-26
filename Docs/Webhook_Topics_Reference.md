@@ -16,11 +16,11 @@ Webhook-urile sunt înregistrate automat la instalarea aplicației. Configurați
 
 ### Products
 
-| Topic | Priority | Queue | Handler | Description |
-|-------|----------|-------|---------|-------------|
-| `products/create` | Normal | sync.products | ProductCreatedHandler | Produs nou creat |
-| `products/update` | Normal | sync.products | ProductUpdatedHandler | Produs modificat |
-| `products/delete` | High | sync.products | ProductDeletedHandler | Produs șters |
+| Topic              | Priority | Queue          | Handler               | Description        |
+| ------------------ | -------- | -------------- | --------------------- | ------------------ |
+| `products/create`  | Normal   | sync.products  | ProductCreatedHandler | Produs nou creat   |
+| `products/update`  | Normal   | sync.products  | ProductUpdatedHandler | Produs modificat   |
+| `products/delete`  | High     | sync.products  | ProductDeletedHandler | Produs șters       |
 
 **Payload Sample (products/update):**
 
@@ -44,41 +44,41 @@ Webhook-urile sunt înregistrate automat la instalarea aplicației. Configurați
 
 ### Collections
 
-| Topic | Priority | Queue | Handler | Description |
-|-------|----------|-------|---------|-------------|
-| `collections/create` | Normal | sync.collections | CollectionCreatedHandler | Colecție nouă |
-| `collections/update` | Normal | sync.collections | CollectionUpdatedHandler | Colecție modificată |
-| `collections/delete` | Normal | sync.collections | CollectionDeletedHandler | Colecție ștearsă |
+| Topic                 | Priority | Queue             | Handler                   | Description          |
+| --------------------- | -------- | ----------------- | ------------------------- | -------------------- |
+| `collections/create`  | Normal   | sync.collections  | CollectionCreatedHandler  | Colecție nouă        |
+| `collections/update`  | Normal   | sync.collections  | CollectionUpdatedHandler  | Colecție modificată  |
+| `collections/delete`  | Normal   | sync.collections  | CollectionDeletedHandler  | Colecție ștearsă     |
 
 ---
 
 ### Inventory
 
-| Topic | Priority | Queue | Handler | Description |
-|-------|----------|-------|---------|-------------|
-| `inventory_levels/update` | Normal | sync.inventory | InventoryUpdatedHandler | Stoc modificat |
-| `inventory_levels/connect` | Low | sync.inventory | InventoryConnectedHandler | Locație conectată |
-| `inventory_levels/disconnect` | Low | sync.inventory | InventoryDisconnectedHandler | Locație deconectată |
+| Topic                        | Priority | Queue           | Handler                      | Description            |
+| ---------------------------- | -------- | --------------- | ---------------------------- | ---------------------- |
+| `inventory_levels/update`    | Normal   | sync.inventory  | InventoryUpdatedHandler      | Stoc modificat         |
+| `inventory_levels/connect`   | Low      | sync.inventory  | InventoryConnectedHandler    | Locație conectată      |
+| `inventory_levels/disconnect`| Low      | sync.inventory  | InventoryDisconnectedHandler | Locație deconectată    |
 
 ---
 
 ### Orders
 
-| Topic | Priority | Queue | Handler | Description |
-|-------|----------|-------|---------|-------------|
-| `orders/create` | High | sync.orders | OrderCreatedHandler | Comandă nouă |
-| `orders/updated` | Normal | sync.orders | OrderUpdatedHandler | Comandă modificată |
-| `orders/cancelled` | High | sync.orders | OrderCancelledHandler | Comandă anulată |
-| `orders/fulfilled` | Normal | sync.orders | OrderFulfilledHandler | Comandă livrată |
+| Topic              | Priority | Queue        | Handler               | Description          |
+| ------------------ | -------- | ------------ | --------------------- | -------------------- |
+| `orders/create`    | High     | sync.orders  | OrderCreatedHandler   | Comandă nouă         |
+| `orders/updated`   | Normal   | sync.orders  | OrderUpdatedHandler   | Comandă modificată   |
+| `orders/cancelled` | High     | sync.orders  | OrderCancelledHandler | Comandă anulată      |
+| `orders/fulfilled` | Normal   | sync.orders  | OrderFulfilledHandler | Comandă livrată      |
 
 ---
 
 ### App Lifecycle
 
-| Topic | Priority | Queue | Handler | Description |
-|-------|----------|-------|---------|-------------|
-| `app/uninstalled` | Critical | app.lifecycle | AppUninstalledHandler | App dezinstalată - cleanup |
-| `shop/update` | Normal | app.lifecycle | ShopUpdatedHandler | Shop info modificat |
+| Topic             | Priority | Queue          | Handler               | Description                 |
+| ----------------- | -------- | -------------- | --------------------- | --------------------------- |
+| `app/uninstalled` | Critical | app.lifecycle  | AppUninstalledHandler | App dezinstalată - cleanup  |
+| `shop/update`     | Normal   | app.lifecycle  | ShopUpdatedHandler    | Shop info modificat         |
 
 **CRITICAL: `app/uninstalled`**
 
@@ -91,11 +91,11 @@ Webhook-urile sunt înregistrate automat la instalarea aplicației. Configurați
 
 ### Customers (Extended - If Scopes Permit)
 
-| Topic | Priority | Queue | Handler | Description |
-|-------|----------|-------|---------|-------------|
-| `customers/create` | Low | sync.customers | CustomerCreatedHandler | Client nou |
-| `customers/update` | Low | sync.customers | CustomerUpdatedHandler | Client modificat |
-| `customers/delete` | Normal | sync.customers | CustomerDeletedHandler | Client șters (GDPR) |
+| Topic               | Priority | Queue           | Handler                | Description           |
+| ------------------- | -------- | --------------- | ---------------------- | --------------------- |
+| `customers/create`  | Low      | sync.customers  | CustomerCreatedHandler | Client nou            |
+| `customers/update`  | Low      | sync.customers  | CustomerUpdatedHandler | Client modificat      |
+| `customers/delete`  | Normal   | sync.customers  | CustomerDeletedHandler | Client șters (GDPR)   |
 
 ---
 
@@ -145,11 +145,11 @@ await bloomFilter.add(webhookId);
 
 Pentru fairness, fiecare shop are limite:
 
-| Window | Max Webhooks | Action |
-|--------|--------------|--------|
-| 1 minute | 1000 | Normal processing |
-| 1 minute | 1000-2000 | Delayed processing |
-| 1 minute | > 2000 | Throttle + alert |
+| Window   | Max Webhooks | Action              |
+| -------- | ------------ | ------------------- |
+| 1 minute | 1000         | Normal processing   |
+| 1 minute | 1000-2000    | Delayed processing  |
+| 1 minute | > 2000       | Throttle + alert    |
 
 ---
 
@@ -157,14 +157,14 @@ Pentru fairness, fiecare shop are limite:
 
 ### Retry Strategy
 
-| Attempt | Delay | Action |
-|---------|-------|--------|
-| 1 | Immediate | First try |
-| 2 | 30s | First retry |
-| 3 | 2min | Second retry |
-| 4 | 10min | Third retry |
-| 5 | 1h | Fourth retry |
-| 6+ | Move to DLQ | Dead Letter Queue |
+| Attempt | Delay     | Action            |
+| ------- | --------- | ----------------- |
+| 1       | Immediate | First try         |
+| 2       | 30s       | First retry       |
+| 3       | 2min      | Second retry      |
+| 4       | 10min     | Third retry       |
+| 5       | 1h        | Fourth retry      |
+| 6+      | Move to DLQ | Dead Letter Queue |
 
 ### Dead Letter Queue (DLQ)
 
@@ -178,13 +178,13 @@ Failed webhooks go to `webhooks.failed` queue:
 
 ## Headers Used
 
-| Header | Description |
-|--------|-------------|
-| `X-Shopify-Topic` | Webhook topic (e.g., products/update) |
-| `X-Shopify-Hmac-Sha256` | HMAC signature for verification |
-| `X-Shopify-Shop-Domain` | Shop domain |
-| `X-Shopify-Webhook-Id` | Unique webhook ID |
-| `X-Shopify-API-Version` | API version used |
+| Header                    | Description                            |
+| ------------------------- | -------------------------------------- |
+| `X-Shopify-Topic`         | Webhook topic (e.g., products/update)  |
+| `X-Shopify-Hmac-Sha256`   | HMAC signature for verification        |
+| `X-Shopify-Shop-Domain`   | Shop domain                            |
+| `X-Shopify-Webhook-Id`    | Unique webhook ID                      |
+| `X-Shopify-API-Version`   | API version used                       |
 
 ---
 
@@ -199,9 +199,9 @@ Failed webhooks go to `webhooks.failed` queue:
 
 ### Alerts
 
-| Condition | Severity | Action |
-|-----------|----------|--------|
-| DLQ size > 100 | Warning | Review failed webhooks |
-| Processing time p99 > 5s | Warning | Investigate bottleneck |
-| Error rate > 5% | Critical | On-call notification |
-| app/uninstalled failures | Critical | Immediate investigation |
+| Condition                  | Severity | Action                    |
+| -------------------------- | -------- | ------------------------- |
+| DLQ size > 100             | Warning  | Review failed webhooks    |
+| Processing time p99 > 5s   | Warning  | Investigate bottleneck    |
+| Error rate > 5%            | Critical | On-call notification      |
+| app/uninstalled failures   | Critical | Immediate investigation   |

@@ -85,9 +85,9 @@ Inițializează OAuth flow pentru instalare app.
 
 **Query Parameters:**
 
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| shop | string | Yes | Shopify domain (ex: store.myshopify.com) |
+| Param | Type   | Required | Description                              |
+| ----- | ------ | -------- | ---------------------------------------- |
+| shop  | string | Yes      | Shopify domain (ex: store.myshopify.com) |
 
 **Response:** `302 Redirect` to Shopify OAuth
 
@@ -97,13 +97,13 @@ Callback după autorizare Shopify.
 
 **Query Parameters:**
 
-| Param | Type | Description |
-|-------|------|-------------|
-| code | string | Authorization code |
-| shop | string | Shop domain |
-| hmac | string | HMAC signature |
-| state | string | CSRF state |
-| timestamp | string | Request timestamp |
+| Param     | Type   | Description         |
+| --------- | ------ | ------------------- |
+| code      | string | Authorization code  |
+| shop      | string | Shop domain         |
+| hmac      | string | HMAC signature      |
+| state     | string | CSRF state          |
+| timestamp | string | Request timestamp   |
 
 **Response:** `302 Redirect` to app dashboard
 
@@ -124,16 +124,16 @@ Receiver pentru Shopify webhooks.
 
 **Supported Topics:**
 
-| Topic | Queue | Priority |
-|-------|-------|----------|
-| `products/create` | sync.products | normal |
-| `products/update` | sync.products | normal |
-| `products/delete` | sync.products | high |
-| `collections/create` | sync.collections | normal |
-| `collections/update` | sync.collections | normal |
-| `orders/create` | sync.orders | high |
-| `app/uninstalled` | app.lifecycle | critical |
-| `shop/update` | app.lifecycle | normal |
+| Topic                | Queue            | Priority |
+| -------------------- | ---------------- | -------- |
+| `products/create`    | sync.products    | normal   |
+| `products/update`    | sync.products    | normal   |
+| `products/delete`    | sync.products    | high     |
+| `collections/create` | sync.collections | normal   |
+| `collections/update` | sync.collections | normal   |
+| `orders/create`      | sync.orders      | high     |
+| `app/uninstalled`    | app.lifecycle    | critical |
+| `shop/update`        | app.lifecycle    | normal   |
 
 **Response:** `200 OK` (acknowledge receipt)
 
@@ -208,14 +208,14 @@ Lista produse cu paginare.
 
 **Query Parameters:**
 
-| Param | Type | Default | Description |
-|-------|------|---------|-------------|
-| page | int | 1 | Page number |
-| limit | int | 50 | Items per page (max 250) |
-| search | string | - | Full-text search |
-| status | string | - | Filter by status |
-| sortBy | string | updated_at | Sort field |
-| sortOrder | string | desc | asc/desc |
+| Param     | Type   | Default    | Description              |
+| --------- | ------ | ---------- | ------------------------ |
+| page      | int    | 1          | Page number              |
+| limit     | int    | 50         | Items per page (max 250) |
+| search    | string | -          | Full-text search         |
+| status    | string | -          | Filter by status         |
+| sortBy    | string | updated_at | Sort field               |
+| sortOrder | string | desc       | asc/desc                 |
 
 ### GET /api/products/:id
 
@@ -227,11 +227,11 @@ Căutare vectorială semantică.
 
 **Query Parameters:**
 
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| q | string | Yes | Query text |
-| limit | int | No | Results limit (default 20) |
-| threshold | float | No | Similarity threshold (default 0.7) |
+| Param     | Type   | Required | Description                       |
+| --------- | ------ | -------- | --------------------------------- |
+| q         | string | Yes      | Query text                        |
+| limit     | int    | No       | Results limit (default 20)        |
+| threshold | float  | No       | Similarity threshold (default 0.7)|
 
 **Response:**
 
@@ -326,11 +326,11 @@ Inițializează batch de embeddings pentru produse.
 ## Rate Limiting
 
 | Endpoint Pattern | Limit | Window |
-|-----------------|-------|--------|
-| `/api/*` | 100 | 1 min |
-| `/api/bulk/*` | 10 | 1 min |
-| `/api/ai/*` | 20 | 1 min |
-| `/webhooks/*` | 1000 | 1 min |
+| ---------------- | ----- | ------ |
+| `/api/*`         | 100   | 1 min  |
+| `/api/bulk/*`    | 10    | 1 min  |
+| `/api/ai/*`      | 20    | 1 min  |
+| `/webhooks/*`    | 1000  | 1 min  |
 
 **Headers în Response:**
 
