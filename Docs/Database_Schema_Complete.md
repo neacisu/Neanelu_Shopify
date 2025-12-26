@@ -485,7 +485,7 @@
 ### Table: `shopify_metaobjects`
 
 | Column       | Type         | Constraints           | Description          |
-| ------------ | ------------ | --------------------- | ----------------------|
+| ------------ | ------------ | --------------------- | -------------------- |
 | id           | UUID         | PK DEFAULT uuidv7()   |                      |
 | shop_id      | UUID         | FK shops(id) NOT NULL |                      |
 | shopify_gid  | VARCHAR(100) | NOT NULL              |                      |
@@ -2371,10 +2371,10 @@ CREATE TRIGGER key_rotations_audit_trigger
 
 ## Version History
 
-| Version | Date       | Changes                                                                                                                    |
-| ------- | ---------- | -------------------------------------------------------------------------------------------------------------------------- |
-| v1.0    | 2025-12-20 | Initial schema (33 tables)                                                                                                 |
-| v2.0    | 2025-12-23 | Added Modules I-M, PIM extensions, RLS complete, data type mapping (51 tables)                                             |
-| v2.2    | 2025-12-23 | Added shop_product_embeddings for per-tenant vector search, complete RLS for all modules                                   |
-| v2.3    | 2025-12-23 | Audit fixes: corrected table counts (53+1MV), fixed ai_batches RLS naming, reordered Module D Additions (53 tables + 1 MV) |
-| v2.4    | 2025-12-25 | Added 10 tables from Problems & Fixes.md audit: oauth_states, oauth_nonces,  key_rotations, feature_flags, system_config, migration_history (Module A), webhook_events (Module B), embedding_batches (Module F), rate_limit_buckets, api_cost_tracking (Module G). Added 3 MVs. Total: 63 tables + 4 MVs |
+| Version | Date       | Changes                                                                               |
+| ------- | ---------- | ------------------------------------------------------------------------------------- |
+| v1.0    | 2025-12-20 | Initial schema (33 tables)                                                            |
+| v2.0    | 2025-12-23 | Added Modules I-M, PIM extensions, RLS complete, data type mapping (51 tables)        |
+| v2.2    | 2025-12-23 | Added shop_product_embeddings, complete RLS for all modules                           |
+| v2.3    | 2025-12-23 | Audit fixes: table counts, ai_batches RLS naming, Module D reorder (53 tables + 1 MV) |
+| v2.4    | 2025-12-25 | +10 tables from audit, +3 MVs. Total: 63 tables + 4 MVs                               |
