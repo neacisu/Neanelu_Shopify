@@ -108,13 +108,23 @@ DATABASE_URL=postgresql://shopify:shopify_dev_password@localhost:65010/neanelu_s
 # Redis
 REDIS_URL=redis://localhost:65011
 
+# Criptare tokens (genereaza cu: openssl rand -hex 32)
+ENCRYPTION_KEY_256=your_64_char_hex_key_here
+
 # BullMQ Pro NPM Token (din TaskForce.sh)
 NPM_TASKFORCESH_TOKEN=your_token_here
+BULLMQ_PRO_TOKEN=your_bullmq_pro_license_token
 
 # Shopify (din Partners Dashboard)
 SHOPIFY_API_KEY=your_api_key
 SHOPIFY_API_SECRET=your_api_secret
 SCOPES=read_products,write_products,read_orders
+
+# App Host (URL-ul aplicației)
+APP_HOST=https://localhost:65000
+
+# OpenTelemetry (observabilitate)
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:65022
 
 # OpenAI (opțional pentru dev)
 OPENAI_API_KEY=sk-your-key-here

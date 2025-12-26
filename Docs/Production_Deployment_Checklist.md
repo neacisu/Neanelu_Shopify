@@ -62,13 +62,13 @@
 pnpm db:migrate:status
 
 # 2. Backup final
-docker exec db pg_dump -U shopify -Fc neanelu_shopify_prod > /backups/pre_deploy_$(date +%Y%m%d_%H%M).dump
+docker compose exec db pg_dump -U shopify -Fc neanelu_shopify_prod > /backups/pre_deploy_$(date +%Y%m%d_%H%M).dump
 
 # 3. Run migration
 pnpm db:migrate:prod
 
 # 4. Verify RLS policies
-docker exec db psql -U shopify -d neanelu_shopify_prod -c "SELECT tablename, policyname FROM pg_policies;"
+docker compose exec db psql -U shopify -d neanelu_shopify_prod -c "SELECT tablename, policyname FROM pg_policies;"
 ```
 
 ### Application Deployment
@@ -144,7 +144,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml down
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --pull never
 
 # 2. Rollback database (if needed)
-docker exec db pg_restore -U shopify -d neanelu_shopify_prod /backups/pre_deploy_YYYYMMDD_HHMM.dump
+docker compose exec db pg_restore -U shopify -d neanelu_shopify_prod /backups/pre_deploy_YYYYMMDD_HHMM.dump
 ```
 
 ### Post-Rollback
@@ -183,8 +183,8 @@ docker exec db pg_restore -U shopify -d neanelu_shopify_prod /backups/pre_deploy
 
 | Role              | Contact                | Availability.  |
 | ----------------- | ---------------------- | -------------- |
-| On-Call Engineer  | TBD                    | 24/7           |
-| Database Admin    | TBD                    | Business hours |
+| On-Call Engineer  | TODO Q1 2026           | 24/7           |
+| Database Admin    | TODO Q1 2026           | Business hours |
 | Shopify Support   | <partners@shopify.com> | Business hours |
 
 ---

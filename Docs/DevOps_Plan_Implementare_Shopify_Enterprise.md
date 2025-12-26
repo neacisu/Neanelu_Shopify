@@ -105,7 +105,8 @@ Un developer nou trebuie să parcurgă următorii pași pentru a putea contribui
 * Configurare pnpm-workspace.yaml pentru a separa aplicațiile (apps/web-admin, apps/backend-worker) de pachetele partajate (packages/database, packages/config, packages/types).  
 * **Acțiune:**  
   `pnpm init`  
-  `pnpm add -w -D typescript @types/node eslint prettier turbo`  
+  `pnpm add -w -D typescript @types/node eslint prettier`
+  `# Opțional: pnpm add -w -D turbo (cf. F1.1.11 - opțional, se poate sări)`  
   `# Configurare 'shamefully-hoist=true' în .npmrc pentru compatibilitate framework-uri legacy dacă e cazul`
 
 ### **1.2. Containerization (Infrastructure as Code \- Local)**
@@ -259,13 +260,13 @@ Recomandare: **Drizzle ORM** (standardul proiectului), conectat la containerul P
 
 ### **3.3. Webhooks Ingress**
 
-* Crearea endpoint-ului /api/webhooks.  
+* Crearea endpoint-ului /webhooks.  
 * Validarea semnăturii HMAC (folosind crypto nativ din Node).  
 * **Important:** Endpoint-ul doar validează și trimite mesajul în Redis (Producer). Nu procesează nimic. Returnează 200 OK instant.
 
 ### **3.4. Observabilitate HTTP & Webhooks (OTel early)**
 
-* Activează OpenTelemetry în apps/backend-worker pentru HTTP server și handlerul /api/webhooks: trace-uri cu shop_id/request_id, loguri structurate corelate (traceId/spanId), sampling redus (≈10%) către Jaeger din docker-compose.  
+* Activează OpenTelemetry în apps/backend-worker pentru HTTP server și handlerul /webhooks: trace-uri cu shop_id/request_id, loguri structurate corelate (traceId/spanId), sampling redus (≈10%) către Jaeger din docker-compose.  
 * Asigură fallback silențios dacă exporterul lipsește și verifică în Jaeger fluxul Shopify request → enqueue Redis.
 
 ## **Faza 4: Asynchronous Processing Infrastructure (Săptămâna 4\)**

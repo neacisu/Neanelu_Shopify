@@ -1,6 +1,6 @@
 # Disaster Recovery Runbook
 
-> **RPO:** 1 hour | **RTO:** 4 hours | **Last Drill:** [TBD]
+> **RPO:** 1 hour | **RTO:** 4 hours | **Last Drill:** TODO Q1 2026
 > **Version:** 1.0 | **Last Updated:** 2025-12-26
 
 ---
@@ -231,10 +231,10 @@ redis-cli DBSIZE
 
 | Metric                 | Target   | Actual (Last Drill) |
 | ---------------------- | -------- | ------------------- |
-| RTO                    | <4 hours | [TBD]               |
-| RPO                    | <1 hour  | [TBD]               |
-| Data Integrity         | 100%     | [TBD]               |
-| Zero Downtime Failover | n/a      | [TBD]               |
+| RTO                    | <4 hours | TODO Q1 2026        |
+| RPO                    | <1 hour  | TODO Q1 2026        |
+| Data Integrity         | 100%     | TODO Q1 2026        |
+| Zero Downtime Failover | n/a      | TODO Q1 2026        |
 
 ---
 
@@ -243,8 +243,8 @@ redis-cli DBSIZE
 | Role             | Contact                | Escalation    |
 | ---------------- | ---------------------- | ------------- |
 | On-Call Engineer | PagerDuty              | Auto          |
-| Database Admin   | [TBD]                  | 15 min        |
-| Security Lead    | [TBD]                  | Critical only |
+| Database Admin   | TODO Q1 2026           | 15 min        |
+| Security Lead    | TODO Q1 2026           | Critical only |
 | Shopify Support  | <partners@shopify.com> | API issues    |
 
 ---
