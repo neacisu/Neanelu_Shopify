@@ -110,7 +110,6 @@ Thumbs.db
 
 # Local development
 .env.compose
-.env.compose.example
 
 # Research / data exports (Shopify)
 Research Produse/Outputs/

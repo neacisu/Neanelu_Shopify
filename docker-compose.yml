@@ -12,7 +12,7 @@ services:
   # PostgreSQL 18.1 - Baza de date principală
   # ============================================
   db:
-    image: postgres:18-alpine
+    image: postgres:18.1-alpine
     container_name: neanelu_postgres
     restart: unless-stopped
     environment:
@@ -48,7 +48,7 @@ services:
   # NOTĂ: Redis 8.4 include NATIV modulele RediSearch și RedisJSON
   # Nu mai este nevoie de redis-stack (deprecated Dec 2025)
   redis:
-    image: redis:8-alpine
+    image: redis:8.4-alpine
     container_name: neanelu_redis
     restart: unless-stopped
     volumes:
@@ -73,7 +73,7 @@ services:
   # Jaeger - Observabilitate/Tracing (OpenTelemetry)
   # ============================================
   jaeger:
-    image: jaegertracing/all-in-one:latest
+    image: jaegertracing/all-in-one:2.1
     container_name: neanelu_jaeger
     restart: unless-stopped
     environment:

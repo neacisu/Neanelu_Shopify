@@ -147,9 +147,30 @@ jobs:
           retention-days: 7
 
   # ============================================
-  # Docker Smoke Test (optional - needs Dockerfile)
+  # Docker Compose Validation
   # ============================================
-  # Uncomment when Dockerfile is created
+  docker-compose-validate:
+    name: Docker Compose Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate docker-compose config
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
+          echo "✅ Docker Compose configuration is valid"
+
+      - name: Verify service images exist
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml config --images
+
+  # ============================================
+  # Docker Smoke Test (requires Dockerfile - F7.2)
+  # ============================================
+  # Uncomment when Dockerfile is created in F7.2
   # docker-smoke:
   #   name: Docker Build Smoke Test
   #   runs-on: ubuntu-latest
