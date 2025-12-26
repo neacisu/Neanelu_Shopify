@@ -1,0 +1,12 @@
+# ============================================
+# PRE-PUSH HOOK (Husky 9+ format)
+# ============================================
+
+echo '🧪 Running tests before push...'
+pnpm test || {
+  echo '❌ Tests failed! Push aborted.'
+  echo 'Run "pnpm test" to see failures.'
+  exit 1
+}
+
+echo '✅ All tests passed! Pushing...'

@@ -1,1 +1,11 @@
+# ============================================
+# PRE-COMMIT HOOK (Husky 9+ format)
+# ============================================
+
+echo '📝 Running lint-staged...'
 pnpm lint-staged
+
+echo '🔍 Running typecheck...'
+pnpm typecheck
+
+echo '✅ Pre-commit checks passed!'
