@@ -2277,6 +2277,96 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_embeddings_product_current
 
 ---
 
+## Audit Trail Triggers (CONFORM AUDIT 2025-12-26)
+
+> **Automatic audit logging for critical tables**
+
+### Trigger Function
+
+```sql
+-- Generic audit trigger function
+CREATE OR REPLACE FUNCTION audit_log_changes()
+RETURNS TRIGGER AS $$
+DECLARE
+  old_data JSONB;
+  new_data JSONB;
+  shop_uuid UUID;
+BEGIN
+  -- Get current shop context
+  shop_uuid := current_setting('app.current_shop_id', true)::uuid;
+  
+  IF TG_OP = 'DELETE' THEN
+    old_data := to_jsonb(OLD);
+    new_data := NULL;
+  ELSIF TG_OP = 'UPDATE' THEN
+    old_data := to_jsonb(OLD);
+    new_data := to_jsonb(NEW);
+  ELSIF TG_OP = 'INSERT' THEN
+    old_data := NULL;
+    new_data := to_jsonb(NEW);
+  END IF;
+  
+  INSERT INTO audit_logs (
+    shop_id,
+    table_name,
+    record_id,
+    action,
+    old_values,
+    new_values,
+    changed_by,
+    created_at
+  ) VALUES (
+    shop_uuid,
+    TG_TABLE_NAME,
+    COALESCE(NEW.id, OLD.id),
+    TG_OP,
+    old_data,
+    new_data,
+    current_setting('app.current_user_id', true),
+    now()
+  );
+  
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+```
+
+### Tables with Audit Triggers
+
+```sql
+-- Critical tables requiring audit trail
+CREATE TRIGGER shops_audit_trigger
+  AFTER INSERT OR UPDATE OR DELETE ON shops
+  FOR EACH ROW EXECUTE FUNCTION audit_log_changes();
+
+CREATE TRIGGER staff_users_audit_trigger
+  AFTER INSERT OR UPDATE OR DELETE ON staff_users
+  FOR EACH ROW EXECUTE FUNCTION audit_log_changes();
+
+CREATE TRIGGER shopify_products_audit_trigger
+  AFTER UPDATE OR DELETE ON shopify_products
+  FOR EACH ROW EXECUTE FUNCTION audit_log_changes();
+
+CREATE TRIGGER prod_master_audit_trigger
+  AFTER UPDATE OR DELETE ON prod_master
+  FOR EACH ROW EXECUTE FUNCTION audit_log_changes();
+
+CREATE TRIGGER key_rotations_audit_trigger
+  AFTER INSERT OR UPDATE OR DELETE ON key_rotations
+  FOR EACH ROW EXECUTE FUNCTION audit_log_changes();
+
+-- Note: INSERT on high-volume tables (webhooks, inventory) excluded to avoid bloat
+```
+
+### Audit Log Table Reference
+
+> See Module H: `audit_logs` table for schema definition
+
+---
+
 ## Version History
 
 | Version | Date | Changes |

@@ -101,7 +101,57 @@ Documentația aferentă proiectului Manager Shopify cuprinde mai multe materiale
 
 În concluzie, planul final unifică perspectivele diferitelor documente într-o strategie coerentă de implementare. În cele ce urmează este prezentat Planul final de implementare Manager Shopify, structurat pe faze F0–F7, fiecare împărțită în sub-faze (ex. F1.2 indică sub-faza 2 din Faza 1) și detaliată la nivel de task-uri granular. Fiecare task este descris în format JSON – incluzând numele, descrierea detaliată, locația de implementare în proiect, contextul anterior, criteriile de validare/testare, rezultatul așteptat și restricții explicite pentru a evita orice deviație de la scopul definit. Acest plan este redactat în limba română, ca document formal DevOps, și poate fi folosit atât de ingineri pentru implementare, cât și de agenți automatizați pentru a parcurge pașii în mod controlat.
 
----
+### Dependency Graph (CONFORM AUDIT 2025-12-26)
+
+Graficul de mai jos arată dependențele critice între faze:
+
+```mermaid
+graph TD
+    subgraph "Foundation"
+        F0[F0: Preambul DevOps]
+        F1[F1: Setup & Infrastructure]
+    end
+
+    subgraph "Data Layer"
+        F2[F2: Database & Migrations]
+    end
+
+    subgraph "Core Services"
+        F3[F3: Shopify Integration]
+        F4[F4: Async Engine]
+    end
+
+    subgraph "Business Logic"
+        F5[F5: Bulk Operations]
+        F6[F6: AI & PIM]
+    end
+
+    subgraph "Operations"
+        F7[F7: CI/CD & Observability]
+        F8[F8: Future Extensions]
+    end
+
+    F0 --> F1
+    F1 --> F2
+    F2 --> F3
+    F2 --> F4
+    F3 --> F5
+    F4 --> F5
+    F5 --> F6
+    F6 --> F7
+    F7 --> F8
+
+    F2 -.->|RLS prerequisite| F3
+    F4 -.->|BullMQ Groups| F5
+    F2 -.->|pgvector schema| F6
+```
+
+**Critical Path:** F0 → F1 → F2 → F3/F4 → F5 → F6 → F7
+
+**Parallel Opportunities:**
+
+- F3 (Shopify Integration) și F4 (Async Engine) pot fi dezvoltate în paralel după F2
+- F7.6 (Frontend Quality) poate fi dezvoltat în paralel cu F5/F6 backend
 
 ## Addendum (Dec 2025): Descoperiri validate în research (TypeScript)
 
@@ -2422,6 +2472,16 @@ Obiectiv: Bulk Operations complet (query + mutation) + streaming JSONL + COPY î
         "validare_task": "Ingestează 2 feed-uri cu același produs dar prețuri diferite (brand=100€, bulk_import=99€). Verifică că Golden Record are preț=100€ (sursa brand) și provenance conține ambele valori.",
         "outcome_task": "Golden Record de înaltă încredere cu provenance auditabil pentru fiecare câmp.",
         "restrictii_antihalucinatie": "NU alege random când există conflict - respectă ordinea de prioritate. NU pierde datele alternative - păstrează în provenance. NU ignora timestamp - ultima actualizare contează la egalitate."
+    },
+    {
+        "id_task": "F5.2.11",
+        "denumire_task": "Implementare __parentId stitching în streaming pipeline (CONFORM AUDIT 2025-12-26)",
+        "descriere_task": "**CONFORM ADDENDUM B:** Implementează logica de reconstituire relații parent-child în streaming mode:\n\n**Problema:**\n- JSONL din Bulk Export conține linii separate pentru Product și ProductVariant\n- Relația se face prin `__parentId` (variant → product)\n- Liniile NU sunt neapărat grupate perfect\n- NU putem ține totul în RAM pentru 1M+ SKU\n\n**Implementare Streaming:**\n```typescript\n// apps/backend-worker/src/processors/bulk-operations/pipeline/stages/transformation/stitching/parent-child-remapper.ts\n\ninterface LineBuffer {\n  products: Map<string, Product>; // keyed by id\n  orphanVariants: Map<string, ProductVariant[]>; // keyed by __parentId\n}\n\nclass ParentChildRemapper {\n  private buffer: LineBuffer = { products: new Map(), orphanVariants: new Map() };\n  private readonly FLUSH_THRESHOLD = 10000; // flush after N products processed\n  \n  async processLine(line: BulkLine): Promise<void> {\n    if (line.__typename === 'Product') {\n      this.buffer.products.set(line.id, line);\n      // Check for orphan variants waiting for this parent\n      const orphans = this.buffer.orphanVariants.get(line.id);\n      if (orphans) {\n        await this.emitProduct(line, orphans);\n        this.buffer.orphanVariants.delete(line.id);\n        this.buffer.products.delete(line.id);\n      }\n    } else if (line.__typename === 'ProductVariant') {\n      const parentId = line.__parentId;\n      const parent = this.buffer.products.get(parentId);\n      if (parent) {\n        // Parent already seen - emit directly\n        await this.emitVariant(parent, line);\n      } else {\n        // Parent not yet seen - buffer variant\n        const existing = this.buffer.orphanVariants.get(parentId) || [];\n        existing.push(line);\n        this.buffer.orphanVariants.set(parentId, existing);\n      }\n    }\n    \n    // Periodic flush for memory control\n    if (this.buffer.products.size > this.FLUSH_THRESHOLD) {\n      await this.flushCompleteProducts();\n    }\n  }\n  \n  async finish(): Promise<void> {\n    // Emit remaining products (some may have no variants)\n    for (const [id, product] of this.buffer.products) {\n      const variants = this.buffer.orphanVariants.get(id) || [];\n      await this.emitProduct(product, variants);\n    }\n    // Log orphan variants (parent never found - data issue)\n    for (const [parentId, variants] of this.buffer.orphanVariants) {\n      if (!this.buffer.products.has(parentId)) {\n        logger.warn('Orphan variants found', { parentId, count: variants.length });\n        await this.quarantineOrphans(parentId, variants);\n      }\n    }\n  }\n}\n```\n\n**Integrare în Pipeline:**\n- Stage: între `bulk.download` și `bulk.copy`\n- Input: raw JSONL lines stream\n- Output: enriched lines cu `product` pentru fiecare variant\n\n**Edge Cases:**\n- Orphan variants (parent nu există) → quarantine + log\n- Products fără variants → emit as-is\n- Memory pressure → incremental flush",
+        "cale_implementare": "/Neanelu_Shopify/apps/backend-worker/src/processors/bulk-operations/pipeline/stages/transformation/stitching/parent-child-remapper.ts",
+        "contextul_anterior": "Addendum B definește problema. F5.2.8-F5.2.10 pregătesc datele. Stitching e critic pentru relații corecte.",
+        "validare_task": "1. JSONL cu 10K products + variants → toate variants au parent valid\n2. Memory usage stable (nu crește liniar cu file size)\n3. Orphan variants logged și quarantined",
+        "outcome_task": "Relații parent-child corecte în streaming mode, fără încărcare completă în RAM.",
+        "restrictii_antihalucinatie": "NU încărca tot JSONL în RAM. NU presupune ordine perfectă a liniilor. NU ignora orphan variants - log și quarantine."
     }
     ]
     ```
