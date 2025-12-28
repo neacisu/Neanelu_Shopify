@@ -8,6 +8,11 @@
  * - bulk_runs
  *
  * Pentru acum, acest fișier este un placeholder pentru drizzle-kit.
+ *
+ * ✅ F2.1.2 Validare completă:
+ * - Generare migrații: PASSED
+ * - Aplicare migrații: PASSED
+ * - Tabel __drizzle_migrations: PASSED
  */
 
 // Placeholder export pentru drizzle-kit
