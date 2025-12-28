@@ -9,7 +9,7 @@
 ### Base URL
 
 - **Development:** `http://localhost:65000/api`
-- **Production:** `https://api.neanelu.shop/api`
+- **Production:** `https://manager.neanelu.ro/api`
 
 > **Notă:** Webhook-urile sunt expuse la `/webhooks/:topic`, NU sub prefixul `/api/`. Vezi secțiunea [3. Webhook Endpoints](#3-webhook-endpoints).
 >

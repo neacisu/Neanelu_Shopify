@@ -14,7 +14,24 @@
   "files": [
     "dist"
   ],
-  "scripts": {},
-  "dependencies": {},
-  "devDependencies": {}
+  "scripts": {
+    "build": "tsc",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "db:check": "drizzle-kit check",
+    "test": "node --test --experimental-test-isolation=none src/**/*.test.ts"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.1",
+    "pg": "^8.16.3",
+    "pg-copy-streams": "^7.0.0",
+    "stream-json": "^1.9.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.16.0",
+    "@types/pg-copy-streams": "^1.2.5",
+    "drizzle-kit": "^0.31.8"
+  }
 }
