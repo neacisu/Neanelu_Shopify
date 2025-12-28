@@ -103,19 +103,19 @@ docker compose ps
 
 ```bash
 # 1. OAuth flow test
-curl -I "https://api.neanelu.shop/auth/shopify?shop=test-store.myshopify.com"
+curl -I "https://manager.neanelu.ro/auth/shopify?shop=test-store.myshopify.com"
 
 # 2. Webhook endpoint test
-curl -X POST "https://api.neanelu.shop/webhooks/products/update" \
+curl -X POST "https://manager.neanelu.ro/webhooks/products/update" \
   -H "X-Shopify-Topic: products/update" \
   -H "X-Shopify-Hmac-Sha256: test" \
   -d '{}'
 
 # 3. API response test
-curl "https://api.neanelu.shop/health/ready"
+curl "https://manager.neanelu.ro/health/ready"
 
 # 4. Queue status
-curl "https://api.neanelu.shop/api/queues" -H "Authorization: Bearer $TOKEN"
+curl "https://manager.neanelu.ro/api/queues" -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Monitoring Verification
