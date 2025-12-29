@@ -36,6 +36,8 @@ jobs:
     name: Lint, TypeCheck & Test
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      NPM_TASKFORCESH_TOKEN: ${{ secrets.NPM_TASKFORCESH_TOKEN }}
 
     services:
       # PostgreSQL 18 for integration tests
