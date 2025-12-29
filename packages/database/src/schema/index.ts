@@ -20,6 +20,7 @@ export * from './staff-users.ts';
 // Module B: Shopify Mirror
 // ============================================
 export * from './shopify-products.ts';
+export * from './shopify-tokens.ts';
 
 // ============================================
 // Module C: Bulk Operations

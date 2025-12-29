@@ -288,6 +288,35 @@
 ---
 
 ### Table: `shopify_variants`
+### Table: `shopify_tokens`
+
+| Column                  | Type        | Constraints               | Description                             |
+| ----------------------- | ----------- | ------------------------- | --------------------------------------- |
+| id                      | UUID        | PK DEFAULT uuidv7()       | Token row ID                            |
+| shop_id                 | UUID        | FK shops(id) UNIQUE       | Tenant                                  |
+| access_token_ciphertext | BYTEA       | NOT NULL                  | AES-256-GCM ciphertext                  |
+| access_token_iv         | BYTEA       | NOT NULL                  | 12-byte IV                              |
+| access_token_tag        | BYTEA       | NOT NULL                  | 16-byte auth tag                        |
+| key_version             | INTEGER     | NOT NULL DEFAULT 1        | Active key version                      |
+| scopes                  | TEXT[]      | NOT NULL DEFAULT '{}'     | OAuth scopes granted                    |
+| created_at              | TIMESTAMPTZ | DEFAULT now()             |                                         |
+| rotated_at              | TIMESTAMPTZ |                           | Last rotation                           |
+
+**Indexes:**
+
+- `idx_shopify_tokens_shop` UNIQUE ON (shop_id)
+- `idx_shopify_tokens_shop_key` UNIQUE ON (shop_id, key_version)
+
+**RLS Policy:** `tenant_isolation_shopify_tokens` - shop_id = current_setting('app.current_shop_id')::uuid
+
+---
+
+### Key Rotation & Token Encryption
+
+- Chei gestionate în OpenBAO/Vault, injectate ca env: `ENCRYPTION_KEY_VERSION`, `ENCRYPTION_KEY_V1`, `ENCRYPTION_KEY_V2`, ...
+- Criptare: AES-256-GCM (32-byte key, IV 12 bytes, tag 16 bytes).
+- Decriptare este backward-compatible pe `key_version`.
+- Script rotație: `packages/database/scripts/rotate-encryption-key.ts` recriptează toate token-urile cu versiunea activă fără a șterge cheile vechi.
 
 | Column             | Type           | Constraints                      | Description               |
 | ------------------ | -------------- | -------------------------------- | ------------------------- |
