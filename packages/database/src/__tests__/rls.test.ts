@@ -1,12 +1,31 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
-import { pool, setTenantContext } from '../db.ts';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import { db, pool, setTenantContext } from '../db.ts';
 
 const shopA = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const shopB = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const migrationsFolder = path.resolve(__dirname, '../../drizzle/migrations');
+
 void describe('RLS tenant isolation', () => {
   before(async () => {
+    // Asigură funcțiile UUID și schema prin migrații înainte de teste
+    const bootstrap = await pool.connect();
+    try {
+      await bootstrap.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp";`);
+      await bootstrap.query(`CREATE OR REPLACE FUNCTION uuidv7() RETURNS uuid AS $$
+        SELECT uuid_generate_v7();
+      $$ LANGUAGE SQL IMMUTABLE;`);
+    } finally {
+      bootstrap.release();
+    }
+
+    await migrate(db, { migrationsFolder });
+
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
