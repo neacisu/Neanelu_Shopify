@@ -1,8 +1,8 @@
-# Neanelu PIM - PostgreSQL Database Schema v2.5 (Complete)
+# Neanelu PIM - PostgreSQL Database Schema v2.6 (Complete)
 
-> **PostgreSQL 18.1** | **pgvector** | **UUIDv7** | **RLS Multi-tenancy**
+> **PostgreSQL 18.1** | **pgvector 0.8.1** | **UUIDv7 (native)** | **RLS Multi-tenancy**
 >
-> **Last Updated:** 2025-12-29 | **Total Tables:** 63 + 4 MVs | **Status:** ✅ Production Ready
+> **Last Updated:** 2025-12-29 | **Total:** 66 Tables + 7 MVs + 1 View | **Status:** ✅ Production Ready
 >
 > ⚠️ **SOURCE OF TRUTH:** Acest document este sursa definitivă pentru toate schemele de baze de date, inclusiv PIM.
 > Fișierul `Schemă_Bază_Date_PIM.sql` este **DEPRECATED** și nu trebuie folosit pentru implementare.
@@ -11,20 +11,20 @@
 
 ## Table of Contents
 
-1. [Module A: System Core & Multi-tenancy](#module-a-system-core--multi-tenancy) (3 tables)
-2. [Module B: Shopify Mirror](#module-b-shopify-mirror) (8 tables)
+1. [Module A: System Core & Multi-tenancy](#module-a-system-core--multi-tenancy) (9 tables)
+2. [Module B: Shopify Mirror](#module-b-shopify-mirror) (9 tables)
 3. [Module C: Bulk Operations & Staging](#module-c-bulk-operations--staging) (6 tables)
 4. [Module D: Global PIM](#module-d-global-pim) (8 tables)
-5. [Module D Additions: PIM Consensus & Deduplication](#module-d-additions-pim-consensus--deduplication) (4 tables)
+5. [Module D Additions: PIM Consensus & Deduplication](#module-d-additions-pim-consensus--deduplication) (6 tables) ← +2 v2.6
 6. [Module E: Attribute Normalization & Vectors](#module-e-attribute-normalization--vectors) (4 tables)
-7. [Module F: AI Batch Processing](#module-f-ai-batch-processing) (2 tables)
-8. [Module G: Queue & Job Tracking](#module-g-queue--job-tracking) (2 tables)
+7. [Module F: AI Batch Processing](#module-f-ai-batch-processing) (3 tables)
+8. [Module G: Queue & Job Tracking](#module-g-queue--job-tracking) (4 tables)
 9. [Module H: Audit & Observability](#module-h-audit--observability) (2 tables)
 10. [Module I: Inventory Ledger](#module-i-inventory-ledger-high-velocity-tracking) (2 tables + 1 MV)
 11. [Module J: Shopify Media & Publications](#module-j-shopify-media--publications) (5 tables)
 12. [Module K: Menus & Navigation](#module-k-menus--navigation) (2 tables)
-13. [Module L: Scraper & Crawler Management](#module-l-scraper--crawler-management) (3 tables)
-14. [Module M: Analytics & Reporting](#module-m-analytics--reporting) (2 tables)
+13. [Module L: Scraper & Crawler Management](#module-l-scraper--crawler-management) (4 tables + 1 View) ← +1 v2.6
+14. [Module M: Analytics & Reporting](#module-m-analytics--reporting) (2 tables + 6 MVs) ← +3 MVs v2.6
 15. [Extensions Required](#extensions-required)
 16. [Shopify GraphQL ↔ PostgreSQL Data Type Mapping](#shopify-graphql--postgresql-data-type-mapping)
 17. [RLS Policies - Complete Reference](#rls-policies---complete-reference)
@@ -2852,26 +2852,33 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_embeddings_product_current
 ## Migration Order
 
 > **Dependency-aware migration sequence for drizzle-kit**
+> **Updated v2.6** - includes Golden Record Strategy tables
 
 ```text
 1. Extensions (pgcrypto, citext, pg_trgm, btree_gin, btree_gist, vector)
-2. UUIDv7 function (if not PG18.1)
-3. Module A: shops → staff_users → app_sessions
-4. Module B: shopify_products → shopify_variants → shopify_collections → ...
-5. Module C: bulk_runs → bulk_steps → bulk_artifacts → bulk_errors → staging_*
-6. Module D: prod_taxonomy → prod_sources → prod_raw_harvest → prod_master → ...
-7. Module E: prod_attr_definitions → prod_attr_synonyms → prod_embeddings → shop_product_embeddings
-8. Module F: ai_batches → ai_batch_items
-9. Module G: job_runs → scheduled_tasks
-10. Module H: audit_logs → sync_checkpoints
-11. Module I: inventory_locations → inventory_ledger → inventory_current (MV)
-12. Module J: shopify_media → shopify_product_media → shopify_publications → ...
-13. Module K: shopify_menus → shopify_menu_items
-14. Module L: scraper_configs → scraper_runs → scraper_queue
-15. Module M: analytics_daily_shop → analytics_product_performance
-16. RLS Policies (all tables)
-17. Partitioning setup (audit_logs, inventory_ledger, prod_raw_harvest)
+2. UUIDv7 function (native in PG18.1, no setup needed)
+3. Module A: shops → oauth_states → oauth_nonces → key_rotations → staff_users → app_sessions → feature_flags → system_config → migration_history
+4. Module B: shopify_products → shopify_variants → shopify_collections → shopify_collection_products → shopify_orders → shopify_customers → shopify_metaobjects → shopify_webhooks → webhook_events
+5. Module C: bulk_runs → bulk_steps → bulk_artifacts → bulk_errors → staging_products → staging_variants
+6. Module D (PIM Core): prod_taxonomy → prod_sources → prod_raw_harvest → prod_extraction_sessions → prod_master → prod_specs_normalized → prod_semantics → prod_channel_mappings
+7. Module D (Consensus): prod_proposals → prod_dedupe_clusters → prod_dedupe_cluster_members → prod_similarity_matches (v2.6) → prod_quality_events (v2.6) → prod_translations
+8. Module E: prod_attr_definitions → prod_attr_synonyms → prod_embeddings → shop_product_embeddings
+9. Module F: ai_batches → ai_batch_items → embedding_batches
+10. Module G: job_runs → scheduled_tasks → rate_limit_buckets → api_cost_tracking
+11. Module H: audit_logs → sync_checkpoints
+12. Module I: inventory_locations → inventory_ledger → inventory_current (MV)
+13. Module J: shopify_media → shopify_product_media → shopify_variant_media → shopify_publications → shopify_resource_publications
+14. Module K: shopify_menus → shopify_menu_items
+15. Module L: scraper_configs → scraper_runs → scraper_queue → api_usage_log (v2.6)
+16. Module M: analytics_daily_shop → analytics_product_performance
+17. RLS Policies (all multi-tenant tables)
+18. Views: v_api_daily_costs (v2.6)
+19. Materialized Views: inventory_current, mv_shop_summary, mv_low_stock_alerts, mv_top_sellers, mv_pim_quality_progress (v2.6), mv_pim_enrichment_status (v2.6), mv_pim_source_performance (v2.6)
+20. Partitioning setup (audit_logs, inventory_ledger, prod_raw_harvest, api_usage_log)
+21. Triggers: audit_log_changes
 ```
+
+> **Total: 66 tables + 7 MVs + 1 View = 74 database objects**
 
 ---
 
