@@ -1,21 +1,27 @@
 /**
  * Database Schema - Entry Point
  *
- * Schema-urile vor fi adăugate în PR-008 (F2.2.1):
- * - shops
- * - products
- * - shopify_tokens
- * - bulk_runs
+ * CONFORM: Database_Schema_Complete.md v2.6
+ * PR-008: F2.2.1 - Core Schema (shops, products, bulk_runs)
  *
- * Pentru acum, acest fișier este un placeholder pentru drizzle-kit.
- *
- * ✅ F2.1.2 Validare completă:
- * - Generare migrații: PASSED
- * - Aplicare migrații: PASSED
- * - Tabel __drizzle_migrations: PASSED
+ * Exporturi organizate pe module:
+ * - Module A: System Core (shops, staff_users, app_sessions)
+ * - Module B: Shopify Mirror (shopify_products, shopify_variants)
+ * - Module C: Bulk Operations (bulk_runs, bulk_steps)
  */
 
-// Placeholder export pentru drizzle-kit
-// Schema reală vine în PR-008
+// ============================================
+// Module A: System Core & Multi-tenancy
+// ============================================
+export * from './shops.ts';
+export * from './staff-users.ts';
 
-export {};
+// ============================================
+// Module B: Shopify Mirror
+// ============================================
+export * from './shopify-products.ts';
+
+// ============================================
+// Module C: Bulk Operations
+// ============================================
+export * from './bulk-operations.ts';
