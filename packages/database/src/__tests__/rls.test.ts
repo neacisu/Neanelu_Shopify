@@ -23,9 +23,9 @@ void describe('RLS tenant isolation', () => {
       BEGIN
         BEGIN
           PERFORM uuid_generate_v7();
-          EXECUTE 'CREATE OR REPLACE FUNCTION uuidv7() RETURNS uuid AS $$ SELECT uuid_generate_v7(); $$ LANGUAGE SQL IMMUTABLE;';
+          EXECUTE 'CREATE OR REPLACE FUNCTION uuidv7() RETURNS uuid AS $f$ SELECT uuid_generate_v7(); $f$ LANGUAGE SQL IMMUTABLE;';
         EXCEPTION WHEN undefined_function THEN
-          EXECUTE 'CREATE OR REPLACE FUNCTION uuidv7() RETURNS uuid AS $$ SELECT gen_random_uuid(); $$ LANGUAGE SQL IMMUTABLE;';
+          EXECUTE 'CREATE OR REPLACE FUNCTION uuidv7() RETURNS uuid AS $f$ SELECT gen_random_uuid(); $f$ LANGUAGE SQL IMMUTABLE;';
         END;
       END $$;`);
     } finally {
