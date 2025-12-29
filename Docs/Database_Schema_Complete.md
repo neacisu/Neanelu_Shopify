@@ -1,8 +1,8 @@
-# Neanelu PIM - PostgreSQL Database Schema v2.4 (Complete)
+# Neanelu PIM - PostgreSQL Database Schema v2.5 (Complete)
 
 > **PostgreSQL 18.1** | **pgvector** | **UUIDv7** | **RLS Multi-tenancy**
 >
-> **Last Updated:** 2025-12-26 | **Total Tables:** 63 + 4 MVs | **Status:** ✅ Production Ready
+> **Last Updated:** 2025-12-29 | **Total Tables:** 63 + 4 MVs | **Status:** ✅ Production Ready
 >
 > ⚠️ **SOURCE OF TRUTH:** Acest document este sursa definitivă pentru toate schemele de baze de date, inclusiv PIM.
 > Fișierul `Schemă_Bază_Date_PIM.sql` este **DEPRECATED** și nu trebuie folosit pentru implementare.
@@ -51,6 +51,8 @@
 | webhook_secret          | BYTEA       |                          | HMAC validation key for webhooks       |
 | key_version             | INTEGER     | NOT NULL DEFAULT 1       | Key rotation version                   |
 | scopes                  | TEXT[]      | NOT NULL                 | Granted OAuth scopes.                  |
+| timezone                | VARCHAR(50) | DEFAULT 'Europe/Bucharest' | Shop timezone (IANA)                   |
+| currency_code           | VARCHAR(3)  | DEFAULT 'RON'            | Primary currency (ISO 4217)            |
 | settings                | JSONB       | DEFAULT '{}'             | Shop-level config                      |
 | installed_at            | TIMESTAMPTZ | DEFAULT now()            | Install timestamp                      |
 | uninstalled_at          | TIMESTAMPTZ |                          | Uninstall timestamp                    |
@@ -61,6 +63,7 @@
 
 - `idx_shops_domain` UNIQUE ON (shopify_domain)
 - `idx_shops_plan` ON (plan_tier)
+- `idx_shops_shopify_id` ON (shopify_shop_id) WHERE shopify_shop_id IS NOT NULL
 
 ---
 
@@ -180,7 +183,7 @@
 | description        | TEXT         |                         | Purpose description        |
 | default_value      | BOOLEAN      | NOT NULL DEFAULT false  | Default state              |
 | is_active          | BOOLEAN      | NOT NULL DEFAULT true   | Kill switch                |
-| rollout_percentage | INTEGER      | DEFAULT 0 CHECK (0-100) | Gradual rollout            |
+| rollout_percentage | INTEGER      | DEFAULT 0 CHECK (rollout_percentage >= 0 AND rollout_percentage <= 100) | Gradual rollout (0-100%) |
 | allowed_shop_ids   | UUID[]       | DEFAULT '{}'            | Whitelist                  |
 | blocked_shop_ids   | UUID[]       | DEFAULT '{}'            | Blacklist                  |
 | conditions         | JSONB        | DEFAULT '{}'            | Complex rules              |
@@ -294,8 +297,8 @@
 | shopify_gid        | VARCHAR(100)   | NOT NULL                         | gid://shopify/Product/123 |
 | legacy_resource_id | BIGINT         | NOT NULL                         | Numeric Shopify ID        |
 | title              | VARCHAR(255)   | NOT NULL                         | Variant title             |
-| sku                | VARCHAR(255)   | NOT NULL                         | Stock keeping unit        |
-| barcode            | VARCHAR(100)   | NOT NULL                         | UPC/EAN/ISBN              |
+| sku                | VARCHAR(255)   |                                  | Stock keeping unit (optional in Shopify) |
+| barcode            | VARCHAR(100)   |                                  | UPC/EAN/ISBN (optional in Shopify)       |
 | price              | DECIMAL(12,2)  | NOT NULL                         |                           |
 | compare_at_price   | DECIMAL(12,2)  | NOT NULL                         |                           |
 | currency_code      | VARCHAR(3)     | DEFAULT 'RON'                    |                           |
@@ -367,14 +370,23 @@
 
 ### Table: `shopify_collection_products`
 
-| Column        | Type        | Constraints                | Description   |
-| ------------- | ----------- | -------------------------- | ------------- |
-| collection_id | UUID        | FK shopify_collections(id) |               |
-| product_id    | UUID        | FK shopify_products(id)    |               |
-| position      | INTEGER     | DEFAULT 0                  | Sort position |
-| created_at    | TIMESTAMPTZ | DEFAULT now()              |               |
+| Column        | Type        | Constraints                     | Description                     |
+| ------------- | ----------- | ------------------------------- | ------------------------------- |
+| shop_id       | UUID        | FK shops(id) NOT NULL           | Tenant (denormalized for RLS)   |
+| collection_id | UUID        | FK shopify_collections(id)      |                                 |
+| product_id    | UUID        | FK shopify_products(id)         |                                 |
+| position      | INTEGER     | DEFAULT 0                       | Sort position                   |
+| created_at    | TIMESTAMPTZ | DEFAULT now()                   |                                 |
+| updated_at    | TIMESTAMPTZ | DEFAULT now()                   |                                 |
 
 **Primary Key:** (collection_id, product_id)
+
+**Indexes:**
+
+- `idx_collection_products_shop` ON (shop_id)
+- `idx_collection_products_product` ON (product_id) -- Reverse lookup
+
+**RLS Policy:** `collection_products_policy` - shop_id = current_setting('app.current_shop_id')::uuid
 
 ---
 
@@ -663,25 +675,87 @@
 
 ### Table: `staging_products`
 
-Mirrors `shopify_products` structure plus:
+> **Structure:** Mirrors `shopify_products` with additional staging columns. Uses UNLOGGED for performance during bulk imports.
 
-| Column            | Type        | Constraints               | Description           |
-| ------------------| ------------| ------------------------- | --------------------- |
-| bulk_run_id       | UUID        | FK bulk_runs(id) NOT NULL | Source run            |
-| imported_at       | TIMESTAMPTZ | DEFAULT now()             |                       |
-| validation_status | VARCHAR(20) | DEFAULT 'pending'         | pending/valid/invalid |
-| validation_errors | JSONB       | DEFAULT '[]'              |                       |
+| Column                     | Type         | Constraints               | Description                    |
+| -------------------------- | ------------ | ------------------------- | ------------------------------ |
+| id                         | UUID         | PK DEFAULT uuidv7()       | Staging record ID              |
+| bulk_run_id                | UUID         | FK bulk_runs(id) NOT NULL | Source bulk run                |
+| shop_id                    | UUID         | FK shops(id) NOT NULL     |                                |
+| shopify_gid                | VARCHAR(100) |                           | gid://shopify/Product/123      |
+| legacy_resource_id         | BIGINT       |                           | Numeric Shopify ID             |
+| title                      | TEXT         |                           | Product title                  |
+| handle                     | VARCHAR(255) |                           | URL handle                     |
+| description                | TEXT         |                           |                                |
+| description_html           | TEXT         |                           |                                |
+| vendor                     | VARCHAR(255) |                           |                                |
+| product_type               | VARCHAR(255) |                           |                                |
+| status                     | VARCHAR(20)  |                           | ACTIVE/DRAFT/ARCHIVED          |
+| tags                       | TEXT[]       | DEFAULT '{}'              |                                |
+| options                    | JSONB        | DEFAULT '[]'              |                                |
+| seo                        | JSONB        |                           |                                |
+| metafields                 | JSONB        | DEFAULT '{}'              |                                |
+| raw_data                   | JSONB        |                           | Original JSONL row             |
+| imported_at                | TIMESTAMPTZ  | DEFAULT now()             |                                |
+| validation_status          | VARCHAR(20)  | DEFAULT 'pending'         | pending/valid/invalid          |
+| validation_errors          | JSONB        | DEFAULT '[]'              | [{field, error, value}]        |
+| merge_status               | VARCHAR(20)  | DEFAULT 'pending'         | pending/merged/skipped/failed  |
+| merged_at                  | TIMESTAMPTZ  |                           |                                |
+| target_product_id          | UUID         |                           | FK shopify_products after merge|
 
 **Indexes:**
 
 - `idx_staging_products_run` ON (bulk_run_id)
 - `idx_staging_products_validation` ON (bulk_run_id, validation_status)
+- `idx_staging_products_merge` ON (bulk_run_id, merge_status)
+- `idx_staging_products_gid` ON (shop_id, shopify_gid)
+
+**RLS Policy:** `staging_products_policy` - shop_id = current_setting('app.current_shop_id')::uuid
+
+**Note:** Consider using `UNLOGGED` table for staging to improve bulk insert performance.
 
 ---
 
 ### Table: `staging_variants`
 
-Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation columns.
+> **Structure:** Mirrors `shopify_variants` with additional staging columns.
+
+| Column                 | Type           | Constraints                         | Description                     |
+| ---------------------- | -------------- | ----------------------------------- | ------------------------------- |
+| id                     | UUID           | PK DEFAULT uuidv7()                 | Staging record ID               |
+| bulk_run_id            | UUID           | FK bulk_runs(id) NOT NULL           | Source bulk run                 |
+| shop_id                | UUID           | FK shops(id) NOT NULL               |                                 |
+| staging_product_id     | UUID           | FK staging_products(id)             | Parent in staging               |
+| shopify_gid            | VARCHAR(100)   |                                     | gid://shopify/ProductVariant/x  |
+| legacy_resource_id     | BIGINT         |                                     | Numeric Shopify ID              |
+| title                  | VARCHAR(255)   |                                     | Variant title                   |
+| sku                    | VARCHAR(255)   |                                     |                                 |
+| barcode                | VARCHAR(100)   |                                     |                                 |
+| price                  | DECIMAL(12,2)  |                                     |                                 |
+| compare_at_price       | DECIMAL(12,2)  |                                     |                                 |
+| cost                   | DECIMAL(12,2)  |                                     |                                 |
+| inventory_quantity     | INTEGER        |                                     |                                 |
+| inventory_item_id      | VARCHAR(100)   |                                     |                                 |
+| weight                 | DECIMAL(10,4)  |                                     |                                 |
+| weight_unit            | VARCHAR(20)    |                                     |                                 |
+| selected_options       | JSONB          | DEFAULT '[]'                        |                                 |
+| metafields             | JSONB          | DEFAULT '{}'                        |                                 |
+| raw_data               | JSONB          |                                     | Original JSONL row              |
+| imported_at            | TIMESTAMPTZ    | DEFAULT now()                       |                                 |
+| validation_status      | VARCHAR(20)    | DEFAULT 'pending'                   | pending/valid/invalid           |
+| validation_errors      | JSONB          | DEFAULT '[]'                        | [{field, error, value}]         |
+| merge_status           | VARCHAR(20)    | DEFAULT 'pending'                   | pending/merged/skipped/failed   |
+| merged_at              | TIMESTAMPTZ    |                                     |                                 |
+| target_variant_id      | UUID           |                                     | FK shopify_variants after merge |
+
+**Indexes:**
+
+- `idx_staging_variants_run` ON (bulk_run_id)
+- `idx_staging_variants_product` ON (staging_product_id)
+- `idx_staging_variants_validation` ON (bulk_run_id, validation_status)
+- `idx_staging_variants_gid` ON (shop_id, shopify_gid)
+
+**RLS Policy:** `staging_variants_policy` - shop_id = current_setting('app.current_shop_id')::uuid
 
 ---
 
@@ -969,6 +1043,7 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 | match_fields     | JSONB          |                                      | Which fields matched      |
 | is_canonical     | BOOLEAN        | DEFAULT false                        | Is this the golden record |
 | created_at       | TIMESTAMPTZ    | DEFAULT now()                        |                           |
+| updated_at       | TIMESTAMPTZ    | DEFAULT now()                        |                           |
 
 **Primary Key:** (cluster_id, product_id)
 
@@ -976,6 +1051,8 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 - `idx_cluster_members_product` ON (product_id)
 - `idx_cluster_members_similarity` ON (cluster_id, similarity_score DESC)
+
+**Note:** No RLS - PIM is global data, access controlled at application layer.
 
 ---
 
@@ -1311,19 +1388,20 @@ Mirrors `shopify_variants` structure plus bulk_run_id, imported_at, validation c
 
 ### Table: `audit_logs`
 
-| Column      | Type         | Constraints         | Description          |
-| ----------- | ------------ | ------------------- | -------------------- |
-| id          | UUID         | PK DEFAULT uuidv7() |                      |
-| shop_id     | UUID         | FK shops(id)        |                      |
-| user_id     | UUID         | FK staff_users(id)  |                      |
-| action      | VARCHAR(100) | NOT NULL            | create/update/delete |
-| entity_type | VARCHAR(100) | NOT NULL            | Table name           |
-| entity_id   | UUID         | NOT NULL            | Record ID            |
-| changes     | JSONB        |                     | {old, new} values    |
-| ip_address  | INET         |                     |                      |
-| user_agent  | TEXT         |                     |                      |
-| request_id  | VARCHAR(100) |                     | Trace correlation    |
-| created_at  | TIMESTAMPTZ  | DEFAULT now()       |                      |
+| Column      | Type         | Constraints         | Description                         |
+| ----------- | ------------ | ------------------- | ----------------------------------- |
+| id          | UUID         | PK DEFAULT uuidv7() |                                     |
+| shop_id     | UUID         | FK shops(id)        | Tenant context                      |
+| user_id     | UUID         | FK staff_users(id)  | Who made the change                 |
+| action      | VARCHAR(20)  | NOT NULL            | INSERT/UPDATE/DELETE                |
+| entity_type | VARCHAR(100) | NOT NULL            | Table name (TG_TABLE_NAME)          |
+| entity_id   | UUID         | NOT NULL            | Record ID (row id)                  |
+| old_values  | JSONB        |                     | Previous state (NULL for INSERT)    |
+| new_values  | JSONB        |                     | New state (NULL for DELETE)         |
+| ip_address  | INET         |                     |                                     |
+| user_agent  | TEXT         |                     |                                     |
+| request_id  | VARCHAR(100) |                     | Trace correlation (app.trace_id)    |
+| created_at  | TIMESTAMPTZ  | DEFAULT now()       |                                     |
 
 **Indexes:**
 
@@ -1483,33 +1561,46 @@ CREATE INDEX idx_inventory_current_quantity ON inventory_current(quantity);
 
 ### Table: `shopify_product_media`
 
-| Column      | Type        | Constraints                      | Description    |
-| ----------- | ----------- | -------------------------------- | -------------- |
-| product_id  | UUID        | FK shopify_products(id) NOT NULL |                |
-| media_id    | UUID        | FK shopify_media(id) NOT NULL    |                |
-| position    | INTEGER     | DEFAULT 0                        | Sort order     |
-| is_featured | BOOLEAN     | DEFAULT false                    | Featured media |
-| created_at  | TIMESTAMPTZ | DEFAULT now()                    |                |
+| Column      | Type        | Constraints                      | Description                   |
+| ----------- | ----------- | -------------------------------- | ----------------------------- |
+| shop_id     | UUID        | FK shops(id) NOT NULL            | Tenant (denormalized for RLS) |
+| product_id  | UUID        | FK shopify_products(id) NOT NULL |                               |
+| media_id    | UUID        | FK shopify_media(id) NOT NULL    |                               |
+| position    | INTEGER     | DEFAULT 0                        | Sort order                    |
+| is_featured | BOOLEAN     | DEFAULT false                    | Featured media                |
+| created_at  | TIMESTAMPTZ | DEFAULT now()                    |                               |
+| updated_at  | TIMESTAMPTZ | DEFAULT now()                    |                               |
 
 **Primary Key:** (product_id, media_id)
 
 **Indexes:**
 
+- `idx_product_media_shop` ON (shop_id)
 - `idx_product_media_product` ON (product_id, position)
 - `idx_product_media_featured` ON (product_id) WHERE is_featured = true
+
+**RLS Policy:** `product_media_policy` - shop_id = current_setting('app.current_shop_id')::uuid
 
 ---
 
 ### Table: `shopify_variant_media`
 
-| Column     | Type         | Constraints                      | Description     |
-| ---------- | ------------ | -------------------------------- | --------------- |
-| variant_id | UUID         | FK shopify_variants(id) NOT NULL |                 |
-| media_id   | UUID         | FK shopify_media(id) NOT NULL    |                 |
-| position   | INTEGER      | DEFAULT 0                        | Sort order      |
-| created_at | TIMESTAMPTZ  | DEFAULT now()                    |                 |
+| Column     | Type         | Constraints                      | Description                   |
+| ---------- | ------------ | -------------------------------- | ----------------------------- |
+| shop_id    | UUID         | FK shops(id) NOT NULL            | Tenant (denormalized for RLS) |
+| variant_id | UUID         | FK shopify_variants(id) NOT NULL |                               |
+| media_id   | UUID         | FK shopify_media(id) NOT NULL    |                               |
+| position   | INTEGER      | DEFAULT 0                        | Sort order                    |
+| created_at | TIMESTAMPTZ  | DEFAULT now()                    |                               |
+| updated_at | TIMESTAMPTZ  | DEFAULT now()                    |                               |
 
 **Primary Key:** (variant_id, media_id)
+
+**Indexes:**
+
+- `idx_variant_media_shop` ON (shop_id)
+
+**RLS Policy:** `variant_media_policy` - shop_id = current_setting('app.current_shop_id')::uuid
 
 ---
 
@@ -1548,8 +1639,8 @@ CREATE INDEX idx_inventory_current_quantity ON inventory_current(quantity);
 | resource_type  | VARCHAR(50) | NOT NULL                             | Product/Collection                            |
 | resource_id    | UUID        | NOT NULL                             | shopify_products.id or shopify_collections.id |
 | is_published   | BOOLEAN     | NOT NULL DEFAULT false               |                                               |
-| published_at   | TIMESTAMPTZ |                                      |                                               |
-| publish_date   | TIMESTAMPTZ | Scheduled publish                    |                                               |
+| published_at   | TIMESTAMPTZ |                                      | When actually published                       |
+| publish_date   | TIMESTAMPTZ |                                      | Scheduled future publish date                 |
 | created_at     | TIMESTAMPTZ | DEFAULT now()                        |                                               |
 | updated_at     | TIMESTAMPTZ | DEFAULT now()                        |                                               |
 
@@ -1668,9 +1759,9 @@ CREATE INDEX idx_inventory_current_quantity ON inventory_current(quantity);
 | errors_count     | INTEGER     | DEFAULT 0                       |                                            |
 | error_log        | JSONB       | DEFAULT '[]'                    | [{url, error, timestamp}]                  |
 | started_at       | TIMESTAMPTZ |                                 |                                            |
-| completed_at.    | TIMESTAMPTZ |                                 |                                            |
+| completed_at     | TIMESTAMPTZ |                                 |                                            |
 | duration_ms      | INTEGER     |                                 | Total runtime                              |
-| memory_peak_mb.  | INTEGER     |                                 | Peak memory usage                          |
+| memory_peak_mb   | INTEGER     |                                 | Peak memory usage                          |
 | created_at       | TIMESTAMPTZ | DEFAULT now()                   |                                            |
 
 **Indexes:**
@@ -1768,6 +1859,105 @@ CREATE INDEX idx_inventory_current_quantity ON inventory_current(quantity);
 - `idx_product_perf_revenue` ON (shop_id, period_type, revenue DESC)
 
 **RLS Policy:** `product_perf_policy` - shop_id = current_setting('app.current_shop_id')::uuid
+
+---
+
+### Materialized View: `mv_shop_summary`
+
+> **Purpose:** Dashboard summary metrics per shop - refreshed hourly
+
+```sql
+CREATE MATERIALIZED VIEW mv_shop_summary AS
+SELECT 
+  s.id as shop_id,
+  s.shopify_domain,
+  COUNT(DISTINCT sp.id) as total_products,
+  COUNT(DISTINCT sv.id) as total_variants,
+  COUNT(DISTINCT sc.id) as total_collections,
+  COUNT(DISTINCT so.id) as total_orders,
+  COALESCE(SUM(so.total_price), 0) as total_revenue,
+  COUNT(DISTINCT cust.id) as total_customers,
+  MAX(sp.synced_at) as last_product_sync,
+  MAX(so.synced_at) as last_order_sync
+FROM shops s
+LEFT JOIN shopify_products sp ON sp.shop_id = s.id AND sp.status = 'ACTIVE'
+LEFT JOIN shopify_variants sv ON sv.shop_id = s.id
+LEFT JOIN shopify_collections sc ON sc.shop_id = s.id
+LEFT JOIN shopify_orders so ON so.shop_id = s.id
+LEFT JOIN shopify_customers cust ON cust.shop_id = s.id
+GROUP BY s.id, s.shopify_domain;
+
+CREATE UNIQUE INDEX idx_mv_shop_summary_pk ON mv_shop_summary(shop_id);
+
+-- Refresh: REFRESH MATERIALIZED VIEW CONCURRENTLY mv_shop_summary;
+```
+
+---
+
+### Materialized View: `mv_low_stock_alerts`
+
+> **Purpose:** Products with low inventory - refreshed every 15 minutes
+
+```sql
+CREATE MATERIALIZED VIEW mv_low_stock_alerts AS
+SELECT
+  v.shop_id,
+  v.id as variant_id,
+  v.product_id,
+  v.sku,
+  v.title as variant_title,
+  p.title as product_title,
+  v.inventory_quantity,
+  COALESCE((p.metafields->>'low_stock_threshold')::int, 5) as threshold
+FROM shopify_variants v
+JOIN shopify_products p ON p.id = v.product_id
+WHERE v.inventory_quantity <= COALESCE((p.metafields->>'low_stock_threshold')::int, 5)
+  AND v.inventory_quantity >= 0
+  AND p.status = 'ACTIVE';
+
+CREATE INDEX idx_mv_low_stock_shop ON mv_low_stock_alerts(shop_id);
+CREATE INDEX idx_mv_low_stock_qty ON mv_low_stock_alerts(inventory_quantity);
+
+-- Refresh: REFRESH MATERIALIZED VIEW CONCURRENTLY mv_low_stock_alerts;
+```
+
+---
+
+### Materialized View: `mv_top_sellers`
+
+> **Purpose:** Top selling products per shop (last 30 days) - refreshed daily
+
+```sql
+CREATE MATERIALIZED VIEW mv_top_sellers AS
+WITH order_items AS (
+  SELECT
+    o.shop_id,
+    (item->>'variant_id')::uuid as variant_id,
+    (item->>'quantity')::int as quantity,
+    (item->>'price')::decimal as price
+  FROM shopify_orders o,
+       jsonb_array_elements(o.line_items) as item
+  WHERE o.created_at_shopify >= NOW() - INTERVAL '30 days'
+    AND o.financial_status IN ('PAID', 'PARTIALLY_REFUNDED')
+)
+SELECT
+  oi.shop_id,
+  v.product_id,
+  p.title as product_title,
+  SUM(oi.quantity) as units_sold,
+  SUM(oi.quantity * oi.price) as revenue,
+  COUNT(DISTINCT oi.variant_id) as variants_sold,
+  RANK() OVER (PARTITION BY oi.shop_id ORDER BY SUM(oi.quantity * oi.price) DESC) as revenue_rank
+FROM order_items oi
+JOIN shopify_variants v ON v.id = oi.variant_id
+JOIN shopify_products p ON p.id = v.product_id
+GROUP BY oi.shop_id, v.product_id, p.title;
+
+CREATE INDEX idx_mv_top_sellers_shop ON mv_top_sellers(shop_id);
+CREATE INDEX idx_mv_top_sellers_rank ON mv_top_sellers(shop_id, revenue_rank);
+
+-- Refresh: REFRESH MATERIALIZED VIEW CONCURRENTLY mv_top_sellers;
+```
 
 ---
 
@@ -2053,8 +2243,23 @@ CREATE POLICY resource_publications_tenant_isolation ON shopify_resource_publica
   USING (shop_id = current_setting('app.current_shop_id', true)::uuid);
 ALTER TABLE shopify_resource_publications FORCE ROW LEVEL SECURITY;
 
--- Note: shopify_product_media, shopify_variant_media use FK cascades
--- and inherit tenant context from parent tables
+-- shopify_product_media (now has shop_id for direct RLS)
+ALTER TABLE shopify_product_media ENABLE ROW LEVEL SECURITY;
+CREATE POLICY product_media_tenant_isolation ON shopify_product_media
+  USING (shop_id = current_setting('app.current_shop_id', true)::uuid);
+ALTER TABLE shopify_product_media FORCE ROW LEVEL SECURITY;
+
+-- shopify_variant_media (now has shop_id for direct RLS)
+ALTER TABLE shopify_variant_media ENABLE ROW LEVEL SECURITY;
+CREATE POLICY variant_media_tenant_isolation ON shopify_variant_media
+  USING (shop_id = current_setting('app.current_shop_id', true)::uuid);
+ALTER TABLE shopify_variant_media FORCE ROW LEVEL SECURITY;
+
+-- shopify_collection_products (now has shop_id for direct RLS)
+ALTER TABLE shopify_collection_products ENABLE ROW LEVEL SECURITY;
+CREATE POLICY collection_products_tenant_isolation ON shopify_collection_products
+  USING (shop_id = current_setting('app.current_shop_id', true)::uuid);
+ALTER TABLE shopify_collection_products FORCE ROW LEVEL SECURITY;
 ```
 
 ### Module K: Menus & Navigation RLS
@@ -2119,6 +2324,139 @@ $$ LANGUAGE plpgsql VOLATILE;
 
 -- Test UUIDv7 generation
 -- SELECT uuidv7(), uuidv7(), uuidv7();
+```
+
+---
+
+## Session Variables (Application Context)
+
+> **Purpose:** Pass context from application to database for RLS and audit logging
+
+### Required Session Variables
+
+| Variable | Type | Purpose | Set By |
+| -------- | ---- | ------- | ------ |
+| `app.current_shop_id` | UUID | Current tenant for RLS filtering | Application (per request) |
+| `app.current_user_id` | UUID | Current user for audit trail | Application (after auth) |
+| `app.trace_id` | TEXT | Request trace ID for observability | Application (from headers) |
+
+### Setting Session Variables
+
+```sql
+-- Per-transaction context (recommended for RLS)
+BEGIN;
+SET LOCAL app.current_shop_id = '018d1234-5678-7000-8000-000000000001';
+SET LOCAL app.current_user_id = '018d1234-5678-7000-8000-000000000002';
+SET LOCAL app.trace_id = 'req-abc123-xyz789';
+
+-- Your queries here - RLS policies will automatically filter by shop_id
+SELECT * FROM shopify_products; -- Only returns products for current shop
+
+COMMIT; -- Variables are cleared after transaction
+```
+
+### Application Integration (Node.js Example)
+
+```typescript
+// Fastify middleware to set RLS context
+async function withShopContext<T>(
+  pool: Pool,
+  shopId: string,
+  userId: string | null,
+  traceId: string | null,
+  callback: (client: PoolClient) => Promise<T>
+): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`SET LOCAL app.current_shop_id = $1`, [shopId]);
+    if (userId) {
+      await client.query(`SET LOCAL app.current_user_id = $1`, [userId]);
+    }
+    if (traceId) {
+      await client.query(`SET LOCAL app.trace_id = $1`, [traceId]);
+    }
+    const result = await callback(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+```
+
+### Custom Parameter Registration
+
+```sql
+-- These parameters are set in postgresql.conf or via ALTER SYSTEM
+-- Or initialized per-session if not pre-registered
+
+-- For development, initialize with empty defaults
+DO $$
+BEGIN
+  PERFORM set_config('app.current_shop_id', '', false);
+  PERFORM set_config('app.current_user_id', '', false);
+  PERFORM set_config('app.trace_id', '', false);
+EXCEPTION WHEN OTHERS THEN
+  -- Parameters not pre-registered, will be created on first SET
+  NULL;
+END $$;
+```
+
+---
+
+## Materialized View Refresh Strategy
+
+> **Purpose:** Define when and how to refresh MVs for optimal performance
+
+### Refresh Schedule
+
+| Materialized View | Refresh Frequency | Trigger | Notes |
+| ----------------- | ----------------- | ------- | ----- |
+| `inventory_current` | After bulk operations | Manual/Job | CONCURRENTLY after bulk imports |
+| `mv_shop_summary` | Hourly | Cron job | Low impact, fast refresh |
+| `mv_low_stock_alerts` | Every 15 minutes | Cron job | Critical for inventory alerts |
+| `mv_top_sellers` | Daily at 03:00 | Cron job | Heavy query, run off-peak |
+
+### Refresh Jobs (BullMQ)
+
+```typescript
+// packages/jobs/src/mv-refresh.ts
+const mvRefreshSchedule = [
+  { name: 'refresh_inventory_current', cron: '*/30 * * * *', priority: 1 },
+  { name: 'refresh_shop_summary', cron: '0 * * * *', priority: 2 },
+  { name: 'refresh_low_stock', cron: '*/15 * * * *', priority: 1 },
+  { name: 'refresh_top_sellers', cron: '0 3 * * *', priority: 3 },
+];
+```
+
+### Manual Refresh Commands
+
+```sql
+-- Safe concurrent refresh (no locking reads)
+REFRESH MATERIALIZED VIEW CONCURRENTLY inventory_current;
+REFRESH MATERIALIZED VIEW CONCURRENTLY mv_shop_summary;
+REFRESH MATERIALIZED VIEW CONCURRENTLY mv_low_stock_alerts;
+REFRESH MATERIALIZED VIEW CONCURRENTLY mv_top_sellers;
+
+-- Force full refresh (blocks reads, use off-peak)
+REFRESH MATERIALIZED VIEW inventory_current;
+```
+
+### Monitoring Refresh Status
+
+```sql
+-- Check last refresh time (approximate via pg_stat_user_tables)
+SELECT 
+  schemaname,
+  relname as mv_name,
+  last_analyze as last_refresh_approx,
+  n_live_tup as row_count
+FROM pg_stat_user_tables 
+WHERE relname LIKE 'mv_%' OR relname = 'inventory_current';
 ```
 
 ---
@@ -2287,15 +2625,18 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_embeddings_product_current
 
 ```sql
 -- Generic audit trigger function
+-- Requires session variables: app.current_shop_id, app.current_user_id (set by application)
 CREATE OR REPLACE FUNCTION audit_log_changes()
 RETURNS TRIGGER AS $$
 DECLARE
   old_data JSONB;
   new_data JSONB;
   shop_uuid UUID;
+  user_uuid UUID;
 BEGIN
-  -- Get current shop context
-  shop_uuid := current_setting('app.current_shop_id', true)::uuid;
+  -- Get current context from session variables
+  shop_uuid := NULLIF(current_setting('app.current_shop_id', true), '')::uuid;
+  user_uuid := NULLIF(current_setting('app.current_user_id', true), '')::uuid;
   
   IF TG_OP = 'DELETE' THEN
     old_data := to_jsonb(OLD);
@@ -2310,21 +2651,23 @@ BEGIN
   
   INSERT INTO audit_logs (
     shop_id,
-    table_name,
-    record_id,
+    user_id,
     action,
+    entity_type,
+    entity_id,
     old_values,
     new_values,
-    changed_by,
+    request_id,
     created_at
   ) VALUES (
     shop_uuid,
+    user_uuid,
+    TG_OP,
     TG_TABLE_NAME,
     COALESCE(NEW.id, OLD.id),
-    TG_OP,
     old_data,
     new_data,
-    current_setting('app.current_user_id', true),
+    NULLIF(current_setting('app.trace_id', true), ''),
     now()
   );
   
@@ -2378,3 +2721,5 @@ CREATE TRIGGER key_rotations_audit_trigger
 | v2.2    | 2025-12-23 | Added shop_product_embeddings, complete RLS for all modules                           |
 | v2.3    | 2025-12-23 | Audit fixes: table counts, ai_batches RLS naming, Module D reorder (53 tables + 1 MV) |
 | v2.4    | 2025-12-25 | +10 tables from audit, +3 MVs. Total: 63 tables + 4 MVs                               |
+| v2.5    | 2025-12-29 | Critical fixes: audit_logs alignment, CHECK constraints, shop_id in junctions, complete staging docs, session vars, MV refresh strategy |
+| v2.5    | 2025-12-29 | Critical review fixes: audit_logs trigger alignment, CHECK constraints, nullable SKU/barcode, shop_id in junction tables, staging tables complete docs, session variables, MV refresh strategy, timezone/currency in shops |
