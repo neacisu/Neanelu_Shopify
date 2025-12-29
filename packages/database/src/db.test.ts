@@ -9,7 +9,7 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
-import { pool, checkDatabaseConnection, closePool } from './db.js';
+import { pool, checkDatabaseConnection, closePool } from './db.ts';
 
 // Typed query results
 interface TestRow {
