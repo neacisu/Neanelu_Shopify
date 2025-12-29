@@ -1,6 +1,17 @@
+#!/bin/sh
 # ============================================
 # PRE-PUSH HOOK (Husky 9+ format)
 # ============================================
+
+# Get the directory where the repo root is (where .env should be)
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# Source environment variables from .env if it exists
+if [ -f "$REPO_ROOT/.env" ]; then
+  set -a
+  . "$REPO_ROOT/.env"
+  set +a
+fi
 
 echo '🧪 Running tests before push...'
 pnpm test || {
