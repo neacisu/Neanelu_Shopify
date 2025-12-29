@@ -113,7 +113,7 @@ export async function closePool(): Promise<void> {
  */
 export async function setTenantContext(client: pg.PoolClient, shopId: string): Promise<void> {
   // Cast este ::uuid (tipul standard PostgreSQL), NU ::UUIDv7
-  await client.query(`SET LOCAL app.current_shop_id = $1::uuid`, [shopId]);
+  await client.query(`SELECT set_config('app.current_shop_id', $1::text, true)`, [shopId]);
 }
 
 /**
@@ -144,4 +144,12 @@ export async function withTenantContext<T>(
   } finally {
     client.release();
   }
+}
+
+/**
+ * Helper pentru a executa o funcție cu RLS activ folosind Drizzle-style
+ * Acceptă un callback care primește clientul pg.
+ */
+export async function withShopContext<T>(shopId: string, fn: () => Promise<T>): Promise<T> {
+  return withTenantContext(shopId, async () => fn());
 }
