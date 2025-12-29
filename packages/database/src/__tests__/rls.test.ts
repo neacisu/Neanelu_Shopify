@@ -17,9 +17,17 @@ void describe('RLS tenant isolation', () => {
     const bootstrap = await pool.connect();
     try {
       await bootstrap.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp";`);
-      await bootstrap.query(`CREATE OR REPLACE FUNCTION uuidv7() RETURNS uuid AS $$
-        SELECT uuid_generate_v7();
-      $$ LANGUAGE SQL IMMUTABLE;`);
+      await bootstrap.query(`CREATE EXTENSION IF NOT EXISTS "pgcrypto";`);
+      await bootstrap.query(`
+      DO $$
+      BEGIN
+        BEGIN
+          PERFORM uuid_generate_v7();
+          EXECUTE 'CREATE OR REPLACE FUNCTION uuidv7() RETURNS uuid AS $$ SELECT uuid_generate_v7(); $$ LANGUAGE SQL IMMUTABLE;';
+        EXCEPTION WHEN undefined_function THEN
+          EXECUTE 'CREATE OR REPLACE FUNCTION uuidv7() RETURNS uuid AS $$ SELECT gen_random_uuid(); $$ LANGUAGE SQL IMMUTABLE;';
+        END;
+      END $$;`);
     } finally {
       bootstrap.release();
     }
