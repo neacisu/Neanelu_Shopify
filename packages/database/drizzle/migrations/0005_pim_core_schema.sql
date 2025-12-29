@@ -47,6 +47,9 @@ CREATE UNIQUE INDEX idx_taxonomy_slug ON prod_taxonomy(slug);
 CREATE INDEX idx_taxonomy_shopify ON prod_taxonomy(shopify_taxonomy_id) WHERE shopify_taxonomy_id IS NOT NULL;
 CREATE INDEX idx_taxonomy_breadcrumbs ON prod_taxonomy USING GIN(breadcrumbs);
 
+-- Unique constraint for ON CONFLICT upsert in taxonomy seed
+ALTER TABLE prod_taxonomy ADD CONSTRAINT prod_taxonomy_shopify_id_unique UNIQUE (shopify_taxonomy_id);
+
 -- ============================================
 -- 2. RAW INGESTION LAYER: prod_sources
 -- ============================================
