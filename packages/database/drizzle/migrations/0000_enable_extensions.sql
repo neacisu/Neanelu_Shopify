@@ -37,20 +37,7 @@ CREATE EXTENSION IF NOT EXISTS "btree_gist";
 -- VECTOR SEARCH (OBLIGATORIU pentru PIM)
 -- ============================================
 
-DO $$
-BEGIN
-  -- În unele imagini (ex: postgres:18-alpine din CI) extensia "vector" nu este disponibilă.
-  -- Nu blocăm migrația: logăm și continuăm.
-  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector') THEN
-    BEGIN
-      CREATE EXTENSION IF NOT EXISTS "vector";
-    EXCEPTION WHEN OTHERS THEN
-      RAISE NOTICE 'vector extension skipped: %', SQLERRM;
-    END;
-  ELSE
-    RAISE NOTICE 'vector extension not available in this environment; skipped';
-  END IF;
-END $$;
+CREATE EXTENSION IF NOT EXISTS "vector";
 
 -- ============================================
 -- MONITORING (OPȚIONAL - recomandat pentru production)
@@ -86,19 +73,14 @@ END $$;
 DO $$
 DECLARE
   ext_count INTEGER;
-  target_count INTEGER;
 BEGIN
-  SELECT COUNT(*) INTO target_count
-  FROM pg_available_extensions
-  WHERE name IN ('pgcrypto', 'citext', 'pg_trgm', 'btree_gin', 'btree_gist', 'vector');
-
   SELECT COUNT(*) INTO ext_count 
   FROM pg_extension 
   WHERE extname IN ('pgcrypto', 'citext', 'pg_trgm', 'btree_gin', 'btree_gist', 'vector');
   
-  IF ext_count >= target_count THEN
-    RAISE NOTICE '✅ Core extensions activated successfully (%/%).', ext_count, target_count;
+  IF ext_count >= 6 THEN
+    RAISE NOTICE '✅ All 6 core extensions activated successfully';
   ELSE
-    RAISE WARNING '⚠️ Only % of % core extensions activated', ext_count, target_count;
+    RAISE WARNING '⚠️ Only % of 6 core extensions activated', ext_count;
   END IF;
 END $$;

@@ -40,9 +40,9 @@ jobs:
       NPM_TASKFORCESH_TOKEN: ${{ secrets.NPM_TASKFORCESH_TOKEN }}
 
     services:
-      # PostgreSQL 18 for integration tests
+      # PostgreSQL 18 with pgvector preinstalled for integration tests
       postgres:
-        image: postgres:18-alpine
+        image: ghcr.io/pgvector/pgvector:pg18
         env:
           POSTGRES_USER: test
           POSTGRES_PASSWORD: test
