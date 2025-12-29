@@ -63,6 +63,10 @@ export default tseslint.config(
       '@typescript-eslint/explicit-function-return-type': 'off',
       '@typescript-eslint/explicit-module-boundary-types': 'off',
       '@typescript-eslint/no-explicit-any': 'warn',
+      // Drizzle ORM FK references use arrow functions that return table.id
+      // This triggers false positives for no-unsafe-return/member-access
+      '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
 
       // ============================================
       // GENERAL RULES
@@ -85,7 +89,7 @@ export default tseslint.config(
   // CONFIG FILES (no type checking)
   // ============================================
   {
-    files: ['*.config.js', '*.config.ts', '*.config.mjs'],
+    files: ['*.config.js', '*.config.ts', '*.config.mjs', '**/drizzle.config.ts'],
     ...tseslint.configs.disableTypeChecked,
   }
 );

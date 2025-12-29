@@ -2,7 +2,8 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": "."
+    "rootDir": ".",
+    "allowImportingTsExtensions": true
   },
   "include": ["apps/*/src/**/*", "packages/*/src/**/*", "oauth-callback-server.ts"],
   "exclude": ["node_modules", "dist", "build", "Research Produse", "Research Categorii"],
