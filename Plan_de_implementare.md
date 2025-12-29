@@ -4022,6 +4022,132 @@ Obiectiv: Extensii specifice care nu sunt strict necesare pentru MVP dar îmbun�
     ]
     ```
 
+### F8.4: External Product Search Integration (Golden Record Strategy)
+
+> [!IMPORTANT]
+> **CONFORM AUDIT SCHEMA 2025-12-29:** Această secțiune implementează **Etapa 4** din strategia PIM pentru Golden Records:
+>
+> - Broad search/research de produse similare cu similaritate 95-100%
+> - Colectare/scraping de informații și atribute din surse externe
+> - Integrare cu Google APIs și xAI Grok pentru extracție structurată
+>
+> **Documentație completă:** `Docs/External_Product_APIs_Integration.md`
+
+    ```JSON
+    [
+    {
+        "id_task": "F8.4.1",
+        "denumire_task": "Google Custom Search API Integration - Setup & GTIN Search",
+        "descriere_task": "**Golden Record - Stage 4.1**\n\nImplementează integrare cu Google Custom Search JSON API:\n\n**Configurare:**\n- Environment variables: GOOGLE_SEARCH_API_KEY, GOOGLE_SEARCH_ENGINE_ID\n- Programmatic Search Engine configurare în Google Cloud Console\n- Rate limiting: 10 req/sec (Tier plătit)\n\n**Implementare:**\n```typescript\n// packages/pim/src/services/google-search.ts\nexport async function searchProductByGTIN(gtin: string): Promise<ProductSearchResult[]>\nexport async function searchProductByMPN(brand: string, mpn: string): Promise<ProductSearchResult[]>\nexport async function searchProductByTitle(title: string, brand?: string): Promise<ProductSearchResult[]>\n```\n\n**Schema.org Parsing:**\n- Extrage pagemap.product din rezultate\n- Parse structured data (gtin14, brand, name, price)\n- Store results în prod_raw_harvest\n\n**Cost tracking:**\n- Log fiecare request în api_usage_log\n- Alertă când se apropie de buget zilnic",
+        "cale_implementare": "/packages/pim/src/services/google-search.ts + /packages/pim/src/schemas/google-search.ts",
+        "contextul_anterior": "F2.2.5-F2.2.7 definesc schema PIM. F6.1-F6.2 definesc AI/Vector.",
+        "validare_task": "Search by GTIN returnează min. 3 rezultate relevante pentru un produs cunoscut. Structured data extrasă corect.",
+        "outcome_task": "Căutare produse externe funcțională pentru enrichment.",
+        "restrictii_antihalucinatie": "NU depăși bugetul zilnic. Cache results agresiv (24h TTL). NU căuta produse care au deja 3+ matches confirmed.",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F8.4.2",
+        "denumire_task": "prod_similarity_matches CRUD & Business Logic",
+        "descriere_task": "**Golden Record - Stage 4.2**\n\nImplementează handlers pentru tabelul prod_similarity_matches:\n\n**Drizzle Schema:**\n```typescript\n// packages/database/src/schema/pim-similarity.ts\nexport const prodSimilarityMatches = pgTable('prod_similarity_matches', {\n  id: uuid('id').primaryKey().defaultRandom(),\n  productId: uuid('product_id').notNull().references(() => prodMaster.id),\n  sourceId: uuid('source_id').references(() => prodSources.id),\n  sourceUrl: text('source_url').notNull(),\n  sourceProductId: varchar('source_product_id', { length: 255 }),\n  sourceGtin: varchar('source_gtin', { length: 14 }),\n  sourceTitle: text('source_title'),\n  sourceBrand: varchar('source_brand', { length: 255 }),\n  sourcePrice: decimal('source_price', { precision: 12, scale: 2 }),\n  sourceCurrency: varchar('source_currency', { length: 3 }),\n  similarityScore: decimal('similarity_score', { precision: 5, scale: 4 }).notNull(),\n  matchMethod: varchar('match_method', { length: 30 }).notNull(),\n  matchConfidence: varchar('match_confidence', { length: 20 }).default('pending'),\n  matchDetails: jsonb('match_details').default({}),\n  extractionSessionId: uuid('extraction_session_id'),\n  specsExtracted: jsonb('specs_extracted'),\n  scrapedAt: timestamp('scraped_at', { withTimezone: true }),\n  validatedAt: timestamp('validated_at', { withTimezone: true }),\n  validatedBy: uuid('validated_by'),\n  validationNotes: text('validation_notes'),\n  isPrimarySource: boolean('is_primary_source').default(false),\n  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),\n  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),\n});\n```\n\n**Business Logic:**\n- Automatic duplicate detection by source_url\n- Similarity score validation (>= 0.95)\n- Match confidence workflow: pending → confirmed/rejected\n- Primary source selection logic",
+        "cale_implementare": "/packages/database/src/schema/pim-similarity.ts + /packages/pim/src/repositories/similarity-matches.ts",
+        "contextul_anterior": "Database schema v2.6 definește prod_similarity_matches.",
+        "validare_task": "CRUD operations funcționale. Duplicate prevention by URL. Confidence transitions validate.",
+        "outcome_task": "Persistare și gestiune matches din căutări externe.",
+        "restrictii_antihalucinatie": "NU accepta similarity_score < 0.90. NU permite multiple primary sources per product.",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F8.4.3",
+        "denumire_task": "xAI Grok Structured Data Extractor",
+        "descriere_task": "**Golden Record - Stage 4.3**\n\nImplementează extracție structurată cu xAI Grok API:\n\n**Configurare:**\n- Environment: XAI_API_KEY, XAI_BASE_URL\n- Model: grok-2-mini pentru bulk, grok-3 pentru validări\n- Temperature: 0.1 pentru consistență\n\n**Zod Schema pentru output:**\n```typescript\n// packages/pim/src/schemas/product-extraction.ts\nexport const ExtractedProductSchema = z.object({\n  title: z.string(),\n  brand: z.string().optional(),\n  mpn: z.string().optional(),\n  gtin: z.string().optional(),\n  category: z.string().optional(),\n  specifications: z.array(z.object({\n    name: z.string(),\n    value: z.string(),\n    unit: z.string().optional(),\n  })),\n  price: z.object({\n    amount: z.number().optional(),\n    currency: z.string().default('RON'),\n  }).optional(),\n  images: z.array(z.string().url()).default([]),\n  confidence: z.object({\n    overall: z.number().min(0).max(1),\n    fields_uncertain: z.array(z.string()).default([]),\n  }),\n});\n```\n\n**Anti-Hallucination:**\n- System prompt explicit: 'NU inventa valori'\n- Post-validation GTIN checksum\n- Confidence threshold: reject if < 0.8\n- Multi-source consensus before acceptance",
+        "cale_implementare": "/packages/pim/src/services/xai-extractor.ts + /packages/pim/src/schemas/product-extraction.ts",
+        "contextul_anterior": "F8.4.1 produce raw HTML. Acest task extrage structured data.",
+        "validare_task": "Extracție din HTML real returnează specs valide. Confidence scores accurate. GTIN checksum pass.",
+        "outcome_task": "Extracție automată de atribute din pagini web.",
+        "restrictii_antihalucinatie": "REJECT results cu confidence < 0.8. VALIDATE GTIN cu checksum. NU trust brand/MPN fără 2+ surse concordante.",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F8.4.4",
+        "denumire_task": "BullMQ Enrichment Queue with Rate Limiting",
+        "descriere_task": "**Golden Record - Stage 4.4**\n\nImplementează queue distribuită pentru enrichment cu rate limiting:\n\n**Queue Configuration:**\n```typescript\n// packages/pim/src/queues/enrichment-queue.ts\nconst enrichmentQueue = new Queue('pim-enrichment', {\n  connection: redis,\n  defaultJobOptions: {\n    attempts: 3,\n    backoff: { type: 'exponential', delay: 5000 },\n    removeOnComplete: { count: 1000 },\n  },\n});\n```\n\n**Rate Limiters per source:**\n- Google: 10 req/sec\n- xAI: 60 req/min\n- Generic scrapers: 5 req/sec\n\n**Job Types:**\n- `search-gtin`: Căutare produs by GTIN\n- `search-title`: Căutare produs by title+brand\n- `scrape-page`: Fetch & store HTML\n- `extract-specs`: xAI extraction\n- `validate-match`: Confirm/reject match\n\n**Priority System:**\n- P1: Golden candidates (high quality_score)\n- P2: Silver products (medium potential)\n- P3: Bronze products (low priority)",
+        "cale_implementare": "/packages/pim/src/queues/enrichment-queue.ts + /packages/pim/src/workers/enrichment-worker.ts",
+        "contextul_anterior": "F4.1 definește BullMQ foundation. Acest task specializează pentru PIM.",
+        "validare_task": "Queue procesează jobs cu rate limiting corect. No 429 errors. Priorities respectate.",
+        "outcome_task": "Procesare asincronă scalabilă pentru enrichment.",
+        "restrictii_antihalucinatie": "NU bypass rate limits. NU procesează același produs de 2 ori în 24h. Respect concurrency limits.",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F8.4.5",
+        "denumire_task": "Multi-Source Consensus Engine",
+        "descriere_task": "**Golden Record - Stage 5 (Compilation)**\n\nImplementează engine pentru compilare date din multiple surse:\n\n**Algoritm Consensus:**\n```typescript\n// packages/pim/src/services/consensus-engine.ts\nexport async function computeConsensus(productId: string): Promise<ConsensuResult> {\n  // 1. Fetch toate matches confirmed pentru produs\n  const matches = await getConfirmedMatches(productId);\n  \n  // 2. Group specs by attribute name\n  const attributeVotes = groupByAttribute(matches);\n  \n  // 3. Pentru fiecare atribut, calculează winner\n  const consensusSpecs = {};\n  for (const [attr, votes] of Object.entries(attributeVotes)) {\n    consensusSpecs[attr] = computeWinner(votes, {\n      weightByTrustScore: true,  // Source trust_score\n      weightBySimilarity: true,  // Match similarity_score\n      minVotes: 2,               // Min 2 surse pentru accept\n    });\n  }\n  \n  // 4. Compute overall quality score\n  const qualityScore = computeQualityScore(consensusSpecs, matches.length);\n  \n  return { specs: consensusSpecs, qualityScore, sourcesCount: matches.length };\n}\n```\n\n**Conflict Resolution:**\n- Majority voting pentru valori categorice\n- Weighted average pentru numerice\n- Trust score × similarity score = vote weight\n- Flag conflicts pentru manual review",
+        "cale_implementare": "/packages/pim/src/services/consensus-engine.ts + /packages/pim/src/services/quality-scorer.ts",
+        "contextul_anterior": "F8.4.1-F8.4.4 colectează date. Acest task le compilează.",
+        "validare_task": "Consensus corect pentru 3+ surse. Quality score reflectă completeness. Conflicts flagged.",
+        "outcome_task": "Compilare inteligentă a datelor din multiple surse.",
+        "restrictii_antihalucinatie": "NU accept single-source pentru atribute critice (GTIN, brand). NU override manual corrections. Flag don't auto-resolve conflicts.",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F8.4.6",
+        "denumire_task": "Quality Level Promotion Logic (Bronze→Silver→Golden)",
+        "descriere_task": "**Golden Record - Stage 6 (Promotion)**\n\nImplementează logica de promovare între quality levels:\n\n**Thresholds:**\n```typescript\n// packages/pim/src/services/quality-promoter.ts\nconst PROMOTION_THRESHOLDS = {\n  bronze_to_silver: {\n    minQualityScore: 0.6,\n    minSources: 2,\n    requiredFields: ['brand', 'category'],\n  },\n  silver_to_golden: {\n    minQualityScore: 0.85,\n    minSources: 3,\n    requiredFields: ['gtin', 'brand', 'mpn', 'category'],\n    minSpecsCount: 5,\n  },\n};\n```\n\n**Promotion Flow:**\n1. After consensus computation → check thresholds\n2. If eligible → update prod_master.data_quality_level\n3. Log event în prod_quality_events\n4. Trigger webhook if configured\n\n**Demotion Logic:**\n- If source rejected → recalculate consensus\n- If quality_score drops below threshold → demote\n- Log reason în prod_quality_events",
+        "cale_implementare": "/packages/pim/src/services/quality-promoter.ts + /packages/pim/src/events/quality-events.ts",
+        "contextul_anterior": "F8.4.5 produce consensus și quality score. Acest task promovează.",
+        "validare_task": "Product cu 3 sources și score 0.9 → promoted to golden. Demotion când source rejected. Events logged.",
+        "outcome_task": "Automatizare promovare produse către Golden Record status.",
+        "restrictii_antihalucinatie": "NU promova fără minimum sources. NU demota fără recalculate. ALWAYS log events.",
+        "prioritate": "P1"
+    },
+    {
+        "id_task": "F8.4.7",
+        "denumire_task": "API Cost Tracking & Budget Alerts",
+        "descriere_task": "**Operațional - Cost Management**\n\nImplementează tracking pentru costuri API externe:\n\n**Tabel api_usage_log:**\n```sql\nCREATE TABLE api_usage_log (\n  id UUID PRIMARY KEY DEFAULT uuidv7(),\n  api_provider VARCHAR(50) NOT NULL,  -- google/xai/emag\n  endpoint VARCHAR(100) NOT NULL,\n  request_count INTEGER NOT NULL DEFAULT 1,\n  tokens_input INTEGER,\n  tokens_output INTEGER,\n  estimated_cost DECIMAL(10,4),\n  job_id VARCHAR(255),\n  product_id UUID REFERENCES prod_master(id),\n  created_at TIMESTAMPTZ DEFAULT now()\n);\n```\n\n**Budget Alerts:**\n- Daily budget per provider (configurable)\n- 80% warning alert\n- 100% hard stop (pause queue)\n- Weekly cost summary email\n\n**Dashboard Integration:**\n- Cost breakdown widget\n- Provider efficiency comparison\n- Cost per Golden Record metric",
+        "cale_implementare": "/packages/database/src/schema/api-usage.ts + /packages/pim/src/services/cost-tracker.ts",
+        "contextul_anterior": "F8.4.1-F8.4.6 consumă API-uri plătite. Acest task monitorizează costuri.",
+        "validare_task": "Costuri logged corect. Alert la 80% budget. Queue paused la 100%. Dashboard shows breakdown.",
+        "outcome_task": "Control financiar asupra consumului API.",
+        "restrictii_antihalucinatie": "NU continuați procesare după budget exceeded. Alert before reaching limit. Include ALL API calls.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F8.4.8",
+        "denumire_task": "PIM Progress Dashboard Materialized Views",
+        "descriere_task": "**Analytics - PIM Metrics**\n\nImplementează MVs pentru dashboard PIM progress:\n\n**MVs definite în schema:**\n- mv_pim_quality_progress - distribuție bronze/silver/golden\n- mv_pim_enrichment_status - status enrichment per level\n- mv_pim_source_performance - performanță per source\n\n**Refresh Strategy:**\n```typescript\n// packages/pim/src/jobs/mv-refresh.ts\nexport const MV_REFRESH_SCHEDULE = {\n  'mv_pim_quality_progress': '0 * * * *',     // hourly\n  'mv_pim_enrichment_status': '0 * * * *',    // hourly\n  'mv_pim_source_performance': '0 0 * * *',   // daily\n};\n```\n\n**API Endpoints:**\n- GET /api/pim/stats/quality-distribution\n- GET /api/pim/stats/enrichment-progress\n- GET /api/pim/stats/source-performance",
+        "cale_implementare": "/packages/pim/src/jobs/mv-refresh.ts + /apps/backend-api/src/routes/pim-stats.ts",
+        "contextul_anterior": "Database schema v2.6 definește MVs. Acest task le activează.",
+        "validare_task": "MVs refresh pe schedule. API returns accurate data. Dashboard displays correctly.",
+        "outcome_task": "Vizibilitate în progresul PIM către Golden Records.",
+        "restrictii_antihalucinatie": "Use CONCURRENTLY for refresh. Handle empty data gracefully. Cache API responses 1 min.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F8.4.9",
+        "denumire_task": "Quality Events Webhook System",
+        "descriere_task": "**Events - Notifications**\n\nImplementează sistem de webhooks pentru quality events:\n\n**Event Types:**\n- quality_promoted (bronze→silver, silver→golden)\n- quality_demoted (reverse)\n- review_requested (manual review needed)\n- milestone_reached (100/1000/10000 golden)\n\n**Webhook Payload:**\n```typescript\ninterface QualityEventPayload {\n  event_type: 'quality_promoted' | 'quality_demoted' | 'review_requested' | 'milestone_reached';\n  product_id: string;\n  sku: string;\n  previous_level?: string;\n  new_level: string;\n  quality_score: number;\n  trigger_reason: string;\n  timestamp: string;\n  shop_id?: string;\n}\n```\n\n**Delivery:**\n- Webhook URLs configurabile per shop\n- Retry logic: 3 attempts, exponential backoff\n- Signature verification (HMAC-SHA256)\n- Delivery status logging în prod_quality_events",
+        "cale_implementare": "/packages/pim/src/services/webhook-dispatcher.ts + /packages/pim/src/events/quality-webhook.ts",
+        "contextul_anterior": "F8.4.6 generează events. Acest task le transmite.",
+        "validare_task": "Webhook sent on promotion. Retry pe failure. Signature validates. Delivery logged.",
+        "outcome_task": "Notificări externe pentru schimbări de quality level.",
+        "restrictii_antihalucinatie": "NU trimite webhooks pentru test data. Validate URL before save. Log all attempts.",
+        "prioritate": "P2"
+    },
+    {
+        "id_task": "F8.4.10",
+        "denumire_task": "Web Scraper with Playwright (Fallback)",
+        "descriere_task": "**Fallback - Generic Scraping**\n\nImplementează scraper generic pentru pagini fără Schema.org:\n\n**Stack:**\n- Playwright pentru rendering JS\n- Cheerio pentru parsing HTML static\n- robots.txt respect\n- Rate limiting per domain\n\n**Flow:**\n```typescript\n// packages/scraper/src/scrapers/generic.ts\nexport async function scrapeProductPage(url: string): Promise<RawHarvest> {\n  // 1. Check robots.txt\n  if (await isDisallowed(url)) throw new Error('Blocked by robots.txt');\n  \n  // 2. Render page with Playwright\n  const browser = await chromium.launch({ headless: true });\n  const page = await browser.newPage();\n  await page.goto(url, { waitUntil: 'networkidle' });\n  \n  // 3. Extract JSON-LD structured data\n  const jsonLd = await page.evaluate(() => {\n    const scripts = document.querySelectorAll('script[type=\"application/ld+json\"]');\n    return Array.from(scripts).map(s => JSON.parse(s.textContent || '{}'));\n  });\n  \n  const html = await page.content();\n  await browser.close();\n  \n  return { url, html, jsonLd, fetchedAt: new Date() };\n}\n```\n\n**Storage:**\n- HTML → prod_raw_harvest.raw_html\n- JSON-LD → prod_raw_harvest.raw_json\n- Content hash pentru deduplication",
+        "cale_implementare": "/packages/scraper/src/scrapers/generic.ts + /packages/scraper/src/utils/robots-parser.ts",
+        "contextul_anterior": "Google Search returnează URLs. Acest task fetch-uiește conținutul.",
+        "validare_task": "Scrape page cu JS rendering. Extract JSON-LD. Respect robots.txt. Content hash dedup works.",
+        "outcome_task": "Fallback pentru pagini care nu sunt în Google structured data.",
+        "restrictii_antihalucinatie": "ALWAYS check robots.txt. NO scraping login-protected pages. Rate limit 1 req/sec per domain.",
+        "prioritate": "P2"
+    }
+    ]
+    ```
+
 ---
 
 ## Sprint Plan: Execuție și PR-uri
@@ -4334,6 +4460,51 @@ Obiectiv: Extensii specifice care nu sunt strict necesare pentru MVP dar îmbun�
 
 ---
 
+### Sprint 9 (Săptămâna 9-10): Golden Record Strategy - External Product Search
+
+> [!IMPORTANT]
+> **CONFORM AUDIT SCHEMA 2025-12-29:** Acest sprint implementează strategia completă pentru Golden Records prin integrare cu surse externe de date.
+>
+> **Documentație:** `Docs/External_Product_APIs_Integration.md`
+
+#### F8.4.1-F8.4.3: External Search & Extraction
+
+| PR #   | Branch                    | Tasks                                                          | Dependențe |
+| ------ | ------------------------- | -------------------------------------------------------------- | ---------- |
+| PR-057 | `pr/F8.4.1-google-search` | F8.4.1 (Google Custom Search API integration, GTIN/MPN search) | PR-044     |
+| PR-058 | `pr/F8.4.2-similarity`    | F8.4.2 (prod_similarity_matches CRUD, business logic)          | PR-057     |
+| PR-059 | `pr/F8.4.3-xai-extractor` | F8.4.3 (xAI Grok structured extraction, anti-hallucination)    | PR-058     |
+
+#### F8.4.4-F8.4.6: Enrichment Pipeline & Quality Promotion
+
+| PR #   | Branch                   | Tasks                                                       | Dependențe |
+| ------ | ------------------------ | ----------------------------------------------------------- | ---------- |
+| PR-060 | `pr/F8.4.4-enrich-queue` | F8.4.4 (BullMQ enrichment queue, rate limiting per source)  | PR-059     |
+| PR-061 | `pr/F8.4.5-consensus`    | F8.4.5 (Multi-source consensus engine, conflict resolution) | PR-060     |
+| PR-062 | `pr/F8.4.6-promotion`    | F8.4.6 (Quality level promotion logic bronze→silver→golden) | PR-061     |
+
+#### F8.4.7-F8.4.10: Operations & Fallback
+
+| PR #   | Branch                 | Tasks                                              | Dependențe |
+| ------ | ---------------------- | -------------------------------------------------- | ---------- |
+| PR-063 | `pr/F8.4.7-cost-track` | F8.4.7 (API cost tracking, budget alerts)          | PR-060     |
+| PR-064 | `pr/F8.4.8-pim-mvs`    | F8.4.8 (PIM progress dashboard MVs, API endpoints) | PR-062     |
+| PR-065 | `pr/F8.4.9-webhooks`   | F8.4.9 (Quality events webhook system)             | PR-062     |
+| PR-066 | `pr/F8.4.10-scraper`   | F8.4.10 (Playwright scraper fallback, robots.txt)  | PR-060     |
+
+**Sprint 9 Deliverables:**
+
+- ✅ Google Custom Search integration pentru product discovery
+- ✅ xAI Grok extraction cu anti-hallucination
+- ✅ Multi-source consensus engine pentru Golden Records
+- ✅ Automatic quality level promotion (bronze→silver→golden)
+- ✅ Cost tracking și budget alerts
+- ✅ PIM progress metrics dashboard
+- ✅ Webhook notifications pentru quality events
+- ✅ Fallback web scraper cu Playwright
+
+---
+
 ### Summary: PR Count per Sprint
 
 | Sprint | Săptămâna | PRs                  | Focus                    |
@@ -4345,8 +4516,9 @@ Obiectiv: Extensii specifice care nu sunt strict necesare pentru MVP dar îmbun�
 | S5-6   | W5-6      | PR-026 → PR-036 (11) | Bulk Ingestion           |
 | S7     | W7        | PR-037 → PR-044 (8)  | AI & Vector Search       |
 | S8     | W8        | PR-045 → PR-056 (12) | Production               |
+| S9     | W9-10     | PR-057 → PR-066 (10) | Golden Record Strategy   |
 
-> **Total: 56 PRs**
+> **Total: 66 PRs**
 
 ---
 

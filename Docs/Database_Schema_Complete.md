@@ -882,12 +882,17 @@
 | dedupe_status     | VARCHAR(20)  | DEFAULT 'unique'     | unique/merged/duplicate   |
 | dedupe_cluster_id | UUID         |                      | Cluster reference         |
 | primary_source_id | UUID         | FK prod_sources(id)  |                           |
-| lifecycle_status  | VARCHAR(20)  | DEFAULT 'active'     | active/discontinued/draft |
-| quality_score     | DECIMAL(3,2) |                      | 0.0-1.0                   |
-| needs_review      | BOOLEAN      | DEFAULT false        |                           |
-| review_notes      | TEXT         |                      |                           |
-| created_at        | TIMESTAMPTZ  | DEFAULT now()        |                           |
-| updated_at        | TIMESTAMPTZ  | DEFAULT now()        |                           |
+| lifecycle_status    | VARCHAR(20)  | DEFAULT 'active'     | active/discontinued/draft |
+| data_quality_level  | VARCHAR(20)  | NOT NULL DEFAULT 'bronze' CHECK (data_quality_level IN ('bronze', 'silver', 'golden', 'review_needed')) | PIM maturity stage |
+| quality_score       | DECIMAL(3,2) |                      | 0.0-1.0 computed score    |
+| quality_score_breakdown | JSONB    | DEFAULT '{}'         | {completeness, accuracy, consistency} |
+| last_quality_check  | TIMESTAMPTZ  |                      | When quality was last evaluated |
+| promoted_to_silver_at | TIMESTAMPTZ |                     | Timestamp of silver promotion |
+| promoted_to_golden_at | TIMESTAMPTZ |                     | Timestamp of golden promotion |
+| needs_review        | BOOLEAN      | DEFAULT false        |                           |
+| review_notes        | TEXT         |                      |                           |
+| created_at          | TIMESTAMPTZ  | DEFAULT now()        |                           |
+| updated_at          | TIMESTAMPTZ  | DEFAULT now()        |                           |
 
 **Indexes:**
 
@@ -897,6 +902,10 @@
 - `idx_master_gtin` ON (gtin) WHERE gtin IS NOT NULL
 - `idx_master_mpn` ON (manufacturer, mpn)
 - `idx_master_review` ON (needs_review) WHERE needs_review = true
+- `idx_master_quality_level` ON (data_quality_level)
+- `idx_master_bronze` ON (id) WHERE data_quality_level = 'bronze'
+- `idx_master_silver` ON (id) WHERE data_quality_level = 'silver'
+- `idx_master_golden` ON (id) WHERE data_quality_level = 'golden'
 
 ---
 
@@ -1053,6 +1062,83 @@
 - `idx_cluster_members_similarity` ON (cluster_id, similarity_score DESC)
 
 **Note:** No RLS - PIM is global data, access controlled at application layer.
+
+---
+
+### Table: `prod_similarity_matches`
+
+> **Purpose:** Store external product matches from broad search/research (Google, suppliers, web scraping) for 95-100% similarity validation
+
+| Column               | Type           | Constraints                            | Description                              |
+| -------------------- | -------------- | -------------------------------------- | ---------------------------------------- |
+| id                   | UUID           | PK DEFAULT uuidv7()                    |                                          |
+| product_id           | UUID           | FK prod_master(id) NOT NULL            | Our internal product                     |
+| source_id            | UUID           | FK prod_sources(id)                    | Where the match was found                |
+| source_url           | TEXT           | NOT NULL                               | URL of external product page             |
+| source_product_id    | VARCHAR(255)   |                                        | External product ID (ASIN, eMag ID)      |
+| source_gtin          | VARCHAR(14)    |                                        | GTIN from external source                |
+| source_title         | TEXT           |                                        | Title from external source               |
+| source_brand         | VARCHAR(255)   |                                        | Brand from external source               |
+| source_price         | DECIMAL(12,2)  |                                        | Price from external source               |
+| source_currency      | VARCHAR(3)     |                                        | Currency code                            |
+| similarity_score     | DECIMAL(5,4)   | NOT NULL CHECK (similarity_score >= 0 AND similarity_score <= 1) | 0.95-1.00 for valid matches |
+| match_method         | VARCHAR(30)    | NOT NULL                               | gtin_exact/vector_semantic/title_fuzzy/mpn_exact |
+| match_confidence     | VARCHAR(20)    | DEFAULT 'pending'                      | pending/confirmed/rejected/uncertain     |
+| match_details        | JSONB          | DEFAULT '{}'                           | {matched_fields, scores_breakdown}       |
+| extraction_session_id| UUID           | FK prod_extraction_sessions(id)        | If specs were extracted                  |
+| specs_extracted      | JSONB          |                                        | Specs harvested from this source         |
+| scraped_at           | TIMESTAMPTZ    |                                        | When the source was scraped              |
+| validated_at         | TIMESTAMPTZ    |                                        | When human/AI validated                  |
+| validated_by         | UUID           | FK staff_users(id)                     | Who validated (if human)                 |
+| validation_notes     | TEXT           |                                        |                                          |
+| is_primary_source    | BOOLEAN        | DEFAULT false                          | Is this the best match for enrichment    |
+| created_at           | TIMESTAMPTZ    | DEFAULT now()                          |                                          |
+| updated_at           | TIMESTAMPTZ    | DEFAULT now()                          |                                          |
+
+**Indexes:**
+
+- `idx_similarity_product` ON (product_id)
+- `idx_similarity_source` ON (source_id)
+- `idx_similarity_gtin` ON (source_gtin) WHERE source_gtin IS NOT NULL
+- `idx_similarity_score` ON (similarity_score DESC) WHERE similarity_score >= 0.95
+- `idx_similarity_method` ON (match_method, match_confidence)
+- `idx_similarity_pending` ON (match_confidence) WHERE match_confidence = 'pending'
+- `idx_similarity_confirmed` ON (product_id, is_primary_source) WHERE match_confidence = 'confirmed'
+- `idx_similarity_url` ON (source_url)
+
+**Note:** No RLS - PIM is global data, access controlled at application layer.
+
+---
+
+### Table: `prod_quality_events`
+
+> **Purpose:** Track quality level changes for audit trail and notifications (Gap #5)
+
+| Column             | Type         | Constraints                    | Description                           |
+| ------------------ | ------------ | ------------------------------ | ------------------------------------- |
+| id                 | UUID         | PK DEFAULT uuidv7()            |                                       |
+| product_id         | UUID         | FK prod_master(id) NOT NULL    |                                       |
+| event_type         | VARCHAR(50)  | NOT NULL                       | quality_promoted/quality_demoted/review_requested |
+| previous_level     | VARCHAR(20)  |                                | bronze/silver/golden                  |
+| new_level          | VARCHAR(20)  | NOT NULL                       | bronze/silver/golden/review_needed    |
+| quality_score_before | DECIMAL(3,2) |                              |                                       |
+| quality_score_after  | DECIMAL(3,2) |                              |                                       |
+| trigger_reason     | VARCHAR(100) | NOT NULL                       | auto_enrichment/manual_review/data_change/scheduled_check |
+| trigger_details    | JSONB        | DEFAULT '{}'                   | {changed_fields, enrichment_source}   |
+| triggered_by       | UUID         | FK staff_users(id)             | NULL if automated                     |
+| job_id             | VARCHAR(255) |                                | BullMQ job reference if async         |
+| webhook_sent       | BOOLEAN      | DEFAULT false                  | Was notification sent                 |
+| webhook_sent_at    | TIMESTAMPTZ  |                                |                                       |
+| created_at         | TIMESTAMPTZ  | DEFAULT now()                  |                                       |
+
+**Indexes:**
+
+- `idx_quality_events_product` ON (product_id, created_at DESC)
+- `idx_quality_events_type` ON (event_type, created_at DESC)
+- `idx_quality_events_level` ON (new_level, created_at DESC)
+- `idx_quality_events_pending_webhook` ON (created_at) WHERE webhook_sent = false
+
+**Note:** No RLS - PIM is global data.
 
 ---
 
@@ -1798,6 +1884,63 @@ CREATE INDEX idx_inventory_current_quantity ON inventory_current(quantity);
 
 ---
 
+### Table: `api_usage_log`
+
+> **Purpose:** Track external API usage and costs for budget management (Gap #3 - F8.4.7)
+
+| Column          | Type           | Constraints                 | Description                       |
+| --------------- | -------------- | --------------------------- | --------------------------------- |
+| id              | UUID           | PK DEFAULT uuidv7()         |                                   |
+| api_provider    | VARCHAR(50)    | NOT NULL                    | google/xai/emag/barcodelookup     |
+| endpoint        | VARCHAR(100)   | NOT NULL                    | API endpoint path                 |
+| request_count   | INTEGER        | NOT NULL DEFAULT 1          | Requests in this batch            |
+| tokens_input    | INTEGER        |                             | Input tokens (LLM only)           |
+| tokens_output   | INTEGER        |                             | Output tokens (LLM only)          |
+| estimated_cost  | DECIMAL(10,4)  |                             | Cost in USD                       |
+| http_status     | INTEGER        |                             | Response status code              |
+| response_time_ms| INTEGER        |                             | Request latency                   |
+| job_id          | VARCHAR(255)   |                             | BullMQ job reference              |
+| product_id      | UUID           | FK prod_master(id)          | If related to specific product    |
+| shop_id         | UUID           | FK shops(id)                | If shop-specific                  |
+| error_message   | TEXT           |                             | Error if request failed           |
+| metadata        | JSONB          | DEFAULT '{}'                | Additional request context        |
+| created_at      | TIMESTAMPTZ    | DEFAULT now()               |                                   |
+
+**Indexes:**
+
+- `idx_api_usage_provider_date` ON (api_provider, created_at)
+- `idx_api_usage_product` ON (product_id) WHERE product_id IS NOT NULL
+- `idx_api_usage_shop` ON (shop_id, created_at) WHERE shop_id IS NOT NULL
+- `idx_api_usage_cost` ON (created_at, estimated_cost) WHERE estimated_cost > 0
+- `idx_api_usage_errors` ON (api_provider, created_at) WHERE http_status >= 400
+
+**RLS Policy:** Optional - shop_id = current_setting('app.current_shop_id')::uuid (if shop_id IS NOT NULL)
+
+**Partitioning:** PARTITION BY RANGE (created_at) - monthly partitions
+
+---
+
+### View: `v_api_daily_costs`
+
+> **Purpose:** Aggregated daily costs per API provider
+
+```sql
+CREATE VIEW v_api_daily_costs AS
+SELECT 
+  DATE(created_at) as date,
+  api_provider,
+  SUM(request_count) as total_requests,
+  SUM(tokens_input) as total_input_tokens,
+  SUM(tokens_output) as total_output_tokens,
+  SUM(estimated_cost) as total_cost,
+  COUNT(*) FILTER (WHERE http_status >= 400) as error_count,
+  AVG(response_time_ms) as avg_response_time_ms
+FROM api_usage_log
+GROUP BY DATE(created_at), api_provider;
+```
+
+---
+
 ## Module M: Analytics & Reporting
 
 > **Frontend dashboards:** Precomputed metrics și aggregations
@@ -1957,6 +2100,99 @@ CREATE INDEX idx_mv_top_sellers_shop ON mv_top_sellers(shop_id);
 CREATE INDEX idx_mv_top_sellers_rank ON mv_top_sellers(shop_id, revenue_rank);
 
 -- Refresh: REFRESH MATERIALIZED VIEW CONCURRENTLY mv_top_sellers;
+```
+
+---
+
+### Materialized View: `mv_pim_quality_progress`
+
+> **Purpose:** PIM quality level distribution and progress metrics - refreshed hourly (Gap #4)
+
+```sql
+CREATE MATERIALIZED VIEW mv_pim_quality_progress AS
+SELECT
+  data_quality_level,
+  COUNT(*) as product_count,
+  ROUND(COUNT(*)::numeric / NULLIF(SUM(COUNT(*)) OVER (), 0) * 100, 2) as percentage,
+  AVG(quality_score) as avg_quality_score,
+  COUNT(*) FILTER (WHERE needs_review = true) as needs_review_count,
+  COUNT(*) FILTER (WHERE promoted_to_silver_at >= NOW() - INTERVAL '24 hours') as promoted_to_silver_24h,
+  COUNT(*) FILTER (WHERE promoted_to_golden_at >= NOW() - INTERVAL '24 hours') as promoted_to_golden_24h,
+  COUNT(*) FILTER (WHERE promoted_to_silver_at >= NOW() - INTERVAL '7 days') as promoted_to_silver_7d,
+  COUNT(*) FILTER (WHERE promoted_to_golden_at >= NOW() - INTERVAL '7 days') as promoted_to_golden_7d,
+  MAX(updated_at) as last_update
+FROM prod_master
+GROUP BY data_quality_level;
+
+CREATE UNIQUE INDEX idx_mv_pim_quality_level ON mv_pim_quality_progress(data_quality_level);
+
+-- Refresh: REFRESH MATERIALIZED VIEW CONCURRENTLY mv_pim_quality_progress;
+```
+
+---
+
+### Materialized View: `mv_pim_enrichment_status`
+
+> **Purpose:** Track enrichment progress from external sources - refreshed hourly
+
+```sql
+CREATE MATERIALIZED VIEW mv_pim_enrichment_status AS
+SELECT
+  pm.data_quality_level,
+  COUNT(DISTINCT pm.id) as total_products,
+  COUNT(DISTINCT psm.product_id) as products_with_matches,
+  COUNT(psm.id) as total_matches,
+  COUNT(psm.id) FILTER (WHERE psm.match_confidence = 'confirmed') as confirmed_matches,
+  COUNT(psm.id) FILTER (WHERE psm.match_confidence = 'pending') as pending_matches,
+  COUNT(psm.id) FILTER (WHERE psm.match_confidence = 'rejected') as rejected_matches,
+  COUNT(DISTINCT psm.source_id) as unique_sources,
+  AVG(psm.similarity_score) FILTER (WHERE psm.match_confidence = 'confirmed') as avg_confirmed_similarity,
+  COUNT(DISTINCT pes.product_id) as products_with_specs,
+  MAX(psm.created_at) as last_match_found
+FROM prod_master pm
+LEFT JOIN prod_similarity_matches psm ON psm.product_id = pm.id
+LEFT JOIN prod_specs_normalized pes ON pes.product_id = pm.id AND pes.is_current = true
+GROUP BY pm.data_quality_level;
+
+CREATE UNIQUE INDEX idx_mv_pim_enrichment_level ON mv_pim_enrichment_status(data_quality_level);
+
+-- Refresh: REFRESH MATERIALIZED VIEW CONCURRENTLY mv_pim_enrichment_status;
+```
+
+---
+
+### Materialized View: `mv_pim_source_performance`
+
+> **Purpose:** Track which external sources provide best quality matches - refreshed daily
+
+```sql
+CREATE MATERIALIZED VIEW mv_pim_source_performance AS
+SELECT
+  ps.id as source_id,
+  ps.name as source_name,
+  ps.source_type,
+  ps.trust_score,
+  COUNT(psm.id) as total_matches,
+  COUNT(psm.id) FILTER (WHERE psm.match_confidence = 'confirmed') as confirmed_matches,
+  COUNT(psm.id) FILTER (WHERE psm.match_confidence = 'rejected') as rejected_matches,
+  ROUND(
+    COUNT(psm.id) FILTER (WHERE psm.match_confidence = 'confirmed')::numeric / 
+    NULLIF(COUNT(psm.id) FILTER (WHERE psm.match_confidence IN ('confirmed', 'rejected')), 0) * 100, 
+    2
+  ) as confirmation_rate,
+  AVG(psm.similarity_score) as avg_similarity,
+  COUNT(DISTINCT psm.product_id) as products_enriched,
+  COUNT(DISTINCT pes.id) as specs_extracted,
+  MAX(psm.scraped_at) as last_scrape
+FROM prod_sources ps
+LEFT JOIN prod_similarity_matches psm ON psm.source_id = ps.id
+LEFT JOIN prod_extraction_sessions pes ON pes.id = psm.extraction_session_id
+GROUP BY ps.id, ps.name, ps.source_type, ps.trust_score;
+
+CREATE UNIQUE INDEX idx_mv_pim_source_perf_pk ON mv_pim_source_performance(source_id);
+CREATE INDEX idx_mv_pim_source_perf_rate ON mv_pim_source_performance(confirmation_rate DESC);
+
+-- Refresh: REFRESH MATERIALIZED VIEW CONCURRENTLY mv_pim_source_performance;
 ```
 
 ---
@@ -2577,7 +2813,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_embeddings_product_current
 | A: System Core          | 9                     | Multi-tenancy, auth, sessions, OAuth, feature flags, config |
 | B: Shopify Mirror       | 9                     | Shopify data sync + webhook events                          |
 | C: Bulk Operations      | 6                     | Bulk import staging                                         |
-| D: Global PIM           | 8+4 = 12              | Product information + proposals + dedup + translations      |
+| D: Global PIM           | 8+4+2 = 14            | Product info + proposals + dedup + translations + similarity matches + quality events |
 | E: Normalization        | 4                     | Attributes, PIM vectors + per-shop embeddings               |
 | F: AI Batch             | 3                     | AI processing jobs + embedding batches                      |
 | G: Queue                | 4                     | Job tracking + rate limiting                                |
@@ -2585,9 +2821,31 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_embeddings_product_current
 | I: Inventory            | 2+1 MV                | High-velocity inventory tracking                            |
 | J: Media & Publications | 5                     | Shopify media, channels                                     |
 | K: Menus                | 2                     | Navigation structures                                       |
-| L: Scraper              | 3                     | Web scraping management                                     |
-| M: Analytics            | 2+3 MVs               | Precomputed metrics + dashboard MVs                         |
-| **Total**               | **63 tables + 4 MVs** |                                                             |
+| L: Scraper              | 4 + 1 View            | Web scraping management + API cost tracking                 |
+| M: Analytics            | 2+6 MVs               | Precomputed metrics + dashboard MVs + PIM progress MVs      |
+| **Total**               | **66 tables + 7 MVs + 1 View** |                                                      |
+
+### New Tables Added (v2.6)
+
+| Table | Module | Purpose |
+| ----- | ------ | ------- |
+| `prod_similarity_matches` | D | Store external product matches from broad search (95-100% similarity) |
+| `prod_quality_events` | D | Track quality level changes for audit trail and webhooks |
+| `api_usage_log` | L | Track external API usage and costs for budget management |
+
+### New Views Added (v2.6)
+
+| View | Module | Purpose |
+| ---- | ------ | ------- |
+| `v_api_daily_costs` | L | Aggregated daily costs per API provider |
+
+### New MVs Added (v2.6)
+
+| Materialized View | Module | Purpose |
+| ----------------- | ------ | ------- |
+| `mv_pim_quality_progress` | M | PIM quality level distribution (bronze/silver/golden) |
+| `mv_pim_enrichment_status` | M | Track enrichment progress from external sources |
+| `mv_pim_source_performance` | M | Track which sources provide best quality matches |
 
 ---
 
@@ -2721,5 +2979,5 @@ CREATE TRIGGER key_rotations_audit_trigger
 | v2.2    | 2025-12-23 | Added shop_product_embeddings, complete RLS for all modules                           |
 | v2.3    | 2025-12-23 | Audit fixes: table counts, ai_batches RLS naming, Module D reorder (53 tables + 1 MV) |
 | v2.4    | 2025-12-25 | +10 tables from audit, +3 MVs. Total: 63 tables + 4 MVs                               |
-| v2.5    | 2025-12-29 | Critical fixes: audit_logs alignment, CHECK constraints, shop_id in junctions, complete staging docs, session vars, MV refresh strategy |
 | v2.5    | 2025-12-29 | Critical review fixes: audit_logs trigger alignment, CHECK constraints, nullable SKU/barcode, shop_id in junction tables, staging tables complete docs, session variables, MV refresh strategy, timezone/currency in shops |
+| v2.6    | 2025-12-29 | **Golden Record Strategy Gaps Fix:** +3 tables (prod_similarity_matches, prod_quality_events, api_usage_log), +1 view (v_api_daily_costs), +5 columns in prod_master (data_quality_level enum, quality_score_breakdown, timestamps), +3 MVs for PIM progress metrics. Total: 66 tables + 7 MVs + 1 View |
