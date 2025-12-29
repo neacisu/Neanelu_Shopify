@@ -17,7 +17,11 @@ export function loadKeysFromEnv(): Map<number, EncryptionKey> {
   const map = new Map<number, EncryptionKey>();
 
   const activeVersion = Number(process.env['ENCRYPTION_KEY_VERSION'] ?? 1);
-  const candidates: { version: number; value?: string }[] = [
+  interface Candidate {
+    version: number;
+    value: string | undefined;
+  }
+  const candidates: Candidate[] = [
     { version: 1, value: process.env['ENCRYPTION_KEY_V1'] },
     { version: 2, value: process.env['ENCRYPTION_KEY_V2'] },
     { version: 3, value: process.env['ENCRYPTION_KEY_V3'] },

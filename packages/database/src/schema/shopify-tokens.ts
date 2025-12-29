@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment */
 /**
  * Shopify Tokens - encrypted OAuth tokens per shop
  *
@@ -9,9 +8,29 @@
  * RLS: multi-tenant pe shop_id (politica se adaugă prin migrație)
  */
 
-import { pgTable, uuid, bytea, integer, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  uuid,
+  integer,
+  text,
+  timestamp,
+  uniqueIndex,
+  customType,
+} from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { shops } from './shops.ts';
+
+const bytea = customType<{ data: Buffer }>({
+  dataType() {
+    return 'bytea';
+  },
+  fromDriver(value) {
+    return value as Buffer;
+  },
+  toDriver(value) {
+    return value;
+  },
+});
 
 export const shopifyTokens = pgTable(
   'shopify_tokens',
@@ -25,9 +44,9 @@ export const shopifyTokens = pgTable(
       .notNull()
       .references(() => shops.id, { onDelete: 'cascade' }),
 
-    accessTokenCiphertext: bytea('access_token_ciphertext').$type<Buffer>().notNull(),
-    accessTokenIv: bytea('access_token_iv').$type<Buffer>().notNull(), // 12 bytes
-    accessTokenTag: bytea('access_token_tag').$type<Buffer>().notNull(), // 16 bytes
+    accessTokenCiphertext: bytea('access_token_ciphertext').notNull(),
+    accessTokenIv: bytea('access_token_iv').notNull(), // 12 bytes
+    accessTokenTag: bytea('access_token_tag').notNull(), // 16 bytes
 
     keyVersion: integer('key_version').notNull().default(1),
 

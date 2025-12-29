@@ -66,7 +66,7 @@ async function rotate() {
 
     await client.query('COMMIT');
     console.info(
-      `Rotated ${res.rowCount} tokens to key version ${process.env.ENCRYPTION_KEY_VERSION ?? 'N/A'}`
+      `Rotated ${res.rowCount} tokens to key version ${process.env['ENCRYPTION_KEY_VERSION'] ?? 'N/A'}`
     );
   } catch (e) {
     await client.query('ROLLBACK');
