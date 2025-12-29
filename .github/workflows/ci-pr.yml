@@ -41,8 +41,9 @@ jobs:
 
     services:
       # PostgreSQL 18 with pgvector preinstalled for integration tests
+      # Image: pgvector/pgvector with Debian Trixie base (latest with pg18 support)
       postgres:
-        image: pgvector/pgvector:0.8.1-pg18
+        image: pgvector/pgvector:0.8.1-pg18-trixie
         env:
           POSTGRES_USER: test
           POSTGRES_PASSWORD: test
