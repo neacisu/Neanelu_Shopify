@@ -21,6 +21,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:check": "drizzle-kit check",
+    "db:seed:taxonomy": "node --import tsx src/seed/taxonomy.ts",
     "test": "node --test --experimental-test-isolation=none src/**/*.test.ts"
   },
   "dependencies": {
