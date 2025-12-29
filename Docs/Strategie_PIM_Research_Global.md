@@ -162,19 +162,22 @@ Pentru produse critice, aplicăm **Trei Sesiuni de Validare**:
 
 ---
 
-## 9. Sprint 9 - Golden Record Implementation
+## 9. Sprint 8 - Golden Record Implementation (ÎNAINTE de Production!)
 
-> **Timeline:** Săptămâna 9-10
+> **Timeline:** Săptămâna 8
+> **IMPORTANT:** Acest sprint trebuie completat ÎNAINTE de Sprint 9 (Production)!
 
 | PR | Tasks | Focus |
 |----|-------|-------|
-| PR-057 | F8.4.1 | Google Custom Search API |
-| PR-058 | F8.4.2 | prod_similarity_matches CRUD |
-| PR-059 | F8.4.3 | xAI Grok structured extraction |
-| PR-060 | F8.4.4 | BullMQ enrichment queue |
-| PR-061 | F8.4.5 | Multi-source consensus engine |
-| PR-062 | F8.4.6 | Quality level promotion logic |
-| PR-063 | F8.4.7 | API cost tracking |
-| PR-064 | F8.4.8 | PIM progress MVs |
-| PR-065 | F8.4.9 | Quality events webhooks |
-| PR-066 | F8.4.10 | Playwright scraper fallback |
+| PR-045 | F8.4.1 | Google Custom Search API |
+| PR-046 | F8.4.2 | prod_similarity_matches CRUD |
+| PR-047 | F8.4.3 | xAI Grok structured extraction |
+| PR-048 | F8.4.4 | BullMQ enrichment queue |
+| PR-049 | F8.4.5 | Multi-source consensus engine |
+| PR-050 | F8.4.6 | Quality level promotion logic |
+| PR-051 | F8.4.7 | API cost tracking |
+| PR-052 | F8.4.8 | PIM progress MVs |
+| PR-053 | F8.4.9 | Quality events webhooks |
+| PR-054 | F8.4.10 | Playwright scraper fallback |
+
+> **Notă:** Sprint 9 (PR-055 → PR-066) = Production & CI/CD - ULTIMUL sprint!

@@ -483,20 +483,20 @@ GROUP BY DATE(created_at), api_provider;
 
 ### Fază 8: External Product Search Integration
 
-| Task ID | Descriere | Sprint | Dependențe |
-|---------|-----------|--------|------------|
-| F8.1.1 | Setup Google Custom Search API integration | S5 | F2.2.1 |
-| F8.1.2 | Implementare search by GTIN/MPN/Title | S5 | F8.1.1 |
-| F8.1.3 | Create prod_similarity_matches handlers | S5 | F8.1.1 |
-| F8.2.1 | xAI Grok structured extraction service | S5 | F6.1 |
-| F8.2.2 | Anti-hallucination validation layer | S5 | F8.2.1 |
-| F8.2.3 | Confidence scoring per field | S5 | F8.2.1 |
-| F8.3.1 | BullMQ enrichment queue with rate limiting | S5 | F3.2 |
-| F8.3.2 | Multi-source consensus engine | S6 | F8.2.3 |
-| F8.3.3 | Quality level promotion logic (bronze→silver→golden) | S6 | F8.3.2 |
-| F8.4.1 | API cost tracking & budget alerts | S5 | F8.1.1 |
-| F8.4.2 | PIM progress dashboard MVs | S6 | F8.3.3 |
-| F8.4.3 | Quality events webhook system | S6 | F8.3.3 |
+| Task ID | Descriere | Sprint | PR | Dependențe |
+|---------|-----------|--------|-----|------------|
+| F8.4.1 | Google Custom Search API integration | **S8** | PR-045 | F2.2.1, F6.1 |
+| F8.4.2 | prod_similarity_matches CRUD & business logic | **S8** | PR-046 | F8.4.1 |
+| F8.4.3 | xAI Grok structured extraction service | **S8** | PR-047 | F8.4.2 |
+| F8.4.4 | BullMQ enrichment queue with rate limiting | **S8** | PR-048 | F8.4.3 |
+| F8.4.5 | Multi-source consensus engine | **S8** | PR-049 | F8.4.4 |
+| F8.4.6 | Quality level promotion logic (bronze→silver→golden) | **S8** | PR-050 | F8.4.5 |
+| F8.4.7 | API cost tracking & budget alerts | **S8** | PR-051 | F8.4.4 |
+| F8.4.8 | PIM progress dashboard MVs | **S8** | PR-052 | F8.4.6 |
+| F8.4.9 | Quality events webhook system | **S8** | PR-053 | F8.4.6 |
+| F8.4.10 | Playwright scraper fallback | **S8** | PR-054 | F8.4.4 |
+
+> **IMPORTANT:** Sprint 8 = Golden Record Strategy. Sprint 9 = Production (FINAL).
 
 ---
 

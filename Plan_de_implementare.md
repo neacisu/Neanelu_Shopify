@@ -4401,69 +4401,11 @@ Obiectiv: Extensii specifice care nu sunt strict necesare pentru MVP dar îmbun�
 
 ---
 
-### Sprint 8 (Săptămâna 8): Production & CI/CD
-
-#### F7.0: Production Foundation
-
-| PR #   | Branch                 | Tasks                                             | Dependențe |
-| ------ | ---------------------- | ------------------------------------------------- | ---------- |
-| PR-045 | `pr/F7.0-adr-platform` | F7.0.1-F7.0.2 (ADR, Ansible, Docker Compose)      | PR-044     |
-| PR-046 | `pr/F7.0-infra`        | F7.0.3-F7.0.7 (Postgres, Redis, Secrets, Ingress) | PR-045     |
-
-#### F7.1: Observability Production
-
-| PR #   | Branch                 | Tasks                                                     | Dependențe |
-| ------ | ---------------------- | --------------------------------------------------------- | ---------- |
-| PR-047 | `pr/F7.1-otel-prod`    | F7.1.1-F7.1.5 (OTel Collector, sampling, dashboards, SLO) | PR-046     |
-| PR-048 | `pr/F7.1-loki-grafana` | F7.1.1.1-F7.1.1.6 (Loki, Grafana provisioning)            | PR-047     |
-| PR-049 | `pr/F7.1-sli-slo`      | F7.1.3.1-F7.1.3.2 (DB/Redis obs, SLI/SLO)                 | PR-048     |
-
-#### F7.2: Build & Supply Chain
-
-| PR #   | Branch                | Tasks                                      | Dependențe |
-| ------ | --------------------- | ------------------------------------------ | ---------- |
-| PR-050 | `pr/F7.2-docker-prod` | F7.2.1-F7.2.4 (Multi-stage, SBOM, scanări) | PR-049     |
-
-#### F7.3: CI/CD Complet
-
-| PR #   | Branch                | Tasks                                                 | Dependențe |
-| ------ | --------------------- | ----------------------------------------------------- | ---------- |
-| PR-051 | `pr/F7.3-ci-complete` | F7.3.1-F7.3.6 (CI complet, CD staging/prod, migrații) | PR-050     |
-
-#### F7.4: Disaster Recovery
-
-| PR #   | Branch       | Tasks                                                 | Dependențe |
-| ------ | ------------ | ----------------------------------------------------- | ---------- |
-| PR-052 | `pr/F7.4-dr` | F7.4.1-F7.4.5 (Backups, Redis, kill-switch, DR drill) | PR-051     |
-
-#### F7.5: Production Readiness
-
-| PR #   | Branch        | Tasks                                                      | Dependențe |
-| ------ | ------------- | ---------------------------------------------------------- | ---------- |
-| PR-053 | `pr/F7.5-sre` | F7.5.1-F7.5.4 (Resurse, scaling, runbooks, 10K simulation) | PR-052     |
-
-#### F7.6-F7.8: Frontend Quality
-
-| PR #   | Branch                     | Tasks                                            | Dependențe |
-| ------ | -------------------------- | ------------------------------------------------ | ---------- |
-| PR-054 | `pr/F7.6-frontend-quality` | F7.6.1-F7.6.9 (A11y, performance, E2E, i18n)     | PR-044     |
-| PR-055 | `pr/F7.7-obs-ui`           | F7.7.1-F7.7.4 (Health dashboard, metrics, audit) | PR-054     |
-| PR-056 | `pr/F7.8-hooks-library`    | F7.8.1-F7.8.5 (Data, real-time, UI hooks)        | PR-055     |
-
-**Sprint 8 Deliverables:**
-
-- ✅ Infrastructure production-ready
-- ✅ CI/CD complet cu CD staging/prod
-- ✅ Observability stack (Loki, Grafana)
-- ✅ DR procedures
-- ✅ Frontend quality & hooks
-
----
-
-### Sprint 9 (Săptămâna 9-10): Golden Record Strategy - External Product Search
+### Sprint 8 (Săptămâna 8): Golden Record Strategy - External Product Search
 
 > [!IMPORTANT]
 > **CONFORM AUDIT SCHEMA 2025-12-29:** Acest sprint implementează strategia completă pentru Golden Records prin integrare cu surse externe de date.
+> Această funcționalitate este **CORE** pentru aplicație și trebuie finalizată ÎNAINTE de producție!
 >
 > **Documentație:** `Docs/External_Product_APIs_Integration.md`
 
@@ -4471,28 +4413,28 @@ Obiectiv: Extensii specifice care nu sunt strict necesare pentru MVP dar îmbun�
 
 | PR #   | Branch                    | Tasks                                                          | Dependențe |
 | ------ | ------------------------- | -------------------------------------------------------------- | ---------- |
-| PR-057 | `pr/F8.4.1-google-search` | F8.4.1 (Google Custom Search API integration, GTIN/MPN search) | PR-044     |
-| PR-058 | `pr/F8.4.2-similarity`    | F8.4.2 (prod_similarity_matches CRUD, business logic)          | PR-057     |
-| PR-059 | `pr/F8.4.3-xai-extractor` | F8.4.3 (xAI Grok structured extraction, anti-hallucination)    | PR-058     |
+| PR-045 | `pr/F8.4.1-google-search` | F8.4.1 (Google Custom Search API integration, GTIN/MPN search) | PR-044     |
+| PR-046 | `pr/F8.4.2-similarity`    | F8.4.2 (prod_similarity_matches CRUD, business logic)          | PR-045     |
+| PR-047 | `pr/F8.4.3-xai-extractor` | F8.4.3 (xAI Grok structured extraction, anti-hallucination)    | PR-046     |
 
 #### F8.4.4-F8.4.6: Enrichment Pipeline & Quality Promotion
 
 | PR #   | Branch                   | Tasks                                                       | Dependențe |
 | ------ | ------------------------ | ----------------------------------------------------------- | ---------- |
-| PR-060 | `pr/F8.4.4-enrich-queue` | F8.4.4 (BullMQ enrichment queue, rate limiting per source)  | PR-059     |
-| PR-061 | `pr/F8.4.5-consensus`    | F8.4.5 (Multi-source consensus engine, conflict resolution) | PR-060     |
-| PR-062 | `pr/F8.4.6-promotion`    | F8.4.6 (Quality level promotion logic bronze→silver→golden) | PR-061     |
+| PR-048 | `pr/F8.4.4-enrich-queue` | F8.4.4 (BullMQ enrichment queue, rate limiting per source)  | PR-047     |
+| PR-049 | `pr/F8.4.5-consensus`    | F8.4.5 (Multi-source consensus engine, conflict resolution) | PR-048     |
+| PR-050 | `pr/F8.4.6-promotion`    | F8.4.6 (Quality level promotion logic bronze→silver→golden) | PR-049     |
 
 #### F8.4.7-F8.4.10: Operations & Fallback
 
 | PR #   | Branch                 | Tasks                                              | Dependențe |
 | ------ | ---------------------- | -------------------------------------------------- | ---------- |
-| PR-063 | `pr/F8.4.7-cost-track` | F8.4.7 (API cost tracking, budget alerts)          | PR-060     |
-| PR-064 | `pr/F8.4.8-pim-mvs`    | F8.4.8 (PIM progress dashboard MVs, API endpoints) | PR-062     |
-| PR-065 | `pr/F8.4.9-webhooks`   | F8.4.9 (Quality events webhook system)             | PR-062     |
-| PR-066 | `pr/F8.4.10-scraper`   | F8.4.10 (Playwright scraper fallback, robots.txt)  | PR-060     |
+| PR-051 | `pr/F8.4.7-cost-track` | F8.4.7 (API cost tracking, budget alerts)          | PR-048     |
+| PR-052 | `pr/F8.4.8-pim-mvs`    | F8.4.8 (PIM progress dashboard MVs, API endpoints) | PR-050     |
+| PR-053 | `pr/F8.4.9-webhooks`   | F8.4.9 (Quality events webhook system)             | PR-050     |
+| PR-054 | `pr/F8.4.10-scraper`   | F8.4.10 (Playwright scraper fallback, robots.txt)  | PR-048     |
 
-**Sprint 9 Deliverables:**
+**Sprint 8 Deliverables:**
 
 - ✅ Google Custom Search integration pentru product discovery
 - ✅ xAI Grok extraction cu anti-hallucination
@@ -4505,20 +4447,85 @@ Obiectiv: Extensii specifice care nu sunt strict necesare pentru MVP dar îmbun�
 
 ---
 
+### Sprint 9 (Săptămâna 9-10): Production & CI/CD
+
+> [!IMPORTANT]
+> **ULTIMUL SPRINT:** Production deployment se face DOAR după ce toate funcționalitățile core (inclusiv Golden Record PIM) sunt complete și testate!
+
+#### F7.0: Production Foundation
+
+| PR #   | Branch                 | Tasks                                             | Dependențe |
+| ------ | ---------------------- | ------------------------------------------------- | ---------- |
+| PR-055 | `pr/F7.0-adr-platform` | F7.0.1-F7.0.2 (ADR, Ansible, Docker Compose)      | PR-054     |
+| PR-056 | `pr/F7.0-infra`        | F7.0.3-F7.0.7 (Postgres, Redis, Secrets, Ingress) | PR-055     |
+
+#### F7.1: Observability Production
+
+| PR #   | Branch                 | Tasks                                                     | Dependențe |
+| ------ | ---------------------- | --------------------------------------------------------- | ---------- |
+| PR-057 | `pr/F7.1-otel-prod`    | F7.1.1-F7.1.5 (OTel Collector, sampling, dashboards, SLO) | PR-056     |
+| PR-058 | `pr/F7.1-loki-grafana` | F7.1.1.1-F7.1.1.6 (Loki, Grafana provisioning)            | PR-057     |
+| PR-059 | `pr/F7.1-sli-slo`      | F7.1.3.1-F7.1.3.2 (DB/Redis obs, SLI/SLO)                 | PR-058     |
+
+#### F7.2: Build & Supply Chain
+
+| PR #   | Branch                | Tasks                                      | Dependențe |
+| ------ | --------------------- | ------------------------------------------ | ---------- |
+| PR-060 | `pr/F7.2-docker-prod` | F7.2.1-F7.2.4 (Multi-stage, SBOM, scanări) | PR-059     |
+
+#### F7.3: CI/CD Complet
+
+| PR #   | Branch                | Tasks                                                 | Dependențe |
+| ------ | --------------------- | ----------------------------------------------------- | ---------- |
+| PR-061 | `pr/F7.3-ci-complete` | F7.3.1-F7.3.6 (CI complet, CD staging/prod, migrații) | PR-060     |
+
+#### F7.4: Disaster Recovery
+
+| PR #   | Branch       | Tasks                                                 | Dependențe |
+| ------ | ------------ | ----------------------------------------------------- | ---------- |
+| PR-062 | `pr/F7.4-dr` | F7.4.1-F7.4.5 (Backups, Redis, kill-switch, DR drill) | PR-061     |
+
+#### F7.5: Production Readiness
+
+| PR #   | Branch        | Tasks                                                      | Dependențe |
+| ------ | ------------- | ---------------------------------------------------------- | ---------- |
+| PR-063 | `pr/F7.5-sre` | F7.5.1-F7.5.4 (Resurse, scaling, runbooks, 10K simulation) | PR-062     |
+
+#### F7.6-F7.8: Frontend Quality
+
+| PR #   | Branch                     | Tasks                                            | Dependențe |
+| ------ | -------------------------- | ------------------------------------------------ | ---------- |
+| PR-064 | `pr/F7.6-frontend-quality` | F7.6.1-F7.6.9 (A11y, performance, E2E, i18n)     | PR-054     |
+| PR-065 | `pr/F7.7-obs-ui`           | F7.7.1-F7.7.4 (Health dashboard, metrics, audit) | PR-064     |
+| PR-066 | `pr/F7.8-hooks-library`    | F7.8.1-F7.8.5 (Data, real-time, UI hooks)        | PR-065     |
+
+**Sprint 9 Deliverables:**
+
+- ✅ Infrastructure production-ready
+- ✅ CI/CD complet cu CD staging/prod
+- ✅ Observability stack (Loki, Grafana)
+- ✅ DR procedures
+- ✅ Frontend quality & hooks
+- ✅ **APLICAȚIE COMPLETĂ GATA DE PRODUCȚIE**
+
+---
+
 ### Summary: PR Count per Sprint
 
-| Sprint | Săptămâna | PRs                  | Focus                    |
-| ------ | --------- | -------------------- | ------------------------ |
-| S1     | W1        | PR-001 → PR-004 (4)  | Foundation               |
-| S2     | W2        | PR-005 → PR-012 (8)  | Data Layer               |
-| S3     | W3        | PR-013 → PR-019 (7)  | Backend + Frontend Shell |
-| S4     | W4        | PR-020 → PR-025 (6)  | Async Processing         |
-| S5-6   | W5-6      | PR-026 → PR-036 (11) | Bulk Ingestion           |
-| S7     | W7        | PR-037 → PR-044 (8)  | AI & Vector Search       |
-| S8     | W8        | PR-045 → PR-056 (12) | Production               |
-| S9     | W9-10     | PR-057 → PR-066 (10) | Golden Record Strategy   |
+| Sprint | Săptămâna | PRs                  | Focus                      |
+| ------ | --------- | -------------------- | -------------------------- |
+| S1     | W1        | PR-001 → PR-004 (4)  | Foundation                 |
+| S2     | W2        | PR-005 → PR-012 (8)  | Data Layer                 |
+| S3     | W3        | PR-013 → PR-019 (7)  | Backend + Frontend Shell   |
+| S4     | W4        | PR-020 → PR-025 (6)  | Async Processing           |
+| S5-6   | W5-6      | PR-026 → PR-036 (11) | Bulk Ingestion             |
+| S7     | W7        | PR-037 → PR-044 (8)  | AI & Vector Search         |
+| **S8** | **W8**    | PR-045 → PR-054 (10) | **Golden Record Strategy** |
+| **S9** | **W9-10** | PR-055 → PR-066 (12) | **Production (FINAL)**     |
 
 > **Total: 66 PRs**
+>
+> ⚠️ **IMPORTANT:** Production (S9) este ULTIMUL sprint! Aplicația trebuie să fie complet funcțională ÎNAINTE de deploy în producție.
 
 ---
 
