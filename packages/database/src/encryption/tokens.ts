@@ -20,10 +20,10 @@ export function decryptToken(row: ShopifyToken): string {
   const key = KEYS.get(row.keyVersion);
   if (!key) throw new Error(`Unknown key version ${row.keyVersion}`);
   const plaintext = decryptAesGcm(
-    row.accessTokenCiphertext as Buffer,
+    row.accessTokenCiphertext,
     key.key,
-    row.accessTokenIv as Buffer,
-    row.accessTokenTag as Buffer
+    row.accessTokenIv,
+    row.accessTokenTag
   );
   return plaintext.toString('utf8');
 }
