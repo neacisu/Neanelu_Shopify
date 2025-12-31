@@ -155,6 +155,90 @@
       "when": 1735680014000,
       "tag": "0021_check_constraints",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1735680015000,
+      "tag": "0022_system_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1735680016000,
+      "tag": "0023_shopify_metaobjects_webhooks",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1735680017000,
+      "tag": "0024_bulk_artifacts_errors",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1735680018000,
+      "tag": "0025_staging_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1735680019000,
+      "tag": "0026_pim_additional_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1735680020000,
+      "tag": "0027_ai_batches",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1735680021000,
+      "tag": "0028_sync_checkpoints",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1735680022000,
+      "tag": "0029_shopify_media",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1735680023000,
+      "tag": "0030_shopify_publications",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1735680024000,
+      "tag": "0031_shopify_menus",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1735680025000,
+      "tag": "0032_scraper_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1735680026000,
+      "tag": "0033_api_usage_analytics",
+      "breakpoints": true
     }
   ]
 }
