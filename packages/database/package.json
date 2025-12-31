@@ -22,9 +22,11 @@
     "db:studio": "drizzle-kit studio",
     "db:check": "drizzle-kit check",
     "db:seed:taxonomy": "node --import tsx src/seed/taxonomy.ts",
+    "db:seed": "node --import tsx src/seed/products.ts",
     "test": "node --test --experimental-test-isolation=none src/**/*.test.ts"
   },
   "dependencies": {
+    "@faker-js/faker": "^10.1.0",
     "drizzle-orm": "^0.45.1",
     "pg": "^8.16.3",
     "pg-copy-streams": "^7.0.0",
