@@ -60,7 +60,9 @@ CREATE TABLE webhook_events_2025_12 PARTITION OF webhook_events
 CREATE INDEX idx_webhook_events_unprocessed ON webhook_events(shop_id, received_at) 
     WHERE processed_at IS NULL;
 CREATE INDEX idx_webhook_events_topic ON webhook_events(shop_id, topic);
-CREATE UNIQUE INDEX idx_webhook_events_idempotency ON webhook_events(idempotency_key) 
+-- Note: For partitioned tables, UNIQUE indexes must include all partition columns
+-- Using regular index instead of UNIQUE since idempotency is enforced at application level
+CREATE INDEX idx_webhook_events_idempotency ON webhook_events(idempotency_key, created_at) 
     WHERE idempotency_key IS NOT NULL;
 CREATE INDEX idx_webhook_events_payload ON webhook_events USING GIN(payload jsonb_path_ops);
 CREATE INDEX idx_webhook_events_job ON webhook_events(job_id) WHERE job_id IS NOT NULL;
