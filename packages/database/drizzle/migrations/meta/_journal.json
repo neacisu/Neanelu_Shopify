@@ -239,6 +239,97 @@
       "when": 1735680026000,
       "tag": "0033_api_usage_analytics",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1735766400000,
+      "tag": "0034_create_mv_shop_summary",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1735766401000,
+      "tag": "0035_create_mv_low_stock_alerts",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1735766402000,
+      "tag": "0036_create_mv_top_sellers",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1735766403000,
+      "tag": "0037_create_mv_pim_quality",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1735766404000,
+      "tag": "0038_create_mv_source_inventory",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1735766405000,
+      "tag": "0039_create_refresh_mv_function",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1735766406000,
+      "tag": "0040_enable_rls_additional_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1735766407000,
+      "tag": "0041_create_helper_functions",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1735766408000,
+      "tag": "0042_alter_tables_add_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1735766409000,
+      "tag": "0043_add_performance_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1735766410000,
+      "tag": "0044_partition_management",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1735766411000,
+      "tag": "0045_add_constraints_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1735766412000,
+      "tag": "0046_create_validation_view",
+      "breakpoints": true
     }
   ]
 }
