@@ -92,7 +92,7 @@ void describe('RLS tenant isolation', () => {
     } finally {
       client.release();
     }
-    await pool.end();
+    // await pool.end();
   });
 
   void it('returns zero rows without tenant context', async () => {
