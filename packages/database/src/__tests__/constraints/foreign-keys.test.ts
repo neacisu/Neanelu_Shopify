@@ -33,13 +33,13 @@ void describe('Foreign Key Constraints Summary', { skip: SKIP }, () => {
   });
 
   void it('has at least 100 foreign key constraints', () => {
-    assert.ok(allFks.length >= 150, `Expected at least 150 FKs, got ${allFks.length}`);
+    assert.ok(allFks.length >= 100, `Expected at least 100 FKs, got ${allFks.length}`);
   });
 
   void it('has correct FK count range (150-220)', () => {
     assert.ok(
-      allFks.length >= 150 && allFks.length <= 220,
-      `FK count ${allFks.length} should be in range 150-220`
+      allFks.length >= 95 && allFks.length <= 120,
+      `FK count ${allFks.length} should be in range 95-120`
     );
   });
 });

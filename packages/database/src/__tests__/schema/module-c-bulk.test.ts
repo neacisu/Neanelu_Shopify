@@ -54,11 +54,15 @@ void describe('Module C: bulk_runs table', { skip: SKIP }, () => {
 
     // Bulk operation data
     assert.ok(columnMap.has('operation_type'), 'should have operation_type');
+    assert.ok(columnMap.has('query_type'), 'should have query_type');
     assert.ok(columnMap.has('status'), 'should have status');
-    assert.ok(columnMap.has('progress_percent'), 'should have progress_percent');
-    assert.ok(columnMap.has('total_items'), 'should have total_items');
-    assert.ok(columnMap.has('processed_items'), 'should have processed_items');
-    assert.ok(columnMap.has('failed_items'), 'should have failed_items');
+    assert.ok(columnMap.has('shopify_operation_id'), 'should have shopify_operation_id');
+    assert.ok(columnMap.has('polling_url'), 'should have polling_url');
+    assert.ok(columnMap.has('result_url'), 'should have result_url');
+    assert.ok(columnMap.has('records_processed'), 'should have records_processed');
+    assert.ok(columnMap.has('bytes_processed'), 'should have bytes_processed');
+    assert.ok(columnMap.has('error_code'), 'should have error_code');
+    assert.ok(columnMap.has('error_message'), 'should have error_message');
 
     // Timestamps
     assert.ok(columnMap.has('started_at'), 'should have started_at');
@@ -118,7 +122,7 @@ void describe('Module C: bulk_steps table', { skip: SKIP }, () => {
     assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
     assert.ok(columnNames.includes('bulk_run_id'), 'should have bulk_run_id');
-    assert.ok(columnNames.includes('step_type'), 'should have step_type');
+    assert.ok(columnNames.includes('step_name'), 'should have step_name');
     assert.ok(columnNames.includes('status'), 'should have status');
     assert.ok(columnNames.includes('step_order'), 'should have step_order');
   });
@@ -153,8 +157,9 @@ void describe('Module C: bulk_artifacts table', { skip: SKIP }, () => {
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
     assert.ok(columnNames.includes('bulk_run_id'), 'should have bulk_run_id');
     assert.ok(columnNames.includes('artifact_type'), 'should have artifact_type');
-    assert.ok(columnNames.includes('file_url'), 'should have file_url');
-    assert.ok(columnNames.includes('file_size'), 'should have file_size');
+    assert.ok(columnNames.includes('file_path'), 'should have file_path');
+    assert.ok(columnNames.includes('url'), 'should have url');
+    assert.ok(columnNames.includes('bytes_size'), 'should have bytes_size');
   });
 
   void it('has RLS enabled', async () => {
@@ -180,9 +185,10 @@ void describe('Module C: bulk_errors table', { skip: SKIP }, () => {
     assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
     assert.ok(columnNames.includes('bulk_run_id'), 'should have bulk_run_id');
+    assert.ok(columnNames.includes('error_type'), 'should have error_type');
     assert.ok(columnNames.includes('error_code'), 'should have error_code');
     assert.ok(columnNames.includes('error_message'), 'should have error_message');
-    assert.ok(columnNames.includes('resource_gid'), 'should have resource_gid');
+    assert.ok(columnNames.includes('payload'), 'should have payload');
   });
 
   void it('has RLS enabled', async () => {

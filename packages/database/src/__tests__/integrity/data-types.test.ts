@@ -12,14 +12,14 @@ import { getTableColumns, getAllTables } from '../helpers/schema-queries.ts';
 
 const SKIP = shouldSkipDbTests();
 
-// Expected data types for critical columns (verified from migration 0001)
+// Expected data types for critical columns (verified from migrations + canonical decisions)
 const CRITICAL_COLUMN_TYPES: Record<string, Record<string, string>> = {
   shops: {
     id: 'uuid',
-    shopify_domain: 'text',
-    access_token_ciphertext: 'text',
-    access_token_iv: 'text',
-    access_token_tag: 'text',
+    shopify_domain: 'citext',
+    access_token_ciphertext: 'bytea',
+    access_token_iv: 'bytea',
+    access_token_tag: 'bytea',
     scopes: 'ARRAY',
     plan_tier: 'varchar',
     settings: 'jsonb',
@@ -102,10 +102,10 @@ void describe('Data Types: Summary', { skip: SKIP }, () => {
       totalColumns += columns.length;
     }
 
-    // Allow some variance (1000-1100)
+    // Allow variance as schema evolves; exclude partitions are already filtered in helpers
     assert.ok(
-      totalColumns >= 1000 && totalColumns <= 1150,
-      `Total columns ${totalColumns} should be in range 1000-1150`
+      totalColumns >= 900 && totalColumns <= 1100,
+      `Total columns ${totalColumns} should be in range 900-1100`
     );
   });
 });
@@ -118,11 +118,26 @@ void describe('Data Types: UUID Columns', { skip: SKIP }, () => {
   void it('all id columns are UUID type', async () => {
     const tables = await getAllTables();
 
+    // Known non-UUID ids (intentional)
+    const ID_TYPE_EXCEPTIONS: Record<string, string> = {
+      app_sessions: 'varchar',
+    };
+
     for (const table of tables) {
       const columns = await getTableColumns(table.table_name);
       const idColumn = columns.find((c) => c.column_name === 'id');
 
       if (idColumn) {
+        const expected = ID_TYPE_EXCEPTIONS[table.table_name];
+        if (expected) {
+          assert.strictEqual(
+            idColumn.udt_name,
+            expected,
+            `${table.table_name}.id should be ${expected}, got ${idColumn.udt_name}`
+          );
+          continue;
+        }
+
         assert.strictEqual(
           idColumn.udt_name,
           'uuid',
@@ -307,16 +322,16 @@ void describe('Data Types: Critical Columns', { skip: SKIP }, () => {
 // ============================================
 
 void describe('Data Types: Encrypted Token Columns', { skip: SKIP }, () => {
-  void it('shops has text columns for encrypted tokens', async () => {
+  void it('shops has bytea columns for encrypted tokens', async () => {
     const columns = await getTableColumns('shops');
 
     const ciphertext = columns.find((c) => c.column_name === 'access_token_ciphertext');
     const iv = columns.find((c) => c.column_name === 'access_token_iv');
     const tag = columns.find((c) => c.column_name === 'access_token_tag');
 
-    assert.ok(ciphertext?.udt_name === 'text', 'ciphertext should be text');
-    assert.ok(iv?.udt_name === 'text', 'iv should be text');
-    assert.ok(tag?.udt_name === 'text', 'tag should be text');
+    assert.ok(ciphertext?.udt_name === 'bytea', 'ciphertext should be bytea');
+    assert.ok(iv?.udt_name === 'bytea', 'iv should be bytea');
+    assert.ok(tag?.udt_name === 'bytea', 'tag should be bytea');
   });
 });
 
@@ -360,15 +375,15 @@ void describe('Data Types: TSVector Columns', { skip: SKIP }, () => {
 });
 
 // ============================================
-// TEXT COLUMNS (domain uses text, not citext)
+// DOMAIN COLUMN TYPE
 // ============================================
 
 void describe('Data Types: Text Columns', { skip: SKIP }, () => {
-  void it('shops.shopify_domain is text', async () => {
+  void it('shops.shopify_domain is citext', async () => {
     const columns = await getTableColumns('shops');
     const domain = columns.find((c) => c.column_name === 'shopify_domain');
 
     assert.ok(domain, 'shopify_domain should exist');
-    assert.strictEqual(domain?.udt_name, 'text', 'should be text type');
+    assert.strictEqual(domain?.udt_name, 'citext', 'should be citext type');
   });
 });

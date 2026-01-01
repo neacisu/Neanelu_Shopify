@@ -60,9 +60,9 @@ void describe('Module F: ai_batches table', { skip: SKIP }, () => {
     assert.strictEqual(columnMap.get('id')?.udt_name, 'uuid', 'id should be uuid');
     assert.strictEqual(columnMap.get('shop_id')?.udt_name, 'uuid', 'shop_id should be uuid');
     assert.strictEqual(
-      columnMap.get('cost_usd')?.udt_name,
+      columnMap.get('estimated_cost')?.udt_name,
       'numeric',
-      'cost_usd should be numeric'
+      'estimated_cost should be numeric'
     );
   });
 
@@ -86,8 +86,8 @@ void describe('Module F: ai_batches table', { skip: SKIP }, () => {
       'should have primary key index'
     );
     assert.ok(
-      indexNames.some((n) => n.includes('shop_id') || n.includes('status')),
-      'should have index for shop_id or status lookup'
+      indexes.some((i) => i.indexdef.includes('(shop_id') || i.indexdef.includes('status')),
+      'should have index containing shop_id or status'
     );
   });
 });

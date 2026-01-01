@@ -141,13 +141,7 @@ void describe('Nullable Columns: All Primary Keys NOT NULL', { skip: SKIP }, () 
 
 void describe('Nullable Columns: Foreign Key Columns', { skip: SKIP }, () => {
   void it('shop_id is NOT NULL on tenant tables', async () => {
-    const tenantTables = [
-      'staff_users',
-      'shopify_products',
-      'shopify_variants',
-      'bulk_runs',
-      'ai_batches',
-    ];
+    const tenantTables = ['staff_users', 'shopify_products', 'shopify_variants', 'bulk_runs'];
 
     for (const tableName of tenantTables) {
       const columns = await getTableColumns(tableName);

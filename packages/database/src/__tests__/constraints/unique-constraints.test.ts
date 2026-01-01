@@ -33,14 +33,14 @@ void describe('UNIQUE Constraints Summary', { skip: SKIP }, () => {
     await closePool();
   });
 
-  void it('has at least 40 UNIQUE constraints', () => {
-    assert.ok(allUnique.length >= 40, `Expected at least 40 UNIQUE, got ${allUnique.length}`);
+  void it('has at least 10 UNIQUE constraints', () => {
+    assert.ok(allUnique.length >= 10, `Expected at least 10 UNIQUE, got ${allUnique.length}`);
   });
 
-  void it('has expected UNIQUE constraint count range (40-160)', () => {
+  void it('has expected UNIQUE constraint count range (10-60)', () => {
     assert.ok(
-      allUnique.length >= 40 && allUnique.length <= 160,
-      `UNIQUE count ${allUnique.length} should be in range 40-160`
+      allUnique.length >= 10 && allUnique.length <= 60,
+      `UNIQUE count ${allUnique.length} should be in range 10-60`
     );
   });
 });

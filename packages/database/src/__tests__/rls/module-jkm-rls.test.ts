@@ -42,8 +42,9 @@ const MODULE_J_TABLES = [
 // Module K tables
 const MODULE_K_TABLES = ['shopify_menus', 'shopify_menu_items'];
 
-// Module L tables with RLS
-const MODULE_L_TABLES = ['scraper_runs', 'scraper_queue', 'api_usage_log'];
+// Module L: scraper is global infra (NO RLS); api_usage_log remains tenant-scoped (RLS)
+const MODULE_L_SCRAPER_TABLES = ['scraper_configs', 'scraper_runs', 'scraper_queue'];
+const MODULE_L_RLS_TABLES = ['api_usage_log'];
 
 // Module M tables
 const MODULE_M_TABLES = ['analytics_daily_shop', 'analytics_product_performance'];
@@ -101,14 +102,24 @@ void describe('Module K RLS: Menu Tables', { skip: SKIP }, () => {
 // ============================================
 
 void describe('Module L RLS: Scraper Tables', { skip: SKIP }, () => {
-  for (const tableName of MODULE_L_TABLES) {
+  for (const tableName of MODULE_L_SCRAPER_TABLES) {
+    void it(`${tableName} has RLS disabled`, async () => {
+      const hasRls = await getTableRlsStatus(tableName);
+      assert.strictEqual(hasRls, false, `${tableName} should have RLS disabled`);
+    });
+
+    void it(`${tableName} has no policies`, async () => {
+      const policies = await getTablePolicies(tableName);
+      assert.strictEqual(policies.length, 0, `${tableName} should have no RLS policies`);
+    });
+  }
+
+  for (const tableName of MODULE_L_RLS_TABLES) {
     void it(`${tableName} has RLS enabled`, async () => {
       const hasRls = await getTableRlsStatus(tableName);
       assert.strictEqual(hasRls, true, `${tableName} should have RLS enabled`);
     });
-  }
 
-  for (const tableName of MODULE_L_TABLES) {
     void it(`${tableName} has at least one policy`, async () => {
       const policies = await getTablePolicies(tableName);
       assert.ok(policies.length >= 1, `${tableName} should have at least one RLS policy`);

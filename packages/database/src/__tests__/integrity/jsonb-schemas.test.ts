@@ -43,7 +43,6 @@ const JSONB_COLUMNS = [
 const JSONB_WITH_GIN = [
   { table: 'shopify_products', column: 'metafields' },
   { table: 'shopify_metaobjects', column: 'fields' },
-  { table: 'shopify_products', column: 'tags' }, // Array but often uses GIN
 ];
 
 // ============================================
@@ -129,10 +128,7 @@ void describe('JSONB Schema: Structure Validation', { skip: SKIP }, () => {
 
 void describe('JSONB Schema: Nullable Handling', { skip: SKIP }, () => {
   void it('optional JSONB columns are nullable', async () => {
-    const optionalJsonb = [
-      { table: 'audit_logs', column: 'details' },
-      { table: 'staging_products', column: 'raw_data' },
-    ];
+    const optionalJsonb = [{ table: 'staging_products', column: 'raw_data' }];
 
     for (const { table, column } of optionalJsonb) {
       const columns = await getTableColumns(table);
@@ -146,6 +142,7 @@ void describe('JSONB Schema: Nullable Handling', { skip: SKIP }, () => {
 
   void it('required JSONB columns are NOT NULL or have defaults', async () => {
     const requiredJsonb = [
+      { table: 'audit_logs', column: 'details' },
       { table: 'webhook_events', column: 'payload' },
       { table: 'staging_products', column: 'options' },
     ];

@@ -47,7 +47,7 @@ void describe('Module I: inventory_ledger table', { skip: SKIP }, () => {
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
     assert.ok(columnNames.includes('variant_id'), 'should have variant_id');
     assert.ok(columnNames.includes('location_id'), 'should have location_id');
-    assert.ok(columnNames.includes('quantity_change'), 'should have quantity_change');
+    assert.ok(columnNames.includes('delta'), 'should have delta');
     assert.ok(columnNames.includes('reason'), 'should have reason');
     assert.ok(columnNames.includes('reference_type'), 'should have reference_type');
     assert.ok(columnNames.includes('reference_id'), 'should have reference_id');
@@ -85,7 +85,7 @@ void describe('Module I: inventory_locations table', { skip: SKIP }, () => {
 
     assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
-    assert.ok(columnNames.includes('shopify_location_id'), 'should have shopify_location_id');
+    assert.ok(columnNames.includes('shopify_gid'), 'should have shopify_gid');
     assert.ok(columnNames.includes('name'), 'should have name');
     assert.ok(columnNames.includes('is_active'), 'should have is_active');
     assert.ok(columnNames.includes('address'), 'should have address');

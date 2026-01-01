@@ -18,15 +18,16 @@ let _pool: pg.Pool | null = null;
  */
 export function getPool(): pg.Pool {
   if (!_pool) {
-    const connectionString = process.env['DATABASE_URL'];
+    const connectionString = process.env['DATABASE_URL_TEST'] ?? process.env['DATABASE_URL'];
     if (!connectionString) {
-      throw new Error('DATABASE_URL environment variable is not set');
+      throw new Error('DATABASE_URL_TEST or DATABASE_URL environment variable is not set');
     }
     _pool = new pg.Pool({
       connectionString,
       max: 10,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 10_000,
+      allowExitOnIdle: true,
     });
   }
   return _pool;
@@ -46,7 +47,7 @@ export async function closePool(): Promise<void> {
  * Check if database tests should be skipped
  */
 export function shouldSkipDbTests(): boolean {
-  return !process.env['DATABASE_URL'];
+  return !(process.env['DATABASE_URL_TEST'] ?? process.env['DATABASE_URL']);
 }
 
 // ============================================

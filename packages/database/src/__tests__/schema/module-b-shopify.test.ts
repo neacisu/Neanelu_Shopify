@@ -93,8 +93,8 @@ void describe('Module B: shopify_products table', { skip: SKIP }, () => {
       'should have primary key index'
     );
     assert.ok(
-      indexNames.some((n) => n.includes('shop_id') || n.includes('shopify_gid')),
-      'should have index on shop_id or shopify_gid'
+      indexes.some((i) => i.indexdef.includes('(shop_id') || i.indexdef.includes('shopify_gid')),
+      'should have index containing shop_id or shopify_gid'
     );
   });
 
@@ -216,7 +216,7 @@ void describe('Module B: shopify_orders table', { skip: SKIP }, () => {
     assert.ok(columnNames.includes('shopify_gid'), 'should have shopify_gid');
     assert.ok(columnNames.includes('order_number'), 'should have order_number');
     assert.ok(columnNames.includes('total_price'), 'should have total_price');
-    assert.ok(columnNames.includes('currency'), 'should have currency');
+    assert.ok(columnNames.includes('currency_code'), 'should have currency_code');
   });
 
   void it('has RLS enabled', async () => {
@@ -295,7 +295,7 @@ void describe('Module B: shopify_webhooks table', { skip: SKIP }, () => {
 
     assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
-    assert.ok(columnNames.includes('shopify_id'), 'should have shopify_id');
+    assert.ok(columnNames.includes('shopify_gid'), 'should have shopify_gid');
     assert.ok(columnNames.includes('topic'), 'should have topic');
     assert.ok(columnNames.includes('address'), 'should have address');
   });

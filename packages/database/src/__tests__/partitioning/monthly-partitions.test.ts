@@ -192,10 +192,15 @@ void describe('Partitions: webhook_events', { skip: SKIP }, () => {
 void describe('Partition Naming Convention', { skip: SKIP }, () => {
   void it('follows table_YYYY_MM naming pattern', async () => {
     const allPartitions = await getAllPartitions();
+    const partitionedTables = new Set(await getPartitionedTables());
 
     const pattern = /^[a-z_]+_\d{4}_\d{2}$/;
 
-    for (const partition of allPartitions) {
+    // `getAllPartitions()` intentionally includes partitions for partitioned indexes
+    // (e.g. *_pkey). The naming convention applies only to table partitions.
+    const tablePartitions = allPartitions.filter((p) => partitionedTables.has(p.parent_table));
+
+    for (const partition of tablePartitions) {
       assert.ok(
         pattern.test(partition.partition_name),
         `Partition ${partition.partition_name} should match pattern table_YYYY_MM`

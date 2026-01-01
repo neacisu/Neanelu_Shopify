@@ -46,12 +46,14 @@ void describe('Module G: job_runs table', { skip: SKIP }, () => {
 
     assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
-    assert.ok(columnNames.includes('job_type'), 'should have job_type');
+    assert.ok(columnNames.includes('queue_name'), 'should have queue_name');
+    assert.ok(columnNames.includes('job_id'), 'should have job_id');
+    assert.ok(columnNames.includes('job_name'), 'should have job_name');
     assert.ok(columnNames.includes('status'), 'should have status');
+    assert.ok(columnNames.includes('payload'), 'should have payload');
     assert.ok(columnNames.includes('started_at'), 'should have started_at');
     assert.ok(columnNames.includes('completed_at'), 'should have completed_at');
     assert.ok(columnNames.includes('error_message'), 'should have error_message');
-    assert.ok(columnNames.includes('metadata'), 'should have metadata');
   });
 
   void it('has RLS enabled', async () => {
@@ -86,19 +88,19 @@ void describe('Module G: scheduled_tasks table', { skip: SKIP }, () => {
 
     assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
-    assert.ok(columnNames.includes('task_type'), 'should have task_type');
+    assert.ok(columnNames.includes('task_name'), 'should have task_name');
     assert.ok(columnNames.includes('cron_expression'), 'should have cron_expression');
     assert.ok(columnNames.includes('next_run_at'), 'should have next_run_at');
     assert.ok(columnNames.includes('last_run_at'), 'should have last_run_at');
     assert.ok(columnNames.includes('is_active'), 'should have is_active');
-    assert.ok(columnNames.includes('config'), 'should have config');
+    assert.ok(columnNames.includes('job_data'), 'should have job_data');
   });
 
-  void it('has JSONB config column', async () => {
+  void it('has JSONB job_data column', async () => {
     const columns = await getTableColumns('scheduled_tasks');
-    const config = columns.find((c) => c.column_name === 'config');
-    assert.ok(config, 'config column should exist');
-    assert.strictEqual(config?.udt_name, 'jsonb', 'config should be jsonb');
+    const jobData = columns.find((c) => c.column_name === 'job_data');
+    assert.ok(jobData, 'job_data column should exist');
+    assert.strictEqual(jobData?.udt_name, 'jsonb', 'job_data should be jsonb');
   });
 
   void it('has RLS enabled', async () => {
@@ -127,13 +129,12 @@ void describe('Module G: rate_limit_buckets table', { skip: SKIP }, () => {
     const columns = await getTableColumns('rate_limit_buckets');
     const columnNames = columns.map((c) => c.column_name);
 
-    assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
-    assert.ok(columnNames.includes('bucket_key'), 'should have bucket_key');
     assert.ok(columnNames.includes('tokens_remaining'), 'should have tokens_remaining');
     assert.ok(columnNames.includes('max_tokens'), 'should have max_tokens');
     assert.ok(columnNames.includes('refill_rate'), 'should have refill_rate');
     assert.ok(columnNames.includes('last_refill_at'), 'should have last_refill_at');
+    assert.ok(columnNames.includes('updated_at'), 'should have updated_at');
   });
 
   void it('has RLS enabled', async () => {
@@ -164,10 +165,10 @@ void describe('Module G: api_cost_tracking table', { skip: SKIP }, () => {
 
     assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
-    assert.ok(columnNames.includes('api_type'), 'should have api_type');
-    assert.ok(columnNames.includes('endpoint'), 'should have endpoint');
-    assert.ok(columnNames.includes('cost_units'), 'should have cost_units');
-    assert.ok(columnNames.includes('recorded_at'), 'should have recorded_at');
+    assert.ok(columnNames.includes('operation_type'), 'should have operation_type');
+    assert.ok(columnNames.includes('query_hash'), 'should have query_hash');
+    assert.ok(columnNames.includes('actual_cost'), 'should have actual_cost');
+    assert.ok(columnNames.includes('requested_at'), 'should have requested_at');
   });
 
   void it('is partitioned by month', async () => {

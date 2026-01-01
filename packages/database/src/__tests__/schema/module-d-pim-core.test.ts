@@ -52,7 +52,7 @@ void describe('Module D: prod_taxonomy table', { skip: SKIP }, () => {
     assert.ok(columnNames.includes('name'), 'should have name');
     assert.ok(columnNames.includes('slug'), 'should have slug');
     assert.ok(columnNames.includes('level'), 'should have level');
-    assert.ok(columnNames.includes('path'), 'should have path');
+    assert.ok(columnNames.includes('breadcrumbs'), 'should have breadcrumbs');
   });
 
   void it('has required indexes', async () => {
@@ -91,8 +91,9 @@ void describe('Module D: prod_sources table', { skip: SKIP }, () => {
 
     assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
+    assert.ok(columnNames.includes('name'), 'should have name');
     assert.ok(columnNames.includes('source_type'), 'should have source_type');
-    assert.ok(columnNames.includes('source_url'), 'should have source_url');
+    assert.ok(columnNames.includes('base_url'), 'should have base_url');
     assert.ok(columnNames.includes('priority'), 'should have priority');
     assert.ok(columnNames.includes('is_active'), 'should have is_active');
   });
@@ -119,16 +120,17 @@ void describe('Module D: prod_raw_harvest table', { skip: SKIP }, () => {
 
     assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('source_id'), 'should have source_id');
-    assert.ok(columnNames.includes('raw_data'), 'should have raw_data');
-    assert.ok(columnNames.includes('harvested_at'), 'should have harvested_at');
-    assert.ok(columnNames.includes('checksum'), 'should have checksum');
+    assert.ok(columnNames.includes('source_url'), 'should have source_url');
+    assert.ok(columnNames.includes('raw_json'), 'should have raw_json');
+    assert.ok(columnNames.includes('fetched_at'), 'should have fetched_at');
+    assert.ok(columnNames.includes('content_hash'), 'should have content_hash');
   });
 
-  void it('has JSONB raw_data column', async () => {
+  void it('has JSONB raw_json column', async () => {
     const columns = await getTableColumns('prod_raw_harvest');
-    const rawData = columns.find((c) => c.column_name === 'raw_data');
-    assert.ok(rawData, 'raw_data column should exist');
-    assert.strictEqual(rawData?.udt_name, 'jsonb', 'raw_data should be jsonb');
+    const rawJson = columns.find((c) => c.column_name === 'raw_json');
+    assert.ok(rawJson, 'raw_json column should exist');
+    assert.strictEqual(rawJson?.udt_name, 'jsonb', 'raw_json should be jsonb');
   });
 
   void it('does NOT have RLS (global PIM data)', async () => {
@@ -153,8 +155,8 @@ void describe('Module D: prod_extraction_sessions table', { skip: SKIP }, () => 
 
     assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('harvest_id'), 'should have harvest_id');
-    assert.ok(columnNames.includes('status'), 'should have status');
-    assert.ok(columnNames.includes('extracted_data'), 'should have extracted_data');
+    assert.ok(columnNames.includes('model_name'), 'should have model_name');
+    assert.ok(columnNames.includes('extracted_specs'), 'should have extracted_specs');
     assert.ok(columnNames.includes('confidence_score'), 'should have confidence_score');
   });
 
@@ -180,9 +182,9 @@ void describe('Module D: prod_master table', { skip: SKIP }, () => {
 
     assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('taxonomy_id'), 'should have taxonomy_id');
-    assert.ok(columnNames.includes('canonical_name'), 'should have canonical_name');
+    assert.ok(columnNames.includes('canonical_title'), 'should have canonical_title');
     assert.ok(columnNames.includes('brand'), 'should have brand');
-    assert.ok(columnNames.includes('model'), 'should have model');
+    assert.ok(columnNames.includes('manufacturer'), 'should have manufacturer');
     assert.ok(columnNames.includes('quality_score'), 'should have quality_score');
   });
 
@@ -214,9 +216,9 @@ void describe('Module D: prod_specs_normalized table', { skip: SKIP }, () => {
 
     assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('product_id'), 'should have product_id');
-    assert.ok(columnNames.includes('spec_key'), 'should have spec_key');
-    assert.ok(columnNames.includes('spec_value'), 'should have spec_value');
-    assert.ok(columnNames.includes('unit'), 'should have unit');
+    assert.ok(columnNames.includes('specs'), 'should have specs');
+    assert.ok(columnNames.includes('version'), 'should have version');
+    assert.ok(columnNames.includes('is_current'), 'should have is_current');
   });
 
   void it('does NOT have RLS (global PIM data)', async () => {
@@ -239,10 +241,10 @@ void describe('Module D: prod_semantics table', { skip: SKIP }, () => {
     const columns = await getTableColumns('prod_semantics');
     const columnNames = columns.map((c) => c.column_name);
 
-    assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('product_id'), 'should have product_id');
     assert.ok(columnNames.includes('search_vector'), 'should have search_vector');
     assert.ok(columnNames.includes('keywords'), 'should have keywords');
+    assert.ok(columnNames.includes('locale'), 'should have locale');
   });
 
   void it('has tsvector search_vector column', async () => {
@@ -282,8 +284,9 @@ void describe('Module D: prod_channel_mappings table', { skip: SKIP }, () => {
 
     assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
-    assert.ok(columnNames.includes('master_product_id'), 'should have master_product_id');
-    assert.ok(columnNames.includes('shopify_product_id'), 'should have shopify_product_id');
+    assert.ok(columnNames.includes('product_id'), 'should have product_id');
+    assert.ok(columnNames.includes('channel'), 'should have channel');
+    assert.ok(columnNames.includes('external_id'), 'should have external_id');
     assert.ok(columnNames.includes('sync_status'), 'should have sync_status');
   });
 

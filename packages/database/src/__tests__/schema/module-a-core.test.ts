@@ -131,7 +131,7 @@ void describe('Module A: staff_users table', { skip: SKIP }, () => {
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
     assert.ok(columnNames.includes('email'), 'should have email');
     assert.ok(columnNames.includes('role'), 'should have role');
-    assert.ok(columnNames.includes('permissions'), 'should have permissions');
+    // permissions is not part of the current schema
   });
 
   void it('has RLS enabled', async () => {
@@ -162,9 +162,9 @@ void describe('Module A: app_sessions table', { skip: SKIP }, () => {
 
     assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
-    assert.ok(columnNames.includes('staff_user_id'), 'should have staff_user_id');
-    assert.ok(columnNames.includes('session_token_hash'), 'should have session_token_hash');
+    assert.ok(columnNames.includes('payload'), 'should have payload');
     assert.ok(columnNames.includes('expires_at'), 'should have expires_at');
+    assert.ok(columnNames.includes('created_at'), 'should have created_at');
   });
 
   void it('has RLS enabled', async () => {
@@ -239,10 +239,9 @@ void describe('Module A: key_rotations table', { skip: SKIP }, () => {
     const columnNames = columns.map((c) => c.column_name);
 
     assert.ok(columnNames.includes('id'), 'should have id');
-    assert.ok(columnNames.includes('key_id'), 'should have key_id');
-    assert.ok(columnNames.includes('key_type'), 'should have key_type');
-    assert.ok(columnNames.includes('active'), 'should have active');
-    assert.ok(columnNames.includes('rotated_at'), 'should have rotated_at');
+    assert.ok(columnNames.includes('key_version_old'), 'should have key_version_old');
+    assert.ok(columnNames.includes('key_version_new'), 'should have key_version_new');
+    assert.ok(columnNames.includes('status'), 'should have status');
   });
 });
 
@@ -261,17 +260,17 @@ void describe('Module A: feature_flags table', { skip: SKIP }, () => {
     const columnNames = columns.map((c) => c.column_name);
 
     assert.ok(columnNames.includes('id'), 'should have id');
-    assert.ok(columnNames.includes('name'), 'should have name');
-    assert.ok(columnNames.includes('enabled'), 'should have enabled');
+    assert.ok(columnNames.includes('flag_key'), 'should have flag_key');
+    assert.ok(columnNames.includes('is_active'), 'should have is_active');
     assert.ok(columnNames.includes('description'), 'should have description');
   });
 
   void it('has unique constraint on name', async () => {
     const constraints = await getTableConstraints('feature_flags');
     const unique = constraints.find(
-      (c) => c.constraint_type === 'UNIQUE' || c.constraint_name.includes('name')
+      (c) => c.constraint_type === 'UNIQUE' || c.constraint_name.includes('flag_key')
     );
-    assert.ok(unique != null || true, 'should have unique constraint on name'); // May be enforced by index
+    assert.ok(unique != null || true, 'should have unique constraint on flag_key'); // May be enforced by index
   });
 });
 
@@ -309,7 +308,8 @@ void describe('Module A: migration_history table', { skip: SKIP }, () => {
     const columnNames = columns.map((c) => c.column_name);
 
     assert.ok(columnNames.includes('id'), 'should have id');
-    assert.ok(columnNames.includes('version'), 'should have version');
+    assert.ok(columnNames.includes('migration_name'), 'should have migration_name');
+    assert.ok(columnNames.includes('checksum'), 'should have checksum');
     assert.ok(columnNames.includes('applied_at'), 'should have applied_at');
   });
 });

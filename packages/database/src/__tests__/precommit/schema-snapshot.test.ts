@@ -29,12 +29,12 @@ const EXPECTED = {
   tables: { min: 65, max: 70 }, // 67 base tables
   indexes: { min: 700, max: 800 }, // 742 total with partitions
   foreignKeys: { min: 100, max: 115 }, // 105 FKs
-  checkConstraints: { min: 40, max: 50 }, // 43 CHECKs
-  rlsTables: { min: 40, max: 45 }, // 42 with RLS
+  checkConstraints: { min: 55, max: 75 }, // ~63 CHECKs (base tables only)
+  rlsTables: { min: 38, max: 42 }, // 40 with RLS
   triggers: { min: 20, max: 30 }, // 25 triggers
   materializedViews: { min: 7, max: 7 }, // Exactly 7
-  views: { min: 4, max: 6 }, // 4 views
-  partitions: { min: 60, max: 70 }, // 64 partitions
+  views: { min: 5, max: 6 }, // 6 views
+  partitions: { min: 430, max: 500 }, // ~464 partitions
   extensions: { min: 6, max: 10 }, // 9 extensions
 };
 

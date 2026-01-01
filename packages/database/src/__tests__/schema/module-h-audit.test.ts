@@ -106,7 +106,7 @@ void describe('Module H: sync_checkpoints table', { skip: SKIP }, () => {
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
     assert.ok(columnNames.includes('resource_type'), 'should have resource_type');
     assert.ok(columnNames.includes('last_cursor'), 'should have last_cursor');
-    assert.ok(columnNames.includes('last_synced_at'), 'should have last_synced_at');
+    assert.ok(columnNames.includes('last_sync_at'), 'should have last_sync_at');
     assert.ok(columnNames.includes('status'), 'should have status');
   });
 

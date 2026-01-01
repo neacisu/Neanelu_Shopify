@@ -128,4 +128,5 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.venv/
 .pytest_cache/

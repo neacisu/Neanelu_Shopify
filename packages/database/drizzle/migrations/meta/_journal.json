@@ -337,6 +337,27 @@
       "when": 1735766413000,
       "tag": "0047_disable_scraper_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1767225600000,
+      "tag": "0048_partition_management_naming_fix",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1767225601000,
+      "tag": "0049_shops_domain_tokens_citext_bytea",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1767225602000,
+      "tag": "0050_scraper_no_rls_hardening",
+      "breakpoints": true
     }
   ]
 }

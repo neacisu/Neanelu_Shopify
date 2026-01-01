@@ -60,11 +60,10 @@ void describe('Module E: prod_attr_definitions table', { skip: SKIP }, () => {
     const columnNames = columns.map((c) => c.column_name);
 
     assert.ok(columnNames.includes('id'), 'should have id');
-    assert.ok(columnNames.includes('name'), 'should have name');
-    assert.ok(columnNames.includes('display_name'), 'should have display_name');
+    assert.ok(columnNames.includes('code'), 'should have code');
+    assert.ok(columnNames.includes('label'), 'should have label');
     assert.ok(columnNames.includes('data_type'), 'should have data_type');
     assert.ok(columnNames.includes('embedding'), 'should have embedding');
-    assert.ok(columnNames.includes('taxonomy_id'), 'should have taxonomy_id');
   });
 
   void it('has vector embedding column', async () => {
@@ -101,8 +100,8 @@ void describe('Module E: prod_attr_synonyms table', { skip: SKIP }, () => {
     const columnNames = columns.map((c) => c.column_name);
 
     assert.ok(columnNames.includes('id'), 'should have id');
-    assert.ok(columnNames.includes('attr_id'), 'should have attr_id');
-    assert.ok(columnNames.includes('synonym'), 'should have synonym');
+    assert.ok(columnNames.includes('definition_id'), 'should have definition_id');
+    assert.ok(columnNames.includes('synonym_text'), 'should have synonym_text');
     assert.ok(columnNames.includes('locale'), 'should have locale');
   });
 
@@ -134,8 +133,9 @@ void describe('Module E: prod_embeddings table', { skip: SKIP }, () => {
 
     assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('product_id'), 'should have product_id');
+    assert.ok(columnNames.includes('embedding_type'), 'should have embedding_type');
     assert.ok(columnNames.includes('embedding'), 'should have embedding');
-    assert.ok(columnNames.includes('model'), 'should have model');
+    assert.ok(columnNames.includes('model_version'), 'should have model_version');
     assert.ok(columnNames.includes('dimensions'), 'should have dimensions');
   });
 
@@ -177,8 +177,9 @@ void describe('Module E: shop_product_embeddings table', { skip: SKIP }, () => {
     assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
     assert.ok(columnNames.includes('product_id'), 'should have product_id');
+    assert.ok(columnNames.includes('embedding_type'), 'should have embedding_type');
     assert.ok(columnNames.includes('embedding'), 'should have embedding');
-    assert.ok(columnNames.includes('model'), 'should have model');
+    assert.ok(columnNames.includes('model_version'), 'should have model_version');
   });
 
   void it('has vector embedding column', async () => {

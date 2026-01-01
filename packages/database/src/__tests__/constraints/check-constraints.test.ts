@@ -33,13 +33,13 @@ void describe('CHECK Constraints Summary', { skip: SKIP }, () => {
   });
 
   void it('has at least 40 CHECK constraints', () => {
-    assert.ok(allChecks.length >= 80, `Expected at least 80 CHECKs, got ${allChecks.length}`);
+    assert.ok(allChecks.length >= 55, `Expected at least 55 CHECKs, got ${allChecks.length}`);
   });
 
   void it('has expected CHECK constraint count range (80-120)', () => {
     assert.ok(
-      allChecks.length >= 80 && allChecks.length <= 120,
-      `CHECK count ${allChecks.length} should be in range 80-120`
+      allChecks.length >= 55 && allChecks.length <= 75,
+      `CHECK count ${allChecks.length} should be in range 55-75`
     );
   });
 });

@@ -121,11 +121,15 @@ export interface MaterializedViewInfo {
  */
 export async function getAllTables(): Promise<TableInfo[]> {
   return query<TableInfo>(`
-    SELECT table_name, table_type
-    FROM information_schema.tables
-    WHERE table_schema = 'public'
-    AND table_type = 'BASE TABLE'
-    ORDER BY table_name
+    SELECT
+      c.relname as table_name,
+      'BASE TABLE'::text as table_type
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relkind IN ('r', 'p')
+      AND c.relispartition = false
+    ORDER BY c.relname
   `);
 }
 
@@ -135,10 +139,15 @@ export async function getAllTables(): Promise<TableInfo[]> {
 export async function getTableInfo(tableName: string): Promise<TableInfo | null> {
   return queryOne<TableInfo>(
     `
-    SELECT table_name, table_type
-    FROM information_schema.tables
-    WHERE table_schema = 'public'
-    AND table_name = $1
+    SELECT
+      c.relname as table_name,
+      'BASE TABLE'::text as table_type
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relkind IN ('r', 'p')
+      AND c.relispartition = false
+      AND c.relname = $1
   `,
     [tableName]
   );
@@ -337,27 +346,53 @@ export async function getTableConstraints(tableName: string): Promise<Constraint
  */
 export async function getAllForeignKeys(): Promise<ForeignKeyInfo[]> {
   return query<ForeignKeyInfo>(`
+    WITH fk_constraints AS (
+      SELECT
+        c.conname AS constraint_name,
+        c.conrelid,
+        c.confrelid,
+        rel.relname AS table_name,
+        frel.relname AS foreign_table_name,
+        c.confdeltype,
+        c.confupdtype,
+        c.conkey,
+        c.confkey
+      FROM pg_constraint c
+      JOIN pg_class rel ON rel.oid = c.conrelid
+      JOIN pg_namespace n ON n.oid = rel.relnamespace
+      JOIN pg_class frel ON frel.oid = c.confrelid
+      WHERE c.contype = 'f'
+        AND n.nspname = 'public'
+        AND rel.relispartition = false
+    )
     SELECT
-      tc.constraint_name,
-      tc.table_name,
-      kcu.column_name,
-      ccu.table_name AS foreign_table_name,
-      ccu.column_name AS foreign_column_name,
-      rc.delete_rule,
-      rc.update_rule
-    FROM information_schema.table_constraints AS tc
-    JOIN information_schema.key_column_usage AS kcu
-      ON tc.constraint_name = kcu.constraint_name
-      AND tc.table_schema = kcu.table_schema
-    JOIN information_schema.constraint_column_usage AS ccu
-      ON ccu.constraint_name = tc.constraint_name
-      AND ccu.table_schema = tc.table_schema
-    JOIN information_schema.referential_constraints AS rc
-      ON tc.constraint_name = rc.constraint_name
-      AND tc.table_schema = rc.constraint_schema
-    WHERE tc.constraint_type = 'FOREIGN KEY'
-    AND tc.table_schema = 'public'
-    ORDER BY tc.table_name, tc.constraint_name
+      fk.constraint_name,
+      fk.table_name,
+      a.attname AS column_name,
+      fk.foreign_table_name,
+      fa.attname AS foreign_column_name,
+      CASE fk.confdeltype
+        WHEN 'a' THEN 'NO ACTION'
+        WHEN 'r' THEN 'RESTRICT'
+        WHEN 'c' THEN 'CASCADE'
+        WHEN 'n' THEN 'SET NULL'
+        WHEN 'd' THEN 'SET DEFAULT'
+        ELSE fk.confdeltype::text
+      END AS delete_rule,
+      CASE fk.confupdtype
+        WHEN 'a' THEN 'NO ACTION'
+        WHEN 'r' THEN 'RESTRICT'
+        WHEN 'c' THEN 'CASCADE'
+        WHEN 'n' THEN 'SET NULL'
+        WHEN 'd' THEN 'SET DEFAULT'
+        ELSE fk.confupdtype::text
+      END AS update_rule
+    FROM fk_constraints fk
+    JOIN LATERAL unnest(fk.conkey) WITH ORDINALITY AS conkey(attnum, ord) ON true
+    JOIN LATERAL unnest(fk.confkey) WITH ORDINALITY AS confkey(attnum, ord) ON conkey.ord = confkey.ord
+    JOIN pg_attribute a ON a.attrelid = fk.conrelid AND a.attnum = conkey.attnum
+    JOIN pg_attribute fa ON fa.attrelid = fk.confrelid AND fa.attnum = confkey.attnum
+    ORDER BY fk.table_name, fk.constraint_name, conkey.ord
   `);
 }
 
@@ -394,6 +429,8 @@ export async function getAllCheckConstraints(): Promise<CheckConstraintInfo[]> {
     JOIN pg_namespace n ON t.relnamespace = n.oid
     WHERE c.contype = 'c'
     AND n.nspname = 'public'
+    AND t.relkind IN ('r', 'p')
+    AND t.relispartition = false
     ORDER BY t.relname, c.conname
   `);
 }
@@ -413,6 +450,8 @@ export async function getTableCheckConstraints(tableName: string): Promise<Check
     JOIN pg_namespace n ON t.relnamespace = n.oid
     WHERE c.contype = 'c'
     AND n.nspname = 'public'
+    AND t.relkind IN ('r', 'p')
+    AND t.relispartition = false
     AND t.relname = $1
     ORDER BY c.conname
   `,
@@ -612,6 +651,8 @@ export async function getAllPartitions(): Promise<PartitionInfo[]> {
     JOIN pg_class child ON pg_inherits.inhrelid = child.oid
     JOIN pg_namespace n ON parent.relnamespace = n.oid
     WHERE n.nspname = 'public'
+      AND parent.relkind IN ('p', 'I')
+      AND child.relispartition = true
     ORDER BY parent.relname, child.relname
   `);
 }
@@ -632,6 +673,8 @@ export async function getTablePartitions(tableName: string): Promise<PartitionIn
     JOIN pg_namespace n ON parent.relnamespace = n.oid
     WHERE n.nspname = 'public'
     AND parent.relname = $1
+    AND parent.relkind = 'p'
+    AND child.relispartition = true
     ORDER BY child.relname
   `,
     [tableName]
@@ -648,6 +691,7 @@ export async function getPartitionedTables(): Promise<string[]> {
     JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
     JOIN pg_namespace n ON parent.relnamespace = n.oid
     WHERE n.nspname = 'public'
+    AND parent.relkind = 'p'
     ORDER BY parent.relname
   `);
   return results.map((r) => r.relname);
