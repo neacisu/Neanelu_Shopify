@@ -4,6 +4,9 @@
 -- ============================================
 -- Function 1: Find Similar Products (Vector Search)
 -- ============================================
+-- Drop existing function first to allow return type change
+-- (0006_vectors_schema.sql creates this with different return columns)
+DROP FUNCTION IF EXISTS find_similar_products(vector(1536), float, int);
 
 CREATE OR REPLACE FUNCTION find_similar_products(
   query_embedding vector(1536),
