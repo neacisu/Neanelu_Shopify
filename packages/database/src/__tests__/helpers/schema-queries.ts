@@ -363,10 +363,21 @@ export async function getAllForeignKeys(): Promise<ForeignKeyInfo[]> {
 
 /**
  * Get foreign keys for a table
+ * Uses cached results to avoid repeated expensive queries
  */
+let _cachedForeignKeys: ForeignKeyInfo[] | null = null;
+
 export async function getTableForeignKeys(tableName: string): Promise<ForeignKeyInfo[]> {
-  const allFks = await getAllForeignKeys();
-  return allFks.filter((fk) => fk.table_name === tableName);
+  // Cache the FK query result to avoid repeated expensive queries
+  _cachedForeignKeys ??= await getAllForeignKeys();
+  return _cachedForeignKeys.filter((fk) => fk.table_name === tableName);
+}
+
+/**
+ * Clear the FK cache (call after schema changes or in after() hooks)
+ */
+export function clearForeignKeyCache(): void {
+  _cachedForeignKeys = null;
 }
 
 /**
