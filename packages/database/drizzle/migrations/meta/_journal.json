@@ -330,6 +330,13 @@
       "when": 1735766412000,
       "tag": "0046_create_validation_view",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1735766413000,
+      "tag": "0047_disable_scraper_rls",
+      "breakpoints": true
     }
   ]
 }

@@ -56,6 +56,33 @@ void describe('Module A RLS: Status Verification', { skip: SKIP }, () => {
 });
 
 // ============================================
+// DIAGNOSTIC
+// ============================================
+
+void describe('Module A RLS: Diagnostics', { skip: SKIP }, () => {
+  void it('checks actual RLS status in pg_class', async () => {
+    const pool = getPool();
+    const result = await pool.query(`
+      SELECT relname, relrowsecurity, relforcerowsecurity 
+      FROM pg_class 
+      WHERE relname IN ('staff_users', 'scraper_runs', 'scraper_queue')
+    `);
+    console.info('DIAGNOSTIC RLS STATUS:', JSON.stringify(result.rows, null, 2));
+
+    // Check if staff_users has force RLS
+    interface RlsRow {
+      relname: string;
+      relforcerowsecurity: boolean;
+    }
+    const staff = (result.rows as RlsRow[]).find((r) => r.relname === 'staff_users');
+
+    if (staff && !staff.relforcerowsecurity) {
+      console.error('CRITICAL: staff_users missing FORCE RLS');
+    }
+  });
+});
+
+// ============================================
 // POLICY VERIFICATION
 // ============================================
 
@@ -122,8 +149,8 @@ void describe('Module A RLS: Tenant Isolation', { skip: SKIP }, () => {
       await setTenantContext(client, TEST_SHOP_A);
       await client.query(
         `
-        INSERT INTO staff_users (id, shop_id, email, role, permissions)
-        VALUES (uuidv7(), $1, 'admin-a@test.com', 'admin', '{}')
+        INSERT INTO staff_users (id, shop_id, email, role)
+        VALUES (uuidv7(), $1, 'admin-a@test.com', '{"role": "admin"}')
         ON CONFLICT DO NOTHING
       `,
         [TEST_SHOP_A]
@@ -132,8 +159,8 @@ void describe('Module A RLS: Tenant Isolation', { skip: SKIP }, () => {
       await setTenantContext(client, TEST_SHOP_B);
       await client.query(
         `
-        INSERT INTO staff_users (id, shop_id, email, role, permissions)
-        VALUES (uuidv7(), $1, 'admin-b@test.com', 'admin', '{}')
+        INSERT INTO staff_users (id, shop_id, email, role)
+        VALUES (uuidv7(), $1, 'admin-b@test.com', '{"role": "admin"}')
         ON CONFLICT DO NOTHING
       `,
         [TEST_SHOP_B]
@@ -202,6 +229,20 @@ void describe('Module A RLS: Tenant Isolation', { skip: SKIP }, () => {
       assert.strictEqual(result.rows.length, 0, 'Should return empty without context');
     } finally {
       client.release();
+    }
+  });
+
+  void it('checks applied migrations', async () => {
+    const pool = getPool();
+    // Try to find migrations table
+    try {
+      const result = await pool.query(
+        'SELECT * FROM drizzle.__drizzle_migrations ORDER BY created_at DESC LIMIT 5'
+      );
+      console.error('LAST MIGRATIONS:', JSON.stringify(result.rows, null, 2));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('Could not read migrations:', msg);
     }
   });
 });

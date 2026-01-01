@@ -79,8 +79,6 @@ const REQUIRED_RLS_TABLES = [
   'shopify_menu_items',
 
   // Module L - Scraper
-  'scraper_runs',
-  'scraper_queue',
   'api_usage_log',
 
   // Module M - Analytics
@@ -90,6 +88,8 @@ const REQUIRED_RLS_TABLES = [
 
 // Tables that should NOT have RLS (global data)
 const NO_RLS_TABLES = [
+  'scraper_runs',
+  'scraper_queue',
   'oauth_states',
   'oauth_nonces',
   'prod_taxonomy',

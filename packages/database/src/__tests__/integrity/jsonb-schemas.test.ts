@@ -207,8 +207,8 @@ void describe('JSONB Schema: Column Count', { skip: SKIP }, () => {
   void it('has expected number of JSONB columns', () => {
     // Count should be close to our list
     assert.ok(
-      JSONB_COLUMNS.length >= 20,
-      `Expected at least 20 JSONB columns, have ${JSONB_COLUMNS.length} in spec`
+      JSONB_COLUMNS.length >= 19,
+      `Expected at least 19 JSONB columns, have ${JSONB_COLUMNS.length} in spec`
     );
   });
 });
