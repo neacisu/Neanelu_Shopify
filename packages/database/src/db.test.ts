@@ -7,9 +7,9 @@
  * NOTĂ: Necesită container PostgreSQL activ (pnpm db:up)
  */
 
-import { describe, it, before, after } from 'node:test';
+import { describe, it, before } from 'node:test';
 import assert from 'node:assert';
-import { pool, checkDatabaseConnection, closePool } from './db.ts';
+import { pool, checkDatabaseConnection } from './db.ts';
 
 // Typed query results
 interface TestRow {
@@ -31,10 +31,12 @@ void describe('Database Connection', () => {
       'postgresql://shopify:shopify_dev_password@localhost:65010/neanelu_shopify_dev';
   });
 
+  /*
   after(async () => {
-    // Cleanup - închide pool-ul
-    await closePool();
+     // Don't close pool in shared test environment
+     // await closePool();
   });
+  */
 
   void it('should connect to PostgreSQL and run SELECT 1', async () => {
     const client = await pool.connect();
