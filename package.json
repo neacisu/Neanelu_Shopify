@@ -29,6 +29,10 @@
     "db:migrate": "pnpm --filter @app/database run db:migrate",
     "db:studio": "pnpm --filter @app/database run db:studio",
     "db:push": "pnpm --filter @app/database run db:push",
+    "db:test": "pnpm --filter @app/database run test",
+    "db:test:schema": "pnpm --filter @app/database run test:schema",
+    "db:test:precommit": "pnpm --filter @app/database run test:precommit",
+    "db:test:all": "pnpm --filter @app/database run test:all",
     "oauth:server": "tsx oauth-callback-server.ts"
   },
   "lint-staged": {

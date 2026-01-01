@@ -8,4 +8,14 @@ pnpm lint-staged
 echo '🔍 Running typecheck...'
 pnpm typecheck
 
+# Optional: Run DB schema pre-commit tests if database is available
+# Uncomment the following lines to enable DB schema verification on commit
+# if [ -n "$DATABASE_URL" ]; then
+#   echo '🗄️  Running DB schema pre-commit tests...'
+#   pnpm db:test:precommit || {
+#     echo '❌ DB schema tests failed!'
+#     exit 1
+#   }
+# fi
+
 echo '✅ Pre-commit checks passed!'

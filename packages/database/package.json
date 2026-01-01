@@ -23,7 +23,18 @@
     "db:check": "drizzle-kit check",
     "db:seed:taxonomy": "node --import tsx src/seed/taxonomy.ts",
     "db:seed": "node --import tsx src/seed/products.ts",
-    "test": "node --test --experimental-test-isolation=none src/**/*.test.ts"
+    "test": "node --test --experimental-test-isolation=none src/**/*.test.ts",
+    "test:schema": "node --test --experimental-test-isolation=none src/__tests__/schema/**/*.test.ts",
+    "test:constraints": "node --test --experimental-test-isolation=none src/__tests__/constraints/**/*.test.ts",
+    "test:indexes": "node --test --experimental-test-isolation=none src/__tests__/indexes/**/*.test.ts",
+    "test:rls": "node --test --experimental-test-isolation=none src/__tests__/rls/**/*.test.ts",
+    "test:functions": "node --test --experimental-test-isolation=none src/__tests__/functions/**/*.test.ts",
+    "test:partitioning": "node --test --experimental-test-isolation=none src/__tests__/partitioning/**/*.test.ts",
+    "test:views": "node --test --experimental-test-isolation=none src/__tests__/views/**/*.test.ts",
+    "test:precommit": "node --test --experimental-test-isolation=none src/__tests__/precommit/**/*.test.ts",
+    "test:integrity": "node --test --experimental-test-isolation=none src/__tests__/integrity/**/*.test.ts",
+    "test:all": "node --test --experimental-test-isolation=none 'src/**/*.test.ts'",
+    "generate:tests": "node --import tsx scripts/generate-schema-tests.ts"
   },
   "dependencies": {
     "@faker-js/faker": "^10.1.0",

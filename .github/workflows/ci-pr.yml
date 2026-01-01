@@ -112,6 +112,79 @@ jobs:
           retention-days: 7
 
   # ============================================
+  # Database Schema Tests
+  # ============================================
+  db-schema-tests:
+    name: Database Schema Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NPM_TASKFORCESH_TOKEN: ${{ secrets.NPM_TASKFORCESH_TOKEN }}
+
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.1-pg18-trixie
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test_db
+        ports:
+          - 65010:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          NPM_TASKFORCESH_TOKEN: ${{ secrets.NPM_TASKFORCESH_TOKEN }}
+
+      - name: Install PostgreSQL extensions
+        env:
+          PGPASSWORD: test
+        run: |
+          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS citext;"
+          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS btree_gin;"
+          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS btree_gist;"
+          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+      - name: Run database migrations
+        run: pnpm db:migrate
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:65010/test_db
+
+      - name: Run DB Schema Tests
+        run: pnpm db:test:all
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:65010/test_db
+          NODE_ENV: test
+
+      - name: Run Pre-commit Schema Verification
+        run: pnpm db:test:precommit
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:65010/test_db
+          NODE_ENV: test
+
+  # ============================================
   # Security Scan: Trivy FS
   # ============================================
   security-scan:
