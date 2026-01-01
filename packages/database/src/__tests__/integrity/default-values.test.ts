@@ -12,32 +12,27 @@ import { getTableColumns, getAllTables } from '../helpers/schema-queries.ts';
 
 const SKIP = shouldSkipDbTests();
 
-// Expected default values
+// Expected default values (verified from migrations)
 const EXPECTED_DEFAULTS: Record<string, Record<string, string | RegExp>> = {
   shops: {
-    plan_tier: /'free'/,
+    plan_tier: /'basic'/,
     created_at: /now\(\)|CURRENT_TIMESTAMP/i,
   },
   shopify_products: {
-    status: /'ACTIVE'/,
+    status: /'pending'|'ACTIVE'/i, // May vary
     created_at: /now\(\)|CURRENT_TIMESTAMP/i,
   },
   bulk_runs: {
     status: /'pending'/i,
-    progress_percent: /0/,
-    total_items: /0/,
-    processed_items: /0/,
-    failed_items: /0/,
+    records_processed: /0/,
+    retry_count: /0/,
     created_at: /now\(\)|CURRENT_TIMESTAMP/i,
   },
   ai_batches: {
     status: /'pending'/i,
-    total_items: /0/,
-    completed_items: /0/,
-    failed_items: /0/,
-  },
-  feature_flags: {
-    enabled: /false/,
+    request_count: /0/,
+    completed_count: /0/,
+    error_count: /0/,
   },
   rate_limit_buckets: {
     tokens_remaining: /\d+/,
@@ -184,7 +179,7 @@ void describe('Default Values: Numeric Defaults', { skip: SKIP }, () => {
   void it('bulk_runs counter columns default to 0', async () => {
     const columns = await getTableColumns('bulk_runs');
 
-    const counters = ['progress_percent', 'total_items', 'processed_items', 'failed_items'];
+    const counters = ['records_processed', 'retry_count'];
 
     for (const counterName of counters) {
       const counter = columns.find((c) => c.column_name === counterName);

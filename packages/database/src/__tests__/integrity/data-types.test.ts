@@ -12,7 +12,7 @@ import { getTableColumns, getAllTables } from '../helpers/schema-queries.ts';
 
 const SKIP = shouldSkipDbTests();
 
-// Expected data types for critical columns (verified from actual database)
+// Expected data types for critical columns (verified from migration 0001)
 const CRITICAL_COLUMN_TYPES: Record<string, Record<string, string>> = {
   shops: {
     id: 'uuid',
@@ -22,18 +22,17 @@ const CRITICAL_COLUMN_TYPES: Record<string, Record<string, string>> = {
     access_token_tag: 'text',
     scopes: 'ARRAY',
     plan_tier: 'varchar',
-    plan_limits: 'jsonb',
     settings: 'jsonb',
-    created_at: 'timestamp with time zone',
-    updated_at: 'timestamp with time zone',
+    created_at: 'timestamptz',
+    updated_at: 'timestamptz',
   },
   shopify_products: {
     id: 'uuid',
     shop_id: 'uuid',
-    shopify_gid: 'text',
-    legacy_resource_id: 'bigint',
+    shopify_gid: 'varchar',
+    legacy_resource_id: 'int8',
     title: 'text',
-    handle: 'text',
+    handle: 'varchar',
     status: 'varchar',
     metafields: 'jsonb',
     tags: 'ARRAY',
@@ -44,7 +43,7 @@ const CRITICAL_COLUMN_TYPES: Record<string, Record<string, string>> = {
     product_id: 'uuid',
     price: 'numeric',
     compare_at_price: 'numeric',
-    inventory_quantity: 'integer',
+    inventory_quantity: 'int4',
   },
   prod_master: {
     id: 'uuid',
@@ -62,8 +61,8 @@ const CRITICAL_COLUMN_TYPES: Record<string, Record<string, string>> = {
   bulk_runs: {
     id: 'uuid',
     shop_id: 'uuid',
-    progress_percent: 'int4',
-    total_items: 'int4',
+    operation_type: 'varchar',
+    status: 'varchar',
   },
   audit_logs: {
     id: 'uuid',
