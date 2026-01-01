@@ -209,7 +209,7 @@ void describe('Data Types: JSONB Columns', { skip: SKIP }, () => {
     { table: 'staging_variants', column: 'selected_options' },
     { table: 'audit_logs', column: 'details' },
     { table: 'prod_proposals', column: 'proposed_value' },
-    { table: 'prod_raw_harvest', column: 'raw_data' },
+    { table: 'prod_raw_harvest', column: 'raw_json' },
     { table: 'scheduled_tasks', column: 'job_data' },
     { table: 'scraper_configs', column: 'selectors' },
     { table: 'scraper_configs', column: 'rate_limit' },

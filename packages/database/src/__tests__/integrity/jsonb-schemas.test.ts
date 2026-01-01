@@ -33,7 +33,7 @@ const JSONB_COLUMNS = [
   { table: 'audit_logs', column: 'details', description: 'Audit details' },
   { table: 'webhook_events', column: 'payload', description: 'Webhook payload' },
   { table: 'prod_proposals', column: 'proposed_value', description: 'Proposed changes' },
-  { table: 'prod_raw_harvest', column: 'raw_data', description: 'Raw scraped data' },
+  { table: 'prod_raw_harvest', column: 'raw_json', description: 'Raw scraped data' },
   { table: 'scheduled_tasks', column: 'job_data', description: 'Task configuration' },
   { table: 'scraper_configs', column: 'selectors', description: 'Scraper selectors' },
   { table: 'scraper_configs', column: 'rate_limit', description: 'Rate limit config' },

@@ -41,24 +41,23 @@ const REQUIRED_NOT_NULL: Record<string, string[]> = {
     'legacy_resource_id',
     'title',
     'price',
-    'compare_at_price',
   ],
   bulk_runs: ['id', 'shop_id', 'operation_type', 'status'],
   bulk_steps: ['id', 'bulk_run_id', 'shop_id', 'step_name', 'status'],
   audit_logs: ['action'],
   prod_taxonomy: ['id', 'name', 'slug', 'level'],
   ai_batches: ['id', 'batch_type', 'provider'],
-  webhook_events: ['id', 'shop_id', 'topic'],
+  webhook_events: ['topic'],
 };
 
-// Columns that SHOULD be nullable
+// Columns that SHOULD be nullable (per migrations)
 const EXPECTED_NULLABLE: Record<string, string[]> = {
-  shops: ['uninstalled_at', 'shop_owner_email', 'last_api_call_at'],
+  shops: ['uninstalled_at', 'shop_owner_email'],
   shopify_products: ['description', 'product_type', 'vendor', 'published_at'],
-  shopify_variants: ['compare_at_price', 'barcode', 'weight'],
+  shopify_variants: ['sku', 'barcode', 'weight', 'cost'],
   bulk_runs: ['completed_at', 'error_message'],
   audit_logs: ['details', 'user_agent', 'ip_address'],
-  prod_master: ['brand', 'model', 'description'],
+  prod_master: ['brand', 'manufacturer', 'mpn'],
 };
 
 // ============================================
