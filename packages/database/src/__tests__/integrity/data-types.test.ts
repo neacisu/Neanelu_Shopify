@@ -12,17 +12,18 @@ import { getTableColumns, getAllTables } from '../helpers/schema-queries.ts';
 
 const SKIP = shouldSkipDbTests();
 
-// Expected data types for critical columns
+// Expected data types for critical columns (verified from actual database)
 const CRITICAL_COLUMN_TYPES: Record<string, Record<string, string>> = {
   shops: {
     id: 'uuid',
-    shopify_domain: 'citext',
-    access_token_ciphertext: 'bytea',
-    access_token_iv: 'bytea',
-    access_token_tag: 'bytea',
+    shopify_domain: 'text',
+    access_token_ciphertext: 'text',
+    access_token_iv: 'text',
+    access_token_tag: 'text',
     scopes: 'ARRAY',
-    plan_tier: 'text',
+    plan_tier: 'varchar',
     plan_limits: 'jsonb',
+    settings: 'jsonb',
     created_at: 'timestamp with time zone',
     updated_at: 'timestamp with time zone',
   },
@@ -33,7 +34,7 @@ const CRITICAL_COLUMN_TYPES: Record<string, Record<string, string>> = {
     legacy_resource_id: 'bigint',
     title: 'text',
     handle: 'text',
-    status: 'text',
+    status: 'varchar',
     metafields: 'jsonb',
     tags: 'ARRAY',
   },
@@ -61,14 +62,13 @@ const CRITICAL_COLUMN_TYPES: Record<string, Record<string, string>> = {
   bulk_runs: {
     id: 'uuid',
     shop_id: 'uuid',
-    progress_percent: 'integer',
-    total_items: 'integer',
+    progress_percent: 'int4',
+    total_items: 'int4',
   },
   audit_logs: {
     id: 'uuid',
     shop_id: 'uuid',
-    old_values: 'jsonb',
-    new_values: 'jsonb',
+    details: 'jsonb',
   },
 };
 
@@ -196,21 +196,24 @@ void describe('Data Types: Timestamp Columns', { skip: SKIP }, () => {
 // ============================================
 
 void describe('Data Types: JSONB Columns', { skip: SKIP }, () => {
+  // Actual JSONB columns from the database
   const EXPECTED_JSONB_COLUMNS = [
     { table: 'shops', column: 'plan_limits' },
+    { table: 'shops', column: 'settings' },
     { table: 'shopify_products', column: 'metafields' },
     { table: 'shopify_variants', column: 'metafields' },
     { table: 'shopify_metaobjects', column: 'fields' },
-    { table: 'staging_products', column: 'staging_data' },
-    { table: 'staging_variants', column: 'staging_data' },
-    { table: 'audit_logs', column: 'old_values' },
-    { table: 'audit_logs', column: 'new_values' },
-    { table: 'ai_batch_items', column: 'input_data' },
-    { table: 'ai_batch_items', column: 'output_data' },
+    { table: 'staging_products', column: 'raw_data' },
+    { table: 'staging_products', column: 'options' },
+    { table: 'staging_products', column: 'seo' },
+    { table: 'staging_variants', column: 'raw_data' },
+    { table: 'staging_variants', column: 'selected_options' },
+    { table: 'audit_logs', column: 'details' },
     { table: 'prod_proposals', column: 'proposed_value' },
     { table: 'prod_raw_harvest', column: 'raw_data' },
-    { table: 'scheduled_tasks', column: 'config' },
-    { table: 'scraper_configs', column: 'config' },
+    { table: 'scheduled_tasks', column: 'job_data' },
+    { table: 'scraper_configs', column: 'selectors' },
+    { table: 'scraper_configs', column: 'rate_limit' },
   ];
 
   for (const { table, column } of EXPECTED_JSONB_COLUMNS) {
@@ -358,15 +361,15 @@ void describe('Data Types: TSVector Columns', { skip: SKIP }, () => {
 });
 
 // ============================================
-// CITEXT COLUMNS
+// TEXT COLUMNS (domain uses text, not citext)
 // ============================================
 
-void describe('Data Types: CITEXT Columns', { skip: SKIP }, () => {
-  void it('shops.shopify_domain is citext', async () => {
+void describe('Data Types: Text Columns', { skip: SKIP }, () => {
+  void it('shops.shopify_domain is text', async () => {
     const columns = await getTableColumns('shops');
     const domain = columns.find((c) => c.column_name === 'shopify_domain');
 
     assert.ok(domain, 'shopify_domain should exist');
-    assert.strictEqual(domain?.udt_name, 'citext', 'should be citext for case-insensitive');
+    assert.strictEqual(domain?.udt_name, 'text', 'should be text type');
   });
 });

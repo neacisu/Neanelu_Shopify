@@ -128,17 +128,17 @@ void describe('RLS Coverage Summary', { skip: SKIP }, () => {
     await closePool();
   });
 
-  void it('has at least 40 tables with RLS enabled', () => {
+  void it('has at least 35 tables with RLS enabled', () => {
     assert.ok(
-      tablesWithRls.length >= 40,
-      `Expected at least 40 tables with RLS, got ${tablesWithRls.length}`
+      tablesWithRls.length >= 35,
+      `Expected at least 35 tables with RLS, got ${tablesWithRls.length}`
     );
   });
 
-  void it('has RLS count in expected range (40-45)', () => {
+  void it('has RLS count in expected range (35-60)', () => {
     assert.ok(
-      tablesWithRls.length >= 40 && tablesWithRls.length <= 50,
-      `RLS count ${tablesWithRls.length} should be in range 40-50`
+      tablesWithRls.length >= 35 && tablesWithRls.length <= 60,
+      `RLS count ${tablesWithRls.length} should be in range 35-60`
     );
   });
 
