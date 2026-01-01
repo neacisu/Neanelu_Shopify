@@ -5,8 +5,8 @@
 -- Enterprise DB Setup: Prima migrație - activează extensiile necesare
 -- TREBUIE rulată ÎNAINTE de orice altă schemă!
 --
--- NOTĂ: UUIDv7 este NATIV în PostgreSQL 18 via uuidv7()
---       Nu necesită extensia uuid-ossp!
+-- NOTĂ: Funcția uuidv7() este implementată manual mai jos.
+--       PostgreSQL nu are uuidv7() nativ încă.
 -- ============================================
 
 -- ============================================
@@ -16,6 +16,36 @@
 -- pgcrypto: Funcții criptografice pentru criptare tokens, hash parole
 -- Folosit în: shopify_tokens (AES-256-GCM encryption)
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- ============================================
+-- UUIDV7 FUNCTION (Required for all id columns)
+-- ============================================
+-- PostgreSQL nu are uuidv7() nativ. Această funcție generează
+-- UUIDs v7 conform RFC 9562 cu timestamp și randomness.
+-- Necesar pentru toate coloanele id cu DEFAULT uuidv7()
+
+CREATE OR REPLACE FUNCTION uuidv7() RETURNS uuid AS $$
+DECLARE
+  unix_ts_ms bytea;
+  random_bytes bytea;
+  uuid_bytes bytea;
+BEGIN
+  -- Get current timestamp in milliseconds since Unix epoch
+  unix_ts_ms := int8send((extract(epoch from clock_timestamp()) * 1000)::bigint);
+  
+  -- Generate 10 random bytes
+  random_bytes := gen_random_bytes(10);
+  
+  -- Combine: 6 bytes timestamp + 2 bytes random with version + 8 bytes random with variant
+  uuid_bytes := substring(unix_ts_ms from 3 for 6) ||  -- 6 bytes of timestamp
+                set_byte(set_bit(substring(random_bytes from 1 for 2), 5, 1), 0,
+                         (get_byte(substring(random_bytes from 1 for 2), 0) & 15) | 112) ||  -- version 7
+                set_byte(substring(random_bytes from 3 for 8), 0,
+                         (get_byte(substring(random_bytes from 3 for 8), 0) & 63) | 128);  -- variant 10
+  
+  RETURN encode(uuid_bytes, 'hex')::uuid;
+END;
+$$ LANGUAGE plpgsql VOLATILE;
 
 -- citext: Case-Insensitive Text type
 -- Folosit în: shopify_domain, email, handle (căutări case-insensitive)
