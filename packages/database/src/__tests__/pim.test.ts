@@ -123,7 +123,7 @@ void describe('PIM Schema (F2.2.5)', () => {
         FROM pg_tables
         WHERE schemaname = 'public'
         AND tablename LIKE 'prod_%'
-        AND tablename != 'shop_product_embeddings'
+        AND tablename NOT IN ('shop_product_embeddings', 'prod_channel_mappings')
       `);
 
       for (const row of result.rows) {
