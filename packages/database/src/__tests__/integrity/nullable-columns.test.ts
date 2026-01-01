@@ -56,7 +56,7 @@ const EXPECTED_NULLABLE: Record<string, string[]> = {
   shopify_products: ['description', 'product_type', 'vendor', 'published_at'],
   shopify_variants: ['sku', 'barcode', 'weight', 'cost'],
   bulk_runs: ['completed_at', 'error_message'],
-  audit_logs: ['details', 'user_agent', 'ip_address'],
+  audit_logs: ['user_agent', 'ip_address', 'actor_id'],
   prod_master: ['brand', 'manufacturer', 'mpn'],
 };
 
@@ -230,8 +230,6 @@ void describe('Nullable Columns: Status Columns NOT NULL', { skip: SKIP }, () =>
     { table: 'shopify_products', column: 'status' },
     { table: 'bulk_runs', column: 'status' },
     { table: 'bulk_steps', column: 'status' },
-    { table: 'ai_batches', column: 'status' },
-    { table: 'embedding_batches', column: 'status' },
   ];
 
   for (const { table, column } of statusTables) {

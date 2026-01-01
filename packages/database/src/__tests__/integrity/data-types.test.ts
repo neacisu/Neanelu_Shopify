@@ -303,20 +303,20 @@ void describe('Data Types: Critical Columns', { skip: SKIP }, () => {
 });
 
 // ============================================
-// BYTEA COLUMNS (ENCRYPTION)
+// TEXT COLUMNS (ENCRYPTION - stored as text per migration)
 // ============================================
 
-void describe('Data Types: Bytea Columns (Encryption)', { skip: SKIP }, () => {
-  void it('shops has bytea columns for encrypted tokens', async () => {
+void describe('Data Types: Encrypted Token Columns', { skip: SKIP }, () => {
+  void it('shops has text columns for encrypted tokens', async () => {
     const columns = await getTableColumns('shops');
 
     const ciphertext = columns.find((c) => c.column_name === 'access_token_ciphertext');
     const iv = columns.find((c) => c.column_name === 'access_token_iv');
     const tag = columns.find((c) => c.column_name === 'access_token_tag');
 
-    assert.ok(ciphertext?.udt_name === 'bytea', 'ciphertext should be bytea');
-    assert.ok(iv?.udt_name === 'bytea', 'iv should be bytea');
-    assert.ok(tag?.udt_name === 'bytea', 'tag should be bytea');
+    assert.ok(ciphertext?.udt_name === 'text', 'ciphertext should be text');
+    assert.ok(iv?.udt_name === 'text', 'iv should be text');
+    assert.ok(tag?.udt_name === 'text', 'tag should be text');
   });
 });
 
