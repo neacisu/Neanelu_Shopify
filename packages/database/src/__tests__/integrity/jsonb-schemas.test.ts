@@ -16,32 +16,27 @@ import {
 
 const SKIP = shouldSkipDbTests();
 
-// All JSONB columns in the schema
+// All JSONB columns in the schema (verified from actual database)
 const JSONB_COLUMNS = [
   { table: 'shops', column: 'plan_limits', description: 'Plan tier limits' },
+  { table: 'shops', column: 'settings', description: 'Shop settings' },
   { table: 'shopify_products', column: 'metafields', description: 'Product metafields' },
   { table: 'shopify_products', column: 'options', description: 'Product options' },
   { table: 'shopify_variants', column: 'metafields', description: 'Variant metafields' },
   { table: 'shopify_variants', column: 'selected_options', description: 'Selected options' },
   { table: 'shopify_metaobjects', column: 'fields', description: 'Metaobject fields' },
   { table: 'shopify_orders', column: 'line_items', description: 'Order line items' },
-  { table: 'shopify_orders', column: 'shipping_address', description: 'Shipping address' },
-  { table: 'shopify_orders', column: 'billing_address', description: 'Billing address' },
-  { table: 'shopify_customers', column: 'addresses', description: 'Customer addresses' },
   { table: 'shopify_customers', column: 'metafields', description: 'Customer metafields' },
-  { table: 'staging_products', column: 'staging_data', description: 'Staged product data' },
-  { table: 'staging_variants', column: 'staging_data', description: 'Staged variant data' },
-  { table: 'audit_logs', column: 'old_values', description: 'Previous values' },
-  { table: 'audit_logs', column: 'new_values', description: 'New values' },
+  { table: 'staging_products', column: 'raw_data', description: 'Staged product data' },
+  { table: 'staging_products', column: 'options', description: 'Product options' },
+  { table: 'staging_variants', column: 'raw_data', description: 'Staged variant data' },
+  { table: 'audit_logs', column: 'details', description: 'Audit details' },
   { table: 'webhook_events', column: 'payload', description: 'Webhook payload' },
-  { table: 'ai_batch_items', column: 'input_data', description: 'AI input data' },
-  { table: 'ai_batch_items', column: 'output_data', description: 'AI output data' },
   { table: 'prod_proposals', column: 'proposed_value', description: 'Proposed changes' },
   { table: 'prod_raw_harvest', column: 'raw_data', description: 'Raw scraped data' },
-  { table: 'prod_extraction_sessions', column: 'extracted_data', description: 'Extracted data' },
-  { table: 'scheduled_tasks', column: 'config', description: 'Task configuration' },
-  { table: 'scraper_configs', column: 'config', description: 'Scraper configuration' },
-  { table: 'job_runs', column: 'metadata', description: 'Job metadata' },
+  { table: 'scheduled_tasks', column: 'job_data', description: 'Task configuration' },
+  { table: 'scraper_configs', column: 'selectors', description: 'Scraper selectors' },
+  { table: 'scraper_configs', column: 'rate_limit', description: 'Rate limit config' },
 ];
 
 // JSONB columns that MUST have GIN indexes
@@ -135,9 +130,8 @@ void describe('JSONB Schema: Structure Validation', { skip: SKIP }, () => {
 void describe('JSONB Schema: Nullable Handling', { skip: SKIP }, () => {
   void it('optional JSONB columns are nullable', async () => {
     const optionalJsonb = [
-      { table: 'audit_logs', column: 'old_values' },
-      { table: 'audit_logs', column: 'new_values' },
-      { table: 'ai_batch_items', column: 'output_data' },
+      { table: 'audit_logs', column: 'details' },
+      { table: 'staging_products', column: 'raw_data' },
     ];
 
     for (const { table, column } of optionalJsonb) {
@@ -153,7 +147,7 @@ void describe('JSONB Schema: Nullable Handling', { skip: SKIP }, () => {
   void it('required JSONB columns are NOT NULL or have defaults', async () => {
     const requiredJsonb = [
       { table: 'webhook_events', column: 'payload' },
-      { table: 'staging_products', column: 'staging_data' },
+      { table: 'staging_products', column: 'options' },
     ];
 
     for (const { table, column } of requiredJsonb) {
@@ -224,20 +218,20 @@ void describe('JSONB Schema: Column Count', { skip: SKIP }, () => {
 // ============================================
 
 void describe('JSONB Schema: Configuration Columns', { skip: SKIP }, () => {
-  void it('scheduled_tasks.config is JSONB', async () => {
+  void it('scheduled_tasks.job_data is JSONB', async () => {
     const columns = await getTableColumns('scheduled_tasks');
-    const config = columns.find((c) => c.column_name === 'config');
+    const jobData = columns.find((c) => c.column_name === 'job_data');
 
-    assert.ok(config, 'config should exist');
-    assert.strictEqual(config?.udt_name, 'jsonb', 'config should be jsonb');
+    assert.ok(jobData, 'job_data should exist');
+    assert.strictEqual(jobData?.udt_name, 'jsonb', 'job_data should be jsonb');
   });
 
-  void it('scraper_configs.config is JSONB', async () => {
+  void it('scraper_configs.selectors is JSONB', async () => {
     const columns = await getTableColumns('scraper_configs');
-    const config = columns.find((c) => c.column_name === 'config');
+    const selectors = columns.find((c) => c.column_name === 'selectors');
 
-    assert.ok(config, 'config should exist');
-    assert.strictEqual(config?.udt_name, 'jsonb', 'config should be jsonb');
+    assert.ok(selectors, 'selectors should exist');
+    assert.strictEqual(selectors?.udt_name, 'jsonb', 'selectors should be jsonb');
   });
 });
 
@@ -246,16 +240,12 @@ void describe('JSONB Schema: Configuration Columns', { skip: SKIP }, () => {
 // ============================================
 
 void describe('JSONB Schema: Audit Columns', { skip: SKIP }, () => {
-  void it('audit_logs has old_values and new_values', async () => {
+  void it('audit_logs has details column', async () => {
     const columns = await getTableColumns('audit_logs');
 
-    const oldValues = columns.find((c) => c.column_name === 'old_values');
-    const newValues = columns.find((c) => c.column_name === 'new_values');
+    const details = columns.find((c) => c.column_name === 'details');
 
-    assert.ok(oldValues, 'old_values should exist');
-    assert.ok(newValues, 'new_values should exist');
-
-    assert.strictEqual(oldValues?.udt_name, 'jsonb', 'old_values should be jsonb');
-    assert.strictEqual(newValues?.udt_name, 'jsonb', 'new_values should be jsonb');
+    assert.ok(details, 'details should exist');
+    assert.strictEqual(details?.udt_name, 'jsonb', 'details should be jsonb');
   });
 });

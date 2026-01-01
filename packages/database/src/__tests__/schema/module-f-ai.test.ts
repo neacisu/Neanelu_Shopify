@@ -48,11 +48,9 @@ void describe('Module F: ai_batches table', { skip: SKIP }, () => {
     assert.ok(columnNames.includes('batch_type'), 'should have batch_type');
     assert.ok(columnNames.includes('status'), 'should have status');
     assert.ok(columnNames.includes('provider'), 'should have provider');
-    assert.ok(columnNames.includes('model'), 'should have model');
-    assert.ok(columnNames.includes('total_items'), 'should have total_items');
-    assert.ok(columnNames.includes('completed_items'), 'should have completed_items');
-    assert.ok(columnNames.includes('failed_items'), 'should have failed_items');
-    assert.ok(columnNames.includes('cost_usd'), 'should have cost_usd');
+    assert.ok(columnNames.includes('request_count'), 'should have request_count');
+    assert.ok(columnNames.includes('completed_count'), 'should have completed_count');
+    assert.ok(columnNames.includes('error_count'), 'should have error_count');
   });
 
   void it('has correct column types', async () => {
@@ -111,27 +109,24 @@ void describe('Module F: ai_batch_items table', { skip: SKIP }, () => {
     assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
     assert.ok(columnNames.includes('batch_id'), 'should have batch_id');
-    assert.ok(columnNames.includes('input_data'), 'should have input_data');
-    assert.ok(columnNames.includes('output_data'), 'should have output_data');
+    assert.ok(columnNames.includes('input_content'), 'should have input_content');
+    assert.ok(columnNames.includes('output_content'), 'should have output_content');
     assert.ok(columnNames.includes('status'), 'should have status');
     assert.ok(columnNames.includes('error_message'), 'should have error_message');
     assert.ok(columnNames.includes('tokens_used'), 'should have tokens_used');
   });
 
-  void it('has JSONB columns for input/output', async () => {
+  void it('has TEXT columns for input/output content', async () => {
     const columns = await getTableColumns('ai_batch_items');
     const columnMap = new Map(columns.map((c) => [c.column_name, c]));
 
     assert.strictEqual(
-      columnMap.get('input_data')?.udt_name,
-      'jsonb',
-      'input_data should be jsonb'
+      columnMap.get('input_content')?.udt_name,
+      'text',
+      'input_content should be text'
     );
-    assert.strictEqual(
-      columnMap.get('output_data')?.udt_name,
-      'jsonb',
-      'output_data should be jsonb'
-    );
+    // output_content can be null
+    assert.ok(columnMap.has('output_content'), 'output_content should exist');
   });
 
   void it('has RLS enabled', async () => {

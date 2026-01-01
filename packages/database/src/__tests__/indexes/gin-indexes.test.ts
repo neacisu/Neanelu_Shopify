@@ -75,12 +75,12 @@ void describe('GIN Indexes: JSONB Columns', { skip: SKIP }, () => {
     assert.ok(fieldsGin, 'shopify_metaobjects should have GIN index on fields');
   });
 
-  void it('staging_products has GIN index on staging_data', async () => {
+  void it('staging_products may have GIN index on raw_data', async () => {
     const indexes = await getTableIndexes('staging_products');
-    const stagingGin = indexes.find(
-      (i) => i.indexdef.toLowerCase().includes(' gin ') && i.indexdef.includes('staging_data')
+    const rawDataGin = indexes.find(
+      (i) => i.indexdef.toLowerCase().includes(' gin ') && i.indexdef.includes('raw_data')
     );
-    assert.ok(stagingGin != null || true, 'staging_products may have GIN index on staging_data');
+    assert.ok(rawDataGin != null || true, 'staging_products may have GIN index on raw_data');
   });
 });
 

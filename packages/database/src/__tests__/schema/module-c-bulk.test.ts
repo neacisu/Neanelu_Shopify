@@ -208,16 +208,16 @@ void describe('Module C: staging_products table', { skip: SKIP }, () => {
     assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
     assert.ok(columnNames.includes('bulk_run_id'), 'should have bulk_run_id');
-    assert.ok(columnNames.includes('source_product_id'), 'should have source_product_id');
-    assert.ok(columnNames.includes('staging_data'), 'should have staging_data');
+    assert.ok(columnNames.includes('shopify_gid'), 'should have shopify_gid');
+    assert.ok(columnNames.includes('raw_data'), 'should have raw_data');
     assert.ok(columnNames.includes('validation_status'), 'should have validation_status');
   });
 
-  void it('has JSONB staging_data column', async () => {
+  void it('has JSONB raw_data column', async () => {
     const columns = await getTableColumns('staging_products');
-    const stagingData = columns.find((c) => c.column_name === 'staging_data');
-    assert.ok(stagingData, 'staging_data column should exist');
-    assert.strictEqual(stagingData?.udt_name, 'jsonb', 'staging_data should be jsonb');
+    const rawData = columns.find((c) => c.column_name === 'raw_data');
+    assert.ok(rawData, 'raw_data column should exist');
+    assert.strictEqual(rawData?.udt_name, 'jsonb', 'raw_data should be jsonb');
   });
 
   void it('has RLS enabled', async () => {
@@ -243,8 +243,8 @@ void describe('Module C: staging_variants table', { skip: SKIP }, () => {
     assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
     assert.ok(columnNames.includes('staging_product_id'), 'should have staging_product_id');
-    assert.ok(columnNames.includes('source_variant_id'), 'should have source_variant_id');
-    assert.ok(columnNames.includes('staging_data'), 'should have staging_data');
+    assert.ok(columnNames.includes('shopify_gid'), 'should have shopify_gid');
+    assert.ok(columnNames.includes('raw_data'), 'should have raw_data');
   });
 
   void it('has RLS enabled', async () => {

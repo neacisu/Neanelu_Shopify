@@ -44,31 +44,21 @@ void describe('Module H: audit_logs table', { skip: SKIP }, () => {
 
     assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
-    assert.ok(columnNames.includes('user_id'), 'should have user_id');
+    assert.ok(columnNames.includes('actor_id'), 'should have actor_id');
     assert.ok(columnNames.includes('action'), 'should have action');
-    assert.ok(columnNames.includes('entity_type'), 'should have entity_type');
-    assert.ok(columnNames.includes('entity_id'), 'should have entity_id');
-    assert.ok(columnNames.includes('old_values'), 'should have old_values');
-    assert.ok(columnNames.includes('new_values'), 'should have new_values');
+    assert.ok(columnNames.includes('resource_type'), 'should have resource_type');
+    assert.ok(columnNames.includes('resource_id'), 'should have resource_id');
+    assert.ok(columnNames.includes('details'), 'should have details');
     assert.ok(columnNames.includes('ip_address'), 'should have ip_address');
     assert.ok(columnNames.includes('user_agent'), 'should have user_agent');
     assert.ok(columnNames.includes('created_at'), 'should have created_at');
   });
 
-  void it('has JSONB columns for old/new values', async () => {
+  void it('has JSONB column for details', async () => {
     const columns = await getTableColumns('audit_logs');
     const columnMap = new Map(columns.map((c) => [c.column_name, c]));
 
-    assert.strictEqual(
-      columnMap.get('old_values')?.udt_name,
-      'jsonb',
-      'old_values should be jsonb'
-    );
-    assert.strictEqual(
-      columnMap.get('new_values')?.udt_name,
-      'jsonb',
-      'new_values should be jsonb'
-    );
+    assert.strictEqual(columnMap.get('details')?.udt_name, 'jsonb', 'details should be jsonb');
   });
 
   void it('is partitioned by month', async () => {

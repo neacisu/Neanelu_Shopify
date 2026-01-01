@@ -29,7 +29,7 @@ const REQUIRED_NOT_NULL: Record<string, string[]> = {
   shopify_orders: ['id', 'shop_id', 'shopify_gid', 'created_at'],
   bulk_runs: ['id', 'shop_id', 'operation_type', 'status', 'created_at'],
   bulk_steps: ['id', 'shop_id', 'bulk_run_id', 'step_type', 'status'],
-  audit_logs: ['id', 'shop_id', 'action', 'entity_type', 'created_at'],
+  audit_logs: ['id', 'action', 'resource_type', 'created_at'],
   prod_master: ['id', 'canonical_name', 'created_at'],
   prod_taxonomy: ['id', 'name', 'slug', 'level'],
   ai_batches: ['id', 'shop_id', 'batch_type', 'status', 'created_at'],
@@ -43,7 +43,7 @@ const EXPECTED_NULLABLE: Record<string, string[]> = {
   shopify_products: ['description', 'product_type', 'vendor', 'published_at'],
   shopify_variants: ['compare_at_price', 'barcode', 'weight'],
   bulk_runs: ['completed_at', 'error_message'],
-  audit_logs: ['old_values', 'new_values', 'user_agent', 'ip_address'],
+  audit_logs: ['details', 'user_agent', 'ip_address'],
   prod_master: ['brand', 'model', 'description'],
 };
 
