@@ -26,7 +26,7 @@ const SKIP = shouldSkipDbTests();
 // SHOPIFY_MEDIA TABLE
 // ============================================
 
-void describe('Module J: shopify_media table', { skip: SKIP }, () => {
+void describe('Module J: shopify_media table (renamed from media_files)', { skip: SKIP }, () => {
   before(() => {
     getPool();
   });
@@ -44,12 +44,13 @@ void describe('Module J: shopify_media table', { skip: SKIP }, () => {
     const columns = await getTableColumns('shopify_media');
     const columnNames = columns.map((c) => c.column_name);
 
-    assert.ok(columnNames.includes('id'), 'should have id');
+    assert.ok(columnNames.includes('media_id'), 'should have media_id (PK)');
+    // assert.ok(columnNames.includes('id'), 'should have id'); // no id column
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
     assert.ok(columnNames.includes('shopify_gid'), 'should have shopify_gid');
     assert.ok(columnNames.includes('media_type'), 'should have media_type');
     assert.ok(columnNames.includes('alt'), 'should have alt');
-    assert.ok(columnNames.includes('src'), 'should have src');
+    assert.ok(columnNames.includes('url'), 'should have url'); // src -> url
     assert.ok(columnNames.includes('width'), 'should have width');
     assert.ok(columnNames.includes('height'), 'should have height');
   });
@@ -80,7 +81,7 @@ void describe('Module J: shopify_product_media table', { skip: SKIP }, () => {
     const columns = await getTableColumns('shopify_product_media');
     const columnNames = columns.map((c) => c.column_name);
 
-    assert.ok(columnNames.includes('id'), 'should have id');
+    // assert.ok(columnNames.includes('id'), 'should have id'); // Composite PK (product_id, media_id)
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
     assert.ok(columnNames.includes('product_id'), 'should have product_id');
     assert.ok(columnNames.includes('media_id'), 'should have media_id');
@@ -113,7 +114,7 @@ void describe('Module J: shopify_variant_media table', { skip: SKIP }, () => {
     const columns = await getTableColumns('shopify_variant_media');
     const columnNames = columns.map((c) => c.column_name);
 
-    assert.ok(columnNames.includes('id'), 'should have id');
+    // assert.ok(columnNames.includes('id'), 'should have id'); // Composite PK
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
     assert.ok(columnNames.includes('variant_id'), 'should have variant_id');
     assert.ok(columnNames.includes('media_id'), 'should have media_id');

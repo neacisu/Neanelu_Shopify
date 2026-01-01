@@ -77,10 +77,10 @@ void describe('Module K: shopify_menu_items table', { skip: SKIP }, () => {
     assert.ok(columnNames.includes('id'), 'should have id');
     assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
     assert.ok(columnNames.includes('menu_id'), 'should have menu_id');
-    assert.ok(columnNames.includes('parent_id'), 'should have parent_id');
+    assert.ok(columnNames.includes('parent_item_id'), 'should have parent_item_id');
     assert.ok(columnNames.includes('title'), 'should have title');
     assert.ok(columnNames.includes('url'), 'should have url');
-    assert.ok(columnNames.includes('resource_type'), 'should have resource_type');
+    assert.ok(columnNames.includes('item_type'), 'should have item_type');
     assert.ok(columnNames.includes('resource_id'), 'should have resource_id');
     assert.ok(columnNames.includes('position'), 'should have position');
   });
