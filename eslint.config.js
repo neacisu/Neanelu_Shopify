@@ -9,10 +9,10 @@ export default tseslint.config(
   {
     ignores: [
       'node_modules/**',
-      'dist/**',
-      'build/**',
-      '.next/**',
-      'coverage/**',
+      '**/dist/**',
+      '**/build/**',
+      '**/.next/**',
+      '**/coverage/**',
       '*.min.js',
       'Research Produse/**',
       'Research Categorii/**',

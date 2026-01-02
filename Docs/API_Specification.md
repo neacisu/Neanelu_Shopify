@@ -29,7 +29,7 @@ Toate endpoint-urile (cu excepția OAuth și health) necesită autentificare:
   "success": true,
   "data": { ... },
   "meta": {
-    "requestId": "uuid",
+    "request_id": "uuid",
     "timestamp": "ISO8601"
   }
 }
@@ -44,6 +44,10 @@ Toate endpoint-urile (cu excepția OAuth și health) necesită autentificare:
     "code": "ERROR_CODE",
     "message": "Human readable message",
     "details": { ... }
+  },
+  "meta": {
+    "request_id": "uuid",
+    "timestamp": "ISO8601"
   }
 }
 ```
@@ -65,6 +69,8 @@ Kubernetes liveness probe.
 ### GET /health/ready
 
 Kubernetes readiness probe - checks DB and Redis connectivity.
+
+`checks.shopify_api` este **config-valid** (prezență + formate variabile env Shopify) și nu necesită OAuth/token.
 
 **Response:** `200 OK` sau `503 Service Unavailable`
 
@@ -157,7 +163,7 @@ Inițializează o operațiune bulk (export/import).
   "resource": "products",
   "query": "query { products { edges { node { id title } } } }",
   "filters": {
-    "createdAfter": "2025-01-01T00:00:00Z"
+    "created_after": "2025-01-01T00:00:00Z"
   }
 }
 ```
@@ -168,14 +174,18 @@ Inițializează o operațiune bulk (export/import).
 {
   "success": true,
   "data": {
-    "runId": "uuid",
+    "run_id": "uuid",
     "status": "PENDING",
-    "estimatedRecords": 150000
+    "estimated_records": 150000
+  },
+  "meta": {
+    "request_id": "uuid",
+    "timestamp": "ISO8601"
   }
 }
 ```
 
-### GET /api/bulk/:runId
+### GET /api/bulk/:run_id
 
 Verifică status operațiune bulk.
 
@@ -185,20 +195,24 @@ Verifică status operațiune bulk.
 {
   "success": true,
   "data": {
-    "runId": "uuid",
+    "run_id": "uuid",
     "status": "PROCESSING",
     "progress": {
       "processed": 45000,
       "total": 150000,
       "percentage": 30
     },
-    "startedAt": "ISO8601",
-    "estimatedCompletion": "ISO8601"
+    "started_at": "ISO8601",
+    "estimated_completion": "ISO8601"
+  },
+  "meta": {
+    "request_id": "uuid",
+    "timestamp": "ISO8601"
   }
 }
 ```
 
-### DELETE /api/bulk/:runId
+### DELETE /api/bulk/:run_id
 
 Anulează operațiune bulk în curs.
 

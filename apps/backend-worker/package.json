@@ -5,7 +5,20 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "scripts": {},
-  "dependencies": {},
-  "devDependencies": {}
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@app/config": "workspace:*",
+    "@app/database": "workspace:*",
+    "@app/logger": "workspace:*",
+    "fastify": "^5.2.1",
+    "redis": "^4.7.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
 }

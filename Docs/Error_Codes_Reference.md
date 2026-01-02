@@ -137,13 +137,13 @@
     "code": "SHOP_3001",
     "message": "Shopify API rate limit hit",
     "details": {
-      "retryAfter": 2000,
+      "retry_after": 2000,
       "bucket": "products",
-      "shopDomain": "store.myshopify.com"
+      "shop_domain": "store.myshopify.com"
     }
   },
   "meta": {
-    "requestId": "550e8400-e29b-41d4-a716-446655440000",
+    "request_id": "550e8400-e29b-41d4-a716-446655440000",
     "timestamp": "2025-12-26T10:30:00Z"
   }
 }

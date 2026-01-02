@@ -9,6 +9,13 @@ build/
 .next/
 out/
 
+# Accidental TypeScript emit into source folders
+**/src/**/*.js
+**/src/**/*.js.map
+**/src/**/*.d.ts
+**/src/**/*.d.ts.map
+**/*.tsbuildinfo
+
 # Environment files
 .env
 .env.local

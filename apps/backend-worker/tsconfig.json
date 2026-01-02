@@ -1,10 +1,14 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "noEmit": false
+    "noEmit": true,
+    "rootDir": "../.."
   },
-  "include": ["src/**/*"],
+  "include": [
+    "src/**/*",
+    "../../packages/config/src/**/*",
+    "../../packages/logger/src/**/*",
+    "../../packages/database/src/**/*"
+  ],
   "exclude": ["node_modules", "dist"]
 }

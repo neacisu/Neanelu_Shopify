@@ -27,7 +27,7 @@ Această pagină conține queries LogQL comune pentru investigare în Grafana/Lo
 ### Corelare trace - toate logurile pentru un trace ID
 
 ```logql
-{traceId="<trace-id>"} | json | sort by (timestamp)
+{trace_id="<trace-id>"} | json | sort by (timestamp)
 ```
 
 ### Top 10 erori unice în ultima oră
@@ -53,7 +53,7 @@ sum(rate({level="error"}[1m])) by (service)
 ### Shopify 429 Errors
 
 ```logql
-{service="backend-worker"} |= "429" | json | line_format "{{.shopId}} - {{.message}}"
+{service="backend-worker"} |= "429" | json | line_format "{{.shop_id}} - {{.message}}"
 ```
 
 ### BullMQ Job Failures

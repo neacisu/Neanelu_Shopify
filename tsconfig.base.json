@@ -57,13 +57,13 @@
     // ============================================
     "baseUrl": ".",
     "paths": {
-      "@app/database": ["packages/database/src"],
+      "@app/database": ["packages/database/src/index.ts"],
       "@app/shopify-client": ["packages/shopify-client/src"],
       "@app/queue-manager": ["packages/queue-manager/src"],
       "@app/ai-engine": ["packages/ai-engine/src"],
-      "@app/config": ["packages/config/src"],
+      "@app/config": ["packages/config/src/index.ts"],
       "@app/types": ["packages/types/src"],
-      "@app/logger": ["packages/logger/src"]
+      "@app/logger": ["packages/logger/src/index.ts"]
     },
 
     // ============================================
