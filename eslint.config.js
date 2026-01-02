@@ -43,7 +43,8 @@ export default tseslint.config(
       ecmaVersion: 2024,
       sourceType: 'module',
       parserOptions: {
-        project: ['./tsconfig.eslint.json'],
+        // More robust than `project` in monorepos/CI: uses TS server project resolution.
+        projectService: true,
         tsconfigRootDir: __dirname,
       },
     },
