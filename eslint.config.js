@@ -2,9 +2,10 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import prettier from 'eslint-config-prettier';
 import { fileURLToPath } from 'node:url';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const tsconfigPath = join(__dirname, 'tsconfig.eslint.json');
 
 export default tseslint.config(
   // ============================================
@@ -43,8 +44,7 @@ export default tseslint.config(
       ecmaVersion: 2024,
       sourceType: 'module',
       parserOptions: {
-        // More robust than `project` in monorepos/CI: uses TS server project resolution.
-        projectService: true,
+        project: [tsconfigPath],
         tsconfigRootDir: __dirname,
       },
     },
