@@ -4,7 +4,7 @@ import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 import { createHmac } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
-import type { WebhookJobPayload } from '@app/types';
+import { validateWebhookJobPayload, type WebhookJobPayload } from '@app/types';
 
 // Mock @app/config
 void mock.module('@app/config', {
@@ -109,7 +109,11 @@ void describe('Webhook Routes', () => {
     const callArg = firstCall?.arguments?.[0] as unknown;
 
     assert.ok(callArg, 'Enqueue argument should exist');
-    const jobPayload = callArg as WebhookJobPayload;
+    assert.ok(
+      validateWebhookJobPayload(callArg),
+      'Enqueue argument should match WebhookJobPayload'
+    );
+    const jobPayload = callArg;
     assert.strictEqual(jobPayload.shopDomain, 'test.myshopify.com');
     assert.strictEqual(jobPayload.topic, 'products/create');
     assert.strictEqual(jobPayload.webhookId, 'webhook-123');

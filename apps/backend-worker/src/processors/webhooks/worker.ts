@@ -10,7 +10,7 @@ import { Worker } from 'bullmq';
 import { loadEnv } from '@app/config';
 import { pool, withTenantContext } from '@app/database';
 import type { Logger } from '@app/logger';
-import type { WebhookJobPayload } from '@app/types';
+import { validateWebhookJobPayload, type WebhookJobPayload } from '@app/types';
 import { createHash } from 'node:crypto';
 import Redis from 'ioredis';
 import type { Redis as RedisClient } from 'ioredis';
@@ -98,7 +98,7 @@ async function loadPayloadFromRedis(
   payload: WebhookJobPayload
 ): Promise<unknown> {
   const ref = payload.payloadRef;
-  if (!ref) {
+  if (typeof ref !== 'string' || !ref) {
     throw new Error('payload_ref_missing');
   }
 
@@ -123,7 +123,16 @@ export function startWebhookWorker(logger: Logger): WebhookWorkerHandle {
   const worker = new Worker<WebhookJobPayload>(
     WEBHOOK_QUEUE_NAME,
     async (job) => {
-      const payload = job.data;
+      const payloadUnknown: unknown = job.data;
+      if (!validateWebhookJobPayload(payloadUnknown)) {
+        logger.warn(
+          { jobId: job.id, name: job.name },
+          'Webhook job payload failed validation (dropping)'
+        );
+        return;
+      }
+
+      const payload = payloadUnknown;
       const jobId = String(job.id ?? job.name);
 
       const shopId = await getShopIdByDomain(payload.shopDomain);

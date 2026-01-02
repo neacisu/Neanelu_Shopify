@@ -65,8 +65,9 @@ export async function enqueueWebhookJob(payload: WebhookJobPayload, logger: Logg
   } catch (err) {
     // Aici e critic: dacă nu putem pune în coadă, trebuie să returnăm eroare
     // ca Shopify să reîncerce mai târziu
-    logger.error({ err: err as Error, payload }, 'Failed to enqueue webhook job');
-    throw err;
+    const error = err instanceof Error ? err : new Error('unknown_error');
+    logger.error({ err: error, payload }, 'Failed to enqueue webhook job');
+    throw error;
   }
 }
 
