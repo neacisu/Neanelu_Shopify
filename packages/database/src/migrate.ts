@@ -28,13 +28,12 @@ async function run(): Promise<void> {
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
   });
-
-  const db = drizzle(pool);
   const migrationsFolder = path.resolve(process.cwd(), 'drizzle/migrations');
 
   const client = await pool.connect();
   try {
     await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_ID]);
+    const db = drizzle(client);
     await migrate(db, { migrationsFolder });
   } finally {
     try {
