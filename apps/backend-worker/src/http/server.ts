@@ -1,12 +1,13 @@
 import { checkDatabaseConnection } from '@app/database';
-import { isShopifyApiConfigValid } from '@app/config';
 import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import { createClient } from 'redis';
 import { randomUUID } from 'node:crypto';
+import { isShopifyApiConfigValid } from '@app/config';
 import { registerAuthRoutes } from '../auth/index.js';
+import { webhookRoutes } from '../routes/webhooks.js';
 
 function withoutQuery(url: string): string {
   const q = url.indexOf('?');
@@ -43,6 +44,10 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
 
   // Register cookie plugin for OAuth state
   await server.register(fastifyCookie);
+
+  // Register routes
+  // OAuth routes are registered via registerAuthRoutes below
+  await server.register(webhookRoutes, { prefix: '/webhooks' });
 
   server.addHook('onRequest', async (request, reply) => {
     reply.header('x-request-id', request.id);
