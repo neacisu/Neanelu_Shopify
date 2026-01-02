@@ -1,3 +1,16 @@
+/**
+ * @deprecated This research OAuth callback server has been migrated to production.
+ *
+ * The production OAuth implementation is now available at:
+ * - apps/backend-worker/src/auth/routes/auth.start.ts (GET /auth)
+ * - apps/backend-worker/src/auth/routes/auth.callback.ts (GET /auth/callback)
+ *
+ * This file is kept for reference only and should not be used.
+ * See PR-014 (F3.2.7) for migration details.
+ *
+ * @see apps/backend-worker/src/auth/index.ts
+ */
+
 import http from 'http';
 import url from 'url';
 import 'dotenv/config';

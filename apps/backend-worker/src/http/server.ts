@@ -3,8 +3,10 @@ import { isShopifyApiConfigValid } from '@app/config';
 import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
 import Fastify, { type FastifyInstance } from 'fastify';
+import fastifyCookie from '@fastify/cookie';
 import { createClient } from 'redis';
 import { randomUUID } from 'node:crypto';
+import { registerAuthRoutes } from '../auth/index.js';
 
 function withoutQuery(url: string): string {
   const q = url.indexOf('?');
@@ -38,6 +40,9 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       return randomUUID();
     },
   });
+
+  // Register cookie plugin for OAuth state
+  await server.register(fastifyCookie);
 
   server.addHook('onRequest', async (request, reply) => {
     reply.header('x-request-id', request.id);
@@ -128,6 +133,9 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
 
     return reply.status(statusCode).send({ status, checks });
   });
+
+  // Register OAuth routes
+  registerAuthRoutes(server, { env, logger });
 
   await server.ready();
   return server;

@@ -6,6 +6,7 @@
  * - pool: pg Pool pentru pg-copy-streams și queries directe
  * - Helpers pentru RLS tenant context
  * - Health check utilities
+ * - Encryption utilities
  */
 
 // ============================================
@@ -23,6 +24,13 @@ export {
 
 export { logAuditEvent } from './audit.js';
 export type { AuditAction, AuditActorType, AuditContext } from './audit.js';
+
+// ============================================
+// ENCRYPTION EXPORTS
+// ============================================
+
+export { encryptAesGcm, decryptAesGcm, randomIv } from './encryption/crypto.js';
+export type { EncryptResult } from './encryption/crypto.js';
 
 // ============================================
 // TYPES RE-EXPORTS
