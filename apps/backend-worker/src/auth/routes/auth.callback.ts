@@ -9,6 +9,7 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { registerWebhooks } from '../../shopify/webhooks/register.js';
 import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
 import { pool, encryptAesGcm } from '@app/database';
@@ -258,6 +259,17 @@ export function registerAuthCallbackRoute(
       void reply.clearCookie('oauth_state', {
         path: '/auth',
       });
+
+      // 10A. Register Webhooks (best-effort)
+      // Don't block install redirect if webhook registration fails.
+      try {
+        if (tokenResponse.access_token) {
+          const appHost = options.env.appHost.toString();
+          await registerWebhooks(shopId, shopDomain, tokenResponse.access_token, appHost, logger);
+        }
+      } catch (err) {
+        logger.error({ err, shop: shopDomain }, 'Failed to register webhooks during install');
+      }
 
       // 11. Set session cookie for admin UI
       if (shopId) {

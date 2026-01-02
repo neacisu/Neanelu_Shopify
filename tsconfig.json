@@ -6,6 +6,16 @@
     "allowImportingTsExtensions": true
   },
   "include": ["apps/*/src/**/*", "packages/*/src/**/*", "oauth-callback-server.ts"],
-  "exclude": ["node_modules", "dist", "build", "Research Produse", "Research Categorii"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    "**/dist/**",
+    "**/build/**",
+    "**/.next/**",
+    "**/coverage/**",
+    "Research Produse",
+    "Research Categorii"
+  ],
   "references": []
 }
