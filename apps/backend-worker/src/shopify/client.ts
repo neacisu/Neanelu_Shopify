@@ -5,6 +5,8 @@
  * Matches the manual fetch style used in auth.callback.ts
  */
 
+import { SHOPIFY_API_VERSION } from '@app/config';
+
 export interface ShopifyClientOptions {
   shopDomain: string;
   accessToken: string;
@@ -20,7 +22,8 @@ export type ShopifyGraphQlResponse<TData> = Readonly<{
 
 export const shopifyApi = {
   createClient(options: ShopifyClientOptions) {
-    const apiVersion = options.apiVersion ?? '2024-01'; // Default to a recent version
+    // Default to the centrally configured Shopify API version (2025-10 by default).
+    const apiVersion = options.apiVersion ?? SHOPIFY_API_VERSION;
 
     return {
       /**
