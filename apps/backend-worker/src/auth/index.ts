@@ -35,3 +35,24 @@ export {
   clearReauthFlag,
   withTokenRetry,
 } from './token-lifecycle.js';
+export {
+  createSessionToken,
+  verifySessionToken,
+  setSessionCookie,
+  getSession,
+  clearSessionCookie,
+  requireSession,
+  getDefaultSessionConfig,
+} from './session.js';
+export type { SessionConfig, SessionData } from './session.js';
+export {
+  processTokenHealthBatch,
+  createTokenHealthJobConfig,
+  TOKEN_HEALTH_JOB_NAME,
+  TOKEN_HEALTH_REPEAT_OPTIONS,
+} from './jobs/token-health-job.js';
+export type {
+  TokenHealthJobConfig,
+  TokenHealthJobResult,
+  TokenHealthJobData,
+} from './jobs/token-health-job.js';

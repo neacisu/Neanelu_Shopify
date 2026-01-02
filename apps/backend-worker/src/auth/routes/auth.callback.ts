@@ -207,8 +207,9 @@ export function registerAuthCallbackRoute(
       // 9. Upsert în shops (idempotent pentru reinstall)
       const scopes = tokenResponse.scope.split(',').map((s) => s.trim());
 
+      let shopId: string;
       try {
-        await pool.query(
+        const upsertResult = await pool.query<{ id: string }>(
           `INSERT INTO shops (
              shopify_domain,
              access_token_ciphertext,
@@ -227,7 +228,8 @@ export function registerAuthCallbackRoute(
              scopes = EXCLUDED.scopes,
              installed_at = COALESCE(shops.installed_at, now()),
              uninstalled_at = NULL,
-             updated_at = now()`,
+             updated_at = now()
+           RETURNING id`,
           [
             shopDomain,
             encrypted.ciphertext.toString('base64'),
@@ -237,6 +239,7 @@ export function registerAuthCallbackRoute(
             scopes,
           ]
         );
+        shopId = upsertResult.rows[0]?.id ?? '';
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Unknown error';
         logger.error({ errorMessage, shop: shopDomain }, 'Failed to save shop credentials');
@@ -249,14 +252,29 @@ export function registerAuthCallbackRoute(
         });
       }
 
-      logger.info({ shop: shopDomain }, 'Shop credentials saved successfully');
+      logger.info({ shop: shopDomain, shopId }, 'Shop credentials saved successfully');
 
       // 10. Clear oauth_state cookie
       void reply.clearCookie('oauth_state', {
         path: '/auth',
       });
 
-      // 11. Redirect la app (sau dashboard)
+      // 11. Set session cookie for admin UI
+      if (shopId) {
+        const { setSessionCookie, getDefaultSessionConfig } = await import('../session.js');
+        const sessionConfig = getDefaultSessionConfig(env.shopifyApiSecret);
+        setSessionCookie(
+          reply,
+          {
+            shopId,
+            shopDomain,
+            createdAt: Date.now(),
+          },
+          sessionConfig
+        );
+      }
+
+      // 12. Redirect la app (sau dashboard)
       // Pentru embedded apps, redirect la host shopify admin
       const hostParam = request.query.host;
       if (hostParam) {
