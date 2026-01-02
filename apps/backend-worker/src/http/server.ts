@@ -6,6 +6,18 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { createClient } from 'redis';
 import { randomUUID } from 'node:crypto';
 
+function withoutQuery(url: string): string {
+  const q = url.indexOf('?');
+  return q === -1 ? url : url.slice(0, q);
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  const timeout = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error(`${label} timeout`)), timeoutMs).unref();
+  });
+  return Promise.race([promise, timeout]);
+}
+
 export type BuildServerOptions = Readonly<{
   env: AppEnv;
   logger: Logger;
@@ -17,6 +29,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const server = Fastify({
     trustProxy: true,
     bodyLimit: 1 * 1024 * 1024,
+    connectionTimeout: 10_000,
+    requestTimeout: 15_000,
     requestIdHeader: 'x-request-id',
     genReqId(req) {
       const header = req.headers['x-request-id'];
@@ -28,7 +42,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   server.addHook('onRequest', async (request, reply) => {
     reply.header('x-request-id', request.id);
     logger.info(
-      { requestId: request.id, method: request.method, path: request.url },
+      { requestId: request.id, method: request.method, path: withoutQuery(request.url) },
       'request received'
     );
   });
@@ -38,7 +52,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       {
         requestId: request.id,
         method: request.method,
-        path: request.url,
+        path: withoutQuery(request.url),
         statusCode: reply.statusCode,
       },
       'request completed'
@@ -50,11 +64,36 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
 
     const timestamp = new Date().toISOString();
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+    const statusCodeRaw = (error as { statusCode?: unknown }).statusCode;
+    const statusCode = typeof statusCodeRaw === 'number' ? statusCodeRaw : 500;
+
+    const errorCode = (() => {
+      switch (statusCode) {
+        case 400:
+          return 'BAD_REQUEST';
+        case 401:
+          return 'UNAUTHORIZED';
+        case 403:
+          return 'FORBIDDEN';
+        case 404:
+          return 'NOT_FOUND';
+        case 413:
+          return 'PAYLOAD_TOO_LARGE';
+        case 429:
+          return 'TOO_MANY_REQUESTS';
+        default:
+          return 'INTERNAL_SERVER_ERROR';
+      }
+    })();
+
+    const safeMessage =
+      env.nodeEnv === 'production' && statusCode >= 500 ? 'Internal Server Error' : errorMessage;
     const responseBody = {
       success: false,
       error: {
-        code: 'INTERNAL_SERVER_ERROR',
-        message: env.nodeEnv === 'production' ? 'Internal Server Error' : errorMessage,
+        code: errorCode,
+        message: safeMessage,
       },
       meta: {
         request_id: request.id,
@@ -62,7 +101,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       },
     };
 
-    void reply.status(500).send(responseBody);
+    void reply.status(statusCode).send(responseBody);
   });
 
   server.get('/health/live', async (_request, reply) => {
@@ -70,9 +109,10 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   });
 
   server.get('/health/ready', async (_request, reply) => {
+    const checkTimeoutMs = 1500;
     const [databaseOk, redisOk, shopifyOk] = await Promise.all([
-      checkDatabaseConnection(),
-      checkRedisConnection(env.redisUrl),
+      withTimeout(checkDatabaseConnection(), checkTimeoutMs, 'database check').catch(() => false),
+      checkRedisConnection(env.redisUrl, checkTimeoutMs),
       Promise.resolve(isShopifyApiConfigValid(process.env)),
     ]);
 
@@ -93,10 +133,9 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   return server;
 }
 
-async function checkRedisConnection(redisUrl: string): Promise<boolean> {
+async function checkRedisConnection(redisUrl: string, timeoutMs = 1500): Promise<boolean> {
   const client = createClient({ url: redisUrl });
 
-  const timeoutMs = 1500;
   const timeout = new Promise<never>((_, reject) => {
     setTimeout(() => reject(new Error('redis check timeout')), timeoutMs).unref();
   });
@@ -109,9 +148,17 @@ async function checkRedisConnection(redisUrl: string): Promise<boolean> {
     return false;
   } finally {
     try {
-      await client.quit();
+      if (client.isReady) {
+        await Promise.race([client.quit(), timeout]);
+      } else {
+        await client.disconnect();
+      }
     } catch {
-      // ignore
+      try {
+        await client.disconnect();
+      } catch {
+        // ignore
+      }
     }
   }
 }

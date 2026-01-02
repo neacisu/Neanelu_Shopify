@@ -153,7 +153,7 @@ function parseOtelEndpoint(env: EnvSource): string {
 export function loadEnv(env: EnvSource = process.env): AppEnv {
   const nodeEnv = parseNodeEnv(env['NODE_ENV']);
   const logLevel = parseLogLevel(env['LOG_LEVEL']);
-  const port = parsePort(env['PORT']);
+  const port = parsePort(env['PORT'] ?? env['APP_PORT']);
 
   const appHost = parseUrl(env, 'APP_HOST');
   const databaseUrl = requiredString(env, 'DATABASE_URL');

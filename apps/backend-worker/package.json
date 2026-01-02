@@ -14,6 +14,7 @@
     "@app/config": "workspace:*",
     "@app/database": "workspace:*",
     "@app/logger": "workspace:*",
+    "dotenv": "^17.2.3",
     "fastify": "^5.2.1",
     "redis": "^4.7.1"
   },

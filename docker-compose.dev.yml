@@ -46,10 +46,14 @@ services:
       - '65020:16686'
       # OTLP gRPC
       - '65021:4317'
-      # OTLP HTTP
+
+  # ============================================
+  # OpenTelemetry Collector - Development Override
+  # ============================================
+  otel-collector:
+    ports:
+      # OTLP HTTP (App -> Collector)
       - '65022:4318'
-      # Zipkin (pentru compatibilitate)
-      - '65023:9411'
 
   # ============================================
   # pgAdmin 4 - GUI pentru PostgreSQL (opțional, doar dev)
@@ -73,16 +77,16 @@ services:
         condition: service_healthy
 
   # ============================================
-  # RedisInsight - GUI pentru Redis (opțional, doar dev)
+  # Redis Commander - GUI pentru Redis (opțional, doar dev)
   # ============================================
-  redisinsight:
-    image: redislabs/redisinsight:latest
-    container_name: neanelu_redisinsight
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: neanelu_redis_commander
     restart: unless-stopped
     ports:
-      - '65031:5540'
-    volumes:
-      - redisinsight_data:/data
+      - '65031:8081'
+    environment:
+      REDIS_HOSTS: local:redis:6379
     networks:
       - neanelu_network
     depends_on:
@@ -94,5 +98,3 @@ services:
 volumes:
   pgadmin_data:
     name: neanelu_pgadmin_data
-  redisinsight_data:
-    name: neanelu_redisinsight_data

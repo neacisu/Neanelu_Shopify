@@ -53,6 +53,7 @@ Toate serviciile folosesc porturi în range-ul **65xxx** pentru a evita conflict
 | PgAdmin (opțional)         | 65030    | N/A       | Dev only      | DB admin GUI     |
 | Redis Commander (opțional) | 65031    | N/A       | Dev only      | Redis admin GUI  |
 | Bull Board (opțional)      | 65032    | N/A       | Dev only      | Queue monitoring |
+| OAuth Callback Helper      | 65033    | N/A       | Dev only      | Research helper  |
 
 ---
 
@@ -95,7 +96,7 @@ services:
 
 ```bash
 # Application
-APP_PORT=65000
+PORT=65000
 FRONTEND_PORT=65001
 
 # Data Layer

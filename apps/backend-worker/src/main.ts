@@ -1,3 +1,5 @@
+import 'dotenv/config';
+
 import { loadEnv } from '@app/config';
 import { createLogger } from '@app/logger';
 

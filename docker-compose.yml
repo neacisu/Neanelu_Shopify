@@ -87,6 +87,21 @@ services:
     networks:
       - neanelu_network
 
+  # ============================================
+  # OpenTelemetry Collector - Receives OTLP from apps
+  # ============================================
+  otel-collector:
+    image: otel/opentelemetry-collector:0.142.0
+    container_name: neanelu_otel_collector
+    restart: unless-stopped
+    command: ['--config=/etc/otelcol/config.yaml']
+    volumes:
+      - ./docker/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
+    networks:
+      - neanelu_network
+    depends_on:
+      - jaeger
+
 # ============================================
 # VOLUMES (date persistente)
 # ============================================

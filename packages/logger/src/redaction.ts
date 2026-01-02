@@ -18,7 +18,7 @@ function redactDeepInternal(value: unknown, mode: RedactionMode, key: string | u
     if (key && SENSITIVE_KEY_REGEX.test(key)) {
       return '[REDACTED_TOKEN]';
     }
-    return redactStringValue(value, mode);
+    return redactStringValue(value, mode, key);
   }
   if (typeof value === 'number' || typeof value === 'boolean') return value;
   if (value instanceof Error) {
@@ -60,7 +60,7 @@ function truncateStack(stack: string, mode: RedactionMode): string {
   return lines.slice(0, 3).join('\n');
 }
 
-function redactStringValue(input: string, _mode: RedactionMode): string {
+function redactStringValue(input: string, _mode: RedactionMode, _key: string | undefined): string {
   const value = input.trim();
   if (!value) return input;
 
@@ -75,18 +75,11 @@ function redactStringValue(input: string, _mode: RedactionMode): string {
   }
 
   // Phone-ish (very lenient): +digits or digits with separators
-  const digits = value.replace(/\D/g, '');
-  if ((value.startsWith('+') || digits.length >= 10) && digits.length >= 10) {
+  if (/^\+?[0-9][0-9\s().-]{8,}[0-9]$/.test(value)) {
+    const digits = value.replace(/\D/g, '');
     const prefix = value.startsWith('+') ? `+${digits.slice(0, 2)}` : digits.slice(0, 2);
     const last2 = digits.slice(-2);
     return `${prefix}***...${last2}`;
-  }
-
-  // API key-ish: long opaque strings
-  if (/^[A-Za-z0-9_-]{16,}$/.test(value)) {
-    const first4 = value.slice(0, 4);
-    const last4 = value.slice(-4);
-    return `${first4}***${last4}`;
   }
 
   return input;
