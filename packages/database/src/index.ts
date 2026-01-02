@@ -21,6 +21,9 @@ export {
   withTenantContext,
 } from './db.js';
 
+export { logAuditEvent } from './audit.js';
+export type { AuditAction, AuditActorType, AuditContext } from './audit.js';
+
 // ============================================
 // TYPES RE-EXPORTS
 // ============================================

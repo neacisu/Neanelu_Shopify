@@ -1,0 +1,24 @@
+# CODEOWNERS
+#
+# GitHub uses this file to automatically request reviews from owners
+# when PRs touch matching paths.
+#
+# NOTE: Replace @CO_OWNER_HANDLE with the second co-owner GitHub handle.
+
+* @neacisu @CO_OWNER_HANDLE
+
+/apps/ @neacisu @CO_OWNER_HANDLE
+/apps/backend-worker/ @neacisu @CO_OWNER_HANDLE
+/apps/web-admin/ @neacisu @CO_OWNER_HANDLE
+
+/packages/ @neacisu @CO_OWNER_HANDLE
+/packages/ai-engine/ @neacisu @CO_OWNER_HANDLE
+/packages/config/ @neacisu @CO_OWNER_HANDLE
+/packages/database/ @neacisu @CO_OWNER_HANDLE
+/packages/logger/ @neacisu @CO_OWNER_HANDLE
+/packages/queue-manager/ @neacisu @CO_OWNER_HANDLE
+/packages/shopify-client/ @neacisu @CO_OWNER_HANDLE
+/packages/types/ @neacisu @CO_OWNER_HANDLE
+
+/Docs/ @neacisu @CO_OWNER_HANDLE
+/.github/ @neacisu @CO_OWNER_HANDLE

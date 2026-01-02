@@ -10,8 +10,8 @@
     "pnpm": ">=10.0.0"
   },
   "scripts": {
-    "dev": "pnpm -r run dev",
-    "build": "pnpm -r run build",
+    "dev": "pnpm -r --if-present run dev",
+    "build": "pnpm -r --if-present run build",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "pnpm -w exec tsc --noEmit",
@@ -29,6 +29,9 @@
     "db:migrate": "pnpm --filter @app/database run db:migrate",
     "db:studio": "pnpm --filter @app/database run db:studio",
     "db:push": "pnpm --filter @app/database run db:push",
+    "db:seed": "pnpm --filter @app/database run db:seed",
+    "db:seed:ci": "pnpm --filter @app/database run db:seed:ci",
+    "db:seed:taxonomy": "pnpm --filter @app/database run db:seed:taxonomy",
     "db:test": "pnpm --filter @app/database run test",
     "db:test:schema": "pnpm --filter @app/database run test:schema",
     "db:test:precommit": "pnpm --filter @app/database run test:precommit",

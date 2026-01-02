@@ -20,6 +20,11 @@ export * from './shops.ts';
 export * from './staff-users.ts';
 
 // ============================================
+// Module H: Audit & Observability
+// ============================================
+export * from './audit.ts';
+
+// ============================================
 // Module B: Shopify Mirror
 // ============================================
 export * from './shopify-products.ts';

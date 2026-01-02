@@ -585,6 +585,15 @@ The project follows a phased approach documented in [Plan_de_implementare.md](Pl
 
 ### Pull Request Process
 
+**Git Branch Strategy (CONFORM Plan_de_implementare.md)**
+
+| Branch Type | Pattern                         | Example                     | Description                          |
+| ----------- | ------------------------------- | --------------------------- | ------------------------------------ |
+| Main        | `main`                          | `main`                      | Protected, requires PR review        |
+| Feature     | `feature/F{phase}-{short-desc}` | `feature/F1-monorepo-setup` | Feature work spanning multiple tasks |
+| PR Branch   | `pr/F{phase}.{task}-{desc}`     | `pr/F1.1-workspace-init`    | Branch for a single PR/task          |
+| Hotfix      | `hotfix/{desc}`                 | `hotfix/oauth-callback`     | Urgent fix                           |
+
 1. Create feature branch from `main`
 2. Ensure CI passes (lint, typecheck, test)
 3. Update documentation if needed
