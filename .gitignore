@@ -26,8 +26,8 @@ out/
 Research Produse/.env.txt
 
 # Local OAuth helper (contains secrets)
-
-
+oauth-callback-server.log
+temp-oauth-*
 # Logs
 *.log
 npm-debug.log*
