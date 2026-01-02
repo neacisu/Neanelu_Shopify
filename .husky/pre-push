@@ -9,7 +9,8 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 # Source environment variables from .env if it exists
 if [ -f "$REPO_ROOT/.env" ]; then
   set -a
-  . "$REPO_ROOT/.env"
+  # Best-effort load. Some .env files may contain values not compatible with POSIX sh.
+  . "$REPO_ROOT/.env" >/dev/null 2>&1 || true
   set +a
 fi
 
