@@ -38,6 +38,10 @@ jobs:
     timeout-minutes: 15
     env:
       NPM_TASKFORCESH_TOKEN: ${{ secrets.NPM_TASKFORCESH_TOKEN }}
+      # OTel disabled in CI (no collector available) - F3.4.5
+      OTEL_EXPORTER_OTLP_ENDPOINT: ''
+      OTEL_SAMPLING_RATIO: '0'
+      OBS_DEBUG: '0'
 
     services:
       # PostgreSQL 18 with pgvector preinstalled for integration tests
