@@ -26,7 +26,7 @@ permissions:
 
 env:
   NODE_VERSION: '24'
-  PNPM_VERSION: '10'
+  PNPM_VERSION: '10.27.0'
 
 jobs:
   # ============================================
@@ -38,8 +38,16 @@ jobs:
     timeout-minutes: 15
     env:
       NPM_TASKFORCESH_TOKEN: ${{ secrets.NPM_TASKFORCESH_TOKEN }}
-      # OTel disabled in CI (no collector available) - F3.4.5
-      OTEL_EXPORTER_OTLP_ENDPOINT: ''
+      # Required runtime env (strict validation)
+      APP_HOST: https://example.test
+      SHOPIFY_API_KEY: ci_dummy
+      SHOPIFY_API_SECRET: ci_dummy
+      SCOPES: read_products
+      ENCRYPTION_KEY_VERSION: '1'
+      ENCRYPTION_KEY_256: 0000000000000000000000000000000000000000000000000000000000000000
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://127.0.0.1:4318
+      OTEL_SERVICE_NAME: neanelu-shopify-ci
+      # Keep OTel effectively disabled (0% sampling)
       OTEL_SAMPLING_RATIO: '0'
       OBS_DEBUG: '0'
 
@@ -62,7 +70,7 @@ jobs:
 
       # Redis 8 for integration tests (BullMQ, cache)
       redis:
-        image: redis:8-alpine
+        image: redis:8.4-alpine
         ports:
           - 65011:6379
         options: >-
@@ -97,6 +105,17 @@ jobs:
       - name: Type Check
         run: pnpm typecheck
 
+      - name: Install PostgreSQL extensions
+        env:
+          PGPASSWORD: test
+        run: |
+          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS citext;"
+          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS btree_gin;"
+          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS btree_gist;"
+          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
       - name: Run Tests
         run: pnpm test
         env:
@@ -124,6 +143,15 @@ jobs:
     timeout-minutes: 20
     env:
       NPM_TASKFORCESH_TOKEN: ${{ secrets.NPM_TASKFORCESH_TOKEN }}
+      # Required runtime env (strict validation)
+      APP_HOST: https://example.test
+      SHOPIFY_API_KEY: ci_dummy
+      SHOPIFY_API_SECRET: ci_dummy
+      SCOPES: read_products
+      ENCRYPTION_KEY_VERSION: '1'
+      ENCRYPTION_KEY_256: 0000000000000000000000000000000000000000000000000000000000000000
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://127.0.0.1:4318
+      OTEL_SERVICE_NAME: neanelu-shopify-ci
 
     services:
       postgres:
@@ -240,35 +268,38 @@ jobs:
 
       - name: Validate docker-compose config
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
+          # Provide required vars for config validation (avoid ?: failures)
+          TRAEFIK_DASHBOARD_USERS='ci:$$2y$$05$$abcdefghijklmnopqrstuv' \
+            docker compose --env-file .env.compose.example -f docker-compose.yml -f docker-compose.dev.yml config --quiet
           echo "✅ Docker Compose configuration is valid"
 
       - name: Verify service images exist
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.dev.yml config --images
+          TRAEFIK_DASHBOARD_USERS='ci:$$2y$$05$$abcdefghijklmnopqrstuv' \
+            docker compose --env-file .env.compose.example -f docker-compose.yml -f docker-compose.dev.yml config --images
 
   # ============================================
-  # Docker Smoke Test (requires Dockerfile - F7.2)
+  # Docker Smoke Test (backend-worker build)
   # ============================================
-  # Uncomment when Dockerfile is created in F7.2
-  # docker-smoke:
-  #   name: Docker Build Smoke Test
-  #   runs-on: ubuntu-latest
-  #   timeout-minutes: 15
-  #   needs: [lint-typecheck-test]
-  #
-  #   steps:
-  #     - name: Checkout code
-  #       uses: actions/checkout@v4
-  #
-  #     - name: Set up Docker Buildx
-  #       uses: docker/setup-buildx-action@v3
-  #
-  #     - name: Build Docker image (no push)
-  #       uses: docker/build-push-action@v6
-  #       with:
-  #         context: .
-  #         push: false
-  #         tags: neanelu-shopify:smoke-test
-  #         cache-from: type=gha
-  #         cache-to: type=gha,mode=max
+  docker-smoke:
+    name: Docker Build Smoke Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [lint-typecheck-test]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend-worker image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/backend-worker/Dockerfile
+          push: false
+          tags: neanelu-backend-worker:ci-smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
