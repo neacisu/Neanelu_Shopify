@@ -8,6 +8,13 @@ import { randomUUID } from 'node:crypto';
 import { isShopifyApiConfigValid } from '@app/config';
 import { registerAuthRoutes } from '../auth/index.js';
 import { webhookRoutes } from '../routes/webhooks.js';
+import { setRequestIdAttribute } from '@app/logger';
+import {
+  httpActiveRequests,
+  recordHttpRequest,
+  httpRequestSizeBytes,
+  httpResponseSizeBytes,
+} from '../otel/metrics.js';
 
 function withoutQuery(url: string): string {
   const q = url.indexOf('?');
@@ -47,10 +54,30 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
 
   // Register routes
   // OAuth routes are registered via registerAuthRoutes below
-  await server.register(webhookRoutes, { prefix: '/webhooks' });
+  await server.register(webhookRoutes, { prefix: '/webhooks', appLogger: logger });
+
+  const startNsKey = Symbol('requestStartNs');
 
   server.addHook('onRequest', async (request, reply) => {
     reply.header('x-request-id', request.id);
+
+    // Correlate request id with current OTel span (when tracing is active)
+    setRequestIdAttribute(request.id);
+
+    // Start active requests counter and record start timestamp for latency
+    httpActiveRequests.add(1);
+    (request as unknown as Record<symbol, bigint>)[startNsKey] = process.hrtime.bigint();
+
+    // Best-effort request size (header may be absent)
+    const len = request.headers['content-length'];
+    const requestSizeBytes = typeof len === 'string' ? Number(len) : Number.NaN;
+    if (Number.isFinite(requestSizeBytes)) {
+      httpRequestSizeBytes.record(requestSizeBytes, {
+        method: request.method,
+        route: withoutQuery(request.url),
+      });
+    }
+
     logger.info(
       { requestId: request.id, method: request.method, path: withoutQuery(request.url) },
       'request received'
@@ -58,6 +85,24 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   });
 
   server.addHook('onResponse', async (request, reply) => {
+    httpActiveRequests.add(-1);
+
+    const startNs = (request as unknown as Record<symbol, bigint>)[startNsKey];
+    const durationSeconds =
+      typeof startNs === 'bigint' ? Number(process.hrtime.bigint() - startNs) / 1_000_000_000 : 0;
+
+    recordHttpRequest(request.method, withoutQuery(request.url), reply.statusCode, durationSeconds);
+
+    const responseLength = reply.getHeader('content-length');
+    const responseSizeBytes =
+      typeof responseLength === 'string' ? Number(responseLength) : Number.NaN;
+    if (Number.isFinite(responseSizeBytes)) {
+      httpResponseSizeBytes.record(responseSizeBytes, {
+        method: request.method,
+        route: withoutQuery(request.url),
+      });
+    }
+
     logger.info(
       {
         requestId: request.id,

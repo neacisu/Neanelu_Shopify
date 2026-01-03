@@ -20,6 +20,14 @@ import { enqueueWebhookJob } from '../queue/webhook-queue.js';
 import { validateWebhookJobPayload, type WebhookJobPayload } from '@app/types';
 import { sanitizeShopDomain } from '../auth/validation.js';
 import { createHash } from 'node:crypto';
+import type { Logger } from '@app/logger';
+import { withSpan, withSpanSync } from '@app/logger';
+import {
+  incrementWebhookMetric,
+  webhookHmacDuration,
+  webhookPayloadSizeBytes,
+  webhookProcessingDuration,
+} from '../otel/metrics.js';
 
 // Load env
 const env = loadEnv();
@@ -34,7 +42,7 @@ const redis: RedisClient = new RedisCtor(env.redisUrl);
 const WEBHOOK_BODY_LIMIT_BYTES = 1_048_576; // 1 MiB
 const WEBHOOK_PAYLOAD_TTL_SECONDS = 300; // 5 minutes
 
-export const webhookRoutes: FastifyPluginCallback = (app, _opts, done) => {
+export const webhookRoutes: FastifyPluginCallback<{ appLogger?: Logger }> = (app, opts, done) => {
   // Add content type parser for raw body to handle HMAC verification
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (_req, body, done) => {
     try {
@@ -46,15 +54,23 @@ export const webhookRoutes: FastifyPluginCallback = (app, _opts, done) => {
 
   // Use wildcard to capture all topics including those with slashes (e.g. products/create)
   app.post('/*', async (request, reply) => {
+    const appLogger = opts?.appLogger;
+    const log = appLogger ?? (request.log as unknown as Logger);
+
+    const startNs = process.hrtime.bigint();
+
     // Topic is extracted from headers, so the URL path is less critical validation-wise
     // as long as we capture the request.
     // const { topic: urlTopic } = request.params;
     const rawBody = request.body as Buffer;
 
     if (rawBody.length > WEBHOOK_BODY_LIMIT_BYTES) {
-      request.log.warn({ size: rawBody.length }, 'Webhook payload too large');
+      incrementWebhookMetric('rejected', { reason: 'payload_too_large' });
+      log.warn({ size: rawBody.length }, 'Webhook payload too large');
       return reply.code(413).send({ error: 'Payload too large' });
     }
+
+    webhookPayloadSizeBytes.record(rawBody.length, { route: '/webhooks/*' });
 
     // 1. Headers Validation
     const hmac = request.headers['x-shopify-hmac-sha256'] as string;
@@ -63,21 +79,32 @@ export const webhookRoutes: FastifyPluginCallback = (app, _opts, done) => {
     const webhookId = request.headers['x-shopify-webhook-id'] as string;
 
     if (!hmac || !shopDomainRaw || !headerTopic || !webhookId) {
-      request.log.warn('Missing required Shopify webhook headers');
+      incrementWebhookMetric('rejected', { reason: 'missing_headers' });
+      log.warn({}, 'Missing required Shopify webhook headers');
       return reply.code(400).send({ error: 'Missing required headers' });
     }
 
     const shopDomain = sanitizeShopDomain(shopDomainRaw);
     if (!shopDomain) {
-      request.log.warn({ shopDomain: shopDomainRaw }, 'Invalid shop domain header');
+      incrementWebhookMetric('rejected', { reason: 'invalid_shop', topic: headerTopic });
+      log.warn({ shopDomain: shopDomainRaw }, 'Invalid shop domain header');
       return reply.code(400).send({ error: 'Invalid shop domain' });
     }
 
     // 2. HMAC Validation (Security Critical)
-    const isValid = verifyWebhookHmac(rawBody, env.shopifyApiSecret, hmac);
+    const hmacStartNs = process.hrtime.bigint();
+    const isValid = withSpanSync(
+      'webhooks.hmac_verify',
+      { shop_domain: shopDomain, topic: headerTopic },
+      () => verifyWebhookHmac(rawBody, env.shopifyApiSecret, hmac)
+    );
+    webhookHmacDuration.record(Number(process.hrtime.bigint() - hmacStartNs) / 1_000_000_000, {
+      topic: headerTopic,
+    });
 
     if (!isValid) {
-      request.log.warn({ shop: shopDomain }, 'Invalid webhook HMAC signature');
+      incrementWebhookMetric('rejected', { reason: 'invalid_hmac', topic: headerTopic });
+      log.warn({ shop: shopDomain }, 'Invalid webhook HMAC signature');
       return reply.code(401).send({ error: 'Invalid signature' });
     }
 
@@ -86,15 +113,14 @@ export const webhookRoutes: FastifyPluginCallback = (app, _opts, done) => {
     // Header topic is the source of truth
 
     // 4. Deduplication
-    const isDuplicate = await isDuplicateWebhook(
-      redis,
-      shopDomain,
-      headerTopic,
-      webhookId,
-      request.log
+    const isDuplicate = await withSpan(
+      'webhooks.dedupe_check',
+      { shop_domain: shopDomain, topic: headerTopic },
+      async () => isDuplicateWebhook(redis, shopDomain, headerTopic, webhookId, request.log)
     );
     if (isDuplicate) {
-      request.log.info({ webhookId, shop: shopDomain }, 'Duplicate webhook detected, skipping');
+      incrementWebhookMetric('duplicate', { topic: headerTopic });
+      log.info({ webhookId, shop: shopDomain }, 'Duplicate webhook detected, skipping');
       return reply.code(200).send(); // Idempotent success
     }
 
@@ -105,7 +131,8 @@ export const webhookRoutes: FastifyPluginCallback = (app, _opts, done) => {
       // Validate JSON is well-formed (payload content is stored out-of-band)
       JSON.parse(rawJson);
     } catch (err) {
-      request.log.error({ err }, 'Failed to parse webhook JSON body');
+      incrementWebhookMetric('rejected', { reason: 'invalid_json', topic: headerTopic });
+      log.error({ err }, 'Failed to parse webhook JSON body');
       return reply.code(400).send({ error: 'Invalid JSON' });
     }
 
@@ -116,7 +143,9 @@ export const webhookRoutes: FastifyPluginCallback = (app, _opts, done) => {
     try {
       await redis.set(payloadRef, rawJson, 'EX', WEBHOOK_PAYLOAD_TTL_SECONDS);
     } catch (err) {
-      request.log.error({ err, shop: shopDomain }, 'Failed to store webhook payload');
+      // Treat as transient error (we did accept the request but can't persist minimal ref)
+      incrementWebhookMetric('rejected', { reason: 'storage_unavailable', topic: headerTopic });
+      log.error({ err, shop: shopDomain }, 'Failed to store webhook payload');
       return reply.code(503).send({ error: 'Temporarily unable to accept webhook' });
     }
 
@@ -130,15 +159,25 @@ export const webhookRoutes: FastifyPluginCallback = (app, _opts, done) => {
     };
 
     if (!validateWebhookJobPayload(jobPayload)) {
-      request.log.error({ jobPayload }, 'Invalid webhook job payload (contract violation)');
+      incrementWebhookMetric('rejected', { reason: 'invalid_json', topic: headerTopic });
+      log.error({ jobPayload }, 'Invalid webhook job payload (contract violation)');
       return reply.code(500).send({ error: 'Internal error' });
     }
 
     // 6. Enqueue (Minimal)
-    await enqueueWebhookJob(jobPayload, request.log);
+    await withSpan(
+      'webhooks.enqueue',
+      { shop_domain: shopDomain, topic: headerTopic, outcome: 'accepted' },
+      async () => enqueueWebhookJob(jobPayload, request.log)
+    );
+    incrementWebhookMetric('accepted', { topic: headerTopic });
 
     // 7. Mark Processed (Dedupe)
     await markWebhookProcessed(redis, shopDomain, headerTopic, webhookId, request.log);
+
+    webhookProcessingDuration.record(Number(process.hrtime.bigint() - startNs) / 1_000_000_000, {
+      topic: headerTopic,
+    });
 
     // 8. Respond OK
     return reply.code(200).send();

@@ -8,6 +8,8 @@
  * pentru a captura toate modulele auto-instrumentation.
  */
 
+import 'dotenv/config';
+
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
@@ -21,15 +23,18 @@ import {
   AlwaysOnSampler,
 } from '@opentelemetry/sdk-trace-node';
 import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
+import { loadOtelConfig } from '@app/config';
 
 // ============================================
 // Environment Configuration
 // ============================================
-const serviceName = process.env['OTEL_SERVICE_NAME'] ?? 'neanelu-shopify';
+const otelConfig = loadOtelConfig(process.env);
+
+const serviceName = otelConfig.serviceName;
 const serviceVersion = process.env['npm_package_version'] ?? '0.1.0';
-const otlpEndpoint = process.env['OTEL_EXPORTER_OTLP_ENDPOINT'] ?? '';
-const samplingRatio = parseFloat(process.env['OTEL_SAMPLING_RATIO'] ?? '1.0');
-const isDebug = process.env['OBS_DEBUG'] === '1';
+const otlpEndpoint = otelConfig.exporterEndpoint;
+const samplingRatio = otelConfig.samplingRatio;
+const isDebug = otelConfig.debug;
 const nodeEnv = process.env['NODE_ENV'] ?? 'development';
 
 // ============================================
@@ -64,7 +69,7 @@ let sdk: NodeSDK | null = null;
 
 function initializeOtel(): void {
   // Skip initialization if no endpoint configured (CI mode)
-  if (!otlpEndpoint) {
+  if (!otelConfig.enabled) {
     console.info('[OTel] No OTLP endpoint configured, tracing disabled');
     return;
   }
