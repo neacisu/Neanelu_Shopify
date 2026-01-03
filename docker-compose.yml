@@ -12,7 +12,7 @@ services:
   # Traefik - Reverse Proxy (TLS/ACME)
   # ============================================
   traefik:
-    image: traefik:v3.2
+    image: traefik:v3.6.6
     container_name: neanelu_traefik
     restart: unless-stopped
     command:
@@ -20,6 +20,7 @@ services:
       - --api.insecure=false
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
+      - --providers.docker.constraints=Label(`com.docker.compose.project`,`neanelu_shopify`)
       - --entrypoints.web.address=:80
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
@@ -40,7 +41,7 @@ services:
     labels:
       - traefik.enable=true
       # Dashboard (requires basic auth)
-      - traefik.http.routers.traefik.rule=Host(`${APP_HOST}`) && PathPrefix(`/traefik`)
+      - traefik.http.routers.traefik.rule=Host(`${APP_HOSTNAME:?APP_HOSTNAME is required}`) && PathPrefix(`/traefik`)
       - traefik.http.routers.traefik.priority=1000
       - traefik.http.routers.traefik.entrypoints=websecure
       - traefik.http.routers.traefik.tls.certresolver=${TRAEFIK_CERT_RESOLVER}
@@ -121,11 +122,9 @@ services:
   # Jaeger - Observabilitate/Tracing (OpenTelemetry)
   # ============================================
   jaeger:
-    image: jaegertracing/all-in-one:1.76.0
+    image: jaegertracing/jaeger:2.14.1
     container_name: neanelu_jaeger
     restart: unless-stopped
-    environment:
-      COLLECTOR_OTLP_ENABLED: 'true'
     networks:
       - neanelu_network
 
@@ -158,16 +157,22 @@ services:
       PORT: ${PORT}
       NODE_ENV: ${NODE_ENV}
       APP_HOST: ${APP_HOST}
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
+      DATABASE_URL: ${DATABASE_URL_DOCKER}
+      REDIS_URL: ${REDIS_URL_DOCKER}
       SHOPIFY_API_KEY: ${SHOPIFY_API_KEY}
       SHOPIFY_API_SECRET: ${SHOPIFY_API_SECRET}
-      SHOPIFY_SCOPES: ${SHOPIFY_SCOPES}
+      SCOPES: ${SCOPES}
+      ENCRYPTION_KEY_VERSION: ${ENCRYPTION_KEY_VERSION}
       ENCRYPTION_KEY_256: ${ENCRYPTION_KEY_256}
+      NPM_TASKFORCESH_TOKEN: ${NPM_TASKFORCESH_TOKEN}
+      BULLMQ_PRO_TOKEN: ${BULLMQ_PRO_TOKEN}
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME}
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT_DOCKER}
       OTEL_SAMPLING_RATIO: ${OTEL_SAMPLING_RATIO}
       OBS_DEBUG: ${OBS_DEBUG}
+    volumes:
+      - backend_worker_node_modules:/app/node_modules
+      - backend_worker_pnpm_store:/pnpm/store
     depends_on:
       db:
         condition: service_healthy
@@ -180,7 +185,7 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=neanelu_network
-      - traefik.http.routers.backend.rule=Host(`${APP_HOST}`)
+      - traefik.http.routers.backend.rule=Host(`${APP_HOSTNAME:?APP_HOSTNAME is required}`)
       - traefik.http.routers.backend.entrypoints=websecure
       - traefik.http.routers.backend.tls.certresolver=${TRAEFIK_CERT_RESOLVER}
       - traefik.http.services.backend.loadbalancer.server.port=${PORT}
@@ -210,7 +215,7 @@ services:
   # Prometheus - Metrics storage
   # ============================================
   prometheus:
-    image: prom/prometheus:v2.53.3
+    image: prom/prometheus:v3.8.1
     container_name: neanelu_prometheus
     restart: unless-stopped
     command:
@@ -226,7 +231,7 @@ services:
   # Alertmanager - Alerts routing
   # ============================================
   alertmanager:
-    image: prom/alertmanager:v0.28.1
+    image: prom/alertmanager:v0.30.0
     container_name: neanelu_alertmanager
     restart: unless-stopped
     command:
@@ -240,7 +245,7 @@ services:
   # Loki - Logs aggregation
   # ============================================
   loki:
-    image: grafana/loki:3.2.1
+    image: grafana/loki:3.6.3
     container_name: neanelu_loki
     restart: unless-stopped
     command: ['-config.file=/etc/loki/loki-config.yml']
@@ -254,7 +259,7 @@ services:
   # Promtail - Ships Docker logs to Loki
   # ============================================
   promtail:
-    image: grafana/promtail:3.2.1
+    image: grafana/promtail:3.6.3
     container_name: neanelu_promtail
     restart: unless-stopped
     command: ['-config.file=/etc/promtail/promtail-config.yml']
@@ -272,12 +277,12 @@ services:
   # Grafana - Dashboards
   # ============================================
   grafana:
-    image: grafana/grafana:11.5.2
+    image: grafana/grafana:12.3.1
     container_name: neanelu_grafana
     restart: unless-stopped
     environment:
-      GF_SERVER_DOMAIN: ${APP_HOST}
-      GF_SERVER_ROOT_URL: https://${APP_HOST}
+      GF_SERVER_DOMAIN: ${APP_HOSTNAME:?APP_HOSTNAME is required}
+      GF_SERVER_ROOT_URL: ${APP_HOST:?APP_HOST is required}
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
     volumes:
@@ -304,6 +309,10 @@ volumes:
     name: neanelu_loki_data
   promtail_positions:
     name: neanelu_promtail_positions
+  backend_worker_node_modules:
+    name: neanelu_backend_worker_node_modules
+  backend_worker_pnpm_store:
+    name: neanelu_backend_worker_pnpm_store
 
 # ============================================
 # NETWORKS

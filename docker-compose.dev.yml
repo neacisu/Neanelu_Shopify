@@ -13,7 +13,9 @@ services:
   # ============================================
   backend-worker:
     ports:
-      - '65000:65000'
+      - '${BACKEND_HOST_PORT:-65000}:65000'
+    volumes:
+      - .:/app
 
   # ============================================
   # Frontend Web Admin - Placeholder (future)
