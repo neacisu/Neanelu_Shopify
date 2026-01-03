@@ -9,6 +9,48 @@
 
 services:
   # ============================================
+  # Traefik - Reverse Proxy (TLS/ACME)
+  # ============================================
+  traefik:
+    image: traefik:v3.2
+    container_name: neanelu_traefik
+    restart: unless-stopped
+    command:
+      - --api.dashboard=true
+      - --api.insecure=false
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.${TRAEFIK_CERT_RESOLVER}.acme.email=${TRAEFIK_ACME_EMAIL}
+      - --certificatesresolvers.${TRAEFIK_CERT_RESOLVER}.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.${TRAEFIK_CERT_RESOLVER}.acme.httpchallenge=true
+      - --certificatesresolvers.${TRAEFIK_CERT_RESOLVER}.acme.httpchallenge.entrypoint=web
+    ports:
+      - '${TRAEFIK_HTTP_PORT:-80}:80'
+      - '${TRAEFIK_HTTPS_PORT:-443}:443'
+    volumes:
+      - traefik_letsencrypt:/letsencrypt
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - public_net
+      - neanelu_network
+    labels:
+      - traefik.enable=true
+      # Dashboard (requires basic auth)
+      - traefik.http.routers.traefik.rule=Host(`${APP_HOST}`) && PathPrefix(`/traefik`)
+      - traefik.http.routers.traefik.priority=1000
+      - traefik.http.routers.traefik.entrypoints=websecure
+      - traefik.http.routers.traefik.tls.certresolver=${TRAEFIK_CERT_RESOLVER}
+      - traefik.http.routers.traefik.service=api@internal
+      - traefik.http.middlewares.traefik-auth.basicauth.users=${TRAEFIK_DASHBOARD_USERS:?TRAEFIK_DASHBOARD_USERS is required}
+      - traefik.http.middlewares.traefik-strip.stripprefix.prefixes=/traefik
+      - traefik.http.middlewares.traefik-strip.stripprefix.forceSlash=false
+      - traefik.http.routers.traefik.middlewares=traefik-strip,traefik-auth
+
+  # ============================================
   # PostgreSQL 18 + pgvector - Baza de date principală
   # ============================================
   # Folosim imaginea oficială pgvector/pgvector:pg18 (include pgvector 0.8.1+)
@@ -91,7 +133,7 @@ services:
   # OpenTelemetry Collector - Receives OTLP from apps
   # ============================================
   otel-collector:
-    image: otel/opentelemetry-collector:0.142.0
+    image: otel/opentelemetry-collector-contrib:0.142.0
     container_name: neanelu_otel_collector
     restart: unless-stopped
     command: ['--config=/etc/otelcol/config.yaml']
@@ -102,6 +144,148 @@ services:
     depends_on:
       - jaeger
 
+  # ============================================
+  # Backend API (Fastify) - Containerized
+  # ============================================
+  backend-worker:
+    build:
+      context: .
+      dockerfile: apps/backend-worker/Dockerfile
+    image: neanelu-backend-worker:dev
+    container_name: neanelu_backend_worker
+    restart: unless-stopped
+    environment:
+      PORT: ${PORT}
+      NODE_ENV: ${NODE_ENV}
+      APP_HOST: ${APP_HOST}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      SHOPIFY_API_KEY: ${SHOPIFY_API_KEY}
+      SHOPIFY_API_SECRET: ${SHOPIFY_API_SECRET}
+      SHOPIFY_SCOPES: ${SHOPIFY_SCOPES}
+      ENCRYPTION_KEY_256: ${ENCRYPTION_KEY_256}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+      OTEL_SAMPLING_RATIO: ${OTEL_SAMPLING_RATIO}
+      OBS_DEBUG: ${OBS_DEBUG}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    networks:
+      - neanelu_network
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=neanelu_network
+      - traefik.http.routers.backend.rule=Host(`${APP_HOST}`)
+      - traefik.http.routers.backend.entrypoints=websecure
+      - traefik.http.routers.backend.tls.certresolver=${TRAEFIK_CERT_RESOLVER}
+      - traefik.http.services.backend.loadbalancer.server.port=${PORT}
+
+  # ============================================
+  # PLACEHOLDERS (future implementation)
+  # ============================================
+  web-admin:
+    image: node:24-bookworm-slim
+    container_name: neanelu_web_admin
+    restart: unless-stopped
+    profiles: ['future']
+    command: ['sh', '-c', "echo 'web-admin placeholder (not implemented yet)' && sleep infinity"]
+    networks:
+      - neanelu_network
+
+  bull-board:
+    image: node:24-bookworm-slim
+    container_name: neanelu_bull_board
+    restart: unless-stopped
+    profiles: ['future']
+    command: ['sh', '-c', "echo 'bull-board placeholder (not implemented yet)' && sleep infinity"]
+    networks:
+      - neanelu_network
+
+  # ============================================
+  # Prometheus - Metrics storage
+  # ============================================
+  prometheus:
+    image: prom/prometheus:v2.53.3
+    container_name: neanelu_prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - neanelu_network
+
+  # ============================================
+  # Alertmanager - Alerts routing
+  # ============================================
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    container_name: neanelu_alertmanager
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+    volumes:
+      - ./docker/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    networks:
+      - neanelu_network
+
+  # ============================================
+  # Loki - Logs aggregation
+  # ============================================
+  loki:
+    image: grafana/loki:3.2.1
+    container_name: neanelu_loki
+    restart: unless-stopped
+    command: ['-config.file=/etc/loki/loki-config.yml']
+    volumes:
+      - ./docker/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki_data:/loki
+    networks:
+      - neanelu_network
+
+  # ============================================
+  # Promtail - Ships Docker logs to Loki
+  # ============================================
+  promtail:
+    image: grafana/promtail:3.2.1
+    container_name: neanelu_promtail
+    restart: unless-stopped
+    command: ['-config.file=/etc/promtail/promtail-config.yml']
+    volumes:
+      - ./docker/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - promtail_positions:/tmp
+    networks:
+      - neanelu_network
+    depends_on:
+      - loki
+
+  # ============================================
+  # Grafana - Dashboards
+  # ============================================
+  grafana:
+    image: grafana/grafana:11.5.2
+    container_name: neanelu_grafana
+    restart: unless-stopped
+    environment:
+      GF_SERVER_DOMAIN: ${APP_HOST}
+      GF_SERVER_ROOT_URL: https://${APP_HOST}
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - neanelu_network
+
 # ============================================
 # VOLUMES (date persistente)
 # ============================================
@@ -110,11 +294,24 @@ volumes:
     name: neanelu_postgres_data
   redis_data:
     name: neanelu_redis_data
+  traefik_letsencrypt:
+    name: neanelu_traefik_letsencrypt
+  prometheus_data:
+    name: neanelu_prometheus_data
+  grafana_data:
+    name: neanelu_grafana_data
+  loki_data:
+    name: neanelu_loki_data
+  promtail_positions:
+    name: neanelu_promtail_positions
 
 # ============================================
 # NETWORKS
 # ============================================
 networks:
+  public_net:
+    name: neanelu_public_net
+    driver: bridge
   neanelu_network:
     name: neanelu_network
     driver: bridge
