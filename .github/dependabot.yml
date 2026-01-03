@@ -1,60 +1,66 @@
 version: 2
 updates:
+  # Docker (Dockerfile + docker-compose)
+  - package-ecosystem: 'docker'
+    directory: '/'
+    schedule:
+      interval: 'daily'
+
   # GitHub Actions
   - package-ecosystem: 'github-actions'
     directory: '/'
     schedule:
-      interval: 'monthly'
+      interval: 'daily'
 
   # Root workspace
   - package-ecosystem: 'npm'
     directory: '/'
     schedule:
-      interval: 'monthly'
+      interval: 'daily'
 
   # Apps
   - package-ecosystem: 'npm'
     directory: '/apps/backend-worker'
     schedule:
-      interval: 'monthly'
+      interval: 'daily'
 
   - package-ecosystem: 'npm'
     directory: '/apps/web-admin'
     schedule:
-      interval: 'monthly'
+      interval: 'daily'
 
   # Packages
   - package-ecosystem: 'npm'
     directory: '/packages/ai-engine'
     schedule:
-      interval: 'monthly'
+      interval: 'daily'
 
   - package-ecosystem: 'npm'
     directory: '/packages/config'
     schedule:
-      interval: 'monthly'
+      interval: 'daily'
 
   - package-ecosystem: 'npm'
     directory: '/packages/database'
     schedule:
-      interval: 'monthly'
+      interval: 'daily'
 
   - package-ecosystem: 'npm'
     directory: '/packages/logger'
     schedule:
-      interval: 'monthly'
+      interval: 'daily'
 
   - package-ecosystem: 'npm'
     directory: '/packages/queue-manager'
     schedule:
-      interval: 'monthly'
+      interval: 'daily'
 
   - package-ecosystem: 'npm'
     directory: '/packages/shopify-client'
     schedule:
-      interval: 'monthly'
+      interval: 'daily'
 
   - package-ecosystem: 'npm'
     directory: '/packages/types'
     schedule:
-      interval: 'monthly'
+      interval: 'daily'

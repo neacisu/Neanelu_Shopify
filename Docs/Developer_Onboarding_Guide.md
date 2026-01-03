@@ -92,23 +92,26 @@ cd Neanelu_Shopify
 ### Pasul 2: Configurare Environment
 
 ```bash
-# Copiază template-ul
-cp .env.example .env.local
+# Docker-first: Copiază template-ul pentru Docker Compose
+cp .env.compose.example .env.compose
 
-# Editează cu valorile tale
-nano .env.local
+# Editează cu valorile tale (în special Shopify + ENCRYPTION_KEY_256 + Traefik dashboard auth)
+nano .env.compose
 ```
 
 **Variabile OBLIGATORII pentru dev:**
 
 ```bash
-# Database (folosește valorile default pentru Docker local)
-DATABASE_URL=postgresql://shopify:shopify_dev_password@localhost:65010/neanelu_shopify
+# Database (host tooling)
+DATABASE_URL=postgresql://n3an37u:change_me@localhost:65010/shopify_neanelu_2025
+DATABASE_URL_DOCKER=postgresql://n3an37u:change_me@db:5432/shopify_neanelu_2025
 
-# Redis
+# Redis (host tooling)
 REDIS_URL=redis://localhost:65011
+REDIS_URL_DOCKER=redis://redis:6379
 
 # Criptare tokens (genereaza cu: openssl rand -hex 32)
+ENCRYPTION_KEY_VERSION=1
 ENCRYPTION_KEY_256=your_64_char_hex_key_here
 
 # BullMQ Pro NPM Token (din TaskForce.sh)
@@ -120,11 +123,15 @@ SHOPIFY_API_KEY=your_api_key
 SHOPIFY_API_SECRET=your_api_secret
 SCOPES=read_products,write_products,read_orders
 
-# App Host (URL-ul aplicației)
-APP_HOST=https://localhost:65000
+# App Host (URL-ul aplicației) — trebuie să includă schema
+APP_HOST=https://manager.neanelu.ro
+
+# Hostname only (fără schema) — folosit de Traefik Host() / servicii care cer strict domeniu
+APP_HOSTNAME=manager.neanelu.ro
 
 # OpenTelemetry (observabilitate)
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:65022
+OTEL_EXPORTER_OTLP_ENDPOINT_DOCKER=http://otel-collector:4318
 
 # OpenAI (opțional pentru dev)
 OPENAI_API_KEY=sk-your-key-here
@@ -158,12 +165,14 @@ pnpm install
 
 ### Pasul 5: Configurare Docker Environment
 
-```bash
-# Copiază template-ul pentru Docker Compose
-cp .env.compose.example .env.compose
+Notă: repo-ul folosește **EXCLUSIV** `--env-file .env.compose` pentru Docker Compose.
 
-# Editează dacă e necesar (de obicei valorile default sunt OK pentru dev)
-```
+Pentru webhooks Shopify pe domeniu public:
+- `APP_HOST` trebuie să fie URL complet (ex: `https://manager.neanelu.ro`)
+- `APP_HOSTNAME` trebuie să fie hostname (fără `https://`) (ex: `manager.neanelu.ro`)
+- host-ul trebuie să poată primi trafic HTTPS standard pe **80/443** (Let's Encrypt ACME HTTP-01)
+
+Dacă portul 65000 este ocupat local, setează `BACKEND_HOST_PORT` în `.env.compose`.
 
 ### Pasul 6: Pornire Infrastructură Docker
 
@@ -190,14 +199,14 @@ pnpm run db:seed
 ### Pasul 9: Pornire Aplicație
 
 ```bash
-# Modul dezvoltare (watch mode)
-pnpm run dev
+# Backend rulează în container (Traefik reverse-proxy + TLS)
+docker compose --env-file .env.compose -f docker-compose.yml -f docker-compose.dev.yml ps
 ```
 
 Aplicația va fi disponibilă la:
 
-- Backend API: <http://localhost:65000>
-- Health Check: <http://localhost:65000/health/ready>
+- Backend API (prin Traefik): `$APP_HOST`
+- Health Check (prin Traefik): `$APP_HOST/health/ready`
 - Jaeger UI: <http://localhost:65020>
 
 ---
