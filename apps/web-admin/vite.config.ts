@@ -1,4 +1,5 @@
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 import tsconfigPaths from 'vite-tsconfig-paths';
 
@@ -9,7 +10,7 @@ const isDocker = process.env['DOCKER'] === '1' || process.env['DOCKER'] === 'tru
 
 export default defineConfig({
   base: '/app/',
-  plugins: [react(), shopifyHmr(), tsconfigPaths()],
+  plugins: [tailwindcss(), react(), shopifyHmr(), tsconfigPaths()],
   server: {
     host: true,
     port: frontendPort,
