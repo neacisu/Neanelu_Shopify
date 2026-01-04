@@ -2,9 +2,17 @@ import { useCallback, useMemo, useState } from 'react';
 
 import type { ApiClientOptions } from '../lib/api-client';
 import { createApiClient } from '../lib/api-client';
+import { getSessionAuthHeaders } from '../lib/session-auth';
 
 export function useApiClient(options: ApiClientOptions = {}) {
-  return useMemo(() => createApiClient(options), [options]);
+  return useMemo(() => {
+    const merged: ApiClientOptions = {
+      ...options,
+      getAuthHeaders: options.getAuthHeaders ?? getSessionAuthHeaders,
+    };
+
+    return createApiClient(merged);
+  }, [options]);
 }
 
 export function useApiRequest<TArgs extends unknown[], TResult>(

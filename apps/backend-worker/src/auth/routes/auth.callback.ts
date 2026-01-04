@@ -12,7 +12,12 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { registerWebhooks } from '../../shopify/webhooks/register.js';
 import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
-import { pool, encryptAesGcm } from '@app/database';
+import {
+  pool,
+  exchangeCodeForToken,
+  encryptShopifyAccessToken,
+  upsertOfflineShopCredentials,
+} from '@app/database';
 import { verifyShopifyHmac } from '../hmac.js';
 import { validateShopParam } from '../validation.js';
 
@@ -28,37 +33,6 @@ interface AuthCallbackQuery {
 export interface AuthCallbackRouteOptions {
   env: AppEnv;
   logger: Logger;
-}
-
-/**
- * Schimbă code pentru access token cu Shopify
- */
-async function exchangeCodeForToken(params: {
-  shop: string;
-  code: string;
-  clientId: string;
-  clientSecret: string;
-}): Promise<{ access_token: string; scope: string }> {
-  const { shop, code, clientId, clientSecret } = params;
-
-  const response = await fetch(`https://${shop}/admin/oauth/access_token`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      client_id: clientId,
-      client_secret: clientSecret,
-      code,
-    }),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Token exchange failed: ${response.status} ${text}`);
-  }
-
-  return (await response.json()) as { access_token: string; scope: string };
 }
 
 export function registerAuthCallbackRoute(
@@ -174,14 +148,11 @@ export function registerAuthCallbackRoute(
         });
       }
 
-      // 6. Marcare state ca used (atomic)
-      await pool.query(`UPDATE oauth_states SET used_at = now() WHERE state = $1`, [state]);
-
       // 7. Token exchange
       let tokenResponse: { access_token: string; scope: string };
       try {
         tokenResponse = await exchangeCodeForToken({
-          shop: shopDomain,
+          shopDomain,
           code,
           clientId: env.shopifyApiKey,
           clientSecret: env.shopifyApiSecret,
@@ -201,46 +172,81 @@ export function registerAuthCallbackRoute(
       logger.info({ shop: shopDomain, scopes: tokenResponse.scope }, 'Token exchange successful');
 
       // 8. Criptare token AES-256-GCM
-      const encryptionKey = Buffer.from(env.encryptionKeyHex, 'hex');
-      const tokenBuffer = Buffer.from(tokenResponse.access_token, 'utf-8');
-      const encrypted = encryptAesGcm(tokenBuffer, encryptionKey);
+      const encrypted = encryptShopifyAccessToken({
+        accessToken: tokenResponse.access_token,
+        encryptionKeyHex: env.encryptionKeyHex,
+      });
 
-      // 9. Upsert în shops (idempotent pentru reinstall)
+      // 9. Persistență (idempotent pentru reinstall)
       const scopes = tokenResponse.scope.split(',').map((s) => s.trim());
 
       let shopId: string;
       try {
-        const upsertResult = await pool.query<{ id: string }>(
-          `INSERT INTO shops (
-             shopify_domain,
-             access_token_ciphertext,
-             access_token_iv,
-             access_token_tag,
-             key_version,
-             scopes,
-             installed_at,
-             uninstalled_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, now(), NULL)
-           ON CONFLICT (shopify_domain) DO UPDATE SET
-             access_token_ciphertext = EXCLUDED.access_token_ciphertext,
-             access_token_iv = EXCLUDED.access_token_iv,
-             access_token_tag = EXCLUDED.access_token_tag,
-             key_version = EXCLUDED.key_version,
-             scopes = EXCLUDED.scopes,
-             installed_at = COALESCE(shops.installed_at, now()),
-             uninstalled_at = NULL,
-             updated_at = now()
-           RETURNING id`,
-          [
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+
+          const markUsed = await client.query<{ shop_domain: string }>(
+            `UPDATE oauth_states
+             SET used_at = now()
+             WHERE state = $1
+               AND used_at IS NULL
+               AND expires_at > now()
+             RETURNING shop_domain`,
+            [state]
+          );
+
+          const usedShopDomain = markUsed.rows[0]?.shop_domain;
+          if (!usedShopDomain) {
+            await client.query('ROLLBACK');
+            logger.warn(
+              { shop: shopDomain },
+              'OAuth state could not be marked used (race/expired)'
+            );
+            return reply.status(401).send({
+              success: false,
+              error: {
+                code: 'INVALID_STATE',
+                message: 'OAuth state is invalid or expired',
+              },
+            });
+          }
+
+          if (usedShopDomain !== shopDomain) {
+            await client.query('ROLLBACK');
+            logger.warn(
+              { shop: shopDomain, stateShopDomain: usedShopDomain },
+              'OAuth state shop domain mismatch'
+            );
+            return reply.status(401).send({
+              success: false,
+              error: {
+                code: 'INVALID_STATE',
+                message: 'OAuth state does not match shop',
+              },
+            });
+          }
+
+          const result = await upsertOfflineShopCredentials({
+            client,
             shopDomain,
-            encrypted.ciphertext.toString('base64'),
-            encrypted.iv.toString('base64'),
-            encrypted.tag.toString('base64'),
-            env.encryptionKeyVersion,
+            encryptedToken: encrypted,
+            keyVersion: env.encryptionKeyVersion,
             scopes,
-          ]
-        );
-        shopId = upsertResult.rows[0]?.id ?? '';
+          });
+
+          await client.query('COMMIT');
+          shopId = result.shopId;
+        } catch (err) {
+          try {
+            await client.query('ROLLBACK');
+          } catch {
+            // ignore
+          }
+          throw err;
+        } finally {
+          client.release();
+        }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Unknown error';
         logger.error({ errorMessage, shop: shopDomain }, 'Failed to save shop credentials');
@@ -274,7 +280,7 @@ export function registerAuthCallbackRoute(
       // 11. Set session cookie for admin UI
       if (shopId) {
         const { setSessionCookie, getDefaultSessionConfig } = await import('../session.js');
-        const sessionConfig = getDefaultSessionConfig(env.shopifyApiSecret);
+        const sessionConfig = getDefaultSessionConfig(env.shopifyApiSecret, env.shopifyApiKey);
         setSessionCookie(
           reply,
           {

@@ -67,6 +67,7 @@ export default function SettingsPage() {
     register,
     handleSubmit,
     setError,
+    setFocus,
     formState: { errors: formErrors, submitCount },
   } = useForm<SettingsInput>({
     resolver: zodResolver(SettingsSchema),
@@ -84,15 +85,21 @@ export default function SettingsPage() {
   useEffect(() => {
     if (actionData?.ok !== false) return;
 
+    let firstFieldToFocus: keyof SettingsInput | null = null;
     for (const [field, msgs] of Object.entries(actionData.errors)) {
       const message = msgs?.[0];
       if (!message) continue;
 
       if (field === 'email' || field === 'shopDomain') {
         setError(field, { type: 'server', message });
+        firstFieldToFocus ??= field;
       }
     }
-  }, [actionData, setError]);
+
+    if (firstFieldToFocus) {
+      setFocus(firstFieldToFocus, { shouldSelect: true });
+    }
+  }, [actionData, setError, setFocus]);
 
   const errors = useMemo(() => {
     const record: Record<string, string[]> = {};
@@ -119,6 +126,17 @@ export default function SettingsPage() {
     void submit(formData, { method: 'post' });
   };
 
+  const onInvalid = () => {
+    // Focus the first invalid field for better a11y/UX.
+    if (formErrors.email) {
+      setFocus('email', { shouldSelect: true });
+      return;
+    }
+    if (formErrors.shopDomain) {
+      setFocus('shopDomain', { shouldSelect: true });
+    }
+  };
+
   const breadcrumbs = useMemo(
     () => [
       { label: 'Home', href: '/' },
@@ -136,7 +154,7 @@ export default function SettingsPage() {
       <FormErrorSummary errors={errors} title="Te rugăm să corectezi erorile" />
 
       <form
-        onSubmit={(event) => void handleSubmit(onValid)(event)}
+        onSubmit={(event) => void handleSubmit(onValid, onInvalid)(event)}
         className="space-y-4"
         noValidate
       >

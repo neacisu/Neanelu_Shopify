@@ -136,7 +136,7 @@ function parseEncryptionKeyHex(env: EnvSource, version: number): string {
 }
 
 function parseOtelEndpoint(env: EnvSource): string {
-  const raw = requiredString(env, 'OTEL_EXPORTER_OTLP_ENDPOINT');
+  const raw = optionalString(env, 'OTEL_EXPORTER_OTLP_ENDPOINT') ?? '';
   if (!raw) return '';
   try {
     // Allow http(s) endpoints only.

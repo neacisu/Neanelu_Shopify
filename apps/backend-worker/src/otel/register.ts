@@ -24,6 +24,7 @@ import {
 } from '@opentelemetry/sdk-trace-node';
 import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
 import { loadOtelConfig } from '@app/config';
+import type { Instrumentation } from '@opentelemetry/instrumentation';
 
 // ============================================
 // Environment Configuration
@@ -68,7 +69,7 @@ function createSampler(): ParentBasedSampler | AlwaysOnSampler | TraceIdRatioBas
 let sdk: NodeSDK | null = null;
 
 function initializeOtel(): void {
-  // Skip initialization if no endpoint configured (CI mode)
+  // Skip initialization if no endpoint configured (CI / disabled mode)
   if (!otelConfig.enabled) {
     console.info('[OTel] No OTLP endpoint configured, tracing disabled');
     return;
@@ -95,19 +96,7 @@ function initializeOtel(): void {
         exportIntervalMillis: 30_000, // Export every 30s
       }),
       sampler: createSampler(),
-      instrumentations: [
-        getNodeAutoInstrumentations({
-          // Dezactivăm instrumentations care ar genera zgomot
-          '@opentelemetry/instrumentation-fs': { enabled: false },
-          '@opentelemetry/instrumentation-dns': { enabled: false },
-          '@opentelemetry/instrumentation-net': { enabled: false },
-          // Activăm cele necesare
-          '@opentelemetry/instrumentation-http': { enabled: true },
-          '@opentelemetry/instrumentation-pg': { enabled: true },
-          '@opentelemetry/instrumentation-ioredis': { enabled: true },
-          '@opentelemetry/instrumentation-fastify': { enabled: true },
-        }),
-      ],
+      instrumentations: [filterInstrumentations(getNodeAutoInstrumentations())],
     });
 
     sdk.start();
@@ -126,6 +115,18 @@ function initializeOtel(): void {
     // FALLBACK SILENȚIOS - nu bloca runtime
     console.warn('[OTel] Failed to initialize SDK, continuing without tracing:', error);
   }
+}
+
+function filterInstrumentations(instrumentations: Instrumentation[]): Instrumentation[] {
+  // auto-instrumentations-node's config map only supports per-instrumentation constructor args.
+  // Disabling noisy instrumentations is done by filtering the returned instances.
+  const disabledNames = new Set([
+    '@opentelemetry/instrumentation-fs',
+    '@opentelemetry/instrumentation-dns',
+    '@opentelemetry/instrumentation-net',
+  ]);
+
+  return instrumentations.filter((inst) => !disabledNames.has(inst.instrumentationName));
 }
 
 initializeOtel();

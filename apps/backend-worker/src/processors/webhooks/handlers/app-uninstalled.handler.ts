@@ -9,6 +9,8 @@
 
 import type { Logger } from '@app/logger';
 import { withTenantContext } from '@app/database';
+import { cleanupWebhookJobsForShopDomain } from '../../../queue/webhook-queue.js';
+import { shopUninstalledTotal, webhookUninstalledTotal } from '../../../otel/metrics.js';
 
 export interface AppUninstalledContext {
   shopId: string;
@@ -32,9 +34,9 @@ export async function handleAppUninstalled(
          SET 
            uninstalled_at = now(),
            webhook_secret = NULL,
-           access_token_ciphertext = '',
-           access_token_iv = '',
-           access_token_tag = '',
+           access_token_ciphertext = ''::bytea,
+           access_token_iv = ''::bytea,
+           access_token_tag = ''::bytea,
            updated_at = now()
          WHERE id = $1`,
         [shopId]
@@ -46,6 +48,17 @@ export async function handleAppUninstalled(
       // Cleanup persisted webhook subscription records for this shop
       await client.query('DELETE FROM shopify_webhooks WHERE shop_id = $1', [shopId]);
     });
+
+    // Metric (no high-cardinality labels)
+    shopUninstalledTotal.add(1);
+    webhookUninstalledTotal.add(1);
+
+    // Best-effort cleanup of queued webhook jobs
+    try {
+      await cleanupWebhookJobsForShopDomain(shopDomain, logger);
+    } catch (err) {
+      logger.warn({ err, shop: shopDomain }, 'Failed webhook queue cleanup on uninstall');
+    }
 
     logger.info({ shop: shopDomain }, 'Shop marked as uninstalled (tokens cleared)');
   } catch (err) {

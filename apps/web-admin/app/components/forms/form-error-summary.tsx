@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 import { PolarisBanner } from '../../../components/polaris/index.js';
+import { ErrorList } from '../errors/error-list';
 
 export function FormErrorSummary({
   errors,
@@ -25,11 +26,7 @@ export function FormErrorSummary({
     <div ref={ref} tabIndex={-1} role="alert" className="focus:outline-none">
       <PolarisBanner status="critical">
         <div className="text-h6">{title}</div>
-        <ul className="mt-2 list-disc space-y-1 pl-6 text-body text-foreground/90">
-          {entries.flatMap(([field, msgs]) =>
-            msgs.map((msg, index) => <li key={`${field}-${index}`}>{msg}</li>)
-          )}
-        </ul>
+        <ErrorList errors={errors ?? {}} />
       </PolarisBanner>
     </div>
   );
