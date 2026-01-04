@@ -1,4 +1,5 @@
 import type { InputHTMLAttributes } from 'react';
+import type { UseFormRegisterReturn } from 'react-hook-form';
 
 export function FormField({
   id,
@@ -9,13 +10,8 @@ export function FormField({
 }: {
   id: string;
   label: string;
-  error?: string;
-  registration: {
-    name: string;
-    onBlur: () => void;
-    onChange: (...event: unknown[]) => void;
-    ref: (instance: HTMLInputElement | null) => void;
-  };
+  error?: string | undefined;
+  registration: UseFormRegisterReturn;
 } & Omit<InputHTMLAttributes<HTMLInputElement>, 'id' | 'name'>) {
   const describedBy = error ? `${id}-error` : undefined;
 

@@ -59,10 +59,10 @@
 
 **Path:** `/apps/web-admin/app/components/layout/breadcrumbs.tsx`
 
-| Prop | Type | Required | Default |
-|------|------|----------|---------|
-| items | `Array<{label: string, href?: string}>` | ✓ | - |
-| separator | `ReactNode` | | `<ChevronRight />` |
+| Prop      | Type                                    | Required | Default            |
+|-----------|-----------------------------------------|----------|--------------------|
+| items     | `Array<{label: string, href?: string}>` | ✓        | -                  |
+| separator | `ReactNode`                             |          | `<ChevronRight />` |
 
 **Accessibility:**
 
@@ -75,11 +75,11 @@
 
 **Path:** `/apps/web-admin/app/components/layout/page-header.tsx`
 
-| Prop | Type | Required | Default |
-|------|------|----------|---------|
-| title | `string` | ✓ | - |
-| description | `string` | | - |
-| actions | `ReactNode` | | - |
+| Prop        | Type        | Required | Default |
+|-------------|-------------|----------|---------|
+| title       | `string`    | ✓        | -       |
+| description | `string`    |          | -       |
+| actions     | `ReactNode` |          | -       |
 
 ---
 
@@ -89,10 +89,10 @@
 
 **Path:** `/apps/web-admin/app/components/forms/field-error.tsx`
 
-| Prop | Type | Required | Default |
-|------|------|----------|---------|
-| name | `string` | ✓ | - |
-| errors | `Record<string, string[]>` | ✓ | - |
+| Prop      | Type                      | Required | Default |
+|-----------|---------------------------|----------|---------|
+| name      | `string`                  | ✓        | -       |
+| errors    | `Record<string, string[]>`| ✓        | -       |
 
 **Accessibility:**
 
@@ -112,10 +112,10 @@
 
 **Path:** `/apps/web-admin/app/components/forms/form-error-summary.tsx`
 
-| Prop | Type | Required | Default |
-|------|------|----------|---------|
-| errors | `Record<string, string[]>` | ✓ | - |
-| title | `string` | | "Please fix the following errors" |
+| Prop      | Type                      | Required | Default                           |
+|-----------|---------------------------|----------|-----------------------------------|
+| errors    | `Record<string, string[]>`| ✓        | -                                 |
+| title     | `string`                  |          | "Please fix the following errors" |
 
 **Accessibility:**
 
@@ -128,13 +128,13 @@
 
 **Path:** `/apps/web-admin/app/components/forms/form-field.tsx`
 
-| Prop | Type | Required | Default |
-|------|------|----------|---------|
-| id | `string` | ✓ | - |
-| label | `string` | ✓ | - |
-| error | `string \| undefined` | | - |
-| registration | `UseFormRegisterReturn` (react-hook-form) | ✓ | - |
-| ...inputProps | `InputHTMLAttributes<HTMLInputElement>` | | - |
+| Prop          | Type                                      | Required | Default |
+|---------------|-------------------------------------------|----------|---------|
+| id            | `string`                                  | ✓        | -       |
+| label         | `string`                                  | ✓        | -       |
+| error         | `string \| undefined`                     |          | -       |
+| registration  | `UseFormRegisterReturn` (react-hook-form) | ✓        | -       |
+| ...inputProps | `InputHTMLAttributes<HTMLInputElement>`   |          | -       |
 
 **States:**
 
@@ -159,10 +159,10 @@
 
 **Path:** `/apps/web-admin/app/components/forms/submit-button.tsx`
 
-| Prop | Type | Required | Default |
-|------|------|----------|---------|
-| state | `'idle' \| 'loading' \| 'success' \| 'error'` | ✓ | - |
-| children | `ReactNode` | ✓ | - |
+| Prop     | Type                                          | Required | Default |
+|----------|-----------------------------------------------|----------|---------|
+| state    | `'idle' \| 'loading' \| 'success' \| 'error'` | ✓        | -       |
+| children | `ReactNode`                                   | ✓        | -       |
 
 **States:**
 
@@ -185,9 +185,9 @@
 
 **Path:** `/apps/web-admin/app/components/patterns/loading-state.tsx`
 
-| Prop | Type | Required | Default |
-|------|------|----------|---------|
-| label | `string` | | "Loading…" |
+| Prop     | Type     | Required | Default    |
+|----------|----------|----------|------------|
+| label    | `string` |          | "Loading…" |
 
 **Usage:**
 
@@ -201,10 +201,10 @@
 
 **Path:** `/apps/web-admin/app/components/patterns/error-state.tsx`
 
-| Prop | Type | Required | Default |
-|------|------|----------|---------|
-| message | `string` | ✓ | - |
-| onRetry | `() => void` | | - |
+| Prop     | Type         | Required | Default |
+|----------|--------------|----------|---------|
+| message  | `string`     | ✓        | -       |
+| onRetry  | `() => void` |          | -       |
 
 **Usage:**
 
@@ -218,13 +218,13 @@
 
 **Path:** `/apps/web-admin/app/components/patterns/empty-state.tsx`
 
-| Prop | Type | Required | Default |
-|------|------|----------|---------|
-| icon | `ComponentType<{ className?: string }>` | | - |
-| title | `string` | ✓ | - |
-| description | `ReactNode` | | - |
-| actionLabel | `string` | | - |
-| onAction | `() => void` | | - |
+| Prop        | Type                                      | Required | Default |
+|-------------|-------------------------------------------|----------|---------|
+| icon        | `ComponentType<{ className?: string }>`   |          | -       |
+| title       | `string`                                  | ✓        | -       |
+| description | `ReactNode`                               |          | -       |
+| actionLabel | `string`                                  |          | -       |
+| onAction    | `() => void`                              |          | -       |
 
 **Usage:**
 
@@ -243,11 +243,11 @@
 
 **Path:** `/apps/web-admin/app/components/errors/safe-component.tsx`
 
-| Prop | Type | Required | Default |
-|------|------|----------|---------|
-| children | `ReactNode` | ✓ | - |
-| fallback | `ReactNode` | | `<ComponentErrorFallback />` |
-| onError | `(error: Error, info: ErrorInfo) => void` | | - |
+| Prop       | Type                                         | Required | Default                      |
+|------------|----------------------------------------------|----------|------------------------------|
+| children   | `ReactNode`                                  | ✓        | -                            |
+| fallback   | `ReactNode`                                  |          | `<ComponentErrorFallback />` |
+| onError    | `(error: Error, info: ErrorInfo) => void`    |          | -                            |
 
 **Usage:**
 
@@ -263,11 +263,11 @@
 
 **Path:** `/apps/web-admin/app/components/errors/component-error-fallback.tsx`
 
-| Prop | Type | Required | Default |
-|------|------|----------|---------|
-| error | `Error` | | - |
-| resetErrorBoundary | `() => void` | | - |
-| message | `string` | | "This section couldn't load" |
+| Prop               | Type          | Required | Default                       |
+|--------------------|---------------|----------|-------------------------------|
+| error              | `Error`       |          | -                             |
+| resetErrorBoundary | `() => void`  |          | -                             |
+| message            | `string`      |          | "This section couldn't load"  |
 
 ---
 
@@ -277,13 +277,13 @@
 
 **Path:** `/apps/web-admin/app/components/domain/jobs-table.tsx`
 
-| Prop | Type | Required | Default |
-|------|------|----------|---------|
-| jobs | `Job[]` | ✓ | - |
-| loading | `boolean` | | `false` |
-| onRetry | `(id: string) => void` | | - |
-| onPromote | `(id: string) => void` | | - |
-| onViewDetails | `(job: Job) => void` | | - |
+| Prop          | Type                                         | Required | Default |
+|---------------|----------------------------------------------|----------|---------|
+| jobs          | `Job[]`                                      | ✓        | -       |
+| loading       | `boolean`                                    |          | `false` |
+| onRetry       | `(id: string) => void`                       |          | -       |
+| onPromote     | `(id: string) => void`                       |          | -       |
+| onViewDetails | `(job: Job) => void`                         |          | -       |
 
 **States:**
 
@@ -297,14 +297,14 @@
 
 **Path:** `/apps/web-admin/app/components/domain/metric-card.tsx`
 
-| Prop | Type | Required | Default |
-|------|------|----------|---------|
-| title | `string` | ✓ | - |
-| value | `string \| number` | ✓ | - |
-| trend | `'up' \| 'down' \| 'neutral'` | | `'neutral'` |
-| trendValue | `string` | | - |
-| icon | `LucideIcon` | | - |
-| loading | `boolean` | | `false` |
+| Prop          | Type                                         | Required | Default     |
+|---------------|----------------------------------------------|----------|-------------|
+| title         | `string`                                     | ✓        | -           |
+| value         | `string \| number`                           | ✓        | -           |
+| trend         | `'up' \| 'down' \| 'neutral'`                |          | `'neutral'` |
+| trendValue    | `string`                                     |          | -           |
+| icon          | `LucideIcon`                                 |          | -           |
+| loading       | `boolean`                                    |          | `false`     |
 
 ---
 
@@ -312,12 +312,12 @@
 
 **Path:** `/apps/web-admin/app/components/domain/log-console.tsx`
 
-| Prop | Type | Required | Default |
-|------|------|----------|---------|
-| logs | `LogEntry[]` | ✓ | - |
-| maxLines | `number` | | `500` |
-| autoScroll | `boolean` | | `true` |
-| onClear | `() => void` | | - |
+| Prop          | Type                                         | Required | Default     |
+|---------------|----------------------------------------------|----------|-------------|
+| logs          | `LogEntry[]`                                 | ✓        | -           |
+| maxLines      | `number`                                     |          | `500`       |
+| autoScroll    | `boolean`                                    |          | `true`      |
+| onClear       | `() => void`                                 |          | -           |
 
 **LogEntry Type:**
 
@@ -336,12 +336,12 @@ interface LogEntry {
 
 **Path:** `/apps/web-admin/app/components/domain/product-card.tsx`
 
-| Prop | Type | Required | Default |
-|------|------|----------|---------|
-| product | `Product` | ✓ | - |
-| selected | `boolean` | | `false` |
-| onSelect | `(id: string) => void` | | - |
-| onClick | `(product: Product) => void` | | - |
+| Prop          | Type                                         | Required | Default     |
+|---------------|----------------------------------------------|----------|-------------|
+| product       | `Product`                                    | ✓        | -           |
+| selected      | `boolean`                                    |          | `false`     |
+| onSelect      | `(id: string) => void`                       |          | -           |
+| onClick       | `(product: Product) => void`                 |          | -           |
 
 ---
 
@@ -349,12 +349,12 @@ interface LogEntry {
 
 **Path:** `/apps/web-admin/app/components/domain/search-filters.tsx`
 
-| Prop | Type | Required | Default |
-|------|------|----------|---------|
-| filters | `FilterConfig[]` | ✓ | - |
-| values | `Record<string, unknown>` | ✓ | - |
-| onChange | `(values: Record<string, unknown>) => void` | ✓ | - |
-| onReset | `() => void` | | - |
+| Prop          | Type                                         | Required | Default     |
+|---------------|----------------------------------------------|----------|-------------|
+| filters       | `FilterConfig[]`                             | ✓        | -           |
+| values        | `Record<string, unknown>`                    | ✓        | -           |
+| onChange      | `(values: Record<string, unknown>) => void`  | ✓        | -           |
+| onReset       | `() => void`                                 |          | -           |
 
 ---
 
@@ -431,7 +431,7 @@ function useApiRequest<TArgs extends unknown[], TResult>(
 
 ## Changelog
 
-| Date | Version | Changes |
-|------|---------|---------|
-| 2025-12-25 | 1.0 | Initial specification |
-| 2026-01-04 | 1.1 | Added API client hooks, state components, and form primitives |
+| Date       | Version | Changes                                                       |
+|------------|---------|---------------------------------------------------------------|
+| 2025-12-25 | 1.0     | Initial specification                                         |
+| 2026-01-04 | 1.1     | Added API client hooks, state components, and form primitives |

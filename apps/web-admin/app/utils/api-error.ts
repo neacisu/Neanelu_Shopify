@@ -17,7 +17,11 @@ export class ApiError extends Error {
     this.name = 'ApiError';
     this.status = options.status;
     this.retryable = options.retryable ?? false;
-    this.code = options.code;
-    this.details = options.details;
+    if (options.code !== undefined) {
+      this.code = options.code;
+    }
+    if (options.details !== undefined) {
+      this.details = options.details;
+    }
   }
 }
