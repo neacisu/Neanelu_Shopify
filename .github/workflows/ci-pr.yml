@@ -135,6 +135,7 @@ jobs:
           path: |
             **/coverage/
             **/junit.xml
+          if-no-files-found: ignore
           retention-days: 7
 
   # ============================================
