@@ -50,6 +50,12 @@ services:
       - traefik.http.middlewares.traefik-strip.stripprefix.prefixes=/traefik
       - traefik.http.middlewares.traefik-strip.stripprefix.forceSlash=false
       - traefik.http.routers.traefik.middlewares=traefik-strip,traefik-auth
+    healthcheck:
+      test: ['CMD-SHELL', 'nc -z 127.0.0.1 80 && nc -z 127.0.0.1 443']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
 
   # ============================================
   # PostgreSQL 18 + pgvector - Baza de date principală
@@ -127,6 +133,12 @@ services:
     restart: unless-stopped
     networks:
       - neanelu_network
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:16686/ >/dev/null 2>&1']
+      interval: 10s
+      timeout: 3s
+      retries: 15
+      start_period: 20s
 
   # ============================================
   # OpenTelemetry Collector - Receives OTLP from apps
@@ -142,6 +154,13 @@ services:
       - neanelu_network
     depends_on:
       - jaeger
+    healthcheck:
+      # Image does not include a shell; keep this as a lightweight binary check.
+      test: ['CMD', '/otelcol-contrib', '--version']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # ============================================
   # Backend API (Fastify) - Containerized
@@ -202,6 +221,16 @@ services:
       - traefik.http.routers.backend.entrypoints=websecure
       - traefik.http.routers.backend.tls.certresolver=${TRAEFIK_CERT_RESOLVER:?TRAEFIK_CERT_RESOLVER is required}
       - traefik.http.services.backend.loadbalancer.server.port=${PORT}
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "const http=require(\\\"http\\\"); const port=process.env.PORT||65000; const req=http.get({host:\\\"127.0.0.1\\\", port, path:\\\"/health/ready\\\", timeout:2000}, (res)=>{process.exit(res.statusCode===200?0:1)}); req.on(\\\"timeout\\\",()=>{req.destroy(); process.exit(1)}); req.on(\\\"error\\\",()=>process.exit(1));"',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
 
   # ============================================
   # PLACEHOLDERS (future implementation)
@@ -228,6 +257,16 @@ services:
       - traefik.http.routers.web-admin.entrypoints=websecure
       - traefik.http.routers.web-admin.tls.certresolver=${TRAEFIK_CERT_RESOLVER:?TRAEFIK_CERT_RESOLVER is required}
       - traefik.http.services.web-admin.loadbalancer.server.port=${FRONTEND_PORT:-65001}
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "const http=require(\\\"http\\\"); const port=process.env.FRONTEND_PORT||65001; const req=http.get({host:\\\"127.0.0.1\\\", port, path:\\\"/\\\", timeout:2000}, (res)=>{process.exit(res.statusCode>=200 && res.statusCode<500 ? 0 : 1)}); req.on(\\\"timeout\\\",()=>{req.destroy(); process.exit(1)}); req.on(\\\"error\\\",()=>process.exit(1));"',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
 
   bull-board:
     image: node:24-bookworm-slim
@@ -237,6 +276,12 @@ services:
     command: ['sh', '-c', "echo 'bull-board placeholder (not implemented yet)' && sleep infinity"]
     networks:
       - neanelu_network
+    healthcheck:
+      test: ['CMD', 'node', '-e', 'process.exit(0)']
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
 
   # ============================================
   # Prometheus - Metrics storage
@@ -253,6 +298,12 @@ services:
       - prometheus_data:/prometheus
     networks:
       - neanelu_network
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:9090/-/ready >/dev/null 2>&1']
+      interval: 10s
+      timeout: 3s
+      retries: 15
+      start_period: 20s
 
   # ============================================
   # Alertmanager - Alerts routing
@@ -267,6 +318,12 @@ services:
       - ./docker/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
     networks:
       - neanelu_network
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:9093/-/ready >/dev/null 2>&1']
+      interval: 10s
+      timeout: 3s
+      retries: 15
+      start_period: 20s
 
   # ============================================
   # Loki - Logs aggregation
@@ -281,6 +338,13 @@ services:
       - loki_data:/loki
     networks:
       - neanelu_network
+    healthcheck:
+      # Image is distroless (no shell). Keep this as a lightweight binary check.
+      test: ['CMD', '/usr/bin/loki', '-version']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # ============================================
   # Promtail - Ships Docker logs to Loki
@@ -299,6 +363,12 @@ services:
       - neanelu_network
     depends_on:
       - loki
+    healthcheck:
+      test: ['CMD-SHELL', 'pgrep -f promtail >/dev/null']
+      interval: 10s
+      timeout: 3s
+      retries: 15
+      start_period: 20s
 
   # ============================================
   # Grafana - Dashboards
@@ -317,6 +387,12 @@ services:
       - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
     networks:
       - neanelu_network
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1']
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 40s
 
 # ============================================
 # VOLUMES (date persistente)
