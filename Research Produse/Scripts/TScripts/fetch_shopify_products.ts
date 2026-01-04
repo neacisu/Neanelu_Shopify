@@ -606,7 +606,7 @@ async function main(): Promise<number> {
   if (cli.flags.has('help')) {
     console.log(
       [
-        'Usage: fetch_shopify_products.ts [--env Research Produse/.env.txt] [--report Research Produse/Outputs/vendor_samples_report.json] [--api-version 2025-10]',
+        'Usage: fetch_shopify_products.ts [--env ../../.env] [--report Research Produse/Outputs/vendor_samples_report.json] [--api-version 2025-10]',
         '       [--vendor-count 10] [--seed 42] [--out-details Research Produse/Outputs/products_TOT_10x3.json]',
         '       [--everything] [--everything-max-depth 2] [--everything-connection-first 50] [--everything-connection-max-fields 25]',
         '       [--everything-skip-fields publishedOnCurrentPublication] [--out-everything-query path] [--everything-query-file path]',
@@ -618,7 +618,7 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  const envPath = String(cli.values.env ?? 'Research Produse/.env.txt');
+  const envPath = String(cli.values.env ?? '../../.env');
   const reportPath = String(cli.values.report ?? 'Research Produse/TSOutputs/vendor_samples_report.json');
   const apiVersion = String(cli.values['api-version'] ?? '2025-10');
   const vendorCount = Number(cli.values['vendor-count'] ?? '10');

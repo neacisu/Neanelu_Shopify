@@ -443,7 +443,7 @@ pnpm exec tsx sample_by_vendor.ts ../../bulk-products.jsonl \
   --out ../../TSOutputs/vendor_samples_report.json
 
 pnpm exec tsx fetch_shopify_products.ts \
-  --env ../../.env.txt \
+    --env ../../.env \
   --report ../../TSOutputs/vendor_samples_report.json \
   --vendor-count 10 \
   --everything \

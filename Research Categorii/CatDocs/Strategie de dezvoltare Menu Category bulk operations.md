@@ -42,7 +42,7 @@ Strategia va refolosi pattern-urile de conectivitate și utilitarele TypeScript 
 
 Vom utiliza aceleași credențiale și fișier de mediu ca și scripturile de research produse.
 
-* **Env File Path**: `/var/www/Neanelu_Shopify/Research Produse/.env.txt`
+* **Env File Path**: `/var/www/Neanelu_Shopify/.env`
 * **Variabile necesare**:
   * `SHOPIFY_SHOP_DOMAIN` (ex: `neanelu.myshopify.com` sau custom domain)
   * `SHOPIFY_ADMIN_API_TOKEN` (Format: `shpat_...`)
@@ -83,7 +83,7 @@ Scriptul va începe prin încărcarea mediului folosind funcția `loadEnvFile` d
 ```typescript
 // Exemplu reutilizare
 import { loadEnvFile, gqlPost } from '../Research Produse/Scripts/TScripts/common.js';
-const env = loadEnvFile('/var/www/Neanelu_Shopify/Research Produse/.env.txt');
+const env = loadEnvFile('/var/www/Neanelu_Shopify/.env');
 const endpoint = `https://${env.SHOPIFY_SHOP_DOMAIN}/admin/api/2025-10/graphql.json`;
 ```
 

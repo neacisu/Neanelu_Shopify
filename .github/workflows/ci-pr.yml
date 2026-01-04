@@ -274,13 +274,13 @@ jobs:
         run: |
           # Provide required vars for config validation (avoid ?: failures)
           TRAEFIK_DASHBOARD_USERS='ci:$$2y$$05$$abcdefghijklmnopqrstuv' \
-            docker compose --env-file .env.compose.example -f docker-compose.yml -f docker-compose.dev.yml config --quiet
+            docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.dev.yml config --quiet
           echo "✅ Docker Compose configuration is valid"
 
       - name: Verify service images exist
         run: |
           TRAEFIK_DASHBOARD_USERS='ci:$$2y$$05$$abcdefghijklmnopqrstuv' \
-            docker compose --env-file .env.compose.example -f docker-compose.yml -f docker-compose.dev.yml config --images
+            docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.dev.yml config --images
 
   # ============================================
   # Docker Smoke Test (backend-worker build)

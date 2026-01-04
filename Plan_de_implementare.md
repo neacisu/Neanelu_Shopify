@@ -698,13 +698,13 @@ Obiectiv: Configurarea mediului local de dezvoltare într-un mod reproductibil �
     ```JSON
     {
         "id_task": "F1.2.1",
-        "denumire_task": "Creare fișier .env.compose.example pentru servicii Docker (NU .env direct!)",
-        "descriere_task": "**CONFORM standardului Docs:** Crează fișierul `.env.compose.example` la rădăcina proiectului care conține variabilele necesare DOAR pentru docker-compose (nu pentru aplicație). Acest fișier SE COMITE.\n\nConținut:\n```\n# Docker Compose Development Variables\n# Copiază acest fișier în .env.compose și completează valorile\n\n# PostgreSQL 18.1\nPOSTGRES_USER=shopify\nPOSTGRES_PASSWORD=shopify_dev_password\nPOSTGRES_DB=neanelu_shopify_dev\n\n# Nu include alte secrete aici - ele vin din .env (necomis)\n```\n\n**IMPORTANT:**\n- `.env.compose.example` SE COMITE (template)\n- `.env.compose` NU SE COMITE (valori locale, adăugat în .gitignore)\n- `.env` (pentru aplicație) rămâne separat și NU SE COMITE (definit în F0.2.7.1)",
-        "cale_implementare": "/Neanelu_Shopify/.env.compose.example",
-        "contextul_anterior": "Structura aplicației este definită. Urmează pregătirea serviciilor externe. CONFORM Docs, .env nu se comite niciodată; folosim .env.compose.example ca template.",
-        "validare_task": "Verifică existența `.env.compose.example` cu variabilele Docker. CONFIRMĂ că `.env.compose` și `.env` sunt ambele în `.gitignore`. Copiază `.env.compose.example` în `.env.compose` pentru uz local.",
+        "denumire_task": "Standardizare env: un singur template (.env.example)",
+        "descriere_task": "**STANDARD RECOMANDAT:** Folosește un singur fișier template comis: `.env.example`. Acesta conține atât variabilele aplicației, cât și cele necesare pentru Docker Compose (Traefik/DB/Redis/OTel).\n\nSetup:\n- `cp .env.example .env` (fișier local, NU se comite)\n- completează valorile reale (secretele nu ajung în repo)\n\n**IMPORTANT:**\n- `.env.example` SE COMITE (template)\n- `.env` NU SE COMITE (valori locale / prod injectate din secret manager)",
+        "cale_implementare": "/Neanelu_Shopify/.env.example",
+        "contextul_anterior": "Structura aplicației este definită. Urmează pregătirea serviciilor externe. `.env` nu se comite niciodată; folosim `.env.example` ca template.",
+        "validare_task": "Verifică existența `.env.example` și că include variabilele necesare pentru docker-compose. CONFIRMĂ că `.env` este în `.gitignore`. Copiază `.env.example` în `.env` pentru uz local.",
         "outcome_task": "Template-ul pentru variabile Docker este versionat, în timp ce valorile reale rămân locale și necomise.",
-        "restrictii_antihalucinatie": "NU crea fișier `.env` direct pentru Docker - SEPARĂ config Docker de config aplicație. NU comite niciodată `.env` sau `.env.compose` - doar `.env.*.example`. VERIFICĂ că ambele sunt în .gitignore."
+        "restrictii_antihalucinatie": "NU comite niciodată `.env` cu valori reale. Păstrează un singur template comis (`.env.example`) și asigură-te că include toate variabilele obligatorii pentru Docker Compose și aplicație."
     },
 
     {
@@ -776,12 +776,12 @@ Obiectiv: Configurarea mediului local de dezvoltare într-un mod reproductibil �
     {
         "id_task": "F1.2.8",
         "denumire_task": "Commit & push configurările Docker (FĂRĂ .env!)",
-        "descriere_task": "Adaugă fișierele noi și modificate la Git:\n\n**SE COMIT:**\n- `docker-compose.yml`\n- `docker-compose.dev.yml`\n- `.env.compose.example` (template)\n- actualizările `package.json` cu scripturile db:up/down\n\n**NU SE COMIT (verifică .gitignore):**\n- `.env` (secrete aplicație)\n- `.env.compose` (valori Docker locale)\n\nEfectuează un commit cu mesajul 'Add docker-compose config for Postgres, Redis 8.4, Jaeger'. Apoi, împinge modificările la remote.",
+        "descriere_task": "Adaugă fișierele noi și modificate la Git:\n\n**SE COMIT:**\n- `docker-compose.yml`\n- `docker-compose.dev.yml`\n- `.env.example` (singurul template de env)\n- actualizările `package.json` cu scripturile db:up/down\n\n**NU SE COMIT (verifică .gitignore):**\n- `.env` (valori reale / secrete)\n\nEfectuează un commit cu mesajul 'Add docker-compose config for Postgres, Redis 8.4, Jaeger'. Apoi, împinge modificările la remote.",
         "cale_implementare": "Repository Git local (și remote origin)",
         "contextul_anterior": "Mediul containerizat este pregătit și verificat. Este esențial să înregistrăm doar template-urile, NU valorile reale.",
-        "validare_task": "VERIFICĂ `git status` - `.env` și `.env.compose` NU trebuie să apară în lista de fișiere staged. Doar `.env.compose.example` trebuie să fie comis. După commit, verifică pe GitHub că `.env` NU apare în repository.",
+        "validare_task": "VERIFICĂ `git status` - `.env` NU trebuie să apară în lista de fișiere staged. Doar `.env.example` trebuie să fie comis ca template. După commit, verifică pe GitHub că `.env` NU apare în repository.",
         "outcome_task": "Configurația Docker este versionată cu template-uri, fără secrete sau valori locale.",
-        "restrictii_antihalucinatie": "NU COMITE niciodată `.env` sau `.env.compose` - doar `.env.*.example`. Verifică DE DOUĂ ORI .gitignore înainte de commit. Dacă vezi `.env` în `git status`, oprește-te și adaugă-l în .gitignore!"
+        "restrictii_antihalucinatie": "NU COMITE niciodată `.env` cu valori reale. Păstrează un singur template comis (`.env.example`). Verifică DE DOUĂ ORI .gitignore înainte de commit. Dacă vezi `.env` în `git status`, oprește-te și adaugă-l în .gitignore!"
     },
 
     {

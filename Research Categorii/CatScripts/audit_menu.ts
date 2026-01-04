@@ -237,7 +237,7 @@ async function main() {
     process.exit(0);
   }
 
-  const envPath = cli.values['env'] || path.resolve('../../Research Produse/.env.txt');
+  const envPath = cli.values['env'] || path.resolve('../../.env');
   const outDir = cli.values['out-dir'] || path.resolve('../CatOutputs/MenuAudits');
   
   // Load Env

@@ -23,7 +23,7 @@ Această structură este un **Monorepo pnpm** proiectat pentru a gestiona volume
 - **/Research Produse/Scripts/TScripts/** (scripturi TypeScript; execuție: `pnpm exec tsx <script>.ts`)
 - **/Research Produse/TSOutputs/** (output-uri generate; nu se comit)
 - **/Research Produse/Outputs/** (output-uri Python, dacă există; nu se comit)
-- **.env.txt / Research Produse/.env.txt** (secrete locale folosite în research; nu se comit)
+- **.env** (env oficial local; include și variabilele pentru research; nu se comite)
 
 ## **📂 Nivel 0: Rădăcina Proiectului (Root)**
 

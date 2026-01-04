@@ -628,7 +628,7 @@ def main() -> int:
   ap = argparse.ArgumentParser(
     description="Fetch Shopify product details for 10 test vendors x 3 products each via Admin GraphQL (CLI can't fetch API objects)."
   )
-  ap.add_argument("--env", default="Research Produse/.env.txt", help="Env file path (default: Research Produse/.env.txt)")
+  ap.add_argument("--env", default="../../.env", help="Env file path (default: ../../.env)")
   ap.add_argument(
     "--report",
     default="Research Produse/Outputs/vendor_samples_report.json",

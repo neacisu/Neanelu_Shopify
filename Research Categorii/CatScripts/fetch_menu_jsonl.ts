@@ -121,7 +121,7 @@ async function main() {
       Usage: tsx fetch_menu_jsonl.ts [options]
 
       Options:
-        --env <path>       Path to .env file (default: ../../Research Produse/.env.txt)
+        --env <path>       Path to .env file (default: ../../.env)
         --handle <handle>  Menu handle to fetch (default: main-menu)
         --all              Fetch ALL available menus into separate files
         --out-dir <path>   Output directory for --all mode (default: ../CatOutputs/AllMenus)
@@ -133,7 +133,7 @@ async function main() {
   }
 
   // Paths
-  const envPath = cli.values['env'] || path.resolve('../../Research Produse/.env.txt');
+  const envPath = cli.values['env'] || path.resolve('../../.env');
   const outDir = cli.values['out-dir'] || path.resolve('../CatOutputs/AllMenus');
 
   // Load Env

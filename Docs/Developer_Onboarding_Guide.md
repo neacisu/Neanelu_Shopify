@@ -92,11 +92,11 @@ cd Neanelu_Shopify
 ### Pasul 2: Configurare Environment
 
 ```bash
-# Docker-first: Copiază template-ul pentru Docker Compose
-cp .env.compose.example .env.compose
+# Single env (oficial): Copiază template-ul și completează valorile reale
+cp .env.example .env
 
 # Editează cu valorile tale (în special Shopify + ENCRYPTION_KEY_256 + Traefik dashboard auth)
-nano .env.compose
+nano .env
 ```
 
 **Variabile OBLIGATORII pentru dev:**
@@ -165,7 +165,7 @@ pnpm install
 
 ### Pasul 5: Configurare Docker Environment
 
-Notă: repo-ul folosește **EXCLUSIV** `--env-file .env.compose` pentru Docker Compose.
+Notă: Docker Compose citește automat fișierul `.env` din root (acesta este env-ul oficial al repo-ului).
 
 Pentru webhooks Shopify pe domeniu public:
 
@@ -173,7 +173,7 @@ Pentru webhooks Shopify pe domeniu public:
 - `APP_HOSTNAME` trebuie să fie hostname (fără `https://`) (ex: `manager.neanelu.ro`)
 - host-ul trebuie să poată primi trafic HTTPS standard pe **80/443** (Let's Encrypt ACME HTTP-01)
 
-Dacă portul 65000 este ocupat local, setează `BACKEND_HOST_PORT` în `.env.compose`.
+Dacă portul 65000 este ocupat local, setează `BACKEND_HOST_PORT` în `.env`.
 
 ### Pasul 6: Pornire Infrastructură Docker
 
@@ -201,7 +201,7 @@ pnpm run db:seed
 
 ```bash
 # Backend rulează în container (Traefik reverse-proxy + TLS)
-docker compose --env-file .env.compose -f docker-compose.yml -f docker-compose.dev.yml ps
+docker compose -f docker-compose.yml -f docker-compose.dev.yml ps
 ```
 
 Aplicația va fi disponibilă la:

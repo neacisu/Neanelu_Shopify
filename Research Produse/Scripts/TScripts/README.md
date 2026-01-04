@@ -29,7 +29,7 @@ pnpm exec tsx sample_by_vendor.ts /var/www/Neanelu_Shopify/Research Produse/bulk
 
 ```bash
 pnpm exec tsx fetch_shopify_products.ts \
-  --env /var/www/Neanelu_Shopify/Research Produse/.env.txt \
+  --env /var/www/Neanelu_Shopify/.env \
   --report /var/www/Neanelu_Shopify/Research Produse/TSOutputs/vendor_samples_report.json \
   --vendor-count 10 \
   --vendor-pick-mode report-order \
@@ -49,7 +49,7 @@ Exact Python parity (for diffing): if you want the TypeScript fetch to return th
 
 ```bash
 pnpm exec tsx fetch_shopify_products.ts \
-  --env /var/www/Neanelu_Shopify/Research Produse/.env.txt \
+  --env /var/www/Neanelu_Shopify/.env \
   --report /var/www/Neanelu_Shopify/Research Produse/TSOutputs/vendor_samples_report.json \
   --vendor-count 10 \
   --vendor-pick-mode report-order \
