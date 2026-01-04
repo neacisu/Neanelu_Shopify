@@ -305,6 +305,7 @@ jobs:
           context: .
           file: apps/backend-worker/Dockerfile
           push: false
+          load: true
           tags: neanelu-backend-worker:ci-smoke
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -315,6 +316,7 @@ jobs:
           context: .
           file: apps/web-admin/Dockerfile
           push: false
+          load: true
           tags: neanelu-web-admin:ci-smoke
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -325,6 +327,7 @@ jobs:
           context: docker/postgres
           file: docker/postgres/Dockerfile
           push: false
+          load: true
           tags: neanelu-postgres:ci-smoke
           cache-from: type=gha
           cache-to: type=gha,mode=max
