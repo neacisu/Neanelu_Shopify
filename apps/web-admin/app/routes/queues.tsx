@@ -4,6 +4,7 @@ import { useLoaderData, useLocation } from 'react-router-dom';
 
 import { handleApiError } from '../utils/handle-api-error';
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
+import { EmptyState } from '../components/patterns';
 
 export function loader({ request }: LoaderFunctionArgs) {
   try {
@@ -42,10 +43,15 @@ export default function QueuesPage() {
     <div className="space-y-4">
       <Breadcrumbs items={breadcrumbs} />
       <h1 className="text-h2">Queue Monitor</h1>
-      <p className="text-body text-muted">
-        Placeholder page for PR-018. Try <span className="font-mono">?mode=404</span> or{' '}
-        <span className="font-mono">?mode=500</span> to validate error handling.
-      </p>
+      <EmptyState
+        title="No queue data yet"
+        description={
+          <>
+            Placeholder page. Try <span className="font-mono">?mode=404</span> or{' '}
+            <span className="font-mono">?mode=500</span> to validate error handling.
+          </>
+        }
+      />
     </div>
   );
 }

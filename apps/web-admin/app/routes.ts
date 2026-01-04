@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import type { RouteObject } from 'react-router-dom';
 
-import DashboardIndex from './routes/_index';
+import DashboardIndex, { loader as dashboardLoader } from './routes/_index';
 import IngestionPage from './routes/ingestion';
 import QueuesPage, { loader as queuesLoader } from './routes/queues';
 import Root, { ErrorBoundary } from './root';
@@ -16,6 +16,7 @@ export const routes: RouteObject[] = [
     children: [
       {
         index: true,
+        loader: dashboardLoader,
         element: createElement(DashboardIndex),
       },
       {
