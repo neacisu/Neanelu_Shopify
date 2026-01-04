@@ -289,6 +289,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [lint-typecheck-test]
+    env:
+      NPM_TASKFORCESH_TOKEN: ${{ secrets.NPM_TASKFORCESH_TOKEN }}
 
     steps:
       - name: Checkout code
@@ -316,3 +318,49 @@ jobs:
           tags: neanelu-web-admin:ci-smoke
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Build postgres image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/postgres
+          file: docker/postgres/Dockerfile
+          push: false
+          tags: neanelu-postgres:ci-smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 'Smoke: backend-worker can install deps'
+        run: |
+          docker run --rm \
+            -e CI=true \
+            -e NPM_TASKFORCESH_TOKEN="${NPM_TASKFORCESH_TOKEN}" \
+            neanelu-backend-worker:ci-smoke \
+            sh -lc "pnpm install --frozen-lockfile"
+
+      - name: 'Smoke: web-admin can install deps and build'
+        run: |
+          docker run --rm \
+            -e CI=true \
+            -e NPM_TASKFORCESH_TOKEN="${NPM_TASKFORCESH_TOKEN}" \
+            neanelu-web-admin:ci-smoke \
+            sh -lc "pnpm install --frozen-lockfile && pnpm --filter @app/web-admin build"
+
+      - name: 'Smoke: postgres boots and is ready'
+        run: |
+          docker run -d --name pg-smoke \
+            -e POSTGRES_USER=test \
+            -e POSTGRES_PASSWORD=test \
+            -e POSTGRES_DB=test_db \
+            -p 65010:5432 \
+            neanelu-postgres:ci-smoke
+
+          for i in $(seq 1 30); do
+            if docker exec pg-smoke pg_isready -U test -d test_db; then
+              echo "✅ postgres ready"
+              break
+            fi
+            sleep 2
+          done
+
+          docker exec pg-smoke pg_isready -U test -d test_db
+          docker rm -f pg-smoke
