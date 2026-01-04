@@ -100,6 +100,19 @@ export default tseslint.config(
   },
 
   // ============================================
+  // FRONTEND TESTS (apps/web-admin) - relax unsafe rules for mocks
+  // ============================================
+  {
+    files: [
+      'apps/web-admin/**/*.{test,spec}.{ts,tsx}',
+      'apps/web-admin/**/__tests__/**/*.{ts,tsx}',
+    ],
+    rules: {
+      '@typescript-eslint/no-unsafe-call': 'off',
+    },
+  },
+
+  // ============================================
   // PRETTIER (dezactivează reguli conflictuale) - TREBUIE ULTIMUL
   // ============================================
   prettier,

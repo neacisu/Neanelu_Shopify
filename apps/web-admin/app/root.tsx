@@ -46,7 +46,7 @@ export default function Root() {
       const script = document.createElement('script');
       script.src = 'https://cdn.shopify.com/shopifycloud/polaris.js';
       script.async = true;
-      script.dataset.neaneluPolaris = '1';
+      script.dataset['neaneluPolaris'] = '1';
       document.head.appendChild(script);
     }
 

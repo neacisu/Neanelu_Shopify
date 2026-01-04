@@ -8,9 +8,9 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 65001 --strictPort",
     "typecheck": "tsc --noEmit",
-    "test": "vitest",
-    "test:watch": "vitest --watch",
-    "test:coverage": "vitest --coverage"
+    "test": "vitest run -c vitest.config.ts",
+    "test:watch": "vitest -c vitest.config.ts --watch",
+    "test:coverage": "vitest run -c vitest.config.ts --coverage"
   },
   "dependencies": {
     "@shopify/shopify-app-react-router": "^1.1.0",
@@ -22,10 +22,13 @@
     "sonner": "^2.0.7"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.7.0",
     "@tailwindcss/vite": "^4.1.13",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.1",
     "@types/react": "^19.1.9",
     "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "jsdom": "^27.4.0",
     "tailwindcss": "^4.1.13",
     "vite": "7.3.0",
     "vite-tsconfig-paths": "^5.1.4",
