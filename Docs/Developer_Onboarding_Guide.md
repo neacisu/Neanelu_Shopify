@@ -168,6 +168,7 @@ pnpm install
 Notă: repo-ul folosește **EXCLUSIV** `--env-file .env.compose` pentru Docker Compose.
 
 Pentru webhooks Shopify pe domeniu public:
+
 - `APP_HOST` trebuie să fie URL complet (ex: `https://manager.neanelu.ro`)
 - `APP_HOSTNAME` trebuie să fie hostname (fără `https://`) (ex: `manager.neanelu.ro`)
 - host-ul trebuie să poată primi trafic HTTPS standard pe **80/443** (Let's Encrypt ACME HTTP-01)
