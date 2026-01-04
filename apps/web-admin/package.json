@@ -13,6 +13,8 @@
     "test:coverage": "vitest run -c vitest.config.ts --coverage"
   },
   "dependencies": {
+    "@app/types": "workspace:*",
+    "@app/validation": "workspace:*",
     "@shopify/shopify-app-react-router": "^1.1.0",
     "@hookform/resolvers": "^5.2.2",
     "lucide-react": "^0.562.0",

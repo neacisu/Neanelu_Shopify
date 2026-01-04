@@ -150,6 +150,9 @@ export async function withTenantContext<T>(
  * Helper pentru a executa o funcție cu RLS activ folosind Drizzle-style
  * Acceptă un callback care primește clientul pg.
  */
-export async function withShopContext<T>(shopId: string, fn: () => Promise<T>): Promise<T> {
-  return withTenantContext(shopId, async () => fn());
+export async function withShopContext<T>(
+  shopId: string,
+  fn: (client: pg.PoolClient) => Promise<T>
+): Promise<T> {
+  return withTenantContext(shopId, fn);
 }

@@ -8,7 +8,7 @@
  */
 
 import type { Logger } from '@app/logger';
-import { pool, withTenantContext } from '@app/database';
+import { withTenantContext } from '@app/database';
 
 export interface AppUninstalledContext {
   shopId: string;
@@ -26,25 +26,25 @@ export async function handleAppUninstalled(
   try {
     // Mark as uninstalled and clear access token for security
     // We keep the record for audit/reinstall history but revoke access
-    await withTenantContext(shopId, async () => {
-      await pool.query(
+    await withTenantContext(shopId, async (client) => {
+      await client.query(
         `UPDATE shops 
          SET 
            uninstalled_at = now(),
            webhook_secret = NULL,
-           access_token_ciphertext = ''::bytea,
-           access_token_iv = ''::bytea,
-           access_token_tag = ''::bytea,
+           access_token_ciphertext = '',
+           access_token_iv = '',
+           access_token_tag = '',
            updated_at = now()
          WHERE id = $1`,
         [shopId]
       );
 
       // Revoke token history (defense in depth)
-      await pool.query('DELETE FROM shopify_tokens WHERE shop_id = $1', [shopId]);
+      await client.query('DELETE FROM shopify_tokens WHERE shop_id = $1', [shopId]);
 
       // Cleanup persisted webhook subscription records for this shop
-      await pool.query('DELETE FROM shopify_webhooks WHERE shop_id = $1', [shopId]);
+      await client.query('DELETE FROM shopify_webhooks WHERE shop_id = $1', [shopId]);
     });
 
     logger.info({ shop: shopDomain }, 'Shop marked as uninstalled (tokens cleared)');

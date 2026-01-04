@@ -120,6 +120,12 @@ importers:
 
   apps/web-admin:
     dependencies:
+      '@app/types':
+        specifier: workspace:*
+        version: link:../../packages/types
+      '@app/validation':
+        specifier: workspace:*
+        version: link:../../packages/validation
       '@hookform/resolvers':
         specifier: ^5.2.2
         version: 5.2.2(react-hook-form@7.70.0(react@19.2.3))
