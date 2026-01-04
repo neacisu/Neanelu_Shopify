@@ -128,7 +128,7 @@ jobs:
 
       # Upload test results for debugging
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         if: always()
         with:
           name: test-results
@@ -251,7 +251,7 @@ jobs:
           category: 'trivy-security-scan'
 
       - name: Upload Trivy report artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         if: always()
         with:
           name: trivy-report
