@@ -1,0 +1,32 @@
+@import 'tailwindcss';
+
+:root {
+  /* Colors (RGB triplets) */
+  --color-primary: 37 99 235;
+  --color-success: 22 163 74;
+  --color-warning: 234 179 8;
+  --color-error: 220 38 38;
+  --color-muted: 100 116 139;
+  --color-foreground: 15 23 42;
+  --color-background: 248 250 252;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.06);
+  --shadow-md: 0 4px 10px -2px rgb(0 0 0 / 0.08);
+  --shadow-lg: 0 12px 24px -8px rgb(0 0 0 / 0.12);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: rgb(var(--color-background));
+  color: rgb(var(--color-foreground));
+}

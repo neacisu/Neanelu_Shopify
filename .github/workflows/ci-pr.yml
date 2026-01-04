@@ -105,6 +105,9 @@ jobs:
       - name: Type Check
         run: pnpm typecheck
 
+      - name: Build Frontend (web-admin)
+        run: pnpm --filter @app/web-admin build
+
       - name: Install PostgreSQL extensions
         env:
           PGPASSWORD: test
@@ -301,5 +304,15 @@ jobs:
           file: apps/backend-worker/Dockerfile
           push: false
           tags: neanelu-backend-worker:ci-smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build web-admin image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web-admin/Dockerfile
+          push: false
+          tags: neanelu-web-admin:ci-smoke
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -206,6 +206,7 @@ docker compose --env-file .env.compose -f docker-compose.yml -f docker-compose.d
 Aplicația va fi disponibilă la:
 
 - Backend API (prin Traefik): `$APP_HOST`
+- Frontend Web Admin (prin Traefik): `$APP_HOST/app`
 - Health Check (prin Traefik): `$APP_HOST/health/ready`
 - Jaeger UI: <http://localhost:65020>
 

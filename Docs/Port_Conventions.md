@@ -25,7 +25,7 @@ Toate serviciile folosesc porturi în range-ul **65xxx** pentru a evita conflict
 | Serviciu                | Port Dev | Port Prod | Intern/Extern        | Note                      |
 |-------------------------|----------|-----------|----------------------|---------------------------|
 | Backend API (Fastify)   | 65000    | 65000     | Extern (via Traefik) | Health: /health/ready     |
-| Frontend Web Admin      | 65001    | N/A       | Intern               | Servit de backend în prod |
+| Frontend Web Admin      | 65001    | 65001     | Extern (via Traefik) | UI: /app (server dedicat) |
 | Worker (nu expune port) | N/A      | N/A       | N/A                  | Comunică doar via Redis   |
 
 ### Data Services (651xx)
@@ -118,10 +118,22 @@ GRAFANA_URL=http://localhost:65024
 | Path       | Target      | Port  |
 |------------|-------------|-------|
 | `/`        | backend-api | 65000 |
+| `/app`     | web-admin   | 65001 |
 | `/grafana` | grafana     | 65024 |
 | `/jaeger`  | jaeger      | 65020 |
 
-Toate celelalte servicii comunică pe rețeaua internă Docker (`internal_net`).
+Toate celelalte servicii comunică pe rețeaua internă Docker (`neanelu_network`).
+
+**Network model (standardizat):**
+
+- `neanelu_frontend_network`: ingress + trafic FE↔BE (Traefik + web-admin + backend-worker)
+- `neanelu_network`: resurse interne (PostgreSQL/Redis/observability) accesibile doar de backend
+- `public_net`: alias compatibil (Traefik only) pentru documentație/implementări mai vechi
+
+**Contract port mapping (dev):**
+
+- `PORT` rămâne **65000** în Compose (container backend expune 65000).
+- Dacă ai conflict pe host, schimbă doar `BACKEND_HOST_PORT` (host -> container `${PORT}`).
 
 ---
 

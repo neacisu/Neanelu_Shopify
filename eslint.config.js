@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const tsconfigPath = join(__dirname, 'tsconfig.eslint.json');
+const webAdminTsconfigPath = join(__dirname, 'apps/web-admin/tsconfig.json');
 
 export default tseslint.config(
   // ============================================
@@ -86,6 +87,19 @@ export default tseslint.config(
   },
 
   // ============================================
+  // FRONTEND (apps/web-admin) - use browser tsconfig
+  // ============================================
+  {
+    files: ['apps/web-admin/**/*.{ts,tsx}'],
+    languageOptions: {
+      parserOptions: {
+        project: [webAdminTsconfigPath],
+        tsconfigRootDir: __dirname,
+      },
+    },
+  },
+
+  // ============================================
   // PRETTIER (dezactivează reguli conflictuale) - TREBUIE ULTIMUL
   // ============================================
   prettier,
@@ -94,7 +108,7 @@ export default tseslint.config(
   // CONFIG FILES (no type checking)
   // ============================================
   {
-    files: ['*.config.js', '*.config.ts', '*.config.mjs', '**/drizzle.config.ts'],
+    files: ['**/*.config.js', '**/*.config.ts', '**/*.config.mjs', '**/drizzle.config.ts'],
     ...tseslint.configs.disableTypeChecked,
   }
 );

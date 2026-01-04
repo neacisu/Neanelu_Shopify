@@ -13,7 +13,7 @@ services:
   # ============================================
   backend-worker:
     ports:
-      - '${BACKEND_HOST_PORT:-65000}:65000'
+      - '${BACKEND_HOST_PORT:-65000}:${PORT:-65000}'
     volumes:
       - .:/app
 
@@ -21,8 +21,8 @@ services:
   # Frontend Web Admin - Placeholder (future)
   # ============================================
   web-admin:
-    ports:
-      - '65001:65001'
+    volumes:
+      - .:/app
 
   # ============================================
   # Bull Board - Placeholder (future)

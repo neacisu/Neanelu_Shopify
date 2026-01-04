@@ -162,7 +162,7 @@ Only critical user flows:
 // playwright.config.ts
 export default defineConfig({
   testDir: './e2e',
-  baseURL: 'http://localhost:65001',
+  baseURL: `${process.env.APP_HOST || 'https://manager.neanelu.ro'}/app`,
   use: {
     trace: 'on-first-retry',
   },

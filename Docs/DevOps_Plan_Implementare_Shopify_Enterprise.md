@@ -125,8 +125,9 @@ Pentru a susține volumul de 1M+ SKU și procesarea asincronă, arhitectura de p
 
 * **Host:** Server Bare Metal (ex: Hetzner AX line / OVH) cu NVMe RAID, 64GB+ RAM.
 * **Rețea:**
-  * `public_net`: Doar Traefik (Reverse Proxy) expus la port 80/443.
-  * `internal_net`: Toate celelalte servicii, izolate de internet.
+  * `public_net`: Alias compatibil (Traefik-only) pentru implementări/documentație legacy.
+  * `neanelu_frontend_network`: Ingress + trafic FE↔BE (Traefik + web-admin + backend-worker).
+  * `neanelu_network`: Rețea internă pentru resurse (PostgreSQL/Redis/observability) accesibile doar de backend.
 * **Containere & Scaling:**
   * **PostgreSQL 18.1**: Instanță unică (Primary), optimizată pentru scriere (NVMe).
   * **Redis 8.4**: Instanță unică sau Cluster, memorie dedicată pentru cozi și cache.
