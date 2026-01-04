@@ -7,6 +7,7 @@ declare global {
   namespace React {
     namespace JSX {
       interface IntrinsicElements {
+        'polaris-banner': PolarisElementProps;
         'polaris-button': PolarisElementProps;
         'polaris-badge': PolarisElementProps;
         'polaris-card': PolarisElementProps;
@@ -26,6 +27,7 @@ declare global {
   // Some tooling still references the global JSX namespace.
   namespace JSX {
     interface IntrinsicElements {
+      'polaris-banner': PolarisElementProps;
       'polaris-button': PolarisElementProps;
       'polaris-badge': PolarisElementProps;
       'polaris-card': PolarisElementProps;

@@ -26,4 +26,13 @@ describe('routing', () => {
 
     expect(await screen.findByText(/Eroare 404/i)).toBeInTheDocument();
   });
+
+  it('renders 500 error page for simulated loader failure', async () => {
+    const router = createMemoryRouter(routes, { initialEntries: ['/queues?mode=500'] });
+
+    render(<RouterProvider router={router} />);
+
+    expect(await screen.findByText(/Eroare 500/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Reîncearcă/i })).toBeInTheDocument();
+  });
 });

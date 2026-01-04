@@ -3,6 +3,7 @@ import { Activity, AlertTriangle, Cpu, Package, RefreshCw } from 'lucide-react';
 import type { ComponentType } from 'react';
 
 import { PolarisButton, PolarisCard } from '../../components/polaris/index.js';
+import { SafeComponent } from '../components/errors/safe-component';
 
 interface Kpi {
   title: string;
@@ -55,26 +56,28 @@ export default function DashboardIndex() {
         </PolarisButton>
       </header>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {kpis.map((kpi) => {
-          const Icon = kpi.icon;
+      <SafeComponent>
+        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {kpis.map((kpi) => {
+            const Icon = kpi.icon;
 
-          return (
-            <PolarisCard key={kpi.title}>
-              <div className="rounded-md border border-muted/20 bg-background p-4 shadow-sm">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="text-caption text-muted">{kpi.title}</div>
-                    <div className="mt-1 text-h3">{kpi.value}</div>
+            return (
+              <PolarisCard key={kpi.title}>
+                <div className="rounded-md border border-muted/20 bg-background p-4 shadow-sm">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="text-caption text-muted">{kpi.title}</div>
+                      <div className="mt-1 text-h3">{kpi.value}</div>
+                    </div>
+                    <Icon className="size-5 text-muted" />
                   </div>
-                  <Icon className="size-5 text-muted" />
+                  <div className="mt-3 text-caption text-muted">{kpi.subtext}</div>
                 </div>
-                <div className="mt-3 text-caption text-muted">{kpi.subtext}</div>
-              </div>
-            </PolarisCard>
-          );
-        })}
-      </section>
+              </PolarisCard>
+            );
+          })}
+        </section>
+      </SafeComponent>
     </div>
   );
 }
