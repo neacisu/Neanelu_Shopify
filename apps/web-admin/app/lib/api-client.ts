@@ -46,12 +46,22 @@ function normalizeError(options: {
   const { status, body, fallbackMessage } = options;
 
   if (isApiEnvelope(body) && body.success === false) {
-    return new ApiError(body.error.message || fallbackMessage, {
+    const errorOptions: {
+      status: number;
+      retryable?: boolean;
+      code?: string;
+      details?: Record<string, unknown>;
+    } = {
       status,
       code: body.error.code,
-      details: body.error.details,
       retryable: status >= 500 || status === 429,
-    });
+    };
+
+    if (body.error.details && typeof body.error.details === 'object') {
+      errorOptions.details = body.error.details;
+    }
+
+    return new ApiError(body.error.message || fallbackMessage, errorOptions);
   }
 
   if (typeof body === 'string' && body.trim().length > 0) {

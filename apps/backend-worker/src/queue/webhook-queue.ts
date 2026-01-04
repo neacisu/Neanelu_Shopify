@@ -80,3 +80,51 @@ export async function closeWebhookQueue(): Promise<void> {
     webhookQueue = undefined;
   }
 }
+
+/**
+ * Best-effort cleanup for a shop's queued webhook jobs.
+ *
+ * CONFORM: Plan_de_implementare F3.3.5 (cleanup on uninstall)
+ */
+export async function cleanupWebhookJobsForShopDomain(
+  shopDomain: string,
+  logger: Logger
+): Promise<{ removed: number }> {
+  const queue = getQueue();
+
+  // Limit scanning so uninstall doesn't become unbounded work.
+  const maxJobsToScan = 2000;
+  const pageSize = 200;
+
+  let removed = 0;
+  let scanned = 0;
+
+  for (const state of ['waiting', 'delayed', 'prioritized', 'paused'] as const) {
+    // Scan in pages; BullMQ uses [start, end] indexes.
+    for (let start = 0; start < maxJobsToScan; start += pageSize) {
+      const end = Math.min(start + pageSize - 1, maxJobsToScan - 1);
+      const jobs = await queue.getJobs([state], start, end, true);
+      if (jobs.length === 0) break;
+
+      for (const job of jobs) {
+        scanned += 1;
+        if (scanned > maxJobsToScan) break;
+
+        if (job.data?.shopDomain === shopDomain) {
+          try {
+            await job.remove();
+            removed += 1;
+          } catch (err) {
+            logger.warn({ err, jobId: job.id, shop: shopDomain }, 'Failed removing webhook job');
+          }
+        }
+      }
+
+      if (scanned > maxJobsToScan) break;
+      if (jobs.length < pageSize) break;
+    }
+  }
+
+  logger.info({ shop: shopDomain, removed }, 'Webhook job cleanup finished');
+  return { removed };
+}

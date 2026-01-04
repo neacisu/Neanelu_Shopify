@@ -188,6 +188,16 @@ export const oauthTokenRefresh: Counter = meter.createCounter('oauth_token_refre
   description: 'Total number of OAuth token refreshes',
 });
 
+/** Shops uninstalled (lifecycle) */
+export const shopUninstalledTotal: Counter = meter.createCounter('shop_uninstalled_total', {
+  description: 'Total number of shops that uninstalled the app',
+});
+
+/** Webhook-driven app/uninstalled total (alias for compatibility with implementation plan wording) */
+export const webhookUninstalledTotal: Counter = meter.createCounter('webhook_uninstalled_total', {
+  description: 'Total number of app/uninstalled webhook events processed',
+});
+
 // ============================================
 // SHOPIFY API METRICS (for rate limiting alerts)
 // ============================================

@@ -33,6 +33,17 @@ export { encryptAesGcm, decryptAesGcm, randomIv } from './encryption/crypto.js';
 export type { EncryptResult } from './encryption/crypto.js';
 
 // ============================================
+// AUTH EXPORTS
+// ============================================
+
+export {
+  exchangeCodeForToken,
+  encryptShopifyAccessToken,
+  upsertOfflineShopCredentials,
+} from './auth/shopify-oauth.js';
+export type { ShopifyTokenExchangeResult } from './auth/shopify-oauth.js';
+
+// ============================================
 // TYPES RE-EXPORTS
 // ============================================
 

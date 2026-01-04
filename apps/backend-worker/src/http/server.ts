@@ -7,6 +7,12 @@ import { createClient } from 'redis';
 import { randomUUID } from 'node:crypto';
 import { isShopifyApiConfigValid } from '@app/config';
 import { registerAuthRoutes } from '../auth/index.js';
+import {
+  createSessionToken,
+  getDefaultSessionConfig,
+  getSessionFromRequest,
+  requireSession,
+} from '../auth/session.js';
 import { webhookRoutes } from '../routes/webhooks.js';
 import { setRequestIdAttribute } from '@app/logger';
 import {
@@ -186,6 +192,69 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
 
   // Register OAuth routes
   registerAuthRoutes(server, { env, logger });
+
+  const sessionConfig = getDefaultSessionConfig(env.shopifyApiSecret, env.shopifyApiKey);
+
+  server.get('/api/health', (request, reply) => {
+    void reply.status(200).send({
+      success: true,
+      data: {
+        status: 'ok',
+      },
+      meta: {
+        request_id: request.id,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  });
+
+  // Helper endpoint for web-admin to obtain a Bearer token when cookie auth is available.
+  // This token is the same signed session token used in the session cookie.
+  server.get('/api/session/token', (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      void reply.status(401).send({
+        success: false,
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'Session required',
+        },
+        meta: {
+          request_id: request.id,
+          timestamp: new Date().toISOString(),
+        },
+      });
+      return;
+    }
+
+    const token = createSessionToken(session, sessionConfig.secret);
+    void reply.status(200).send({
+      success: true,
+      data: { token },
+      meta: {
+        request_id: request.id,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  });
+
+  // Debuggable auth check endpoint (useful for validating header injection)
+  server.get('/api/whoami', { preHandler: requireSession(sessionConfig) }, (request, reply) => {
+    const session = (
+      request as typeof request & { session: { shopId: string; shopDomain: string } }
+    ).session;
+    void reply.status(200).send({
+      success: true,
+      data: {
+        shopId: session.shopId,
+        shopDomain: session.shopDomain,
+      },
+      meta: {
+        request_id: request.id,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  });
 
   await server.ready();
   return server;

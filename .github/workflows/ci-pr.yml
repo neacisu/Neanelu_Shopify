@@ -45,7 +45,8 @@ jobs:
       SCOPES: read_products
       ENCRYPTION_KEY_VERSION: '1'
       ENCRYPTION_KEY_256: 0000000000000000000000000000000000000000000000000000000000000000
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://127.0.0.1:4318
+      # CI: keep OTel disabled (endpoint empty)
+      OTEL_EXPORTER_OTLP_ENDPOINT: ''
       OTEL_SERVICE_NAME: neanelu-shopify-ci
       # Keep OTel effectively disabled (0% sampling)
       OTEL_SAMPLING_RATIO: '0'
@@ -154,7 +155,8 @@ jobs:
       SCOPES: read_products
       ENCRYPTION_KEY_VERSION: '1'
       ENCRYPTION_KEY_256: 0000000000000000000000000000000000000000000000000000000000000000
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://127.0.0.1:4318
+      # CI: keep OTel disabled (endpoint empty)
+      OTEL_EXPORTER_OTLP_ENDPOINT: ''
       OTEL_SERVICE_NAME: neanelu-shopify-ci
 
     services:
