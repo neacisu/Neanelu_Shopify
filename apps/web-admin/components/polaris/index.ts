@@ -1,4 +1,5 @@
 export { PolarisBadge } from './badge';
+export { PolarisBanner } from './banner';
 export { PolarisButton } from './button';
 export { PolarisCard } from './card';
 export { PolarisDataTable } from './data-table';

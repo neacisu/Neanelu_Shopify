@@ -1,9 +1,12 @@
 import { useEffect } from 'react';
-import { isRouteErrorResponse, Outlet, useRouteError } from 'react-router-dom';
+import { isRouteErrorResponse, Link, Outlet, useRouteError } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 
 import './globals.css';
+import { AppShell } from './components/layout/app-shell';
+import { OfflinePage, RouteErrorPage } from './components/errors/error-pages';
+import { useOnlineStatus } from './hooks/use-online-status';
 
 function GlobalSpinner() {
   return (
@@ -27,20 +30,25 @@ export function ErrorBoundary() {
   const error = useRouteError();
 
   if (isRouteErrorResponse(error)) {
-    return (
-      <ErrorAlert
-        title={`Eroare ${error.status}`}
-        message={error.statusText || 'A apărut o eroare neașteptată.'}
-      />
-    );
+    return <RouteErrorPage status={error.status} statusText={error.statusText} />;
   }
 
   const message =
     error instanceof Error ? error.message : 'UI a întâmpinat o problemă neașteptată.';
-  return <ErrorAlert title="A apărut o eroare" message={message} />;
+  return (
+    <div className="space-y-4">
+      <RouteErrorPage status={500} statusText="Internal Error" />
+      <ErrorAlert title="Detalii" message={message} />
+      <Link className="text-caption text-primary hover:underline" to="/">
+        Înapoi la Dashboard
+      </Link>
+    </div>
+  );
 }
 
 export default function Root() {
+  const isOnline = useOnlineStatus();
+
   useEffect(() => {
     if (!document.querySelector('script[data-neanelu-polaris="1"]')) {
       const script = document.createElement('script');
@@ -56,12 +64,12 @@ export default function Root() {
   return (
     <div className="min-h-screen">
       <Toaster richColors />
-      <div className="p-4">
+      <AppShell>
         <div className="mb-4 hidden">
           <GlobalSpinner />
         </div>
-        <Outlet />
-      </div>
+        {isOnline ? <Outlet /> : <OfflinePage />}
+      </AppShell>
     </div>
   );
 }

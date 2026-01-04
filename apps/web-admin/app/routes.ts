@@ -2,7 +2,11 @@ import { createElement } from 'react';
 import type { RouteObject } from 'react-router-dom';
 
 import DashboardIndex from './routes/_index';
+import IngestionPage from './routes/ingestion';
+import QueuesPage, { loader as queuesLoader } from './routes/queues';
 import Root, { ErrorBoundary } from './root';
+import SearchPage from './routes/search';
+import SettingsPage, { action as settingsAction } from './routes/settings';
 
 export const routes: RouteObject[] = [
   {
@@ -13,6 +17,24 @@ export const routes: RouteObject[] = [
       {
         index: true,
         element: createElement(DashboardIndex),
+      },
+      {
+        path: 'queues',
+        loader: queuesLoader,
+        element: createElement(QueuesPage),
+      },
+      {
+        path: 'ingestion',
+        element: createElement(IngestionPage),
+      },
+      {
+        path: 'search',
+        element: createElement(SearchPage),
+      },
+      {
+        path: 'settings',
+        action: settingsAction,
+        element: createElement(SettingsPage),
       },
     ],
   },
