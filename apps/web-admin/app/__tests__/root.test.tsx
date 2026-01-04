@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -12,21 +12,25 @@ vi.mock('sonner', () => ({
 }));
 
 describe('Root side-effects', () => {
-  it('injects Polaris CDN script only once', () => {
+  it('injects Polaris CDN script only once', async () => {
     document.head.innerHTML = '';
 
     const router = createMemoryRouter(routes, { initialEntries: ['/'] });
     const { unmount } = render(<RouterProvider router={router} />);
 
     const selector = 'script[data-neanelu-polaris="1"]';
-    expect(document.head.querySelectorAll(selector)).toHaveLength(1);
+    await waitFor(() => {
+      expect(document.head.querySelectorAll(selector)).toHaveLength(1);
+    });
 
     unmount();
 
     const router2 = createMemoryRouter(routes, { initialEntries: ['/'] });
     render(<RouterProvider router={router2} />);
 
-    expect(document.head.querySelectorAll(selector)).toHaveLength(1);
-    expect(toastMock).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(document.head.querySelectorAll(selector)).toHaveLength(1);
+      expect(toastMock).toHaveBeenCalled();
+    });
   });
 });

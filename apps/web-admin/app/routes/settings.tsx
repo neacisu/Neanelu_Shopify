@@ -1,20 +1,17 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ActionFunctionArgs } from 'react-router-dom';
-import { Form, useActionData, useLocation } from 'react-router-dom';
-import { z } from 'zod';
+import { useActionData, useLocation, useNavigation, useSubmit } from 'react-router-dom';
+
+import { SettingsSchema } from '@app/validation';
+import { zodResolver } from '@hookform/resolvers/zod';
+import type { SettingsInput } from '@app/validation';
+import { useForm } from 'react-hook-form';
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { PageHeader } from '../components/layout/page-header';
-import { FieldError } from '../components/forms/field-error';
 import { FormErrorSummary } from '../components/forms/form-error-summary';
-
-const SettingsSchema = z.object({
-  email: z.string().email('Email invalid'),
-  shopDomain: z
-    .string()
-    .min(1, 'Shop domain este obligatoriu')
-    .regex(/^[a-z0-9-]+\.myshopify\.com$/i, 'Format: store.myshopify.com'),
-});
+import { FormField } from '../components/forms/form-field';
+import { SubmitButton } from '../components/forms/submit-button';
 
 type ActionData =
   | {
@@ -62,23 +59,65 @@ export default function SettingsPage() {
   const actionData = useActionData<ActionData>();
   const location = useLocation();
 
-  const emailRef = useRef<HTMLInputElement | null>(null);
-  const shopDomainRef = useRef<HTMLInputElement | null>(null);
+  const navigation = useNavigation();
+  const submit = useSubmit();
+  const [showSuccess, setShowSuccess] = useState(false);
 
-  const errors = actionData?.ok === false ? actionData.errors : undefined;
+  const {
+    register,
+    handleSubmit,
+    setError,
+    formState: { errors: formErrors, submitCount },
+  } = useForm<SettingsInput>({
+    resolver: zodResolver(SettingsSchema),
+    mode: 'onBlur',
+  });
 
   useEffect(() => {
-    if (!errors) return;
+    if (actionData?.ok !== true) return;
 
-    if (errors['email']?.length) {
-      emailRef.current?.focus();
-      return;
-    }
+    setShowSuccess(true);
+    const timer = setTimeout(() => setShowSuccess(false), 2000);
+    return () => clearTimeout(timer);
+  }, [actionData?.ok]);
 
-    if (errors['shopDomain']?.length) {
-      shopDomainRef.current?.focus();
+  useEffect(() => {
+    if (actionData?.ok !== false) return;
+
+    for (const [field, msgs] of Object.entries(actionData.errors)) {
+      const message = msgs?.[0];
+      if (!message) continue;
+
+      if (field === 'email' || field === 'shopDomain') {
+        setError(field, { type: 'server', message });
+      }
     }
-  }, [errors]);
+  }, [actionData, setError]);
+
+  const errors = useMemo(() => {
+    const record: Record<string, string[]> = {};
+    for (const [key, value] of Object.entries(formErrors)) {
+      const message = (value as { message?: unknown } | undefined)?.message;
+      if (typeof message === 'string' && message.length > 0) {
+        record[key] = [message];
+      }
+    }
+    return Object.keys(record).length ? record : undefined;
+  }, [formErrors]);
+
+  const submitState = useMemo(() => {
+    if (navigation.state === 'submitting' || navigation.state === 'loading') return 'loading';
+    if (showSuccess) return 'success';
+    if (submitCount > 0 && errors) return 'error';
+    return 'idle';
+  }, [errors, navigation.state, showSuccess, submitCount]);
+
+  const onValid = (values: SettingsInput) => {
+    const formData = new FormData();
+    formData.set('email', values.email);
+    formData.set('shopDomain', values.shopDomain);
+    void submit(formData, { method: 'post' });
+  };
 
   const breadcrumbs = useMemo(
     () => [
@@ -96,44 +135,29 @@ export default function SettingsPage() {
 
       <FormErrorSummary errors={errors} title="Te rugăm să corectezi erorile" />
 
-      <Form method="post" className="space-y-4" noValidate>
-        <div>
-          <label className="text-caption text-muted" htmlFor="email">
-            Email
-          </label>
-          <input
-            ref={emailRef}
-            id="email"
-            name="email"
-            type="email"
-            className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-            aria-describedby={errors?.['email']?.length ? 'email-error' : undefined}
-          />
-          <FieldError name="email" errors={errors} />
-        </div>
+      <form
+        onSubmit={(event) => void handleSubmit(onValid)(event)}
+        className="space-y-4"
+        noValidate
+      >
+        <FormField
+          id="email"
+          label="Email"
+          type="email"
+          registration={register('email')}
+          error={formErrors.email?.message}
+        />
 
-        <div>
-          <label className="text-caption text-muted" htmlFor="shopDomain">
-            Shop Domain
-          </label>
-          <input
-            ref={shopDomainRef}
-            id="shopDomain"
-            name="shopDomain"
-            className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-            placeholder="store.myshopify.com"
-            aria-describedby={errors?.['shopDomain']?.length ? 'shopDomain-error' : undefined}
-          />
-          <FieldError name="shopDomain" errors={errors} />
-        </div>
+        <FormField
+          id="shopDomain"
+          label="Shop Domain"
+          placeholder="store.myshopify.com"
+          registration={register('shopDomain')}
+          error={formErrors.shopDomain?.message}
+        />
 
-        <button
-          type="submit"
-          className="rounded-md bg-primary px-4 py-2 text-body text-background shadow-sm hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-        >
-          Save
-        </button>
-      </Form>
+        <SubmitButton state={submitState}>Save</SubmitButton>
+      </form>
 
       {actionData?.ok === true ? (
         <div className="rounded-md border border-success/30 bg-success/10 p-4 text-success shadow-sm">
