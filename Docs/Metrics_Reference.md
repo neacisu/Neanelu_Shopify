@@ -35,11 +35,11 @@
 
 ## Queue Metrics
 
-| Metric                | Type      | Labels     | Description   |
-|-----------------------|-----------|------------|---------------|
-| `queue_enqueue_total` | Counter   | queue_name | Jobs enqueued |
-| `queue_depth`         | Gauge     | queue_name | Jobs waiting  |
-| `queue_dlq_entries_total` | Counter | queue_name | Jobs moved to DLQ |
+| Metric                    | Type      | Labels     | Description       |
+|---------------------------|-----------|------------|-------------------|
+| `queue_enqueue_total`     | Counter   | queue_name | Jobs enqueued     |
+| `queue_depth`             | Gauge     | queue_name | Jobs waiting      |
+| `queue_dlq_entries_total` | Counter   | queue_name | Jobs moved to DLQ |
 
 **Queue naming (Source of Truth):** kebab-case. DLQ queues use `-dlq` suffix (ex: `webhook-queue-dlq`).
 
