@@ -62,6 +62,9 @@ importers:
       '@app/logger':
         specifier: workspace:*
         version: link:../../packages/logger
+      '@app/queue-manager':
+        specifier: workspace:*
+        version: link:../../packages/queue-manager
       '@app/types':
         specifier: workspace:*
         version: link:../../packages/types
@@ -257,6 +260,9 @@ importers:
       '@app/config':
         specifier: workspace:*
         version: link:../config
+      '@opentelemetry/api':
+        specifier: ^1.9.0
+        version: 1.9.0
       '@taskforcesh/bullmq-pro':
         specifier: ^7.41.0
         version: 7.41.0

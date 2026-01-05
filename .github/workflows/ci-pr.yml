@@ -40,7 +40,9 @@ jobs:
     timeout-minutes: 15
     env:
       NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
-      BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
+      # BullMQ Pro requires a non-empty token at runtime; in CI we fall back to a dummy
+      # value so tests can run even if the license secret isn't configured.
+      BULLMQ_PRO_TOKEN: "${{ secrets.BULLMQ_PRO_TOKEN || 'ci_dummy' }}"
       # Required runtime env (strict validation)
       APP_HOST: https://example.test
       SHOPIFY_API_KEY: ci_dummy
@@ -129,7 +131,7 @@ jobs:
           DATABASE_URL: postgresql://test:test@localhost:65010/test_db
           REDIS_URL: redis://localhost:65011
           NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
-          BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
+          BULLMQ_PRO_TOKEN: "${{ secrets.BULLMQ_PRO_TOKEN || 'ci_dummy' }}"
           NODE_ENV: test
 
       # Upload test results for debugging
