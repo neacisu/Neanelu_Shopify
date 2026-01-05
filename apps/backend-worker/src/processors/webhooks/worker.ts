@@ -6,7 +6,6 @@
  * - Dispatch to handlers (start with app/uninstalled)
  */
 
-import { Worker } from 'bullmq';
 import { loadEnv } from '@app/config';
 import { pool, withTenantContext } from '@app/database';
 import type { Logger } from '@app/logger';
@@ -14,6 +13,7 @@ import { validateWebhookJobPayload, type WebhookJobPayload } from '@app/types';
 import { createHash } from 'node:crypto';
 import Redis from 'ioredis';
 import type { Redis as RedisClient } from 'ioredis';
+import { configFromEnv, createQueueEvents, createWorker } from '@app/queue-manager';
 
 import { WEBHOOK_QUEUE_NAME } from '../../queue/webhook-queue.js';
 import { handleAppUninstalled } from './handlers/app-uninstalled.handler.js';
@@ -23,8 +23,9 @@ const env = loadEnv();
 const RedisCtor = Redis as unknown as new (url: string) => RedisClient;
 
 export interface WebhookWorkerHandle {
-  worker: Worker<WebhookJobPayload>;
+  worker: { close: () => Promise<void> };
   redis: RedisClient;
+  queueEvents: { close: () => Promise<void> };
   close: () => Promise<void>;
 }
 
@@ -119,10 +120,23 @@ async function loadPayloadFromRedis(
 
 export function startWebhookWorker(logger: Logger): WebhookWorkerHandle {
   const redis = new RedisCtor(env.redisUrl);
+  const qmOptions = { config: configFromEnv(env) };
 
-  const worker = new Worker<WebhookJobPayload>(
-    WEBHOOK_QUEUE_NAME,
-    async (job) => {
+  const { worker } = createWorker<WebhookJobPayload>(qmOptions, {
+    name: WEBHOOK_QUEUE_NAME,
+    enableDlq: true,
+    onDlqEntry: (entry) => {
+      logger.error(
+        {
+          originalQueue: entry.originalQueue,
+          originalJobId: entry.originalJobId,
+          attemptsMade: entry.attemptsMade,
+          failedReason: entry.failedReason,
+        },
+        'Webhook job moved to DLQ'
+      );
+    },
+    processor: async (job) => {
       const payloadUnknown: unknown = job.data;
       if (!validateWebhookJobPayload(payloadUnknown)) {
         logger.warn(
@@ -186,11 +200,10 @@ export function startWebhookWorker(logger: Logger): WebhookWorkerHandle {
         }
       }
     },
-    {
-      connection: { url: env.redisUrl },
+    workerOptions: {
       concurrency: 5,
-    }
-  );
+    },
+  });
 
   worker.on('failed', (job, err) => {
     logger.warn(
@@ -203,10 +216,23 @@ export function startWebhookWorker(logger: Logger): WebhookWorkerHandle {
     );
   });
 
+  const queueEvents = createQueueEvents(qmOptions, {
+    name: WEBHOOK_QUEUE_NAME,
+  });
+
+  // Best-effort monitoring hooks; no business logic here.
+  queueEvents.on('stalled', ({ jobId }) => {
+    logger.warn({ jobId }, 'Webhook job stalled');
+  });
+  queueEvents.on('failed', ({ jobId, failedReason, prev }) => {
+    logger.warn({ jobId, failedReason, prev }, 'Webhook job failed (queue event)');
+  });
+
   const close = async (): Promise<void> => {
     await worker.close();
+    await queueEvents.close();
     await redis.quit();
   };
 
-  return { worker, redis, close };
+  return { worker, redis, queueEvents, close };
 }

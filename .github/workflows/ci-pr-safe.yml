@@ -1,0 +1,46 @@
+# ============================================
+# Neanelu Shopify - CI Pull Request (Fork Safe)
+# ============================================
+# Purpose:
+# - Runs on *all* pull requests, including forks.
+# - MUST NOT require GitHub secrets.
+# - MUST NOT install private registry packages (BullMQ Pro).
+#
+# Full CI (with BullMQ Pro) is handled by ci-pr.yml and runs on:
+# - same-repo PRs
+# - pushes to main
+
+name: CI - Fork Safe
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-safe-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  docker-compose-validate:
+    name: Docker Compose Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate docker-compose config
+        run: |
+          # Provide required vars for config validation (avoid ?: failures)
+          TRAEFIK_DASHBOARD_USERS='ci:$$2y$$05$$abcdefghijklmnopqrstuv' \
+            docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.dev.yml config --quiet
+          echo "✅ Docker Compose configuration is valid"
+
+      - name: Verify service images exist
+        run: |
+          TRAEFIK_DASHBOARD_USERS='ci:$$2y$$05$$abcdefghijklmnopqrstuv' \
+            docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.dev.yml config --images

@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+
+    // IMPORTANT:
+    // For builds, do NOT use monorepo source-path aliases (they would drag other
+    // packages' src/ files into this compilation and break rootDir).
+    // Instead, resolve workspace deps through their published (dist) typings.
+    "baseUrl": ".",
+    "paths": {}
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

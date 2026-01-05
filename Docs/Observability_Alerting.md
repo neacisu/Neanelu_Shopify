@@ -51,6 +51,16 @@ groups:
         annotations:
           summary: "Queue backlog growing"
           description: "{{ $value }} jobs waiting"
+
+      - alert: QueueDLQEntriesSpike
+        expr: increase(queue_dlq_entries_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Jobs entering DLQ"
+          description: "{{ $value }} jobs moved to DLQ in last 5 min"
+          runbook_url: "Docs/runbooks/bulk-operation-stuck.md"
 ```
 
 ### API Cost Alerts

@@ -15,11 +15,11 @@ Configurația: `apps/backend-worker/src/webhooks/registry.ts`
 
 ### Products
 
-| Topic             | Pri    | Queue         | Handler              |
-| ----------------- | ------ | ------------- | -------------------- |
-| `products/create` | Normal | sync.products | ProductCreatedHandler|
-| `products/update` | Normal | sync.products | ProductUpdatedHandler|
-| `products/delete` | High   | sync.products | ProductDeletedHandler|
+| Topic             | Pri    | Queue          | Handler               |
+| ----------------- | ------ | -------------- | --------------------- |
+| `products/create` | Normal | webhook-queue  | ProductCreatedHandler |
+| `products/update` | Normal | webhook-queue  | ProductUpdatedHandler |
+| `products/delete` | High   | webhook-queue  | ProductDeletedHandler |
 
 **Payload Sample (products/update):**
 
@@ -36,32 +36,32 @@ Configurația: `apps/backend-worker/src/webhooks/registry.ts`
 
 ### Collections
 
-| Topic                | Pri    | Queue            | Handler                  |
-| -------------------- | ------ | ---------------- | ------------------------ |
-| `collections/create` | Normal | sync.collections | CollectionCreatedHandler |
-| `collections/update` | Normal | sync.collections | CollectionUpdatedHandler |
-| `collections/delete` | Normal | sync.collections | CollectionDeletedHandler |
+| Topic                | Pri    | Queue         | Handler                  |
+| -------------------- | ------ | ------------- | ------------------------ |
+| `collections/create` | Normal | webhook-queue | CollectionCreatedHandler |
+| `collections/update` | Normal | webhook-queue | CollectionUpdatedHandler |
+| `collections/delete` | Normal | webhook-queue | CollectionDeletedHandler |
 
 ---
 
 ### Inventory
 
-| Topic                           | Prioritate | Coada     | Handler               |
-| ------------------------------- | ---------- | --------- | --------------------- |
-| `inventory_levels/update`       | Normal     | sync.inv  | InvUpdatedHandler     |
-| `inventory_levels/connect`      | Low        | sync.inv  | InvConnectedHandler   |
-| `inventory_levels/disconnect`   | Low        | sync.inv  | InvDisconnHandler     |
+| Topic                           | Prioritate | Coada         | Handler               |
+| ------------------------------- | ---------- | ------------- | --------------------- |
+| `inventory_levels/update`       | Normal     | webhook-queue | InvUpdatedHandler     |
+| `inventory_levels/connect`      | Low        | webhook-queue | InvConnectedHandler   |
+| `inventory_levels/disconnect`   | Low        | webhook-queue | InvDisconnHandler     |
 
 ---
 
 ### Orders
 
-| Topic              | Pri    | Queue       | Handler               |
-| ------------------ | ------ | ----------- | --------------------- |
-| `orders/create`    | High   | sync.orders | OrderCreatedHandler   |
-| `orders/updated`   | Normal | sync.orders | OrderUpdatedHandler   |
-| `orders/cancelled` | High   | sync.orders | OrderCancelledHandler |
-| `orders/fulfilled` | Normal | sync.orders | OrderFulfilledHandler |
+| Topic              | Pri    | Queue         | Handler               |
+| ------------------ | ------ | ------------- | --------------------- |
+| `orders/create`    | High   | webhook-queue | OrderCreatedHandler   |
+| `orders/updated`   | Normal | webhook-queue | OrderUpdatedHandler   |
+| `orders/cancelled` | High   | webhook-queue | OrderCancelledHandler |
+| `orders/fulfilled` | Normal | webhook-queue | OrderFulfilledHandler |
 
 ---
 
@@ -69,8 +69,8 @@ Configurația: `apps/backend-worker/src/webhooks/registry.ts`
 
 | Topic             | Pri      | Queue         | Handler               |
 | ----------------- | -------- | ------------- | --------------------- |
-| `app/uninstalled` | Critical | app.lifecycle | AppUninstalledHandler |
-| `shop/update`     | Normal   | app.lifecycle | ShopUpdatedHandler    |
+| `app/uninstalled` | Critical | webhook-queue | AppUninstalledHandler |
+| `shop/update`     | Normal   | webhook-queue | ShopUpdatedHandler    |
 
 **CRITICAL: `app/uninstalled`**
 
@@ -83,11 +83,11 @@ Configurația: `apps/backend-worker/src/webhooks/registry.ts`
 
 ### Customers (Extended - If Scopes Permit)
 
-| Topic              | Pri    | Queue          | Handler                |
-| ------------------ | ------ | -------------- | ---------------------- |
-| `customers/create` | Low    | sync.customers | CustomerCreatedHandler |
-| `customers/update` | Low    | sync.customers | CustomerUpdatedHandler |
-| `customers/delete` | Normal | sync.customers | CustomerDeletedHandler |
+| Topic              | Pri    | Queue         | Handler                |
+| ------------------ | ------ | ------------- | ---------------------- |
+| `customers/create` | Low    | webhook-queue | CustomerCreatedHandler |
+| `customers/update` | Low    | webhook-queue | CustomerUpdatedHandler |
+| `customers/delete` | Normal | webhook-queue | CustomerDeletedHandler |
 
 ---
 
@@ -146,18 +146,18 @@ await bloomFilter.add(webhookId);
 
 ### Retry Strategy
 
-| Attempt | Delay       | Action           |
-| ------- | ----------- | ---------------- |
-| 1       | Immediate   | First try        |
-| 2       | 30s         | First retry      |
-| 3       | 2min        | Second retry     |
-| 4       | 10min       | Third retry      |
-| 5       | 1h          | Fourth retry     |
-| 6+      | Move to DLQ | Dead Letter Queue|
+| Attempt | Delay | Action                |
+| ------- | ----- | --------------------- |
+| 1       | 0s    | First try (immediate) |
+| 2       | 1s    | Retry #1              |
+| 3       | 4s    | Retry #2              |
+
+> **Policy (Source of Truth):** max **3 attempts**.
+> Backoff schedule is **1s → 4s → 16s** (factor 4). Cu `max_attempts = 3`, doar primele două întârzieri sunt atinse.
 
 ### Dead Letter Queue (DLQ)
 
-Failed webhooks go to `webhooks.failed` queue:
+Failed webhooks go to `webhook-queue-dlq` queue:
 
 - Manual review required
 - Auto-alert on DLQ size > 100
@@ -181,10 +181,11 @@ Failed webhooks go to `webhooks.failed` queue:
 
 ### Metrics Exported
 
-- `webhook_received_total{topic, shop}` - Total received
-- `webhook_processed_total{topic, status}` - Processed
-- `webhook_processing_duration_seconds` - Processing time
-- `webhook_dlq_size` - Dead letter queue size
+- `webhook_accepted_total{topic}` - Webhooks accepted
+- `webhook_rejected_total{reason}` - Webhooks rejected
+- `webhook_duplicate_total{topic}` - Deduplicated webhooks
+- `webhook_processing_duration_seconds{topic}` - Ingress duration
+- `queue_depth{queue_name}` - Jobs waiting (DLQ uses `queue_name="webhook-queue-dlq"`)
 
 ### Alerts
 

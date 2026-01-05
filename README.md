@@ -483,6 +483,7 @@ See [.env.example](.env.example) for the complete list:
 | `DATABASE_URL`          | ✓        | PostgreSQL connection string     |
 | `REDIS_URL`             | ✓        | Redis connection string          |
 | `NPM_TASKFORCESH_TOKEN` | ✓        | BullMQ Pro registry token        |
+| `BULLMQ_PRO_TOKEN`      | ✓        | BullMQ Pro license token         |
 | `ENCRYPTION_KEY_256`    | ✓        | AES-256 key for token encryption |
 | `OPENAI_API_KEY`        | ✓        | OpenAI API key for embeddings    |
 

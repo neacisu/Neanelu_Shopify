@@ -121,7 +121,7 @@ services:
       --appendonly yes
       --appendfsync everysec
       --maxmemory 512mb
-      --maxmemory-policy allkeys-lru
+      --maxmemory-policy noeviction
       --tcp-keepalive 300
 
   # ============================================
