@@ -136,14 +136,14 @@ Receiver pentru Shopify webhooks.
 
 | Topic                | Queue            | Priority |
 | -------------------- | ---------------- | -------- |
-| `products/create`    | sync.products    | normal   |
-| `products/update`    | sync.products    | normal   |
-| `products/delete`    | sync.products    | high     |
-| `collections/create` | sync.collections | normal   |
-| `collections/update` | sync.collections | normal   |
-| `orders/create`      | sync.orders      | high     |
-| `app/uninstalled`    | app.lifecycle    | critical |
-| `shop/update`        | app.lifecycle    | normal   |
+| `products/create`    | webhook-queue    | normal   |
+| `products/update`    | webhook-queue    | normal   |
+| `products/delete`    | webhook-queue    | high     |
+| `collections/create` | webhook-queue    | normal   |
+| `collections/update` | webhook-queue    | normal   |
+| `orders/create`      | webhook-queue    | high     |
+| `app/uninstalled`    | webhook-queue    | critical |
+| `shop/update`        | webhook-queue    | normal   |
 
 **Response:** `200 OK` (acknowledge receipt)
 
@@ -286,7 +286,7 @@ Lista cozi și statistici.
   "data": {
     "queues": [
       {
-        "name": "sync.products",
+        "name": "webhook-queue",
         "waiting": 150,
         "active": 5,
         "completed": 10000,

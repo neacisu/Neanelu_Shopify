@@ -9,6 +9,7 @@ export type AppEnv = Readonly<{
 
   databaseUrl: string;
   redisUrl: string;
+  bullmqProToken: string;
 
   shopifyApiKey: string;
   shopifyApiSecret: string;
@@ -158,6 +159,7 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
   const appHost = parseUrl(env, 'APP_HOST');
   const databaseUrl = requiredString(env, 'DATABASE_URL');
   const redisUrl = parseRedisUrl(env, 'REDIS_URL');
+  const bullmqProToken = requiredString(env, 'BULLMQ_PRO_TOKEN');
 
   const shopifyApiKey = requiredString(env, 'SHOPIFY_API_KEY');
   const shopifyApiSecret = requiredString(env, 'SHOPIFY_API_SECRET');
@@ -176,6 +178,7 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     appHost,
     databaseUrl,
     redisUrl,
+    bullmqProToken,
     shopifyApiKey,
     shopifyApiSecret,
     scopes,

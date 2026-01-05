@@ -6,6 +6,7 @@
 #
 # Required GitHub Secrets:
 # - NPM_TASKFORCESH_TOKEN: BullMQ Pro registry token
+# - BULLMQ_PRO_TOKEN: BullMQ Pro license token
 
 name: CI - Pull Request
 
@@ -34,10 +35,12 @@ jobs:
   # ============================================
   lint-typecheck-test:
     name: Lint, TypeCheck & Test
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      NPM_TASKFORCESH_TOKEN: ${{ secrets.NPM_TASKFORCESH_TOKEN }}
+      NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
+      BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
       # Required runtime env (strict validation)
       APP_HOST: https://example.test
       SHOPIFY_API_KEY: ci_dummy
@@ -98,7 +101,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
         env:
-          NPM_TASKFORCESH_TOKEN: ${{ secrets.NPM_TASKFORCESH_TOKEN }}
+          NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
 
       - name: Lint
         run: pnpm lint
@@ -125,6 +128,8 @@ jobs:
         env:
           DATABASE_URL: postgresql://test:test@localhost:65010/test_db
           REDIS_URL: redis://localhost:65011
+          NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
+          BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
           NODE_ENV: test
 
       # Upload test results for debugging
@@ -144,10 +149,11 @@ jobs:
   # ============================================
   db-schema-tests:
     name: Database Schema Tests
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      NPM_TASKFORCESH_TOKEN: ${{ secrets.NPM_TASKFORCESH_TOKEN }}
+      NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
       # Required runtime env (strict validation)
       APP_HOST: https://example.test
       SHOPIFY_API_KEY: ci_dummy
@@ -192,7 +198,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
         env:
-          NPM_TASKFORCESH_TOKEN: ${{ secrets.NPM_TASKFORCESH_TOKEN }}
+          NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
 
       - name: Install PostgreSQL extensions
         env:
@@ -227,6 +233,7 @@ jobs:
   # ============================================
   security-scan:
     name: Security Scan (Trivy FS)
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -265,6 +272,7 @@ jobs:
   # ============================================
   docker-compose-validate:
     name: Docker Compose Validation
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -289,11 +297,12 @@ jobs:
   # ============================================
   docker-smoke:
     name: Docker Build Smoke Test
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [lint-typecheck-test]
     env:
-      NPM_TASKFORCESH_TOKEN: ${{ secrets.NPM_TASKFORCESH_TOKEN }}
+      NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
 
     steps:
       - name: Checkout code

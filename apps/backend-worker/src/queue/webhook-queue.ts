@@ -1,42 +1,33 @@
 /**
- * Minimal Webhook Queue (Bootstrap for F3.3)
+ * Webhook Queue Producer
  *
- * CONFORM: Plan_de_implementare F3.3.3
- * - BullMQ OSS (no Pro features yet)
- * - Minimal producer
- * - To be refactored in F4.1
+ * Uses `@app/queue-manager` (BullMQ Pro) as the single source of truth for
+ * queue infrastructure.
  */
 
-import { Queue } from 'bullmq';
 import { loadEnv } from '@app/config';
+import { configFromEnv, createQueue } from '@app/queue-manager';
 import type { WebhookJobPayload } from '@app/types';
 import type { Logger } from '@app/logger';
 
 const env = loadEnv();
 
 // Queue name constant
-export const WEBHOOK_QUEUE_NAME = 'webhooks';
+export const WEBHOOK_QUEUE_NAME = 'webhook-queue';
 
-let webhookQueue: Queue<WebhookJobPayload> | undefined;
+let webhookQueue: ReturnType<typeof createQueue> | undefined;
 
 /**
  * Lazy initialize the queue
  */
-function getQueue(): Queue<WebhookJobPayload> {
-  webhookQueue ??= new Queue<WebhookJobPayload>(WEBHOOK_QUEUE_NAME, {
-    connection: {
-      url: env.redisUrl,
-    },
-    defaultJobOptions: {
-      removeOnComplete: 100, // Keep last 100 completed
-      removeOnFail: 1000, // Keep last 1000 failed for debug
-      attempts: 3,
-      backoff: {
-        type: 'exponential',
-        delay: 1000,
-      },
-    },
-  });
+function getQueue(): ReturnType<typeof createQueue> {
+  webhookQueue ??= createQueue(
+    { config: configFromEnv(env) },
+    {
+      name: WEBHOOK_QUEUE_NAME,
+    }
+  );
+
   return webhookQueue;
 }
 
