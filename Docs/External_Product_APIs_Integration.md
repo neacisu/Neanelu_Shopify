@@ -51,21 +51,21 @@ GOOGLE_SEARCH_ENGINE_ID=your-cx-id  # Programmatic Search Engine ID
 
 #### Endpoint
 
-```
+``` bash
 GET https://www.googleapis.com/customsearch/v1
 ```
 
 #### Parametri Relevanți
 
-| Parametru | Tip | Descriere |
-|-----------|-----|-----------|
-| `key` | string | API Key (obligatoriu) |
-| `cx` | string | Search Engine ID (obligatoriu) |
-| `q` | string | Query: "{brand} {mpn}" sau "{gtin}" |
-| `num` | int | Rezultate per request (max 10) |
-| `start` | int | Offset pentru paginare |
-| `siteSearch` | string | Limitare la domeniu specific |
-| `searchType` | string | "image" pentru căutare imagini |
+| Parametru    | Tip    | Descriere                           |
+|--------------|--------|-------------------------------------|
+| `key`        | string | API Key (obligatoriu)               |
+| `cx`         | string | Search Engine ID (obligatoriu)      |
+| `q`          | string | Query: "{brand} {mpn}" sau "{gtin}" |
+| `num`        | int    | Rezultate per request (max 10)      |
+| `start`      | int    | Offset pentru paginare              |
+| `siteSearch` | string | Limitare la domeniu specific        |
+| `searchType` | string | "image" pentru căutare imagini      |
 
 #### Exemplu Request
 
@@ -117,10 +117,10 @@ export async function searchProductByGTIN(gtin: string): Promise<ProductSearchRe
 
 #### Pricing & Limits
 
-| Tier | Requests/Day | Cost |
-|------|--------------|------|
-| Free | 100 | $0 |
-| Paid | 10,000+ | $5/1000 queries |
+| Tier | Requests/Day | Cost            |
+|------|--------------|-----------------|
+| Free | 100          | $0              |
+| Paid | 10,000+      | $5/1000 queries |
 
 > **Recomandare:** Pentru 1.77M produse, buget estimat: ~$885 (1 query/produs)
 
@@ -133,10 +133,11 @@ export async function searchProductByGTIN(gtin: string): Promise<ProductSearchRe
 #### Notă Importantă
 
 Acest API necesită un cont Google Merchant Center activ. Este util pentru:
+
 - Verificarea produselor proprii publicate
 - Comparație cu competitorii (dacă aveți acces)
 
-#### Nu este recomandat pentru:
+> **Nu este recomandat pentru:**
 
 - Scraping de produse ale altor comercianți (ToS violation)
 - Căutări de produse externe
@@ -147,7 +148,7 @@ Acest API necesită un cont Google Merchant Center activ. Este util pentru:
 
 > **Use Case:** Căutare vizuală de produse similare pe bază de imagine
 
-#### Configurare
+#### Configurare GV AI
 
 ```bash
 GOOGLE_CLOUD_PROJECT=your-project-id
@@ -197,15 +198,15 @@ export async function searchSimilarProducts(imageUri: string) {
 
 ### Avantaje pentru Scraping Inteligent
 
-| Caracteristică | Descriere |
-|----------------|-----------|
-| **Structured Output** | Native JSON schema enforcement |
-| **Accuracy** | 95%+ pe date factuale despre produse |
-| **Hallucination Rate** | <2% pentru extracție de atribute |
-| **Rate Limit** | 60 RPM (tier plătit) |
-| **Cost** | $5/M input tokens, $15/M output tokens |
+| Caracteristică         | Descriere                              |
+|------------------------|----------------------------------------|
+| **Structured Output**  | Native JSON schema enforcement         |
+| **Accuracy**           | 95%+ pe date factuale despre produse   |
+| **Hallucination Rate** | <2% pentru extracție de atribute       |
+| **Rate Limit**         | 60 RPM (tier plătit)                   |
+| **Cost**               | $5/M input tokens, $15/M output tokens |
 
-### Configurare
+### Configurare xAI
 
 ```bash
 XAI_API_KEY=xai-your-api-key
@@ -299,21 +300,21 @@ ${html.slice(0, 50000)}` // Limitare tokens
 
 ### Strategii Anti-Hallucination
 
-| Strategie | Implementare |
-|-----------|--------------|
-| **Low Temperature** | `temperature: 0.1` pentru răspunsuri deterministe |
-| **Explicit Instructions** | "NU inventa valori" în system prompt |
-| **Confidence Scoring** | Model-ul raportează încrederea per câmp |
-| **Post-Validation** | Verificare GTIN cu algoritm checksum |
-| **Multi-Source Consensus** | Validare încrucișată din 3+ surse |
+| Strategie                  | Implementare                                      |
+|----------------------------|---------------------------------------------------|
+| **Low Temperature**        | `temperature: 0.1` pentru răspunsuri deterministe |
+| **Explicit Instructions**  | "NU inventa valori" în system prompt              |
+| **Confidence Scoring**     | Model-ul raportează încrederea per câmp           |
+| **Post-Validation**        | Verificare GTIN cu algoritm checksum              |
+| **Multi-Source Consensus** | Validare încrucișată din 3+ surse                 |
 
 ### Cost Estimation pentru 1.77M Produse
 
-| Scenariu | Input Tokens | Output Tokens | Cost Total |
-|----------|--------------|---------------|------------|
-| 1 request/produs (avg 5K input, 500 output) | 8.85B | 885M | ~$57,525 |
-| Cu caching (50% hit rate) | 4.43B | 442M | ~$28,763 |
-| Batch processing (grok-2-mini) | 4.43B | 442M | ~$5,753 |
+| Scenariu                                    | Input Tokens | Output Tokens | Cost Total |
+|---------------------------------------------|--------------|---------------|------------|
+| 1 request/produs (avg 5K input, 500 output) | 8.85B        | 885M          | ~$57,525   |
+| Cu caching (50% hit rate)                   | 4.43B        | 442M          | ~$28,763   |
+| Batch processing (grok-2-mini)              | 4.43B        | 442M          | ~$5,753    |
 
 > **Recomandare:** Folosiți `grok-2-mini` pentru extracții în masă, `grok-3` pentru validări critice.
 
@@ -323,20 +324,20 @@ ${html.slice(0, 50000)}` // Limitare tokens
 
 ### 1. Open Product Data APIs
 
-| Sursă | API | Acces | Best For |
-|-------|-----|-------|----------|
-| **Open EAN** | REST | Gratuit | GTIN lookups |
-| **UPCitemdb** | REST | Freemium | Barcode database |
-| **Barcodelookup.com** | REST | Paid | Comprehensive |
-| **Open Food Facts** | REST | Gratuit | Food products |
+| Sursă                 | API  | Acces    | Best For         |
+|-----------------------|------|----------|------------------|
+| **Open EAN**          | REST | Gratuit  | GTIN lookups     |
+| **UPCitemdb**         | REST | Freemium | Barcode database |
+| **Barcodelookup.com** | REST | Paid     | Comprehensive    |
+| **Open Food Facts**   | REST | Gratuit  | Food products    |
 
 ### 2. Marketplace APIs
 
-| Marketplace | API Disponibil | Note |
-|-------------|----------------|------|
-| **eMag** | Partner API | Necesită contract parteneriat |
-| **Amazon** | Product Advertising API | Rate limited, complexitate mare |
-| **AliExpress** | Affiliate API | Bun pentru produse chinezești |
+| Marketplace    | API Disponibil          | Note                            |
+|----------------|-------------------------|---------------------------------|
+| **eMag**       | Partner API             | Necesită contract parteneriat   |
+| **Amazon**     | Product Advertising API | Rate limited, complexitate mare |
+| **AliExpress** | Affiliate API           | Bun pentru produse chinezești   |
 
 ### 3. Web Scraping (Fallback)
 
@@ -425,15 +426,15 @@ GROUP BY DATE(created_at), api_provider;
 
 ## Data Flow Architecture
 
-```
+```mermaid
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        BROAD SEARCH PIPELINE                        │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
-│  ┌──────────────┐     ┌──────────────┐     ┌──────────────┐        │
-│  │ prod_master  │────▶│ BullMQ Queue │────▶│ Google API   │        │
-│  │ (bronze)     │     │ enrichment   │     │ Search       │        │
-│  └──────────────┘     └──────────────┘     └──────────────┘        │
+│  ┌──────────────┐     ┌──────────────┐     ┌──────────────┐         │
+│  │ prod_master  │────▶│ BullMQ Queue │────▶│ Google API   │         │
+│  │ (bronze)     │     │ enrichment   │     │ Search       │         │
+│  └──────────────┘     └──────────────┘     └──────────────┘         │
 │        │                     │                    │                 │
 │        │                     │                    ▼                 │
 │        │                     │           ┌──────────────┐           │
@@ -454,47 +455,45 @@ GROUP BY DATE(created_at), api_provider;
 │        │                                └──────────────┘            │
 │        │                                        │                   │
 │        │                                        ▼                   │
-│        │    ┌───────────────────────────────────────────────────┐  │
-│        │    │              prod_similarity_matches               │  │
-│        │    │  (source_url, similarity_score, specs_extracted)  │  │
-│        └───▶│                                                   │  │
-│             └───────────────────────────────────────────────────┘  │
+│        │    ┌───────────────────────────────────────────────────┐   │
+│        │    │              prod_similarity_matches              │   │
+│        │    │  (source_url, similarity_score, specs_extracted)  │   │
+│        └───▶│                                                   │   │
+│             └───────────────────────────────────────────────────┘   │
 │                                    │                                │
 │                                    ▼                                │
-│             ┌───────────────────────────────────────────────────┐  │
-│             │              CONSENSUS ENGINE                      │  │
-│             │  - Multi-source attribute voting                   │  │
-│             │  - Confidence scoring                              │  │
-│             │  - Conflict resolution                             │  │
-│             └───────────────────────────────────────────────────┘  │
+│             ┌───────────────────────────────────────────────────┐   │
+│             │              CONSENSUS ENGINE                     │   │
+│             │  - Multi-source attribute voting                  │   │
+│             │  - Confidence scoring                             │   │
+│             │  - Conflict resolution                            │   │
+│             └───────────────────────────────────────────────────┘   │
 │                                    │                                │
 │                                    ▼                                │
-│             ┌───────────────────────────────────────────────────┐  │
-│             │         prod_master.data_quality_level             │  │
-│             │              bronze → silver → golden              │  │
-│             └───────────────────────────────────────────────────┘  │
+│             ┌───────────────────────────────────────────────────┐   │
+│             │         prod_master.data_quality_level            │   │
+│             │              bronze → silver → golden             │   │
+│             └───────────────────────────────────────────────────┘   │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
-
----
 
 ## Implementation Tasks
 
 ### Fază 8: External Product Search Integration
 
-| Task ID | Descriere | Sprint | PR | Dependențe |
-|---------|-----------|--------|-----|------------|
-| F8.4.1 | Google Custom Search API integration | **S8** | PR-045 | F2.2.1, F6.1 |
-| F8.4.2 | prod_similarity_matches CRUD & business logic | **S8** | PR-046 | F8.4.1 |
-| F8.4.3 | xAI Grok structured extraction service | **S8** | PR-047 | F8.4.2 |
-| F8.4.4 | BullMQ enrichment queue with rate limiting | **S8** | PR-048 | F8.4.3 |
-| F8.4.5 | Multi-source consensus engine | **S8** | PR-049 | F8.4.4 |
-| F8.4.6 | Quality level promotion logic (bronze→silver→golden) | **S8** | PR-050 | F8.4.5 |
-| F8.4.7 | API cost tracking & budget alerts | **S8** | PR-051 | F8.4.4 |
-| F8.4.8 | PIM progress dashboard MVs | **S8** | PR-052 | F8.4.6 |
-| F8.4.9 | Quality events webhook system | **S8** | PR-053 | F8.4.6 |
-| F8.4.10 | Playwright scraper fallback | **S8** | PR-054 | F8.4.4 |
+| Task ID | Descriere                                            | Sprint | PR     | Dependențe   |
+|---------|------------------------------------------------------|--------|--------|--------------|
+| F8.4.1  | Google Custom Search API integration                 | **S8** | PR-045 | F2.2.1, F6.1 |
+| F8.4.2  | prod_similarity_matches CRUD & business logic.       | **S8** | PR-046 | F8.4.1       |
+| F8.4.3  | xAI Grok structured extraction service               | **S8** | PR-047 | F8.4.2       |
+| F8.4.4  | BullMQ enrichment queue with rate limiting           | **S8** | PR-048 | F8.4.3.      |
+| F8.4.5  | Multi-source consensus engine                        | **S8** | PR-049 | F8.4.4       |
+| F8.4.6  | Quality level promotion logic (bronze→silver→golden) | **S8** | PR-050 | F8.4.5       |
+| F8.4.7  | API cost tracking & budget alerts                    | **S8** | PR-051 | F8.4.4       |
+| F8.4.8  | PIM progress dashboard MVs                           | **S8** | PR-052 | F8.4.6.      |
+| F8.4.9  | Quality events webhook system                        | **S8** | PR-053 | F8.4.6       |
+| F8.4.10 | Playwright scraper fallback                          | **S8** | PR-054 | F8.4.4       |
 
 > **IMPORTANT:** Sprint 8 = Golden Record Strategy. Sprint 9 = Production (FINAL).
 
@@ -512,6 +511,6 @@ GROUP BY DATE(created_at), api_provider;
 
 ## Changelog
 
-| Version | Date | Changes |
-|---------|------|---------|
-| 1.0 | 2025-12-29 | Initial documentation pentru Gap #3 |
+| Version | Date       | Changes                             |
+|---------|------------|-------------------------------------|
+| 1.0     | 2025-12-29 | Initial documentation pentru Gap #3 |

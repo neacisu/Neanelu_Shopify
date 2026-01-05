@@ -585,7 +585,7 @@ The project follows a phased approach documented in [Plan_de_implementare.md](Pl
 
 ### Pull Request Process
 
-**Git Branch Strategy (CONFORM Plan_de_implementare.md)**
+> **Git Branch Strategy (CONFORM Plan_de_implementare.md)**
 
 | Branch Type | Pattern                         | Example                     | Description                          |
 | ----------- | ------------------------------- | --------------------------- | ------------------------------------ |
