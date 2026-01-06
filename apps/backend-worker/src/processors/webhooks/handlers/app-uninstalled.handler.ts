@@ -9,7 +9,7 @@
 
 import type { Logger } from '@app/logger';
 import { withTenantContext } from '@app/database';
-import { cleanupWebhookJobsForShopDomain } from '../../../queue/webhook-queue.js';
+import { cleanupWebhookJobsForShopDomain } from '@app/queue-manager';
 import { shopUninstalledTotal, webhookUninstalledTotal } from '../../../otel/metrics.js';
 
 export interface AppUninstalledContext {

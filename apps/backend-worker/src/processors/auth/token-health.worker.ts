@@ -25,6 +25,13 @@ export interface TokenHealthWorkerHandle {
   close: () => Promise<void>;
 }
 
+async function closeWithTimeout(label: string, fn: () => Promise<void>, timeoutMs: number) {
+  const timeout = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error(`${label} timeout`)), timeoutMs).unref();
+  });
+  await Promise.race([fn(), timeout]);
+}
+
 function startTokenHealthWorker(logger: Logger): TokenHealthWorkerHandle {
   const worker = new Worker<TokenHealthJobData>(
     TOKEN_HEALTH_QUEUE_NAME,
@@ -45,7 +52,22 @@ function startTokenHealthWorker(logger: Logger): TokenHealthWorkerHandle {
   });
 
   const close = async (): Promise<void> => {
-    await worker.close();
+    await closeWithTimeout(
+      'token-health worker shutdown',
+      async () => {
+        const pause = (
+          worker as unknown as { pause?: (doNotWaitActive?: boolean) => Promise<void> }
+        ).pause;
+        if (typeof pause === 'function') {
+          await pause.call(worker, false).catch(() => {
+            // best-effort
+          });
+        }
+
+        await worker.close();
+      },
+      10_000
+    );
   };
 
   return { worker, close };

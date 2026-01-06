@@ -22,10 +22,14 @@ void describe('defaultQueuePolicy', () => {
     const policy = defaultQueuePolicy();
     assert.equal(policy.attempts, 3);
 
+    assert.deepEqual(policy.removeOnComplete, { age: 86400 });
+    assert.deepEqual(policy.removeOnFail, { age: 604800 });
+
     assert.equal(typeof policy.backoff, 'object');
     assert.notEqual(policy.backoff, null);
-    const backoff = policy.backoff as { type?: unknown };
+    const backoff = policy.backoff as { type?: unknown; delay?: unknown };
     assert.equal(backoff.type, NEANELU_BACKOFF_STRATEGY);
+    assert.equal(backoff.delay, 1000);
   });
 });
 
