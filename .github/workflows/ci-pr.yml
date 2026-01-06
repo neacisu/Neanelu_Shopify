@@ -105,6 +105,17 @@ jobs:
       BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
       NODE_ENV: test
 
+    services:
+      redis:
+        image: redis:8.4-alpine
+        ports:
+          - 65011:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -134,6 +145,8 @@ jobs:
 
       - name: Run tests (@app/queue-manager)
         run: pnpm --filter @app/queue-manager test
+        env:
+          REDIS_URL: redis://localhost:65011
 
   # ============================================
   # Tests: web-admin (vitest)
