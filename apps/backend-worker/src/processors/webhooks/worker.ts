@@ -23,6 +23,7 @@ import {
   withJobTelemetryContext,
   WEBHOOK_QUEUE_NAME,
 } from '@app/queue-manager';
+import { emitQueueStreamEvent } from '../../runtime/queue-stream.js';
 import {
   queueActive,
   queueDepth,
@@ -36,6 +37,7 @@ import {
   queueFairnessGroupWaitSeconds,
 } from '../../otel/metrics.js';
 import { handleAppUninstalled } from './handlers/app-uninstalled.handler.js';
+import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
 
 const env = loadEnv();
 
@@ -342,6 +344,10 @@ export function startWebhookWorker(logger: Logger): WebhookWorkerHandle {
   worker.on('failed', (job, err) => {
     void withJobTelemetryContext(job, async () => {
       const jobId = job?.id != null ? String(job.id) : undefined;
+
+      if (jobId) {
+        clearWorkerCurrentJob('webhook-worker', jobId);
+      }
       const maxAttempts = job?.opts.attempts;
       const attemptsMade = job?.attemptsMade;
       const exhausted =
@@ -401,6 +407,20 @@ export function startWebhookWorker(logger: Logger): WebhookWorkerHandle {
         },
         exhausted ? 'Webhook worker job failed (terminal)' : 'Webhook worker job failed (retrying)'
       );
+
+      if (jobId) {
+        emitQueueStreamEvent({
+          type: 'job.failed',
+          queueName: WEBHOOK_QUEUE_NAME,
+          jobId,
+          jobName: String(job?.name ?? 'unknown'),
+          attemptsMade: typeof attemptsMade === 'number' ? attemptsMade : null,
+          maxAttempts: typeof maxAttempts === 'number' ? maxAttempts : null,
+          exhausted,
+          errorMessage: err instanceof Error ? err.message : String(err),
+          timestamp: new Date().toISOString(),
+        });
+      }
     });
   });
 
@@ -409,6 +429,18 @@ export function startWebhookWorker(logger: Logger): WebhookWorkerHandle {
     void withJobTelemetryContext(job, async () => {
       const jobId = String(job.id ?? job.name);
       activeStartedAtMs.set(jobId, Date.now());
+
+      const progressUnknown = (job as unknown as { progress?: unknown }).progress;
+      const progressPct =
+        typeof progressUnknown === 'number' && Number.isFinite(progressUnknown)
+          ? Math.max(0, Math.min(100, progressUnknown))
+          : null;
+      setWorkerCurrentJob('webhook-worker', {
+        jobId,
+        jobName: String(job.name),
+        startedAtIso: new Date().toISOString(),
+        progressPct,
+      });
 
       const timestamp = (job as unknown as { timestamp?: number }).timestamp;
       const latencySeconds =
@@ -452,6 +484,16 @@ export function startWebhookWorker(logger: Logger): WebhookWorkerHandle {
         },
         'Webhook worker job started'
       );
+
+      emitQueueStreamEvent({
+        type: 'job.started',
+        queueName: WEBHOOK_QUEUE_NAME,
+        jobId,
+        jobName: String(job.name),
+        attemptsMade: typeof job.attemptsMade === 'number' ? job.attemptsMade : null,
+        maxAttempts: typeof job.opts.attempts === 'number' ? job.opts.attempts : null,
+        timestamp: new Date().toISOString(),
+      });
     });
   });
 
@@ -459,6 +501,8 @@ export function startWebhookWorker(logger: Logger): WebhookWorkerHandle {
     if (!job) return;
     void withJobTelemetryContext(job, () => {
       const jobId = String(job.id ?? job.name);
+
+      clearWorkerCurrentJob('webhook-worker', jobId);
 
       const startedAt = activeStartedAtMs.get(jobId);
       const durationMs = startedAt != null ? Date.now() - startedAt : null;
@@ -477,6 +521,15 @@ export function startWebhookWorker(logger: Logger): WebhookWorkerHandle {
         },
         'Webhook worker job completed'
       );
+
+      emitQueueStreamEvent({
+        type: 'job.completed',
+        queueName: WEBHOOK_QUEUE_NAME,
+        jobId,
+        jobName: String(job.name),
+        durationMs,
+        timestamp: new Date().toISOString(),
+      });
 
       return Promise.resolve();
     });

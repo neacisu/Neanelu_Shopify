@@ -19,7 +19,6 @@ export default defineConfig({
       '/api': {
         target: isDocker ? 'http://backend-worker:65000' : 'http://localhost:65000',
         changeOrigin: true,
-        rewrite: (path: string) => path.replace(/^\/api/, ''),
       },
     },
   },

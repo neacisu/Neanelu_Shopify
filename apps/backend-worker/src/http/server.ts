@@ -14,6 +14,7 @@ import {
   requireSession,
 } from '../auth/session.js';
 import { webhookRoutes } from '../routes/webhooks.js';
+import { queueRoutes } from '../routes/queues.js';
 import { setRequestIdAttribute } from '@app/logger';
 import {
   httpActiveRequests,
@@ -220,6 +221,9 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   registerAuthRoutes(server, { env, logger });
 
   const sessionConfig = getDefaultSessionConfig(env.shopifyApiSecret, env.shopifyApiKey);
+
+  // Admin APIs (used by web-admin)
+  await server.register(queueRoutes, { prefix: '/api', env, logger, sessionConfig });
 
   server.get('/api/health', (request, reply) => {
     void reply.status(200).send({

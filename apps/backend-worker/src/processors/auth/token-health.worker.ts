@@ -25,6 +25,7 @@ import {
   checkTokenHealth,
   markNeedsReauth,
 } from '../../auth/token-lifecycle.js';
+import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
 
 const env = loadEnv();
 
@@ -51,57 +52,69 @@ function startTokenHealthWorker(logger: Logger): TokenHealthWorkerHandle {
     name: TOKEN_HEALTH_QUEUE_NAME,
     enableDelayHandling: true,
     processor: async (job) => {
-      if (job.name === TOKEN_HEALTH_JOB_NAME) {
-        // Fan-out scheduler job: enqueue per-shop checks so each shop can be delayed independently.
-        const config = createTokenHealthJobConfig(env.encryptionKeyHex);
-        const shopIds = await getShopsForHealthCheck(config.batchSize);
-
-        for (const shopId of shopIds) {
-          await queue.add(
-            TOKEN_HEALTH_SHOP_JOB_NAME,
-            {
-              shopId,
-              triggeredBy: 'scheduler',
-              timestamp: Date.now(),
-            },
-            {
-              // Stable id per shop per run (avoid duplicate fan-out floods).
-              jobId: `token-health:${shopId}:${Math.floor(Date.now() / 1000)}`,
-              removeOnComplete: 50,
-              removeOnFail: 200,
-              attempts: 1,
-            }
-          );
-        }
-
-        logger.info({ count: shopIds.length }, 'Token health fan-out enqueued');
-        return;
-      }
-
-      if (job.name !== TOKEN_HEALTH_SHOP_JOB_NAME) return;
-
-      const data = job.data as TokenHealthShopJobData;
-      const shopId = data.shopId;
-
-      // Proactive REST rate limit gating (per shop) before calling Shopify.
-      const bucketKey = `neanelu:ratelimit:rest:${shopId}`;
-      const gate = await checkAndConsumeCost(redis, {
-        bucketKey,
-        costToConsume: 1,
-        maxTokens: 40,
-        refillPerSecond: 2,
-        ttlMs: 10 * 60 * 1000,
+      const jobId = String(job.id ?? job.name);
+      setWorkerCurrentJob('token-health-worker', {
+        jobId,
+        jobName: String(job.name),
+        startedAtIso: new Date().toISOString(),
+        progressPct: null,
       });
 
-      if (!gate.allowed) {
-        throw new ShopifyRateLimitedError({ kind: 'preflight', delayMs: gate.delayMs });
-      }
+      try {
+        if (job.name === TOKEN_HEALTH_JOB_NAME) {
+          // Fan-out scheduler job: enqueue per-shop checks so each shop can be delayed independently.
+          const config = createTokenHealthJobConfig(env.encryptionKeyHex);
+          const shopIds = await getShopsForHealthCheck(config.batchSize);
 
-      const config = createTokenHealthJobConfig(env.encryptionKeyHex);
-      const health = await checkTokenHealth(shopId, config.encryptionKey, logger);
+          for (const shopId of shopIds) {
+            await queue.add(
+              TOKEN_HEALTH_SHOP_JOB_NAME,
+              {
+                shopId,
+                triggeredBy: 'scheduler',
+                timestamp: Date.now(),
+              },
+              {
+                // Stable id per shop per run (avoid duplicate fan-out floods).
+                jobId: `token-health:${shopId}:${Math.floor(Date.now() / 1000)}`,
+                removeOnComplete: 50,
+                removeOnFail: 200,
+                attempts: 1,
+              }
+            );
+          }
 
-      if (!health.valid && health.needsReauth) {
-        await markNeedsReauth(shopId, health.reason ?? 'Health check failed');
+          logger.info({ count: shopIds.length }, 'Token health fan-out enqueued');
+          return;
+        }
+
+        if (job.name !== TOKEN_HEALTH_SHOP_JOB_NAME) return;
+
+        const data = job.data as TokenHealthShopJobData;
+        const shopId = data.shopId;
+
+        // Proactive REST rate limit gating (per shop) before calling Shopify.
+        const bucketKey = `neanelu:ratelimit:rest:${shopId}`;
+        const gate = await checkAndConsumeCost(redis, {
+          bucketKey,
+          costToConsume: 1,
+          maxTokens: 40,
+          refillPerSecond: 2,
+          ttlMs: 10 * 60 * 1000,
+        });
+
+        if (!gate.allowed) {
+          throw new ShopifyRateLimitedError({ kind: 'preflight', delayMs: gate.delayMs });
+        }
+
+        const config = createTokenHealthJobConfig(env.encryptionKeyHex);
+        const health = await checkTokenHealth(shopId, config.encryptionKey, logger);
+
+        if (!health.valid && health.needsReauth) {
+          await markNeedsReauth(shopId, health.reason ?? 'Health check failed');
+        }
+      } finally {
+        clearWorkerCurrentJob('token-health-worker', jobId);
       }
     },
     workerOptions: {
