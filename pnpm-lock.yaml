@@ -65,6 +65,9 @@ importers:
       '@app/queue-manager':
         specifier: workspace:*
         version: link:../../packages/queue-manager
+      '@app/shopify-client':
+        specifier: workspace:*
+        version: link:../../packages/shopify-client
       '@app/types':
         specifier: workspace:*
         version: link:../../packages/types
@@ -270,6 +273,9 @@ importers:
         specifier: ^5.8.2
         version: 5.8.2
     devDependencies:
+      '@app/shopify-client':
+        specifier: workspace:*
+        version: link:../shopify-client
       '@types/node':
         specifier: ^25.0.3
         version: 25.0.3
@@ -280,7 +286,11 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
-  packages/shopify-client: {}
+  packages/shopify-client:
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
 
   packages/types: {}
 
