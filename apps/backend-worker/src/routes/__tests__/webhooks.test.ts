@@ -16,6 +16,15 @@ void mock.module('@app/config', {
   },
 });
 
+// Mock @app/database (used for shopId resolution in ingress)
+void mock.module('@app/database', {
+  namedExports: {
+    pool: {
+      query: () => Promise.resolve({ rows: [{ id: '00000000-0000-0000-0000-000000000001' }] }),
+    },
+  },
+});
+
 // Mock Redis (ioredis) used in webhooks.ts
 const RedisMock = class {
   quit() {
@@ -112,6 +121,7 @@ void describe('Webhook Routes', () => {
     );
     const jobPayload = callArg;
     assert.strictEqual(jobPayload.shopDomain, 'test.myshopify.com');
+    assert.strictEqual(jobPayload.shopId, '00000000-0000-0000-0000-000000000001');
     assert.strictEqual(jobPayload.topic, 'products/create');
     assert.strictEqual(jobPayload.webhookId, 'webhook-123');
     assert.ok(typeof jobPayload.payloadRef === 'string' && jobPayload.payloadRef.length > 0);

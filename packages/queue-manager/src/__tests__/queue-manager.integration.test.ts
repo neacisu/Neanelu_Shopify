@@ -6,6 +6,7 @@ import { Redis as IORedis } from 'ioredis';
 import { createQueue, createQueueEvents, createWorker, pruneQueue } from '../queue-manager.js';
 
 process.env['QUEUE_MANAGER_DLQ_STRICT'] = 'true';
+process.env['STARVATION_TIMEOUT_MS'] ??= '3000';
 
 const isCi = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
 function getRequiredEnv(name: string): string {
@@ -106,6 +107,7 @@ void describe('queue-manager (integration)', { skip: !testConfig }, () => {
       cleanupQueue(`${baseName}-retries`),
       cleanupQueue(`${baseName}-retries-dlq`),
       cleanupQueue(`${baseName}-prune`),
+      cleanupQueue(`${baseName}-groups-fairness`),
     ]);
   });
 
@@ -444,4 +446,101 @@ void describe('queue-manager (integration)', { skip: !testConfig }, () => {
       await queue.close();
     }
   });
+
+  void it(
+    'enforces per-group concurrency and avoids tenant starvation',
+    { timeout: 20_000 },
+    async () => {
+      const name = `${baseName}-groups-fairness`;
+      assert.ok(testConfig);
+      const cfg = testConfig;
+
+      const queue = createQueue({ config: cfg }, { name });
+
+      const starvationTimeoutMs = Number(process.env['STARVATION_TIMEOUT_MS'] ?? '3000');
+      assert.ok(
+        Number.isInteger(starvationTimeoutMs) && starvationTimeoutMs > 0,
+        `STARVATION_TIMEOUT_MS must be a positive integer, got ${process.env['STARVATION_TIMEOUT_MS']}`
+      );
+
+      // Global concurrency=2, per-group concurrency=1.
+      // This should allow group B to make progress even if group A has a backlog.
+      const activeByGroup = new Map<string, number>();
+      const completed: { groupId: string; completedAtMs: number }[] = [];
+
+      const { worker } = createWorker<{ groupId: 'A' | 'B'; seq: number }>(
+        { config: cfg },
+        {
+          name,
+          processor: async (job) => {
+            const groupId = job.data.groupId;
+            const currentActive = activeByGroup.get(groupId) ?? 0;
+            activeByGroup.set(groupId, currentActive + 1);
+
+            // groupConcurrency=1 should prevent this ever being >1.
+            assert.ok(
+              (activeByGroup.get(groupId) ?? 0) <= 1,
+              `groupConcurrency violated for group ${groupId}`
+            );
+
+            await new Promise((resolve) => setTimeout(resolve, 75));
+            completed.push({ groupId, completedAtMs: Date.now() });
+
+            activeByGroup.set(groupId, (activeByGroup.get(groupId) ?? 1) - 1);
+          },
+          workerOptions: {
+            concurrency: 2,
+            group: {
+              concurrency: 1,
+            },
+          },
+        }
+      );
+
+      try {
+        // Enqueue a backlog for tenant A.
+        for (let i = 0; i < 100; i += 1) {
+          await queue.add('work', { groupId: 'A', seq: i }, { group: { id: 'A' } });
+        }
+
+        // Enqueue a smaller backlog for tenant B.
+        // With Groups fairness + concurrency=2, tenant B should not wait for all A jobs.
+        const bEnqueuedAtMs = Date.now();
+        for (let i = 0; i < 10; i += 1) {
+          await queue.add('work', { groupId: 'B', seq: i }, { group: { id: 'B' } });
+        }
+
+        // Wait until B completes, or fail fast.
+        await Promise.race([
+          (async () => {
+            while (true) {
+              const hasB = completed.some((c) => c.groupId === 'B');
+              if (hasB) return;
+              await new Promise((resolve) => setTimeout(resolve, 25));
+            }
+          })(),
+          new Promise<void>((_, reject) =>
+            setTimeout(() => reject(new Error('tenant_B_starved_timeout')), starvationTimeoutMs)
+          ),
+        ]);
+
+        const bCompletedAtMs = completed.find((c) => c.groupId === 'B')!.completedAtMs;
+        assert.ok(
+          bCompletedAtMs - bEnqueuedAtMs < starvationTimeoutMs,
+          `Expected tenant B to complete within STARVATION_TIMEOUT_MS; latencyMs=${bCompletedAtMs - bEnqueuedAtMs}`
+        );
+
+        // Stronger signal: some of tenant B's jobs should complete before tenant A drains.
+        // This is a lightweight interleaving check without relying on exact ordering.
+        const firstTenCompletions = completed.slice(0, 10);
+        assert.ok(
+          firstTenCompletions.some((c) => c.groupId === 'B'),
+          'Expected tenant B to appear in early completions (interleaving)'
+        );
+      } finally {
+        await worker.close();
+        await queue.close();
+      }
+    }
+  );
 });

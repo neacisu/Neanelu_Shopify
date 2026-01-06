@@ -223,7 +223,9 @@ export type RejectionReason =
   | 'invalid_hmac'
   | 'payload_too_large'
   | 'invalid_json'
-  | 'storage_unavailable';
+  | 'storage_unavailable'
+  | 'shop_id_lookup_timeout'
+  | 'unknown_shop';
 
 /**
  * Record webhook metric based on outcome

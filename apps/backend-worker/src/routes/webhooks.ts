@@ -22,6 +22,7 @@ import { sanitizeShopDomain } from '../auth/validation.js';
 import { createHash } from 'node:crypto';
 import type { Logger } from '@app/logger';
 import { withSpan, withSpanSync } from '@app/logger';
+import { pool } from '@app/database';
 import {
   incrementWebhookMetric,
   webhookHmacDuration,
@@ -41,6 +42,33 @@ const redis: RedisClient = new RedisCtor(env.redisUrl);
 
 const WEBHOOK_BODY_LIMIT_BYTES = 1_048_576; // 1 MiB
 const WEBHOOK_PAYLOAD_TTL_SECONDS = 300; // 5 minutes
+
+const SHOP_ID_LOOKUP_TIMEOUT_MS = 250;
+const SHOP_ID_CACHE_TTL_MS = 60_000;
+const shopIdCache = new Map<string, { shopId: string; expiresAtMs: number }>();
+
+async function withTimeout<T>(label: string, fn: () => Promise<T>, timeoutMs: number): Promise<T> {
+  const timeout = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error(`${label}_timeout`)), timeoutMs).unref();
+  });
+  return Promise.race([fn(), timeout]);
+}
+
+async function getShopIdByDomainCached(shopDomain: string): Promise<string | null> {
+  const now = Date.now();
+  const cached = shopIdCache.get(shopDomain);
+  if (cached && cached.expiresAtMs > now) return cached.shopId;
+
+  const result = await pool.query<{ id: string }>(
+    'SELECT id FROM shops WHERE shopify_domain = $1 LIMIT 1',
+    [shopDomain]
+  );
+  const shopId = result.rows[0]?.id ?? null;
+  if (shopId) {
+    shopIdCache.set(shopDomain, { shopId, expiresAtMs: now + SHOP_ID_CACHE_TTL_MS });
+  }
+  return shopId;
+}
 
 export const webhookRoutes: FastifyPluginCallback<{ appLogger?: Logger }> = (app, opts, done) => {
   // Add content type parser for raw body to handle HMAC verification
@@ -149,7 +177,7 @@ export const webhookRoutes: FastifyPluginCallback<{ appLogger?: Logger }> = (app
       return reply.code(503).send({ error: 'Temporarily unable to accept webhook' });
     }
 
-    const jobPayload: WebhookJobPayload = {
+    const jobPayloadBase = {
       shopDomain,
       topic: headerTopic,
       webhookId,
@@ -158,13 +186,41 @@ export const webhookRoutes: FastifyPluginCallback<{ appLogger?: Logger }> = (app
       payloadSha256,
     };
 
+    // 6. Resolve tenant (shopId) for Groups fairness + RLS
+    const shopId = await withSpan(
+      'webhooks.shop_id_lookup',
+      { shop_domain: shopDomain },
+      async () =>
+        withTimeout(
+          'shop_id_lookup',
+          () => getShopIdByDomainCached(shopDomain),
+          SHOP_ID_LOOKUP_TIMEOUT_MS
+        )
+    ).catch((err) => {
+      incrementWebhookMetric('rejected', { reason: 'shop_id_lookup_timeout', topic: headerTopic });
+      log.error({ err, shop: shopDomain }, 'Shop ID lookup timed out');
+      return '__timeout__' as const;
+    });
+
+    if (shopId === '__timeout__') {
+      return reply.code(503).send({ error: 'Temporarily unable to accept webhook' });
+    }
+
+    if (!shopId) {
+      // Unknown shop: treat as non-retriable (stop Shopify retries).
+      incrementWebhookMetric('rejected', { reason: 'unknown_shop', topic: headerTopic });
+      log.warn({ shop: shopDomain, topic: headerTopic }, 'Webhook received for unknown shop');
+      return reply.code(200).send();
+    }
+
+    const jobPayload: WebhookJobPayload = { ...jobPayloadBase, shopId };
     if (!validateWebhookJobPayload(jobPayload)) {
       incrementWebhookMetric('rejected', { reason: 'invalid_json', topic: headerTopic });
       log.error({ jobPayload }, 'Invalid webhook job payload (contract violation)');
       return reply.code(500).send({ error: 'Internal error' });
     }
 
-    // 6. Enqueue (Minimal)
+    // 7. Enqueue (Minimal)
     await withSpan(
       'webhooks.enqueue',
       { shop_domain: shopDomain, topic: headerTopic, outcome: 'accepted' },
@@ -172,14 +228,14 @@ export const webhookRoutes: FastifyPluginCallback<{ appLogger?: Logger }> = (app
     );
     incrementWebhookMetric('accepted', { topic: headerTopic });
 
-    // 7. Mark Processed (Dedupe)
+    // 8. Mark Processed (Dedupe)
     await markWebhookProcessed(redis, shopDomain, headerTopic, webhookId, request.log);
 
     webhookProcessingDuration.record(Number(process.hrtime.bigint() - startNs) / 1_000_000_000, {
       topic: headerTopic,
     });
 
-    // 8. Respond OK
+    // 9. Respond OK
     return reply.code(200).send();
   });
 

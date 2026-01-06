@@ -159,7 +159,7 @@ export function startWebhookWorker(logger: Logger): WebhookWorkerHandle {
       const payload = payloadUnknown;
       const jobId = String(job.id ?? job.name);
 
-      const shopId = await getShopIdByDomain(payload.shopDomain);
+      const shopId = payload.shopId || (await getShopIdByDomain(payload.shopDomain));
       if (!shopId) {
         logger.warn(
           { shopDomain: payload.shopDomain, topic: payload.topic, webhookId: payload.webhookId },
@@ -211,7 +211,10 @@ export function startWebhookWorker(logger: Logger): WebhookWorkerHandle {
       }
     },
     workerOptions: {
-      concurrency: 5,
+      concurrency: env.maxGlobalConcurrency,
+      group: {
+        concurrency: env.maxActivePerShop,
+      },
     },
   });
 

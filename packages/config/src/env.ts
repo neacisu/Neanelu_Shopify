@@ -11,6 +11,11 @@ export type AppEnv = Readonly<{
   redisUrl: string;
   bullmqProToken: string;
 
+  /** PR-022 (F4.2): BullMQ Pro Groups fairness controls */
+  maxActivePerShop: number;
+  maxGlobalConcurrency: number;
+  starvationTimeoutMs: number;
+
   shopifyApiKey: string;
   shopifyApiSecret: string;
   scopes: readonly string[];
@@ -73,6 +78,16 @@ function parsePort(value: string | undefined): number {
     throw new Error(`Invalid PORT: ${raw}`);
   }
   return port;
+}
+
+function parsePositiveIntWithDefault(env: EnvSource, key: string, defaultValue: number): number {
+  const raw = env[key];
+  if (raw == null || raw.trim() === '') return defaultValue;
+  const value = Number(raw.trim());
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`Invalid ${key}: expected positive integer, got ${raw}`);
+  }
+  return value;
 }
 
 function parseUrl(env: EnvSource, key: string): URL {
@@ -161,6 +176,12 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
   const redisUrl = parseRedisUrl(env, 'REDIS_URL');
   const bullmqProToken = requiredString(env, 'BULLMQ_PRO_TOKEN');
 
+  // PR-022 (F4.2.3) defaults: keep aligned with Plan_de_implementare.
+  // These are controls for BullMQ Pro Groups fairness.
+  const maxActivePerShop = parsePositiveIntWithDefault(env, 'MAX_ACTIVE_PER_SHOP', 2);
+  const maxGlobalConcurrency = parsePositiveIntWithDefault(env, 'MAX_GLOBAL_CONCURRENCY', 50);
+  const starvationTimeoutMs = parsePositiveIntWithDefault(env, 'STARVATION_TIMEOUT_MS', 60_000);
+
   const shopifyApiKey = requiredString(env, 'SHOPIFY_API_KEY');
   const shopifyApiSecret = requiredString(env, 'SHOPIFY_API_SECRET');
   const scopes = parseScopes(requiredString(env, 'SCOPES'));
@@ -179,6 +200,9 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     databaseUrl,
     redisUrl,
     bullmqProToken,
+    maxActivePerShop,
+    maxGlobalConcurrency,
+    starvationTimeoutMs,
     shopifyApiKey,
     shopifyApiSecret,
     scopes,

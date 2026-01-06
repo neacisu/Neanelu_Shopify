@@ -2,6 +2,7 @@ import { loadEnv } from '@app/config';
 import type { WebhookJobPayload } from '@app/types';
 
 import { configFromEnv, createQueue, type QueueManagerConfig } from './queue-manager.js';
+import { normalizeShopIdToGroupId } from './strategies/fairness/group-id.js';
 
 export type LoggerLike = Readonly<{
   // Common denominator between Fastify/Pino and our Logger.
@@ -59,6 +60,14 @@ function getQueue(): ReturnType<typeof createQueue> {
   return webhookQueue;
 }
 
+function priorityForWebhookTopic(topic: string): number {
+  // BullMQ semantics: lower number = higher priority.
+  // PR-022 (F4.2.5): critical vs normal vs bulk.
+  if (topic === 'app/uninstalled') return 1;
+  // All other Shopify webhooks are NORMAL priority.
+  return 5;
+}
+
 // Contract (Plan_de_implementare F4.1.5): `enqueueWebhookJob(payload)`.
 export async function enqueueWebhookJob(payload: WebhookJobPayload): Promise<void>;
 export async function enqueueWebhookJob(
@@ -72,16 +81,39 @@ export async function enqueueWebhookJob(
   const queue = getQueue();
   const log = logger ?? fallbackLogger;
 
+  const normalizedShopId = normalizeShopIdToGroupId(payload.shopId);
+  if (!normalizedShopId) {
+    const err = new Error('invalid_shop_id');
+    log.error(
+      {
+        err,
+        topic: payload.topic,
+        webhookId: payload.webhookId,
+        shop: payload.shopDomain,
+        shopId: payload.shopId,
+      },
+      'Refusing to enqueue webhook job with invalid shopId'
+    );
+    throw err;
+  }
+
+  // Ensure job.data.shopId is canonical and matches the BullMQ Pro group id.
+  const normalizedPayload =
+    payload.shopId === normalizedShopId ? payload : { ...payload, shopId: normalizedShopId };
+
   try {
-    await queue.add(payload.topic, payload, {
-      ...(payload.webhookId ? { jobId: payload.webhookId } : {}),
+    await queue.add(normalizedPayload.topic, normalizedPayload, {
+      ...(normalizedPayload.webhookId ? { jobId: normalizedPayload.webhookId } : {}),
+      group: { id: normalizedShopId },
+      priority: priorityForWebhookTopic(normalizedPayload.topic),
     });
 
     log.info(
       {
-        topic: payload.topic,
-        webhookId: payload.webhookId,
-        shop: payload.shopDomain,
+        topic: normalizedPayload.topic,
+        webhookId: normalizedPayload.webhookId,
+        shop: normalizedPayload.shopDomain,
+        shopId: normalizedShopId,
       },
       'Webhook enqueued successfully'
     );
@@ -90,9 +122,10 @@ export async function enqueueWebhookJob(
     log.error(
       {
         err: error,
-        topic: payload.topic,
-        webhookId: payload.webhookId,
-        shop: payload.shopDomain,
+        topic: normalizedPayload.topic,
+        webhookId: normalizedPayload.webhookId,
+        shop: normalizedPayload.shopDomain,
+        shopId: normalizedShopId,
       },
       'Failed to enqueue webhook job'
     );

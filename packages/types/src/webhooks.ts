@@ -48,12 +48,20 @@ export enum WebhookTopic {
 }
 
 export interface WebhookJobPayload {
+  /** Internal tenant identifier (UUID). Required for PR-022 Groups fairness and RLS enforcement. */
+  shopId: string;
   shopDomain: string;
   topic: string;
   webhookId: string | null;
   receivedAt: string; // ISO timestamp
   payloadRef: string | null; // Reference to stored payload (Redis/DB) with TTL
   payloadSha256?: string; // Optional integrity/audit hash
+}
+
+function isCanonicalUuid(value: string): boolean {
+  // Canonical UUID format (lowercase hex).
+  // Postgres typically returns UUIDs in lowercase; enforcing canonical form avoids group-id drift.
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
 }
 
 /**
@@ -65,6 +73,8 @@ export function validateWebhookJobPayload(data: unknown): data is WebhookJobPayl
 
   const job = data as Partial<WebhookJobPayload>;
 
+  if (typeof job.shopId !== 'string' || !job.shopId) return false;
+  if (!isCanonicalUuid(job.shopId)) return false;
   if (typeof job.shopDomain !== 'string' || !job.shopDomain) return false;
   if (typeof job.topic !== 'string' || !job.topic) return false;
   if (typeof job.receivedAt !== 'string') return false;

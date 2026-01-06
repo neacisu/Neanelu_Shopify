@@ -88,12 +88,12 @@
 
 ## F4.1.6 — Worker lifecycle hardening (scheduler/events, stalled detection, graceful shutdown)
 
-### Obiectiv
+### Obiectiv F4.1.6
 
 - Delayed jobs / retry/backoff să fie procesate robust (fără “stuck delayed”).
 - Shutdown controlat pe SIGTERM: nu ia job-uri noi, așteaptă job-urile active (cu timeout), fără pierderi.
 
-### Implementare (pași)
+### Implementare (pași) F4.1.6
 
 1. Clarifică scheduler în BullMQ Pro (fără presupuneri):
    - În repo există `QueuePro.jobScheduler: Promise<JobSchedulerPro>` (BullMQ Pro v7.41.0).
@@ -109,7 +109,7 @@
 5. Token-health worker (BullMQ OSS):
    - minim în PR-021: include-l în shutdown hardening (timeout + close), fără migrare.
 
-### Validări
+### Validări F4.1.6
 
 - Manual (scenariu controlat):
   1. Rulează un job webhook care durează (temporar, într-un mediu de test) >5s.
@@ -120,12 +120,12 @@
 
 ## F4.1.7 — Health/readiness pentru worker + verificări operaționale
 
-### Obiectiv
+### Obiectiv F4.1.7
 
 - Readiness reflectă: Redis reachable, worker webhook “up”, (best-effort) token-health.
 - Fără a expune detalii sensibile.
 
-### Implementare (pași)
+### Implementare (pași) F4.1.7
 
 1. Extinde `/health/ready` în [apps/backend-worker/src/http/server.ts](../apps/backend-worker/src/http/server.ts) cu checks noi (aceeași convenție ca cele existente: `ok|fail`):
    - `checks.worker_webhook = ok|fail` (**readiness gate**)
@@ -137,7 +137,7 @@
 4. În readiness, folosește timeout mic (ex: 250–500ms) ca să nu blochezi request-ul.
 5. Gating: status/HTTP code se calculează pe checks obligatorii (inclusiv `worker_webhook`), nu pe token-health.
 
-### Validări
+### Validări F4.1.7
 
 - Când Redis e up și webhook worker rulează → `/health/ready` = 200.
 - Când Redis e down → `/health/ready` = 503.
@@ -147,7 +147,7 @@
 
 ## F4.1.8 — Teste de integrare pentru queue-manager (node:test)
 
-### Obiectiv
+### Obiectiv F4.1.8
 
 - Suite de teste care validează infrastructura de cozi (E2E + DLQ + retenție/cleanup), rulabilă local și în CI.
 
@@ -155,7 +155,7 @@
 
 - E2E + DLQ există deja în [packages/queue-manager/src/`__tests__`/queue-manager.integration.test.ts](../packages/queue-manager/src/__tests__/queue-manager.integration.test.ts).
 
-### Implementare (pași)
+### Implementare (pași) F4.1.8
 
 1. Completează acoperirea pentru “retenție/cleanup” folosind utilitarul existent `pruneQueue(...)` din:
    - [packages/queue-manager/src/queue-manager.ts](../packages/queue-manager/src/queue-manager.ts)
@@ -166,7 +166,7 @@
    - verifică reducerea count-urilor.
 3. Păstrează constrângerea Planului: **fără Jest**.
 
-### Validări
+### Validări F4.1.8
 
 - Local:
   - `pnpm --filter @app/queue-manager test` (cu `REDIS_URL` + `BULLMQ_PRO_TOKEN` setate)
