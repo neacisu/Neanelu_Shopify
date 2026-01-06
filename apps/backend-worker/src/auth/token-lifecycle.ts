@@ -99,13 +99,7 @@ export async function checkTokenHealth(
 
       return { valid: true, needsReauth: false };
     } catch (err) {
-      if (err instanceof ShopifyRateLimitedError) {
-        return {
-          valid: false,
-          needsReauth: false,
-          reason: `Shopify rate limited: retry in ${err.delayMs}ms`,
-        };
-      }
+      if (err instanceof ShopifyRateLimitedError) throw err;
 
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       logger.error({ shopId, errorMessage }, 'Network error checking token health');

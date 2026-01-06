@@ -3,30 +3,29 @@
  *
  * CONFORM: Plan_de_implementare F3.2.5
  * - Periodic job for token health checks
- * - BullMQ OSS (no Pro features yet)
+ * - BullMQ Pro (aligned with queue-manager)
  */
 
-import { Queue } from 'bullmq';
 import { loadEnv } from '@app/config';
 import type { Logger } from '@app/logger';
+import { configFromEnv, createQueue, type CreateQueueManagerOptions } from '@app/queue-manager';
 
 import {
   TOKEN_HEALTH_JOB_NAME,
   TOKEN_HEALTH_REPEAT_OPTIONS,
-  type TokenHealthJobData,
 } from '../auth/jobs/token-health-job.js';
 
 const env = loadEnv();
 
 export const TOKEN_HEALTH_QUEUE_NAME = 'token-health';
 
-let tokenHealthQueue: Queue<TokenHealthJobData> | undefined;
+type TokenHealthQueue = ReturnType<typeof createQueue>;
+let tokenHealthQueue: TokenHealthQueue | undefined;
 
-function getQueue(): Queue<TokenHealthJobData> {
-  tokenHealthQueue ??= new Queue<TokenHealthJobData>(TOKEN_HEALTH_QUEUE_NAME, {
-    connection: {
-      url: env.redisUrl,
-    },
+function getQueue(): TokenHealthQueue {
+  const qmOptions: CreateQueueManagerOptions = { config: configFromEnv(env) };
+  tokenHealthQueue ??= createQueue(qmOptions, {
+    name: TOKEN_HEALTH_QUEUE_NAME,
     defaultJobOptions: {
       removeOnComplete: 50,
       removeOnFail: 200,

@@ -7,6 +7,7 @@ import { Redis as IORedis } from 'ioredis';
 import { createQueue, createQueueEvents, createWorker } from '../queue-manager.js';
 import { checkAndConsumeCost } from '../strategies/fairness/rate-limiter.js';
 import { acquireBulkLock, releaseBulkLock, renewBulkLock } from '../locks/bulk-lock.js';
+import { computeGraphqlDelayMs, computeRestDelayMsFromRetryAfter } from '@app/shopify-client';
 
 process.env['QUEUE_MANAGER_DLQ_STRICT'] = 'true';
 
@@ -184,6 +185,131 @@ void describe('rate limiting + bulk lock (integration)', { skip: !testConfig }, 
         await completed;
 
         assert.equal(seen.size, 1);
+      } finally {
+        await worker.close();
+        await events.close();
+        await queue.close();
+      }
+    }
+  );
+
+  void it(
+    'delays ~Retry-After seconds when delayMs derived from REST 429 headers',
+    { timeout: 15_000 },
+    async () => {
+      assert.ok(testConfig);
+      const cfg = testConfig;
+
+      const name = `${baseName}-queue`;
+      const queue = createQueue({ config: cfg }, { name });
+      const events = createQueueEvents({ config: cfg }, { name });
+
+      let firstSeenAt: number | null = null;
+
+      class DelayMsError extends Error {
+        public readonly delayMs: number;
+        constructor(delayMs: number) {
+          super('delayed');
+          Object.setPrototypeOf(this, DelayMsError.prototype);
+          this.name = 'ShopifyRateLimitedError';
+          this.delayMs = delayMs;
+        }
+      }
+
+      const { worker } = createWorker<{ id: string }>(
+        { config: cfg },
+        {
+          name,
+          enableDelayHandling: true,
+          processor: () => {
+            const now = Date.now();
+            if (firstSeenAt == null) {
+              firstSeenAt = now;
+
+              const headers = new Headers({ 'Retry-After': '2' });
+              const delayMs = computeRestDelayMsFromRetryAfter(headers);
+              assert.equal(delayMs, 2000);
+              throw new DelayMsError(delayMs);
+            }
+
+            const elapsed = now - firstSeenAt;
+            // Allow scheduler jitter and CI variance.
+            assert.ok(elapsed >= 1500);
+            return Promise.resolve();
+          },
+        }
+      );
+
+      try {
+        const completed = new Promise<void>((resolve) => {
+          events.once('completed', () => resolve());
+        });
+
+        await queue.add('rest-429-delay', { id: randomUUID() });
+        await completed;
+      } finally {
+        await worker.close();
+        await events.close();
+        await queue.close();
+      }
+    }
+  );
+
+  void it(
+    'delays based on GraphQL throttleStatus math when THROTTLED delay is derived',
+    { timeout: 15_000 },
+    async () => {
+      assert.ok(testConfig);
+      const cfg = testConfig;
+
+      const name = `${baseName}-queue`;
+      const queue = createQueue({ config: cfg }, { name });
+      const events = createQueueEvents({ config: cfg }, { name });
+
+      let firstSeenAt: number | null = null;
+
+      class DelayMsError extends Error {
+        public readonly delayMs: number;
+        constructor(delayMs: number) {
+          super('delayed');
+          Object.setPrototypeOf(this, DelayMsError.prototype);
+          this.name = 'ShopifyRateLimitedError';
+          this.delayMs = delayMs;
+        }
+      }
+
+      const { worker } = createWorker<{ id: string }>(
+        { config: cfg },
+        {
+          name,
+          enableDelayHandling: true,
+          processor: () => {
+            const now = Date.now();
+            if (firstSeenAt == null) {
+              firstSeenAt = now;
+              const delayMs = computeGraphqlDelayMs({
+                costNeeded: 50,
+                currentlyAvailable: 0,
+                restoreRate: 50,
+              });
+              assert.equal(delayMs, 1000);
+              throw new DelayMsError(delayMs);
+            }
+
+            const elapsed = now - firstSeenAt;
+            assert.ok(elapsed >= 700);
+            return Promise.resolve();
+          },
+        }
+      );
+
+      try {
+        const completed = new Promise<void>((resolve) => {
+          events.once('completed', () => resolve());
+        });
+
+        await queue.add('graphql-throttled-delay', { id: randomUUID() });
+        await completed;
       } finally {
         await worker.close();
         await events.close();

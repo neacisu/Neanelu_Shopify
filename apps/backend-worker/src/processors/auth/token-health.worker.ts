@@ -5,23 +5,31 @@
  * - Runs periodic token health check batches
  */
 
-import { Worker } from 'bullmq';
 import { loadEnv } from '@app/config';
 import type { Logger } from '@app/logger';
+import { ShopifyRateLimitedError } from '@app/shopify-client';
+import { checkAndConsumeCost, configFromEnv, createQueue, createWorker } from '@app/queue-manager';
+import { Redis as IORedis } from 'ioredis';
 
 import {
-  processTokenHealthBatch,
   createTokenHealthJobConfig,
   TOKEN_HEALTH_JOB_NAME,
+  TOKEN_HEALTH_SHOP_JOB_NAME,
   type TokenHealthJobData,
+  type TokenHealthShopJobData,
 } from '../../auth/jobs/token-health-job.js';
 
 import { TOKEN_HEALTH_QUEUE_NAME } from '../../queue/token-health-queue.js';
+import {
+  getShopsForHealthCheck,
+  checkTokenHealth,
+  markNeedsReauth,
+} from '../../auth/token-lifecycle.js';
 
 const env = loadEnv();
 
 export interface TokenHealthWorkerHandle {
-  worker: Worker<TokenHealthJobData>;
+  worker: { close: () => Promise<void>; isRunning?: () => boolean };
   close: () => Promise<void>;
 }
 
@@ -33,22 +41,72 @@ async function closeWithTimeout(label: string, fn: () => Promise<void>, timeoutM
 }
 
 function startTokenHealthWorker(logger: Logger): TokenHealthWorkerHandle {
-  const worker = new Worker<TokenHealthJobData>(
-    TOKEN_HEALTH_QUEUE_NAME,
-    async (job) => {
-      if (job.name !== TOKEN_HEALTH_JOB_NAME) return;
+  const qmOptions = { config: configFromEnv(env) };
+  const redis = new IORedis(env.redisUrl);
+
+  // Ensure the queue exists (used for fan-out scheduling).
+  const queue = createQueue(qmOptions, { name: TOKEN_HEALTH_QUEUE_NAME });
+
+  const { worker } = createWorker<TokenHealthJobData | TokenHealthShopJobData>(qmOptions, {
+    name: TOKEN_HEALTH_QUEUE_NAME,
+    enableDelayHandling: true,
+    processor: async (job) => {
+      if (job.name === TOKEN_HEALTH_JOB_NAME) {
+        // Fan-out scheduler job: enqueue per-shop checks so each shop can be delayed independently.
+        const config = createTokenHealthJobConfig(env.encryptionKeyHex);
+        const shopIds = await getShopsForHealthCheck(config.batchSize);
+
+        for (const shopId of shopIds) {
+          await queue.add(
+            TOKEN_HEALTH_SHOP_JOB_NAME,
+            {
+              shopId,
+              triggeredBy: 'scheduler',
+              timestamp: Date.now(),
+            },
+            {
+              // Stable id per shop per run (avoid duplicate fan-out floods).
+              jobId: `token-health:${shopId}:${Math.floor(Date.now() / 1000)}`,
+              removeOnComplete: 50,
+              removeOnFail: 200,
+              attempts: 1,
+            }
+          );
+        }
+
+        logger.info({ count: shopIds.length }, 'Token health fan-out enqueued');
+        return;
+      }
+
+      if (job.name !== TOKEN_HEALTH_SHOP_JOB_NAME) return;
+
+      const data = job.data as TokenHealthShopJobData;
+      const shopId = data.shopId;
+
+      // Proactive REST rate limit gating (per shop) before calling Shopify.
+      const bucketKey = `neanelu:ratelimit:rest:${shopId}`;
+      const gate = await checkAndConsumeCost(redis, {
+        bucketKey,
+        costToConsume: 1,
+        maxTokens: 40,
+        refillPerSecond: 2,
+        ttlMs: 10 * 60 * 1000,
+      });
+
+      if (!gate.allowed) {
+        throw new ShopifyRateLimitedError({ kind: 'preflight', delayMs: gate.delayMs });
+      }
 
       const config = createTokenHealthJobConfig(env.encryptionKeyHex);
-      await processTokenHealthBatch(config, logger);
-    },
-    {
-      connection: { url: env.redisUrl },
-      concurrency: 1,
-    }
-  );
+      const health = await checkTokenHealth(shopId, config.encryptionKey, logger);
 
-  worker.on('failed', (job, err) => {
-    logger.warn({ jobId: job?.id, name: job?.name, err }, 'Token health job failed');
+      if (!health.valid && health.needsReauth) {
+        await markNeedsReauth(shopId, health.reason ?? 'Health check failed');
+      }
+    },
+    workerOptions: {
+      concurrency: 1,
+    },
   });
 
   const close = async (): Promise<void> => {
@@ -65,6 +123,8 @@ function startTokenHealthWorker(logger: Logger): TokenHealthWorkerHandle {
         }
 
         await worker.close();
+        await queue.close();
+        await redis.quit();
       },
       10_000
     );

@@ -26,8 +26,14 @@ export async function moveJobToDelayedAndThrow(
   throw new DelayedError(`moved_to_delayed:${safeDelayMs}`);
 }
 
+export type RateLimitGroupFn = (job: JobPro, delayMs: number) => Promise<void>;
+
 export function wrapProcessorWithDelayHandling<TData>(
-  processor: (job: JobPro<TData>, token?: string, signal?: AbortSignal) => Promise<unknown>
+  processor: (job: JobPro<TData>, token?: string, signal?: AbortSignal) => Promise<unknown>,
+  options?: {
+    /** Best-effort integration with BullMQ Pro Groups rate limiting (when available). */
+    rateLimitGroup?: RateLimitGroupFn;
+  }
 ): (job: JobPro<TData>, token?: string, signal?: AbortSignal) => Promise<unknown> {
   return async (job, token, signal) => {
     try {
@@ -36,6 +42,13 @@ export function wrapProcessorWithDelayHandling<TData>(
       // Duck-typing to avoid adding a hard dependency on @app/shopify-client.
       // Any error with a numeric `delayMs` will cause a delay without consuming attempts.
       if (isDelayJobError(err)) {
+        if (options?.rateLimitGroup) {
+          try {
+            await options.rateLimitGroup(job, err.delayMs);
+          } catch {
+            // best-effort
+          }
+        }
         return await moveJobToDelayedAndThrow(job, err.delayMs, token);
       }
       throw err;

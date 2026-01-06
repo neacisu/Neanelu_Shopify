@@ -196,8 +196,20 @@ export function createWorker<TData = unknown>(
     return Promise.race([worker.processor(job, token, combinedSignal), timeoutPromise]);
   };
 
+  // Set after worker creation; used for best-effort rateLimitGroup integration.
+  let workerRef: BullWorker<TData> | null = null;
+
   const finalProcessor = worker.enableDelayHandling
-    ? wrapProcessorWithDelayHandling<TData>(wrappedProcessor)
+    ? wrapProcessorWithDelayHandling<TData>(wrappedProcessor, {
+        rateLimitGroup: async (job, delayMs) => {
+          const w = workerRef as unknown as {
+            rateLimitGroup?: (j: unknown, ms: number) => unknown;
+          };
+          if (typeof w?.rateLimitGroup === 'function') {
+            await Promise.resolve(w.rateLimitGroup(job, Math.max(0, Math.floor(delayMs))));
+          }
+        },
+      })
     : wrappedProcessor;
 
   const dlqQueue = worker.enableDlq
@@ -224,6 +236,8 @@ export function createWorker<TData = unknown>(
     },
     ...(worker.workerOptions ?? {}),
   });
+
+  workerRef = w;
 
   if (dlqQueue) {
     const handleFailed = async (job: JobPro<TData> | undefined, err: Error): Promise<void> => {

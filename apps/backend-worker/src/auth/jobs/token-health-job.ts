@@ -7,6 +7,7 @@
  */
 
 import type { Logger } from '@app/logger';
+import { ShopifyRateLimitedError } from '@app/shopify-client';
 import { getShopsForHealthCheck, checkTokenHealth, markNeedsReauth } from '../token-lifecycle.js';
 
 /**
@@ -68,6 +69,7 @@ export async function processTokenHealthBatch(
         }
       }
     } catch (err) {
+      if (err instanceof ShopifyRateLimitedError) throw err;
       result.errors++;
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       logger.error({ shopId, errorMessage }, 'Error processing shop in health check');
@@ -83,8 +85,15 @@ export async function processTokenHealthBatch(
  * Aceasta este configurația care se pasează la Queue.add()
  */
 export const TOKEN_HEALTH_JOB_NAME = 'token-health-check';
+export const TOKEN_HEALTH_SHOP_JOB_NAME = 'token-health-check-shop';
 
 export interface TokenHealthJobData {
+  triggeredBy: 'scheduler' | 'manual';
+  timestamp: number;
+}
+
+export interface TokenHealthShopJobData {
+  shopId: string;
   triggeredBy: 'scheduler' | 'manual';
   timestamp: number;
 }
