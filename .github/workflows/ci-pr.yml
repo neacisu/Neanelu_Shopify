@@ -40,9 +40,8 @@ jobs:
     timeout-minutes: 15
     env:
       NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
-      # BullMQ Pro requires a non-empty token at runtime; in CI we fall back to a dummy
-      # value so tests can run even if the license secret isn't configured.
-      BULLMQ_PRO_TOKEN: "${{ secrets.BULLMQ_PRO_TOKEN || 'ci_dummy' }}"
+      # BullMQ Pro license token (required for running BullMQ Pro codepaths in CI)
+      BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
       # Required runtime env (strict validation)
       APP_HOST: https://example.test
       SHOPIFY_API_KEY: ci_dummy
@@ -89,6 +88,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Validate required secrets (no output)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${NPM_TASKFORCESH_TOKEN}" || (echo "Missing NPM_TASKFORCESH_TOKEN" >&2; exit 1)
+          test -n "${BULLMQ_PRO_TOKEN}" || (echo "Missing BULLMQ_PRO_TOKEN" >&2; exit 1)
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -114,6 +120,11 @@ jobs:
       - name: Build Frontend (web-admin)
         run: pnpm --filter @app/web-admin build
 
+      - name: Install PostgreSQL client (psql)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client
+
       - name: Install PostgreSQL extensions
         env:
           PGPASSWORD: test
@@ -125,13 +136,21 @@ jobs:
           psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS btree_gist;"
           psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
+      - name: Run database migrations (required for tests)
+        run: pnpm db:migrate
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:65010/test_db
+          DATABASE_URL_MIGRATE: postgresql://test:test@localhost:65010/test_db
+          NODE_ENV: test
+
       - name: Run Tests
         run: pnpm test
         env:
           DATABASE_URL: postgresql://test:test@localhost:65010/test_db
+          DATABASE_URL_MIGRATE: postgresql://test:test@localhost:65010/test_db
           REDIS_URL: redis://localhost:65011
           NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
-          BULLMQ_PRO_TOKEN: "${{ secrets.BULLMQ_PRO_TOKEN || 'ci_dummy' }}"
+          BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
           NODE_ENV: test
 
       # Upload test results for debugging
@@ -186,6 +205,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Validate required secrets (no output)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${NPM_TASKFORCESH_TOKEN}" || (echo "Missing NPM_TASKFORCESH_TOKEN" >&2; exit 1)
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -202,6 +227,11 @@ jobs:
         env:
           NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
 
+      - name: Install PostgreSQL client (psql)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client
+
       - name: Install PostgreSQL extensions
         env:
           PGPASSWORD: test
@@ -217,6 +247,7 @@ jobs:
         run: pnpm db:migrate
         env:
           DATABASE_URL: postgresql://test:test@localhost:65010/test_db
+          DATABASE_URL_MIGRATE: postgresql://test:test@localhost:65010/test_db
 
       - name: Run DB Schema Tests
         run: pnpm db:test:all
