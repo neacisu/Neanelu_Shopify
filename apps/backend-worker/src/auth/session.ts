@@ -252,6 +252,10 @@ export function requireSession(config: SessionConfig) {
           code: 'UNAUTHORIZED',
           message: 'Session required',
         },
+        meta: {
+          request_id: request.id,
+          timestamp: new Date().toISOString(),
+        },
       });
       done();
       return;

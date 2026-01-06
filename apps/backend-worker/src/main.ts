@@ -8,6 +8,7 @@ import { startWebhookWorker } from './processors/webhooks/worker.js';
 import { startTokenHealthWorker } from './processors/auth/token-health.worker.js';
 import { scheduleTokenHealthJob, closeTokenHealthQueue } from './queue/token-health-queue.js';
 import { setTokenHealthWorkerHandle, setWebhookWorkerHandle } from './runtime/worker-registry.js';
+import { emitQueueStreamEvent } from './runtime/queue-stream.js';
 
 const env = loadEnv();
 const logger = createLogger({
@@ -31,10 +32,20 @@ try {
   webhookWorker = startWebhookWorker(logger);
   setWebhookWorkerHandle(webhookWorker);
   logger.info({}, 'webhook worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'webhook-worker',
+    timestamp: new Date().toISOString(),
+  });
 
   tokenHealthWorker = startTokenHealthWorker(logger);
   setTokenHealthWorkerHandle(tokenHealthWorker);
   logger.info({}, 'token health worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'token-health-worker',
+    timestamp: new Date().toISOString(),
+  });
 
   await scheduleTokenHealthJob(logger);
 } catch (error) {
@@ -50,6 +61,11 @@ const shutdown = async (signal: string): Promise<void> => {
       webhookWorker = null;
       setWebhookWorkerHandle(null);
       logger.info({ signal }, 'webhook worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'webhook-worker',
+        timestamp: new Date().toISOString(),
+      });
     }
 
     if (tokenHealthWorker) {
@@ -57,6 +73,11 @@ const shutdown = async (signal: string): Promise<void> => {
       tokenHealthWorker = null;
       setTokenHealthWorkerHandle(null);
       logger.info({ signal }, 'token health worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'token-health-worker',
+        timestamp: new Date().toISOString(),
+      });
     }
 
     await closeTokenHealthQueue();

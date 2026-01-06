@@ -1,10 +1,38 @@
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LoaderFunctionArgs } from 'react-router-dom';
-import { useLoaderData, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
+import { toast } from 'sonner';
 
-import { handleApiError } from '../utils/handle-api-error';
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
-import { EmptyState } from '../components/patterns';
+import { ErrorState } from '../components/patterns/error-state';
+import {
+  PolarisBadge,
+  PolarisButton,
+  PolarisCard,
+  PolarisSelect,
+} from '../../components/polaris/index.js';
+import { useApiClient } from '../hooks/use-api';
+import { useQueueStream } from '../hooks/use-queue-stream';
+import { handleApiError } from '../utils/handle-api-error';
+import { reportUiError } from '../utils/report-ui-error';
+
+import { ConfirmDialog } from '../components/domain/confirm-dialog';
+import { JobsTable, type QueueJobListItem } from '../components/domain/jobs-table';
+import { JobDetailModal, type QueueJobDetail } from '../components/domain/job-detail-modal';
+import {
+  QueueMetricsCharts,
+  type QueueMetricsPoint,
+} from '../components/domain/queue-metrics-charts';
+import { WorkersGrid, type WorkerSummary } from '../components/domain/workers-grid';
+
+type QueueSummary = Readonly<{
+  name: string;
+  waiting: number;
+  active: number;
+  completed: number;
+  failed: number;
+  delayed: number;
+}>;
 
 export function loader({ request }: LoaderFunctionArgs) {
   try {
@@ -12,7 +40,6 @@ export function loader({ request }: LoaderFunctionArgs) {
     const mode = url.searchParams.get('mode');
 
     if (mode === '404') {
-      // React Router loaders intentionally throw Response objects.
       // eslint-disable-next-line @typescript-eslint/only-throw-error
       throw new Response('Not Found', { status: 404 });
     }
@@ -21,15 +48,45 @@ export function loader({ request }: LoaderFunctionArgs) {
       throw new Error('Simulated server error');
     }
 
-    return { ok: true };
+    return null;
   } catch (e) {
     handleApiError(e);
   }
 }
 
 export default function QueuesPage() {
-  useLoaderData();
   const location = useLocation();
+  const api = useApiClient();
+
+  const [tab, setTab] = useState<'overview' | 'jobs' | 'workers'>('overview');
+  const [queues, setQueues] = useState<QueueSummary[]>([]);
+  const [selectedQueue, setSelectedQueue] = useState<string>('');
+
+  const [overviewLoading, setOverviewLoading] = useState(false);
+  const [overviewError, setOverviewError] = useState<string | null>(null);
+
+  const [metricsPoints, setMetricsPoints] = useState<QueueMetricsPoint[]>([]);
+  const [jobs, setJobs] = useState<QueueJobListItem[]>([]);
+  const [jobsTotal, setJobsTotal] = useState(0);
+  const [jobsLoading, setJobsLoading] = useState(false);
+  const [jobsStatus, setJobsStatus] = useState('waiting');
+  const [jobsPage, setJobsPage] = useState(0);
+  const [jobsLimit, setJobsLimit] = useState(50);
+  const [jobsSearch, setJobsSearch] = useState('');
+
+  const [workers, setWorkers] = useState<WorkerSummary[]>([]);
+  const [workersLoading, setWorkersLoading] = useState(false);
+
+  const [jobModalOpen, setJobModalOpen] = useState(false);
+  const [jobModalId, setJobModalId] = useState<string | null>(null);
+  const [jobModalLoading, setJobModalLoading] = useState(false);
+  const [jobModalError, setJobModalError] = useState<string | null>(null);
+  const [jobModalJob, setJobModalJob] = useState<QueueJobDetail | null>(null);
+
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[]>([]);
+
+  const refreshJobsTimerRef = useRef<number | null>(null);
 
   const breadcrumbs = useMemo(
     () => [
@@ -39,18 +96,541 @@ export default function QueuesPage() {
     [location.pathname]
   );
 
+  const queueOptions = useMemo(
+    () => queues.map((q) => ({ label: q.name, value: q.name })),
+    [queues]
+  );
+
+  const selectedQueueSummary = useMemo(
+    () => queues.find((q) => q.name === selectedQueue) ?? null,
+    [queues, selectedQueue]
+  );
+
+  const loadQueues = useCallback(async () => {
+    setOverviewLoading(true);
+    setOverviewError(null);
+    try {
+      const data = await api.getApi<{ queues: QueueSummary[] }>('/queues');
+      setQueues(data.queues);
+      setSelectedQueue((prev) => (prev.length ? prev : (data.queues[0]?.name ?? '')));
+    } catch (e) {
+      reportUiError(e, { source: 'route', route: '/queues' });
+      setOverviewError(e instanceof Error ? e.message : 'failed_to_load_queues');
+    } finally {
+      setOverviewLoading(false);
+    }
+  }, [api]);
+
+  const loadMetrics = useCallback(
+    async (queueName: string) => {
+      try {
+        const data = await api.getApi<{ points: QueueMetricsPoint[] }>(
+          `/queues/${encodeURIComponent(queueName)}/metrics`
+        );
+        setMetricsPoints(data.points);
+      } catch (e) {
+        reportUiError(e, { source: 'route', route: '/queues', status: 500 });
+      }
+    },
+    [api]
+  );
+
+  const loadJobs = useCallback(
+    async (queueName: string, options?: { resetPage?: boolean }) => {
+      setJobsLoading(true);
+      try {
+        const q = new URLSearchParams();
+        q.set('status', jobsStatus);
+        q.set('page', String(options?.resetPage ? 0 : jobsPage));
+        q.set('limit', String(jobsLimit));
+        if (jobsSearch.trim().length) q.set('q', jobsSearch.trim());
+
+        const data = await api.getApi<{
+          jobs: QueueJobListItem[];
+          total: number;
+          page?: number;
+          limit?: number;
+        }>(`/queues/${encodeURIComponent(queueName)}/jobs?${q.toString()}`);
+
+        setJobs(data.jobs);
+        setJobsTotal(data.total ?? data.jobs.length);
+        if (options?.resetPage) setJobsPage(0);
+      } catch (e) {
+        reportUiError(e, { source: 'route', route: '/queues' });
+        toast.error('Failed to load jobs');
+      } finally {
+        setJobsLoading(false);
+      }
+    },
+    [api, jobsLimit, jobsPage, jobsSearch, jobsStatus]
+  );
+
+  const loadWorkers = useCallback(async () => {
+    setWorkersLoading(true);
+    try {
+      const data = await api.getApi<{ workers: WorkerSummary[] }>('/queues/workers');
+      setWorkers(data.workers);
+    } catch (e) {
+      reportUiError(e, { source: 'route', route: '/queues/workers' });
+      toast.error('Failed to load workers');
+    } finally {
+      setWorkersLoading(false);
+    }
+  }, [api]);
+
+  const openJobDetails = useCallback(
+    async (jobId: string) => {
+      if (!selectedQueue) return;
+      setJobModalOpen(true);
+      setJobModalId(jobId);
+      setJobModalLoading(true);
+      setJobModalError(null);
+      setJobModalJob(null);
+
+      try {
+        const data = await api.getApi<{ job: QueueJobDetail }>(
+          `/queues/${encodeURIComponent(selectedQueue)}/jobs/${encodeURIComponent(jobId)}`
+        );
+        setJobModalJob(data.job);
+      } catch (e) {
+        reportUiError(e, { source: 'route', route: '/queues' });
+        setJobModalError(e instanceof Error ? e.message : 'failed_to_load_job');
+      } finally {
+        setJobModalLoading(false);
+      }
+    },
+    [api, selectedQueue]
+  );
+
+  const closeJobDetails = useCallback(() => {
+    setJobModalOpen(false);
+    setJobModalId(null);
+    setJobModalJob(null);
+    setJobModalError(null);
+    setJobModalLoading(false);
+  }, []);
+
+  const closeConfirmDelete = useCallback(() => {
+    setConfirmDeleteOpen(false);
+    setConfirmDeleteIds([]);
+  }, []);
+
+  const performQueueAction = useCallback(
+    async (action: 'pause' | 'resume' | 'clean_failed') => {
+      if (!selectedQueue) return;
+      try {
+        if (action === 'pause') {
+          await api.postApi(`/queues/${encodeURIComponent(selectedQueue)}/pause`, {});
+          toast.success('Queue paused');
+        } else if (action === 'resume') {
+          await api.postApi(`/queues/${encodeURIComponent(selectedQueue)}/resume`, {});
+          toast.success('Queue resumed');
+        } else {
+          await api.getApi(`/queues/${encodeURIComponent(selectedQueue)}/jobs/failed`, {
+            method: 'DELETE',
+          });
+          toast.success('Failed jobs cleaned');
+        }
+
+        void loadQueues();
+      } catch (e) {
+        reportUiError(e, { source: 'route', route: '/queues' });
+        toast.error('Queue action failed');
+      }
+    },
+    [api, loadQueues, selectedQueue]
+  );
+
+  const runJobAction = useCallback(
+    async (action: 'retry' | 'delete' | 'promote', ids: string[]) => {
+      if (!selectedQueue) return;
+      if (ids.length === 0) return;
+
+      if (ids.length === 1) {
+        const id = ids[0];
+        if (!id) return;
+        if (action === 'retry') {
+          await api.postApi(
+            `/queues/${encodeURIComponent(selectedQueue)}/jobs/${encodeURIComponent(id)}/retry`,
+            {}
+          );
+        } else if (action === 'promote') {
+          await api.postApi(
+            `/queues/${encodeURIComponent(selectedQueue)}/jobs/${encodeURIComponent(id)}/promote`,
+            {}
+          );
+        } else {
+          await api.getApi(
+            `/queues/${encodeURIComponent(selectedQueue)}/jobs/${encodeURIComponent(id)}`,
+            {
+              method: 'DELETE',
+            }
+          );
+        }
+      } else {
+        await api.postApi('/queues/jobs/batch', {
+          action,
+          ids,
+          queueName: selectedQueue,
+        });
+      }
+    },
+    [api, selectedQueue]
+  );
+
+  const performJobAction = useCallback(
+    async (action: 'retry' | 'delete' | 'promote', ids: string[]) => {
+      if (!selectedQueue) return;
+      if (ids.length === 0) return;
+      if (ids.length > 100) {
+        toast.error('Select at most 100 jobs');
+        return;
+      }
+
+      if (action === 'delete') {
+        setConfirmDeleteIds(ids);
+        setConfirmDeleteOpen(true);
+        return;
+      }
+
+      try {
+        await runJobAction(action, ids);
+        toast.success('Action completed');
+        void loadJobs(selectedQueue);
+        void loadQueues();
+      } catch (e) {
+        reportUiError(e, { source: 'route', route: '/queues' });
+        toast.error('Job action failed');
+      }
+    },
+    [loadJobs, loadQueues, runJobAction, selectedQueue]
+  );
+
+  const confirmDelete = useCallback(async () => {
+    if (!selectedQueue) return;
+    const ids = confirmDeleteIds;
+    closeConfirmDelete();
+
+    try {
+      await runJobAction('delete', ids);
+      toast.success('Action completed');
+      void loadJobs(selectedQueue);
+      void loadQueues();
+    } catch (e) {
+      reportUiError(e, { source: 'route', route: '/queues' });
+      toast.error('Job action failed');
+    }
+  }, [closeConfirmDelete, confirmDeleteIds, loadJobs, loadQueues, runJobAction, selectedQueue]);
+
+  useEffect(() => {
+    void loadQueues();
+  }, [loadQueues]);
+
+  useEffect(() => {
+    if (!selectedQueue) return;
+    void loadMetrics(selectedQueue);
+    if (tab === 'jobs') {
+      void loadJobs(selectedQueue);
+    }
+    if (tab === 'workers') {
+      void loadWorkers();
+    }
+  }, [loadJobs, loadMetrics, loadWorkers, selectedQueue, tab]);
+
+  useEffect(() => {
+    if (tab !== 'workers') return;
+    const id = window.setInterval(() => {
+      void loadWorkers();
+    }, 5_000);
+    return () => window.clearInterval(id);
+  }, [loadWorkers, tab]);
+
+  const stream = useQueueStream({
+    enabled: true,
+    onEvent: (evt) => {
+      if (evt.type === 'queues.snapshot') {
+        const q = evt.data['queues'];
+        if (Array.isArray(q)) {
+          const parsed: QueueSummary[] = q
+            .map((x) => (x && typeof x === 'object' ? (x as Record<string, unknown>) : null))
+            .filter((x): x is Record<string, unknown> => Boolean(x))
+            .map((x) => ({
+              name: typeof x['name'] === 'string' ? x['name'] : '',
+              waiting: Number(x['waiting'] ?? 0),
+              active: Number(x['active'] ?? 0),
+              completed: Number(x['completed'] ?? 0),
+              failed: Number(x['failed'] ?? 0),
+              delayed: Number(x['delayed'] ?? 0),
+            }))
+            .filter((x) => x.name.length > 0);
+
+          if (parsed.length) {
+            setQueues(parsed);
+            setSelectedQueue((prev) => (prev.length ? prev : (parsed[0]?.name ?? '')));
+          }
+        }
+      }
+
+      if (
+        (evt.type === 'job.started' || evt.type === 'job.completed' || evt.type === 'job.failed') &&
+        tab === 'jobs'
+      ) {
+        const qn = typeof evt.data['queueName'] === 'string' ? evt.data['queueName'] : '';
+        if (qn && qn === selectedQueue) {
+          if (refreshJobsTimerRef.current) window.clearTimeout(refreshJobsTimerRef.current);
+          refreshJobsTimerRef.current = window.setTimeout(() => {
+            void loadJobs(qn);
+          }, 700);
+        }
+      }
+
+      if (evt.type === 'worker.online' || evt.type === 'worker.offline') {
+        if (tab === 'workers') {
+          void loadWorkers();
+        }
+      }
+    },
+  });
+
   return (
     <div className="space-y-4">
       <Breadcrumbs items={breadcrumbs} />
       <h1 className="text-h2">Queue Monitor</h1>
-      <EmptyState
-        title="No queue data yet"
-        description={
-          <>
-            Placeholder page. Try <span className="font-mono">?mode=404</span> or{' '}
-            <span className="font-mono">?mode=500</span> to validate error handling.
-          </>
+
+      <PolarisCard className="p-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="min-w-64">
+            <PolarisSelect
+              label="Queue"
+              value={selectedQueue}
+              options={queueOptions}
+              onChange={(e) => {
+                setSelectedQueue((e.target as HTMLSelectElement).value);
+                setJobsPage(0);
+              }}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <PolarisBadge tone={stream.connected ? 'success' : 'warning'}>
+              {stream.connected ? 'Live' : 'Offline'}
+            </PolarisBadge>
+            {stream.error ? <span className="text-caption text-muted">{stream.error}</span> : null}
+          </div>
+        </div>
+      </PolarisCard>
+
+      {overviewError ? (
+        <ErrorState message={overviewError} onRetry={() => void loadQueues()} />
+      ) : null}
+
+      {!overviewError ? (
+        <div className="flex flex-wrap gap-2">
+          <PolarisButton
+            variant={tab === 'overview' ? 'primary' : 'secondary'}
+            onClick={() => setTab('overview')}
+          >
+            Overview
+          </PolarisButton>
+          <PolarisButton
+            variant={tab === 'jobs' ? 'primary' : 'secondary'}
+            onClick={() => setTab('jobs')}
+          >
+            Jobs
+          </PolarisButton>
+          <PolarisButton
+            variant={tab === 'workers' ? 'primary' : 'secondary'}
+            onClick={() => setTab('workers')}
+          >
+            Workers
+          </PolarisButton>
+        </div>
+      ) : null}
+
+      {tab === 'overview' ? (
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+            <PolarisCard className="p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-h4">{selectedQueue || '—'}</div>
+                  <div className="text-caption text-muted">Selected queue</div>
+                </div>
+                {overviewLoading ? <span className="text-caption text-muted">Loading…</span> : null}
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
+                <div>
+                  <div className="text-caption text-muted">Waiting</div>
+                  <div className="font-mono">{selectedQueueSummary?.waiting ?? '—'}</div>
+                </div>
+                <div>
+                  <div className="text-caption text-muted">Active</div>
+                  <div className="font-mono">{selectedQueueSummary?.active ?? '—'}</div>
+                </div>
+                <div>
+                  <div className="text-caption text-muted">Failed</div>
+                  <div className="font-mono">{selectedQueueSummary?.failed ?? '—'}</div>
+                </div>
+              </div>
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <PolarisButton variant="secondary" onClick={() => void loadQueues()}>
+                  Refresh
+                </PolarisButton>
+                <PolarisButton variant="secondary" onClick={() => void performQueueAction('pause')}>
+                  Pause
+                </PolarisButton>
+                <PolarisButton
+                  variant="secondary"
+                  onClick={() => void performQueueAction('resume')}
+                >
+                  Resume
+                </PolarisButton>
+                <PolarisButton
+                  variant="critical"
+                  onClick={() => void performQueueAction('clean_failed')}
+                >
+                  Clean Failed
+                </PolarisButton>
+              </div>
+            </PolarisCard>
+            <PolarisCard className="p-4 lg:col-span-2">
+              <div className="text-h4">Queues snapshot</div>
+              <div className="mt-3 overflow-auto rounded-md border">
+                <table className="w-full border-collapse text-sm">
+                  <thead className="bg-muted/20">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Queue</th>
+                      <th className="px-3 py-2 text-left">Waiting</th>
+                      <th className="px-3 py-2 text-left">Active</th>
+                      <th className="px-3 py-2 text-left">Delayed</th>
+                      <th className="px-3 py-2 text-left">Completed</th>
+                      <th className="px-3 py-2 text-left">Failed</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {queues.map((q) => (
+                      <tr
+                        key={q.name}
+                        className={
+                          q.name === selectedQueue
+                            ? 'bg-muted/10 border-b last:border-b-0'
+                            : 'border-b last:border-b-0'
+                        }
+                      >
+                        <td className="px-3 py-2 font-mono text-xs">
+                          <button
+                            type="button"
+                            className="text-primary hover:underline"
+                            onClick={() => setSelectedQueue(q.name)}
+                          >
+                            {q.name}
+                          </button>
+                        </td>
+                        <td className="px-3 py-2 font-mono">{q.waiting}</td>
+                        <td className="px-3 py-2 font-mono">{q.active}</td>
+                        <td className="px-3 py-2 font-mono">{q.delayed}</td>
+                        <td className="px-3 py-2 font-mono">{q.completed}</td>
+                        <td className="px-3 py-2 font-mono">{q.failed}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </PolarisCard>
+          </div>
+
+          {selectedQueue ? (
+            <QueueMetricsCharts
+              points={metricsPoints}
+              distribution={
+                selectedQueueSummary
+                  ? {
+                      waiting: selectedQueueSummary.waiting,
+                      active: selectedQueueSummary.active,
+                      delayed: selectedQueueSummary.delayed,
+                      failed: selectedQueueSummary.failed,
+                      completed: selectedQueueSummary.completed,
+                    }
+                  : null
+              }
+            />
+          ) : null}
+        </div>
+      ) : null}
+
+      {tab === 'jobs' ? (
+        <div className="space-y-3">
+          {selectedQueue ? (
+            <JobsTable
+              jobs={jobs}
+              total={jobsTotal}
+              page={jobsPage}
+              limit={jobsLimit}
+              status={jobsStatus}
+              search={jobsSearch}
+              loading={jobsLoading}
+              onSearchChange={(v) => {
+                setJobsSearch(v);
+                setJobsPage(0);
+              }}
+              onStatusChange={(v) => {
+                setJobsStatus(v);
+                setJobsPage(0);
+              }}
+              onPageChange={(p) => setJobsPage(p)}
+              onLimitChange={(l) => {
+                setJobsLimit(l);
+                setJobsPage(0);
+              }}
+              onAction={(action, ids) => {
+                if (action === 'details' && ids[0]) {
+                  void openJobDetails(ids[0]);
+                  return;
+                }
+                void performJobAction(action as 'retry' | 'delete' | 'promote', ids);
+              }}
+              onOpenDetails={(id) => void openJobDetails(id)}
+            />
+          ) : null}
+        </div>
+      ) : null}
+
+      {tab === 'workers' ? (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="text-caption text-muted">
+              {workersLoading ? 'Loading…' : `${workers.length} workers`}
+            </div>
+            <PolarisButton variant="secondary" onClick={() => void loadWorkers()}>
+              Refresh
+            </PolarisButton>
+          </div>
+          <WorkersGrid workers={workers} />
+        </div>
+      ) : null}
+
+      <JobDetailModal
+        open={jobModalOpen}
+        queueName={selectedQueue}
+        jobId={jobModalId}
+        job={jobModalJob}
+        loading={jobModalLoading}
+        error={jobModalError}
+        onClose={closeJobDetails}
+      />
+
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        title={confirmDeleteIds.length === 1 ? 'Delete job?' : 'Delete jobs?'}
+        message={
+          confirmDeleteIds.length === 1
+            ? `Delete job ${confirmDeleteIds[0] ?? ''}? This action is irreversible.`
+            : `Delete ${confirmDeleteIds.length} jobs? This action is irreversible.`
         }
+        confirmLabel={confirmDeleteIds.length === 1 ? 'Delete job' : 'Delete jobs'}
+        cancelLabel="Cancel"
+        confirmTone="critical"
+        onCancel={closeConfirmDelete}
+        onConfirm={() => void confirmDelete()}
       />
     </div>
   );

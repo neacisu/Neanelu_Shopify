@@ -3,11 +3,13 @@ import type { ApiSuccessResponse } from '@app/types';
 let cachedToken: string | null = null;
 let cachedTokenExpiresAtMs = 0;
 let inflight: Promise<string | null> | null = null;
+let cookieTokenEndpointMissingUntilMs = 0;
 
 export function clearSessionTokenCache(): void {
   cachedToken = null;
   cachedTokenExpiresAtMs = 0;
   inflight = null;
+  cookieTokenEndpointMissingUntilMs = 0;
 }
 
 function getJwtExpiresAtMs(token: string): number | null {
@@ -63,6 +65,11 @@ async function fetchSessionToken(): Promise<string | null> {
   const shopifyToken = await fetchShopifyAppBridgeSessionToken();
   if (shopifyToken) return shopifyToken;
 
+  // Avoid infinite noisy retries when the backend route is not deployed.
+  if (cookieTokenEndpointMissingUntilMs > 0 && Date.now() < cookieTokenEndpointMissingUntilMs) {
+    return null;
+  }
+
   try {
     const response = await fetch('/api/session/token', {
       method: 'GET',
@@ -72,7 +79,12 @@ async function fetchSessionToken(): Promise<string | null> {
       },
     });
 
-    if (!response.ok) return null;
+    if (!response.ok) {
+      if (response.status === 404) {
+        cookieTokenEndpointMissingUntilMs = Date.now() + 5 * 60_000;
+      }
+      return null;
+    }
 
     const body = (await response.json().catch(() => null)) as ApiSuccessResponse<{
       token: string;

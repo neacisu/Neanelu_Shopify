@@ -4,10 +4,17 @@ interface UiErrorContext {
   status?: number;
 }
 
+let uiErrorsEndpointMissingUntilMs = 0;
+
 export function reportUiError(error: unknown, context: UiErrorContext) {
   try {
     // Avoid noisy network attempts in tests.
     if (typeof process !== 'undefined' && process.env['NODE_ENV'] === 'test') return;
+
+    // Avoid repeated 404 spam when the backend endpoint is not deployed.
+    if (uiErrorsEndpointMissingUntilMs > 0 && Date.now() < uiErrorsEndpointMissingUntilMs) {
+      return;
+    }
 
     const payload = {
       error:
@@ -36,7 +43,16 @@ export function reportUiError(error: unknown, context: UiErrorContext) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
       keepalive: true,
-    });
+    }).then(
+      (res) => {
+        if (res.status === 404) {
+          uiErrorsEndpointMissingUntilMs = Date.now() + 5 * 60_000;
+        }
+      },
+      () => {
+        // ignore
+      }
+    );
   } catch {
     // never throw from reporting
   }

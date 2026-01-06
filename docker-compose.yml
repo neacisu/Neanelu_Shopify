@@ -206,14 +206,11 @@ services:
       - traefik.enable=true
       - traefik.docker.network=neanelu_frontend_network
 
-      # /api/* public prefix (prod) -> strip /api -> backend routes are registered at /*
-      - traefik.http.middlewares.backend-api-strip.stripprefix.prefixes=/api
-      - traefik.http.middlewares.backend-api-strip.stripprefix.forceSlash=false
+      # /api/* public prefix (prod) -> forward as-is to backend (backend registers routes under /api/*)
       - traefik.http.routers.backend-api.rule=Host(`${APP_HOSTNAME:?APP_HOSTNAME is required}`) && PathPrefix(`/api`)
       - traefik.http.routers.backend-api.priority=300
       - traefik.http.routers.backend-api.entrypoints=websecure
       - traefik.http.routers.backend-api.tls.certresolver=${TRAEFIK_CERT_RESOLVER:?TRAEFIK_CERT_RESOLVER is required}
-      - traefik.http.routers.backend-api.middlewares=backend-api-strip
       - traefik.http.routers.backend-api.service=backend
 
       - traefik.http.routers.backend.rule=Host(`${APP_HOSTNAME:?APP_HOSTNAME is required}`)
