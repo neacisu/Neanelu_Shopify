@@ -101,6 +101,10 @@ void describe('queue-manager (integration)', { skip: !testConfig }, () => {
       cleanupQueue(`${baseName}-e2e`),
       cleanupQueue(`${baseName}-retry`),
       cleanupQueue(`${baseName}-retry-dlq`),
+      cleanupQueue(`${baseName}-policy`),
+      cleanupQueue(`${baseName}-delayed`),
+      cleanupQueue(`${baseName}-retries`),
+      cleanupQueue(`${baseName}-retries-dlq`),
       cleanupQueue(`${baseName}-prune`),
     ]);
   });
@@ -136,6 +140,64 @@ void describe('queue-manager (integration)', { skip: !testConfig }, () => {
 
       assert.equal(processed.length, 1);
       assert.equal(processed[0]?.value, 42);
+    } finally {
+      await worker.close();
+      await events.close();
+      await queue.close();
+    }
+  });
+
+  void it('applies default policy options to enqueued jobs', async () => {
+    const name = `${baseName}-policy`;
+    assert.ok(testConfig);
+    const cfg = testConfig;
+
+    const queue = createQueue({ config: cfg }, { name });
+    try {
+      const job = await queue.add('policy', { marker: 'x' });
+      const stored = await queue.getJob(job.id!);
+      assert.ok(stored);
+
+      // Policy defaults (see policy.ts)
+      assert.equal(stored.opts.attempts, 3);
+      assert.deepEqual(stored.opts.removeOnComplete, { age: 86400 });
+      assert.deepEqual(stored.opts.removeOnFail, { age: 604800 });
+      assert.deepEqual(stored.opts.backoff, { type: 'neanelu-exp4', delay: 1000 });
+    } finally {
+      await queue.close();
+    }
+  });
+
+  void it('processes a delayed job (no scheduler required)', { timeout: 10_000 }, async () => {
+    const name = `${baseName}-delayed`;
+    assert.ok(testConfig);
+    const cfg = testConfig;
+
+    const queue = createQueue({ config: cfg }, { name });
+    const events = createQueueEvents({ config: cfg }, { name });
+
+    const processed: string[] = [];
+    const { worker } = createWorker<{ id: string }>(
+      { config: cfg },
+      {
+        name,
+        processor: async (job) => {
+          processed.push(job.data.id);
+          await Promise.resolve();
+        },
+      }
+    );
+
+    try {
+      const completed = new Promise<void>((resolve) => {
+        events.once('completed', () => resolve());
+      });
+
+      const id = randomUUID();
+      await queue.add('delayed', { id }, { delay: 150 });
+      await completed;
+
+      assert.deepEqual(processed, [id]);
     } finally {
       await worker.close();
       await events.close();
@@ -218,6 +280,90 @@ void describe('queue-manager (integration)', { skip: !testConfig }, () => {
     } finally {
       await worker.close();
       await events.close();
+      await createdDlqQueue?.close();
+      await queue.close();
+    }
+  });
+
+  void it('retries and then moves to DLQ on exhausted attempts', { timeout: 15_000 }, async () => {
+    const name = `${baseName}-retries`;
+    assert.ok(testConfig);
+    const cfg = testConfig;
+
+    const queue = createQueue({ config: cfg }, { name });
+    const { worker, dlqQueue: createdDlqQueue } = createWorker<{ marker: string }>(
+      { config: cfg },
+      {
+        name,
+        enableDlq: true,
+        processor: async () => {
+          await Promise.resolve();
+          throw new Error('boom');
+        },
+      }
+    );
+
+    try {
+      assert.ok(createdDlqQueue);
+
+      const attemptsMade: number[] = [];
+      const exhausted = new Promise<void>((resolve) => {
+        worker.on('failed', (job) => {
+          if (!job) return;
+          attemptsMade.push(job.attemptsMade);
+          if (job.attemptsMade >= 3) resolve();
+        });
+      });
+
+      await queue.add(
+        'always-fails',
+        { marker: 'x' },
+        {
+          attempts: 3,
+          // Keep this integration test fast; we validate the exp4 schedule in unit tests.
+          backoff: { type: 'fixed', delay: 1 },
+        }
+      );
+
+      // Wait for retries to be exhausted (observed via worker 'failed' events), and for DLQ enqueue.
+      const dlqEnqueued = (async () => {
+        while (true) {
+          const counts = await createdDlqQueue.getJobCounts();
+          const enqueued =
+            (counts['waiting'] ?? 0) + (counts['delayed'] ?? 0) + (counts['paused'] ?? 0);
+          if (enqueued >= 1) return counts;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      })();
+
+      const counts = await Promise.race([
+        (async () => {
+          await exhausted;
+          return dlqEnqueued;
+        })(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('job_failed_timeout')), 12_000)
+        ),
+      ]);
+
+      const enqueued =
+        (counts['waiting'] ?? 0) + (counts['delayed'] ?? 0) + (counts['paused'] ?? 0);
+      assert.ok(
+        enqueued >= 1,
+        `Expected DLQ to have >=1 enqueued job; counts=${JSON.stringify(counts)} attemptsMade=${JSON.stringify(
+          attemptsMade
+        )}`
+      );
+
+      // Should have seen multiple failed events due to retries.
+      assert.ok(
+        attemptsMade.length >= 2,
+        `Expected retries; attemptsMade=${attemptsMade.join(',')}`
+      );
+      assert.ok(Math.max(...attemptsMade) >= 2);
+      assert.ok(Math.max(...attemptsMade) >= 3);
+    } finally {
+      await worker.close();
       await createdDlqQueue?.close();
       await queue.close();
     }

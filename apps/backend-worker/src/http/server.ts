@@ -22,6 +22,7 @@ import {
   httpResponseSizeBytes,
 } from '../otel/metrics.js';
 import { getWorkerReadiness } from '../runtime/worker-registry.js';
+import { configFromEnv, createQueue, WEBHOOK_QUEUE_NAME } from '@app/queue-manager';
 
 function withoutQuery(url: string): string {
   const q = url.indexOf('?');
@@ -33,6 +34,22 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
     setTimeout(() => reject(new Error(`${label} timeout`)), timeoutMs).unref();
   });
   return Promise.race([promise, timeout]);
+}
+
+async function checkWebhookQueueFunctional(env: AppEnv, timeoutMs = 1500): Promise<boolean> {
+  const queue = createQueue({ config: configFromEnv(env) }, { name: WEBHOOK_QUEUE_NAME });
+  try {
+    await withTimeout(queue.getJobCounts(), timeoutMs, 'webhook queue check');
+    return true;
+  } catch {
+    return false;
+  } finally {
+    try {
+      await withTimeout(queue.close(), timeoutMs, 'webhook queue close');
+    } catch {
+      // best-effort
+    }
+  }
 }
 
 export type BuildServerOptions = Readonly<{
@@ -172,10 +189,11 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
 
   server.get('/health/ready', async (_request, reply) => {
     const checkTimeoutMs = 1500;
-    const [databaseOk, redisOk, shopifyOk] = await Promise.all([
+    const [databaseOk, redisOk, shopifyOk, webhookQueueOk] = await Promise.all([
       withTimeout(checkDatabaseConnection(), checkTimeoutMs, 'database check').catch(() => false),
       checkRedisConnection(env.redisUrl, checkTimeoutMs),
       Promise.resolve(isShopifyApiConfigValid(process.env)),
+      checkWebhookQueueFunctional(env, checkTimeoutMs),
     ]);
 
     const { webhookWorkerOk, tokenHealthWorkerOk } = getWorkerReadiness();
@@ -184,13 +202,14 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       database: databaseOk ? 'ok' : 'fail',
       redis: redisOk ? 'ok' : 'fail',
       shopify_api: shopifyOk ? 'ok' : 'fail',
+      queue_webhook: webhookQueueOk ? 'ok' : 'fail',
       worker_webhook: webhookWorkerOk ? 'ok' : 'fail',
       ...(tokenHealthWorkerOk == null
         ? {}
         : { worker_token_health: tokenHealthWorkerOk ? 'ok' : 'fail' }),
     } as const;
 
-    const allOk = databaseOk && redisOk && shopifyOk && webhookWorkerOk;
+    const allOk = databaseOk && redisOk && shopifyOk && webhookQueueOk && webhookWorkerOk;
     const statusCode = allOk ? 200 : 503;
     const status = allOk ? 'ready' : 'not_ready';
 

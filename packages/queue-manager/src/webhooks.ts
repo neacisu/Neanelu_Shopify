@@ -11,6 +11,31 @@ export type LoggerLike = Readonly<{
   error: (context: Record<string, unknown>, message: string) => void;
 }>;
 
+const fallbackLogger: LoggerLike = {
+  info: (context, message) => {
+    // Avoid throwing from logging in critical enqueue path.
+    try {
+      console.info(message, context);
+    } catch {
+      // ignore
+    }
+  },
+  warn: (context, message) => {
+    try {
+      console.warn(message, context);
+    } catch {
+      // ignore
+    }
+  },
+  error: (context, message) => {
+    try {
+      console.error(message, context);
+    } catch {
+      // ignore
+    }
+  },
+};
+
 export const WEBHOOK_QUEUE_NAME = 'webhook-queue';
 
 let cachedConfig: QueueManagerConfig | null = null;
@@ -34,18 +59,25 @@ function getQueue(): ReturnType<typeof createQueue> {
   return webhookQueue;
 }
 
+// Contract (Plan_de_implementare F4.1.5): `enqueueWebhookJob(payload)`.
+export async function enqueueWebhookJob(payload: WebhookJobPayload): Promise<void>;
 export async function enqueueWebhookJob(
   payload: WebhookJobPayload,
   logger: LoggerLike
+): Promise<void>;
+export async function enqueueWebhookJob(
+  payload: WebhookJobPayload,
+  logger?: LoggerLike
 ): Promise<void> {
   const queue = getQueue();
+  const log = logger ?? fallbackLogger;
 
   try {
     await queue.add(payload.topic, payload, {
       ...(payload.webhookId ? { jobId: payload.webhookId } : {}),
     });
 
-    logger.info(
+    log.info(
       {
         topic: payload.topic,
         webhookId: payload.webhookId,
@@ -55,7 +87,7 @@ export async function enqueueWebhookJob(
     );
   } catch (err) {
     const error = err instanceof Error ? err : new Error('unknown_error');
-    logger.error(
+    log.error(
       {
         err: error,
         topic: payload.topic,
