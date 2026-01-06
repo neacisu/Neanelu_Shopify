@@ -1,7 +1,9 @@
 # Metrics Reference - Neanelu Shopify
 
-> **Version:** 1.0 | **Last Updated:** 2026-01-03
-> **Source:** `apps/backend-worker/src/otel/metrics.ts`
+> **Version:** 1.0 | **Last Updated:** 2026-01-06
+> **Sources:**
+> - `apps/backend-worker/src/otel/metrics.ts`
+> - `packages/queue-manager/src/queue-manager.ts` + `packages/queue-manager/src/job-delay.ts`
 
 ---
 
@@ -35,11 +37,22 @@
 
 ## Queue Metrics
 
-| Metric                    | Type      | Labels     | Description       |
-|---------------------------|-----------|------------|-------------------|
-| `queue_enqueue_total`     | Counter   | queue_name | Jobs enqueued     |
-| `queue_depth`             | Gauge     | queue_name | Jobs waiting      |
-| `queue_dlq_entries_total` | Counter   | queue_name | Jobs moved to DLQ |
+| Metric                       | Type      | Labels     | Description                               |
+|------------------------------|-----------|------------|-------------------------------------------|
+| `queue_enqueue_total`        | Counter   | queue_name | Jobs enqueued                             |
+| `queue_depth`                | Gauge     | queue_name | Jobs waiting                              |
+| `queue_active`               | Gauge     | queue_name | Jobs currently executing (best-effort)    |
+| `queue_job_latency_seconds`  | Histogram | queue_name | Time from enqueue to processing start     |
+| `queue_job_duration_seconds` | Histogram | queue_name | Processing duration                       |
+| `queue_job_retries_total`     | Counter   | queue_name | Non-terminal failures (retry attempts)    |
+| `queue_job_backoff_seconds`   | Histogram | queue_name | Backoff before retry (best-effort)        |
+| `queue_job_failed_total`     | Counter   | queue_name | Jobs that ended in failure (terminal)     |
+| `queue_job_stalled_total`    | Counter   | queue_name | Jobs detected as stalled                  |
+| `queue_dlq_entries_total`    | Counter   | queue_name | Jobs moved to DLQ                         |
+| `queue_ratelimit_delayed_total` | Counter | queue_name | Jobs delayed due to rate limiting         |
+| `queue_ratelimit_delay_seconds` | Histogram | queue_name | Rate limit delay duration                 |
+| `queue_fairness_group_delayed_total` | Counter | queue_name | Grouped jobs waiting >1s (best-effort)  |
+| `queue_fairness_group_wait_seconds` | Histogram | queue_name | Grouped job wait time (best-effort)      |
 
 **Queue naming (Source of Truth):** kebab-case. DLQ queues use `-dlq` suffix (ex: `webhook-queue-dlq`).
 
@@ -119,13 +132,8 @@ Aceste metrici vor fi adăugate în fazele ulterioare:
 
 ### Queue Metrics (F4.4)
 
-- `queue.depth` - jobs waiting per queue
-- `job.latency` - time from enqueue to start
-- `job.duration` - processing time
-- `job.retries` - retry count distribution
-- `job.failed` - failed jobs count
-- `job.stalled` - stalled jobs count
-- `ratelimit.delayed` - jobs delayed due to rate limit
+Metricile de bază pentru cozi sunt deja definite mai sus și folosesc convenția `queue_*`.
+Pentru evitarea drift-ului între documentație și implementare, nu mai folosim dot-notation.
 
 ### Bulk Operations (F5.3)
 

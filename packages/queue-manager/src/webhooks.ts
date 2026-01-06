@@ -1,7 +1,13 @@
 import { loadEnv } from '@app/config';
 import type { WebhookJobPayload } from '@app/types';
+import { SpanStatusCode, context as otelContext, trace } from '@opentelemetry/api';
 
-import { configFromEnv, createQueue, type QueueManagerConfig } from './queue-manager.js';
+import {
+  buildJobTelemetryFromActiveContext,
+  configFromEnv,
+  createQueue,
+  type QueueManagerConfig,
+} from './queue-manager.js';
 import { normalizeShopIdToGroupId } from './strategies/fairness/group-id.js';
 
 export type LoggerLike = Readonly<{
@@ -81,6 +87,8 @@ export async function enqueueWebhookJob(
   const queue = getQueue();
   const log = logger ?? fallbackLogger;
 
+  const telemetry = buildJobTelemetryFromActiveContext();
+
   const normalizedShopId = normalizeShopIdToGroupId(payload.shopId);
   if (!normalizedShopId) {
     const err = new Error('invalid_shop_id');
@@ -101,12 +109,31 @@ export async function enqueueWebhookJob(
   const normalizedPayload =
     payload.shopId === normalizedShopId ? payload : { ...payload, shopId: normalizedShopId };
 
+  const tracer = trace.getTracer('neanelu-shopify');
+  const span = tracer.startSpan('queue.enqueue', {
+    attributes: {
+      'queue.name': WEBHOOK_QUEUE_NAME,
+      'queue.job.name': normalizedPayload.topic,
+      ...(normalizedPayload.webhookId ? { 'queue.job.id': normalizedPayload.webhookId } : {}),
+      'queue.group.id': normalizedShopId,
+      'shop.domain': normalizedPayload.shopDomain,
+      'shop.id': normalizedShopId,
+      'webhook.topic': normalizedPayload.topic,
+      ...(normalizedPayload.webhookId ? { 'webhook.id': normalizedPayload.webhookId } : {}),
+    },
+  });
+
   try {
-    await queue.add(normalizedPayload.topic, normalizedPayload, {
-      ...(normalizedPayload.webhookId ? { jobId: normalizedPayload.webhookId } : {}),
-      group: { id: normalizedShopId },
-      priority: priorityForWebhookTopic(normalizedPayload.topic),
+    await otelContext.with(trace.setSpan(otelContext.active(), span), async () => {
+      await queue.add(normalizedPayload.topic, normalizedPayload, {
+        ...(normalizedPayload.webhookId ? { jobId: normalizedPayload.webhookId } : {}),
+        group: { id: normalizedShopId },
+        priority: priorityForWebhookTopic(normalizedPayload.topic),
+        ...(telemetry ? { telemetry } : {}),
+      });
     });
+
+    span.setStatus({ code: SpanStatusCode.OK });
 
     log.info(
       {
@@ -119,6 +146,13 @@ export async function enqueueWebhookJob(
     );
   } catch (err) {
     const error = err instanceof Error ? err : new Error('unknown_error');
+
+    span.setStatus({
+      code: SpanStatusCode.ERROR,
+      message: error.message,
+    });
+    span.recordException(error);
+
     log.error(
       {
         err: error,
@@ -130,6 +164,8 @@ export async function enqueueWebhookJob(
       'Failed to enqueue webhook job'
     );
     throw error;
+  } finally {
+    span.end();
   }
 }
 

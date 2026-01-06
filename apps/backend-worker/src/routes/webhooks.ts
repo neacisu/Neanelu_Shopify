@@ -224,7 +224,7 @@ export const webhookRoutes: FastifyPluginCallback<{ appLogger?: Logger }> = (app
     await withSpan(
       'webhooks.enqueue',
       { shop_domain: shopDomain, topic: headerTopic, outcome: 'accepted' },
-      async () => enqueueWebhookJob(jobPayload, request.log)
+      async () => enqueueWebhookJob(jobPayload, log)
     );
     incrementWebhookMetric('accepted', { topic: headerTopic });
 

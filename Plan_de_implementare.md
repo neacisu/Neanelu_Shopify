@@ -2285,8 +2285,8 @@ Obiectiv: BullMQ Pro + fairness multi-tenant + rate limiting distribuit Shopify 
     {
         "id_task": "F4.4.2",
         "denumire_task": "Metrici operaționale minime pentru cozi",
-        "descriere_task": "Expune metrici pentru cozi:\n\n**Metrici:**\n- `queue.depth` - jobs waiting per queue\n- `job.latency` - time from enqueue to start\n- `job.duration` - processing time\n- `job.retries` - retry count distribution\n- `job.failed` - failed jobs count\n- `job.stalled` - stalled jobs count\n- `ratelimit.delayed` - jobs delayed due to rate limit",
-        "cale_implementare": "/Neanelu_Shopify/packages/queue-manager/src/otel",
+        "descriere_task": "Expune metrici pentru cozi (convenție unică `queue_*`):\n\n**Metrici:**\n- `queue_depth` - jobs waiting per queue (label: queue_name)\n- `queue_active` - jobs currently executing (label: queue_name)\n- `queue_job_latency_seconds` - time from enqueue to start (label: queue_name)\n- `queue_job_duration_seconds` - processing time (label: queue_name)\n- `queue_job_failed_total` - terminal failures (label: queue_name)\n- `queue_job_stalled_total` - stalled jobs count (label: queue_name)\n- `queue_dlq_entries_total` - jobs moved to DLQ (label: queue_name)\n\nNOTĂ: retry/backoff/rate-limit sunt semnale în logs/spans; metrici suplimentare se pot adăuga ulterior fără cardinalitate mare.",
+        "cale_implementare": "/Neanelu_Shopify/apps/backend-worker/src/otel/metrics.ts + /Neanelu_Shopify/apps/backend-worker/src/processors/* + /Neanelu_Shopify/packages/queue-manager/src",
         "contextul_anterior": "Traces există; metrici necesare pentru alerting/SLO.",
         "validare_task": "Metrici vizibile în exporter; grafice funcționale.",
         "outcome_task": "Bază pentru alerting și SLO monitoring.",
