@@ -11,8 +11,8 @@ export function useApiClient(options?: ApiClientOptions) {
 
   return useMemo(() => {
     const merged: ApiClientOptions = {
-      baseUrl,
-      fetchImpl,
+      ...(typeof baseUrl === 'string' ? { baseUrl } : {}),
+      ...(fetchImpl ? { fetchImpl } : {}),
       getAuthHeaders: getAuthHeaders ?? getSessionAuthHeaders,
     };
 
