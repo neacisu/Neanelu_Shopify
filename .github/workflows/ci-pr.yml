@@ -33,11 +33,11 @@ jobs:
   # ============================================
   # Main CI Job: Lint, TypeCheck, Test
   # ============================================
-  lint-typecheck-test:
-    name: Lint, TypeCheck & Test
+  lint-typecheck-build:
+    name: Lint, TypeCheck & Build
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 12
     env:
       NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
       # BullMQ Pro license token (required for running BullMQ Pro codepaths in CI)
@@ -55,34 +55,6 @@ jobs:
       # Keep OTel effectively disabled (0% sampling)
       OTEL_SAMPLING_RATIO: '0'
       OBS_DEBUG: '0'
-
-    services:
-      # PostgreSQL 18 with pgvector preinstalled for integration tests
-      # Image: pgvector/pgvector with Debian Trixie base (latest with pg18 support)
-      postgres:
-        image: pgvector/pgvector:0.8.1-pg18-trixie
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: test_db
-        ports:
-          - 65010:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-      # Redis 8 for integration tests (BullMQ, cache)
-      redis:
-        image: redis:8.4-alpine
-        ports:
-          - 65011:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - name: Checkout code
@@ -120,6 +92,169 @@ jobs:
       - name: Build Frontend (web-admin)
         run: pnpm --filter @app/web-admin build
 
+  # ============================================
+  # Tests: queue-manager (fast unit tests)
+  # ============================================
+  test-queue-manager:
+    name: Test (queue-manager)
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
+      BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
+      NODE_ENV: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets (no output)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${NPM_TASKFORCESH_TOKEN}" || (echo "Missing NPM_TASKFORCESH_TOKEN" >&2; exit 1)
+          test -n "${BULLMQ_PRO_TOKEN}" || (echo "Missing BULLMQ_PRO_TOKEN" >&2; exit 1)
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
+
+      - name: Run tests (@app/queue-manager)
+        run: pnpm --filter @app/queue-manager test
+
+  # ============================================
+  # Tests: web-admin (vitest)
+  # ============================================
+  test-web-admin:
+    name: Test (web-admin)
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NODE_ENV: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
+
+      - name: Run tests (@app/web-admin)
+        run: pnpm --filter @app/web-admin test
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-web-admin
+          path: |
+            apps/web-admin/coverage/
+            apps/web-admin/junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ============================================
+  # Tests: backend-worker (integration-ish)
+  # ============================================
+  test-backend-worker:
+    name: Test (backend-worker)
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
+      BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
+      APP_HOST: https://example.test
+      SHOPIFY_API_KEY: ci_dummy
+      SHOPIFY_API_SECRET: ci_dummy
+      SCOPES: read_products
+      ENCRYPTION_KEY_VERSION: '1'
+      ENCRYPTION_KEY_256: 0000000000000000000000000000000000000000000000000000000000000000
+      OTEL_EXPORTER_OTLP_ENDPOINT: ''
+      OTEL_SERVICE_NAME: neanelu-shopify-ci
+      OTEL_SAMPLING_RATIO: '0'
+      OBS_DEBUG: '0'
+      NODE_ENV: test
+
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.1-pg18-trixie
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test_db
+        ports:
+          - 65010:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:8.4-alpine
+        ports:
+          - 65011:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets (no output)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${NPM_TASKFORCESH_TOKEN}" || (echo "Missing NPM_TASKFORCESH_TOKEN" >&2; exit 1)
+          test -n "${BULLMQ_PRO_TOKEN}" || (echo "Missing BULLMQ_PRO_TOKEN" >&2; exit 1)
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
+
       - name: Install PostgreSQL client (psql)
         run: |
           sudo apt-get update
@@ -136,32 +271,27 @@ jobs:
           psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS btree_gist;"
           psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
-      - name: Run database migrations (required for tests)
+      - name: Run database migrations (required for backend-worker tests)
         run: pnpm db:migrate
         env:
           DATABASE_URL: postgresql://test:test@localhost:65010/test_db
           DATABASE_URL_MIGRATE: postgresql://test:test@localhost:65010/test_db
-          NODE_ENV: test
 
-      - name: Run Tests
-        run: pnpm test
+      - name: Run tests (@app/backend-worker)
+        run: pnpm --filter @app/backend-worker test
         env:
           DATABASE_URL: postgresql://test:test@localhost:65010/test_db
           DATABASE_URL_MIGRATE: postgresql://test:test@localhost:65010/test_db
           REDIS_URL: redis://localhost:65011
-          NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
-          BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
-          NODE_ENV: test
 
-      # Upload test results for debugging
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results
+          name: test-results-backend-worker
           path: |
-            **/coverage/
-            **/junit.xml
+            apps/backend-worker/coverage/
+            apps/backend-worker/junit.xml
           if-no-files-found: ignore
           retention-days: 7
 
@@ -333,7 +463,7 @@ jobs:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [lint-typecheck-test]
+    needs: [lint-typecheck-build]
     env:
       NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
 
