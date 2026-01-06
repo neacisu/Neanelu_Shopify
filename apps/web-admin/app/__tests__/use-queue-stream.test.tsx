@@ -92,7 +92,7 @@ describe('useQueueStream', () => {
     render(<Harness onEvent={() => undefined} />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('error').textContent).toMatch(/stream_failed_500/);
+      expect(screen.getByTestId('error').textContent).toMatch(/stream_(failed|http)_500/);
     });
   });
 });

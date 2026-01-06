@@ -1,7 +1,7 @@
 import { checkDatabaseConnection } from '@app/database';
 import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import { createClient } from 'redis';
 import { randomUUID } from 'node:crypto';
@@ -223,7 +223,13 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const sessionConfig = getDefaultSessionConfig(env.shopifyApiSecret, env.shopifyApiKey);
 
   // Admin APIs (used by web-admin)
+  // Primary mounting under /api/*
   await server.register(queueRoutes, { prefix: '/api', env, logger, sessionConfig });
+
+  // Compatibility mounting without /api prefix.
+  // Some reverse proxies (or legacy deployments) may strip `/api` before forwarding.
+  // All endpoints remain protected by `requireSession()` inside the plugin.
+  await server.register(queueRoutes, { prefix: '', env, logger, sessionConfig });
 
   server.get('/api/health', (request, reply) => {
     void reply.status(200).send({
@@ -240,7 +246,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
 
   // Helper endpoint for web-admin to obtain a Bearer token when cookie auth is available.
   // This token is the same signed session token used in the session cookie.
-  server.get('/api/session/token', (request, reply) => {
+  const sessionTokenHandler = (request: FastifyRequest, reply: FastifyReply) => {
     const session = getSessionFromRequest(request, sessionConfig);
     if (!session) {
       void reply.status(401).send({
@@ -266,7 +272,33 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         timestamp: new Date().toISOString(),
       },
     });
-  });
+  };
+
+  // Primary path (expected by frontend)
+  server.get('/api/session/token', sessionTokenHandler);
+  // Compatibility alias (for proxies that strip /api)
+  server.get('/session/token', sessionTokenHandler);
+
+  // Best-effort UI error reporting endpoint (used by the web-admin in production).
+  // Keep it lightweight: accept JSON, log, and return 204.
+  const uiErrorsHandler = (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      logger.warn(
+        {
+          request_id: request.id,
+          path: request.raw?.url,
+          ui_error: request.body,
+        },
+        'ui_error_report'
+      );
+    } catch {
+      // ignore
+    }
+    void reply.status(204).send();
+  };
+
+  server.post('/api/ui-errors', uiErrorsHandler);
+  server.post('/ui-errors', uiErrorsHandler);
 
   // Debuggable auth check endpoint (useful for validating header injection)
   server.get('/api/whoami', { preHandler: requireSession(sessionConfig) }, (request, reply) => {

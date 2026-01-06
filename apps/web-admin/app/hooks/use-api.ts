@@ -4,15 +4,20 @@ import type { ApiClientOptions } from '../lib/api-client';
 import { createApiClient } from '../lib/api-client';
 import { getSessionAuthHeaders } from '../lib/session-auth';
 
-export function useApiClient(options: ApiClientOptions = {}) {
+export function useApiClient(options?: ApiClientOptions) {
+  const baseUrl = options?.baseUrl;
+  const fetchImpl = options?.fetchImpl;
+  const getAuthHeaders = options?.getAuthHeaders;
+
   return useMemo(() => {
     const merged: ApiClientOptions = {
-      ...options,
-      getAuthHeaders: options.getAuthHeaders ?? getSessionAuthHeaders,
+      baseUrl,
+      fetchImpl,
+      getAuthHeaders: getAuthHeaders ?? getSessionAuthHeaders,
     };
 
     return createApiClient(merged);
-  }, [options]);
+  }, [baseUrl, fetchImpl, getAuthHeaders]);
 }
 
 export function useApiRequest<TArgs extends unknown[], TResult>(

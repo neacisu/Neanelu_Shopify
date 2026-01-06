@@ -33,6 +33,16 @@ function backoffMs(attempt: number): number {
   return Math.min(30_000, base);
 }
 
+class StreamHttpError extends Error {
+  readonly status: number;
+
+  constructor(status: number) {
+    super(`stream_http_${status}`);
+    this.name = 'StreamHttpError';
+    this.status = status;
+  }
+}
+
 async function connectSse(options: {
   signal: AbortSignal;
   onConnected: () => void;
@@ -50,7 +60,7 @@ async function connectSse(options: {
   });
 
   if (!response.ok) {
-    throw new Error(`stream_failed_${response.status}`);
+    throw new StreamHttpError(response.status);
   }
 
   onConnected();
@@ -169,6 +179,18 @@ export function useQueueStream(options: {
         } catch (e) {
           setConnected(false);
           if (abort.signal.aborted) break;
+
+          if (e instanceof StreamHttpError) {
+            // Permanent-ish errors: stop reconnecting to avoid endless noise.
+            if (e.status === 401 || e.status === 403) {
+              setError('Unauthorized (401/403)');
+              break;
+            }
+            if (e.status === 404) {
+              setError('Stream endpoint not found (404)');
+              break;
+            }
+          }
 
           const message = e instanceof Error ? e.message : 'stream_error';
           setError(message);
