@@ -10,6 +10,7 @@
 
 import { pool, decryptAesGcm } from '@app/database';
 import type { Logger } from '@app/logger';
+import { ShopifyRateLimitedError, computeRestDelayMsFromRetryAfter } from '@app/shopify-client';
 
 /**
  * Rezultat verificare token
@@ -76,6 +77,13 @@ export async function checkTokenHealth(
         },
       });
 
+      if (response.status === 429) {
+        const delayMs = computeRestDelayMsFromRetryAfter(response.headers);
+        if (delayMs != null) {
+          throw new ShopifyRateLimitedError({ kind: 'rest_429', delayMs });
+        }
+      }
+
       if (response.status === 401 || response.status === 403) {
         return { valid: false, needsReauth: true, reason: 'Token rejected by Shopify' };
       }
@@ -91,6 +99,14 @@ export async function checkTokenHealth(
 
       return { valid: true, needsReauth: false };
     } catch (err) {
+      if (err instanceof ShopifyRateLimitedError) {
+        return {
+          valid: false,
+          needsReauth: false,
+          reason: `Shopify rate limited: retry in ${err.delayMs}ms`,
+        };
+      }
+
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       logger.error({ shopId, errorMessage }, 'Network error checking token health');
       // Eroare de rețea - nu marcăm ca needsReauth (poate fi temporar)

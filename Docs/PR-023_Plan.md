@@ -35,10 +35,10 @@ Nu inventez APIs/simboluri. Dacă un nume apare în cerință dar nu există în
 (Verificat în această sesiune pe 2026-01-06)
 
 - GraphQL Admin API rate limits: throttleStatus în `extensions.cost` (ex. `maximumAvailable`, `currentlyAvailable`, `restoreRate`)
-  - https://shopify.dev/docs/api/usage/rate-limits
+  - ['https://shopify.dev/docs/api/usage/rate-limits']
 - REST Admin API rate limits + 429 + Retry-After
-  - https://shopify.dev/docs/api/usage/rate-limits
-  - https://shopify.dev/docs/api/admin-rest
+  - ['https://shopify.dev/docs/api/usage/rate-limits']
+  - ['https://shopify.dev/docs/api/admin-rest']
 
 ## 2) Modelul corect (F4.3.1) — 3 mecanisme diferite
 
@@ -113,7 +113,7 @@ Planul tratează aceste resurse ca bucket-uri diferite:
 
 **De creat/modificat:**
 
-1) `packages/queue-manager/src/strategies/fairness/rate-limiter.lua`
+  M1) `packages/queue-manager/src/strategies/fairness/rate-limiter.lua`
 
 - Lua implementează token bucket cu refill pe bază de timp.
 - Contract (propus explicit):
@@ -121,7 +121,7 @@ Planul tratează aceste resurse ca bucket-uri diferite:
   - ARGV: nowMs, costToConsume, maxTokens, refillPerSecond
   - returnează: `{ allowed(0/1), delayMs, tokensRemaining, tokensNow }`
 
-2) `packages/queue-manager/src/strategies/fairness/rate-limiter.ts`
+  M2) `packages/queue-manager/src/strategies/fairness/rate-limiter.ts`
 
 - wrapper TS care:
   - încarcă script-ul (load/evalsha cu fallback la eval)
@@ -129,7 +129,7 @@ Planul tratează aceste resurse ca bucket-uri diferite:
   - nu face sleep; doar calculează și returnează delay.
 
 **Observație importantă:** cerința spune „Restore rate consistent cu Shopify (50 points/sec typical)”, dar planul nu hardcodează 50 ca adevăr global.
-- default-ul inițial poate fi 50 pentru GraphQL doar ca „bootstrapping” (până avem semnal real), dar după primul răspuns se actualizează din `throttleStatus.restoreRate`.
+> default-ul inițial poate fi 50 pentru GraphQL doar ca „bootstrapping” (până avem semnal real), dar după primul răspuns se actualizează din `throttleStatus.restoreRate`.
 
 **Validare (cerută):**
 
@@ -254,16 +254,19 @@ Planul tratează aceste resurse ca bucket-uri diferite:
 
 **Teste propuse:**
 
-1) Lua atomicity
+T1. Lua atomicity
+
 - pornești N promise-uri concurente care încearcă să consume cost din același bucket
 - aserți că suma consumată nu depășește capacitatea + refill
 - aserți că nu există tokens negative
 
-2) Backoff 429
+T2. Backoff 429
+
 - simulezi funcție „call Shopify” care returnează status 429 + `Retry-After`
 - verifici că job-ul este mutat în delayed cu timestamp coerent
 
-3) Bulk lock
+T3. Bulk lock
+
 - două jobs bulk cu același shopId:
   - primul ia lock și ține lock-ul scurt
   - al doilea detectează lock și se mută delayed

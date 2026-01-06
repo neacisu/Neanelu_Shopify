@@ -15,7 +15,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node --import tsx ./scripts/copy-assets.ts",
     "test": "node --import tsx --test src/**/*.test.ts"
   },
   "dependencies": {

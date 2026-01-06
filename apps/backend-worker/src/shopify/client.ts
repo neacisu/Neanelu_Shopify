@@ -6,6 +6,12 @@
  */
 
 import { SHOPIFY_API_VERSION } from '@app/config';
+import {
+  ShopifyRateLimitedError,
+  type ShopifyGraphqlExtensions,
+  computeGraphqlDelayMs,
+} from '@app/shopify-client';
+import { recordShopifyApiUsage } from '../otel/metrics.js';
 
 export interface ShopifyClientOptions {
   shopDomain: string;
@@ -18,7 +24,15 @@ export type ShopifyGraphQlError = Readonly<{ message: string }>;
 export type ShopifyGraphQlResponse<TData> = Readonly<{
   data?: TData;
   errors?: readonly ShopifyGraphQlError[];
+  extensions?: ShopifyGraphqlExtensions;
 }>;
+
+function isThrottledGraphql(errors: readonly ShopifyGraphQlError[] | undefined): boolean {
+  if (!errors?.length) return false;
+  return errors.some(
+    (e) => typeof e.message === 'string' && e.message.toLowerCase().includes('throttled')
+  );
+}
 
 export const shopifyApi = {
   createClient(options: ShopifyClientOptions) {
@@ -49,7 +63,47 @@ export const shopifyApi = {
           throw new Error(`Shopify GraphQL Error: ${response.status} ${text}`);
         }
 
-        return (await response.json()) as ShopifyGraphQlResponse<TData>;
+        const body = (await response.json()) as ShopifyGraphQlResponse<TData>;
+
+        const actualCost = body.extensions?.cost?.actualQueryCost;
+        if (typeof actualCost === 'number' && Number.isFinite(actualCost) && actualCost >= 0) {
+          recordShopifyApiUsage(actualCost);
+        }
+
+        // Reactive throttling: Shopify may return HTTP 200 with GraphQL errors.
+        if (isThrottledGraphql(body.errors)) {
+          const status = body.extensions?.cost?.throttleStatus;
+          const costNeeded =
+            body.extensions?.cost?.requestedQueryCost ??
+            body.extensions?.cost?.actualQueryCost ??
+            1;
+
+          if (
+            status &&
+            typeof status.currentlyAvailable === 'number' &&
+            typeof status.restoreRate === 'number'
+          ) {
+            const delayMs = computeGraphqlDelayMs({
+              costNeeded,
+              currentlyAvailable: status.currentlyAvailable,
+              restoreRate: status.restoreRate,
+            });
+
+            recordShopifyApiUsage(typeof actualCost === 'number' ? actualCost : 0, true);
+
+            throw new ShopifyRateLimitedError({
+              kind: 'graphql_throttled',
+              delayMs,
+              details: {
+                costNeeded,
+                currentlyAvailable: status.currentlyAvailable,
+                restoreRate: status.restoreRate,
+              },
+            });
+          }
+        }
+
+        return body;
       },
     };
   },

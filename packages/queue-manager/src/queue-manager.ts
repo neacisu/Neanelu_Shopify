@@ -22,6 +22,7 @@ import {
   NEANELU_BACKOFF_STRATEGY,
 } from './policy.js';
 import { QUEUE_NAMES, type KnownQueueName, toDlqQueueName } from './names.js';
+import { wrapProcessorWithDelayHandling } from './job-delay.js';
 
 function requireNonEmpty(value: string, key: string): string {
   const trimmed = value.trim();
@@ -144,6 +145,8 @@ export type CreateWorkerOptions<TData = unknown> = Readonly<{
   workerOptions?: Omit<WorkerProOptions, 'connection' | 'settings'>;
   /** Default job execution timeout for this worker. Set to null to disable. */
   jobTimeoutMs?: number | null;
+  /** If true, processors can delay jobs by throwing an error with a numeric `delayMs` field. */
+  enableDelayHandling?: boolean;
   /** If true, failed jobs that exhausted retries are copied into `${name}-dlq`. */
   enableDlq?: boolean;
   onDlqEntry?: (entry: DlqEntry) => void;
@@ -193,11 +196,15 @@ export function createWorker<TData = unknown>(
     return Promise.race([worker.processor(job, token, combinedSignal), timeoutPromise]);
   };
 
+  const finalProcessor = worker.enableDelayHandling
+    ? wrapProcessorWithDelayHandling<TData>(wrappedProcessor)
+    : wrappedProcessor;
+
   const dlqQueue = worker.enableDlq
     ? createQueue(options, { name: toDlqQueueName(worker.name) })
     : undefined;
 
-  const w = new BullWorker<TData>(worker.name, wrappedProcessor, {
+  const w = new BullWorker<TData>(worker.name, finalProcessor, {
     connection: buildConnection(options.config, options.connection),
     settings: {
       backoffStrategy: (attemptsMade: number, type?: string, _err?: Error, job?: MinimalJob) => {

@@ -58,7 +58,7 @@
     "baseUrl": ".",
     "paths": {
       "@app/database": ["packages/database/src/index.ts"],
-      "@app/shopify-client": ["packages/shopify-client/src"],
+      "@app/shopify-client": ["packages/shopify-client/src/index.ts"],
       "@app/queue-manager": ["packages/queue-manager/src/index.ts"],
       "@app/ai-engine": ["packages/ai-engine/src"],
       "@app/config": ["packages/config/src/index.ts"],
