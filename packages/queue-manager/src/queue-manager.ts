@@ -13,7 +13,7 @@ import {
   type WorkerProOptions,
 } from '@taskforcesh/bullmq-pro';
 
-import { metrics } from '@opentelemetry/api';
+import { context as otelContext, metrics, propagation } from '@opentelemetry/api';
 
 import {
   defaultJobTimeoutMs,
@@ -36,6 +36,97 @@ export type QueueManagerConfig = Readonly<{
   redisUrl: string;
   bullmqProToken: string;
 }>;
+
+type TelemetryCarrier = Record<string, string>;
+
+function carrierFromTelemetry(raw: unknown): TelemetryCarrier | null {
+  if (raw == null) return null;
+
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+
+    // Accept either raw traceparent or a JSON string {traceparent,tracestate}.
+    if (trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed) as unknown;
+        if (parsed && typeof parsed === 'object') {
+          const obj = parsed as Record<string, unknown>;
+          const traceparent =
+            typeof obj['traceparent'] === 'string' ? obj['traceparent'] : undefined;
+          const tracestate = typeof obj['tracestate'] === 'string' ? obj['tracestate'] : undefined;
+          if (!traceparent) return null;
+          return {
+            traceparent,
+            ...(tracestate ? { tracestate } : {}),
+          };
+        }
+      } catch {
+        return null;
+      }
+    }
+
+    return { traceparent: trimmed };
+  }
+
+  if (typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>;
+    const traceparent = typeof obj['traceparent'] === 'string' ? obj['traceparent'] : undefined;
+    const tracestate = typeof obj['tracestate'] === 'string' ? obj['tracestate'] : undefined;
+    if (!traceparent) return null;
+    return {
+      traceparent,
+      ...(tracestate ? { tracestate } : {}),
+    };
+  }
+
+  return null;
+}
+
+function extractContextFromTelemetry(raw: unknown) {
+  const carrier = carrierFromTelemetry(raw);
+  if (!carrier?.['traceparent']) return otelContext.active();
+
+  return propagation.extract(otelContext.active(), carrier, {
+    get: (c, key) => c[key],
+    keys: (c) => Object.keys(c),
+  });
+}
+
+export function extractOtelContextFromTelemetryMetadata(metadata: unknown) {
+  return extractContextFromTelemetry(metadata);
+}
+
+export async function withJobTelemetryContext<T>(
+  job: unknown,
+  fn: () => T | Promise<T>
+): Promise<T> {
+  const telemetry = (job as { opts?: { telemetry?: { metadata?: unknown } } } | null | undefined)
+    ?.opts?.telemetry;
+  const extracted = extractContextFromTelemetry(telemetry?.metadata);
+  return await otelContext.with(extracted, fn);
+}
+
+export function buildJobTelemetryFromActiveContext(): { metadata: string } | undefined {
+  const carrier: TelemetryCarrier = {};
+
+  propagation.inject(otelContext.active(), carrier, {
+    set: (c, key, value) => {
+      c[key] = String(value);
+    },
+  });
+
+  const traceparent = carrier['traceparent'];
+  if (!traceparent) return undefined;
+
+  const tracestate = carrier['tracestate'];
+  return {
+    metadata: JSON.stringify({
+      traceparent,
+      ...(tracestate ? { tracestate } : {}),
+    }),
+  };
+}
 
 const meter = metrics.getMeter('neanelu-shopify.queue-manager');
 const dlqEntriesTotal = meter.createCounter('queue_dlq_entries_total', {
@@ -167,33 +258,39 @@ export function createWorker<TData = unknown>(
       : null);
 
   const wrappedProcessor: CreateWorkerOptions<TData>['processor'] = async (job, token, signal) => {
-    if (!resolvedTimeoutMs || resolvedTimeoutMs <= 0) {
-      return worker.processor(job, token, signal);
-    }
+    const telemetry = (job?.opts as unknown as { telemetry?: { metadata?: unknown } } | undefined)
+      ?.telemetry;
+    const extracted = extractContextFromTelemetry(telemetry?.metadata);
 
-    const timeoutController = new AbortController();
-    const combinedSignal = signal
-      ? AbortSignal.any([signal, timeoutController.signal])
-      : timeoutController.signal;
+    return otelContext.with(extracted, async () => {
+      if (!resolvedTimeoutMs || resolvedTimeoutMs <= 0) {
+        return worker.processor(job, token, signal);
+      }
 
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      const timer = setTimeout(() => {
-        timeoutController.abort();
-        reject(new Error(`Job exceeded timeout of ${resolvedTimeoutMs}ms`));
-      }, resolvedTimeoutMs);
+      const timeoutController = new AbortController();
+      const combinedSignal = signal
+        ? AbortSignal.any([signal, timeoutController.signal])
+        : timeoutController.signal;
 
-      combinedSignal.addEventListener(
-        'abort',
-        () => {
-          clearTimeout(timer);
-          const reason: unknown = (combinedSignal as unknown as { reason?: unknown }).reason;
-          reject(reason instanceof Error ? reason : new Error('Job aborted'));
-        },
-        { once: true }
-      );
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        const timer = setTimeout(() => {
+          timeoutController.abort();
+          reject(new Error(`Job exceeded timeout of ${resolvedTimeoutMs}ms`));
+        }, resolvedTimeoutMs);
+
+        combinedSignal.addEventListener(
+          'abort',
+          () => {
+            clearTimeout(timer);
+            const reason: unknown = (combinedSignal as unknown as { reason?: unknown }).reason;
+            reject(reason instanceof Error ? reason : new Error('Job aborted'));
+          },
+          { once: true }
+        );
+      });
+
+      return Promise.race([worker.processor(job, token, combinedSignal), timeoutPromise]);
     });
-
-    return Promise.race([worker.processor(job, token, combinedSignal), timeoutPromise]);
   };
 
   // Set after worker creation; used for best-effort rateLimitGroup integration.
@@ -201,6 +298,7 @@ export function createWorker<TData = unknown>(
 
   const finalProcessor = worker.enableDelayHandling
     ? wrapProcessorWithDelayHandling<TData>(wrappedProcessor, {
+        queueName: worker.name,
         rateLimitGroup: async (job, delayMs) => {
           const w = workerRef as unknown as {
             rateLimitGroup?: (j: unknown, ms: number) => unknown;

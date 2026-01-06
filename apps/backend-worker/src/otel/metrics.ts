@@ -122,6 +122,82 @@ export const queueDepth: UpDownCounter = meter.createUpDownCounter('queue_depth'
   description: 'Number of jobs waiting in queue',
 });
 
+/** Queue active - jobs currently executing (gauge with labels: queue_name) */
+export const queueActive: UpDownCounter = meter.createUpDownCounter('queue_active', {
+  description: 'Number of jobs currently executing (best-effort)',
+});
+
+/** Job latency - seconds from enqueue to processing start (labels: queue_name) */
+export const queueJobLatencySeconds: Histogram = meter.createHistogram(
+  'queue_job_latency_seconds',
+  {
+    description: 'Job latency in seconds from enqueue to processing start',
+    unit: 's',
+    advice: {
+      explicitBucketBoundaries: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300],
+    },
+  }
+);
+
+/** Job duration - seconds spent processing (labels: queue_name) */
+export const queueJobDurationSeconds: Histogram = meter.createHistogram(
+  'queue_job_duration_seconds',
+  {
+    description: 'Job processing duration in seconds',
+    unit: 's',
+    advice: {
+      explicitBucketBoundaries: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300],
+    },
+  }
+);
+
+/** Jobs failed (terminal) (counter with labels: queue_name) */
+export const queueJobFailedTotal: Counter = meter.createCounter('queue_job_failed_total', {
+  description: 'Total number of jobs that ended in terminal failure',
+});
+
+/** Jobs stalled (counter with labels: queue_name) */
+export const queueJobStalledTotal: Counter = meter.createCounter('queue_job_stalled_total', {
+  description: 'Total number of stalled jobs',
+});
+
+/** Jobs retried (non-terminal failures) (counter with labels: queue_name) */
+export const queueJobRetriesTotal: Counter = meter.createCounter('queue_job_retries_total', {
+  description: 'Total number of job retries (non-terminal failures)',
+});
+
+/** Backoff applied before retry (seconds) (histogram with labels: queue_name) */
+export const queueJobBackoffSeconds: Histogram = meter.createHistogram(
+  'queue_job_backoff_seconds',
+  {
+    description: 'Backoff applied before retry in seconds (best-effort)',
+    unit: 's',
+    advice: {
+      explicitBucketBoundaries: [0.5, 1, 2, 4, 8, 16, 30, 60, 120, 300],
+    },
+  }
+);
+
+/** Jobs experiencing measurable group wait (fairness/backpressure) (counter with labels: queue_name) */
+export const queueFairnessGroupDelayedTotal: Counter = meter.createCounter(
+  'queue_fairness_group_delayed_total',
+  {
+    description: 'Total number of grouped jobs that waited >1s before processing (best-effort)',
+  }
+);
+
+/** Grouped job wait time before processing (seconds) (histogram with labels: queue_name) */
+export const queueFairnessGroupWaitSeconds: Histogram = meter.createHistogram(
+  'queue_fairness_group_wait_seconds',
+  {
+    description: 'Wait time before processing for grouped jobs (best-effort)',
+    unit: 's',
+    advice: {
+      explicitBucketBoundaries: [0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300],
+    },
+  }
+);
+
 // ============================================
 // DATABASE METRICS (Hooks)
 // ============================================

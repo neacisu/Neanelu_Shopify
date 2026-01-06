@@ -1,7 +1,7 @@
 # Observability & Alerting Rules
 
 > **Stack:** OpenTelemetry + Prometheus + Grafana + Loki
-> **Version:** 1.0 | **Last Updated:** 2025-12-26
+> **Version:** 1.0 | **Last Updated:** 2026-01-06
 
 ---
 
@@ -22,10 +22,10 @@
 ```yaml
 # prometheus/rules/queue-alerts.yml
 groups:
-  - name: bullmq-alerts
+  - name: queue-alerts
     rules:
       - alert: QueueStalledJobsHigh
-        expr: bullmq_stalled_jobs_total > 10
+        expr: sum(increase(queue_job_stalled_total[5m])) > 10
         for: 5m
         labels:
           severity: critical
@@ -35,7 +35,7 @@ groups:
           runbook_url: "Docs/runbooks/bulk-operation-stuck.md"
 
       - alert: QueueFailedRateSpike
-        expr: rate(bullmq_failed_jobs_total[5m]) > 0.1
+        expr: sum(rate(queue_job_failed_total[5m])) > 0.1
         for: 2m
         labels:
           severity: warning
@@ -44,7 +44,7 @@ groups:
           description: "Failure rate: {{ $value | humanizePercentage }}"
 
       - alert: QueueBacklogGrowing
-        expr: bullmq_waiting_jobs_total > 1000
+        expr: sum(queue_depth) > 1000
         for: 10m
         labels:
           severity: warning
@@ -61,6 +61,24 @@ groups:
           summary: "Jobs entering DLQ"
           description: "{{ $value }} jobs moved to DLQ in last 5 min"
           runbook_url: "Docs/runbooks/bulk-operation-stuck.md"
+
+      - alert: QueueRetryRateSpike
+        expr: sum(rate(queue_job_retries_total[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Job retry rate spike"
+          description: "Retry rate: {{ $value }} retries/sec"
+
+      - alert: QueueRatelimitDelaysHigh
+        expr: sum(increase(queue_ratelimit_delayed_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "Rate-limit delays observed"
+          description: "{{ $value }} jobs delayed due to rate limiting in last 5 min"
 ```
 
 ### API Cost Alerts
@@ -173,8 +191,8 @@ groups:
 
 | Panel | Query | Visualization |
 | ----- | ----- | ------------- |
-| Active Jobs | `sum(bullmq_active_jobs_total)` | Stat |
-| Failed Rate | `rate(bullmq_failed_jobs_total[5m])` | Gauge |
+| Active Jobs | `sum(queue_active)` | Stat |
+| Failed Rate | `sum(rate(queue_job_failed_total[5m]))` | Gauge |
 | API Cost/hour | `sum(rate(shopify_api_cost_points_total[1h]))` | Timeseries |
 | P95 Latency | `histogram_quantile(0.95, http_request_duration_seconds_bucket)` | Timeseries |
 | Memory Usage | `container_memory_usage_bytes{container=~".*worker.*"}` | Timeseries |
