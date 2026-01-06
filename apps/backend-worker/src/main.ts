@@ -7,6 +7,7 @@ import { buildServer } from './http/server.js';
 import { startWebhookWorker } from './processors/webhooks/worker.js';
 import { startTokenHealthWorker } from './processors/auth/token-health.worker.js';
 import { scheduleTokenHealthJob, closeTokenHealthQueue } from './queue/token-health-queue.js';
+import { setTokenHealthWorkerHandle, setWebhookWorkerHandle } from './runtime/worker-registry.js';
 
 const env = loadEnv();
 const logger = createLogger({
@@ -28,9 +29,11 @@ try {
   logger.info({ port: env.port }, 'server listening');
 
   webhookWorker = startWebhookWorker(logger);
+  setWebhookWorkerHandle(webhookWorker);
   logger.info({}, 'webhook worker started');
 
   tokenHealthWorker = startTokenHealthWorker(logger);
+  setTokenHealthWorkerHandle(tokenHealthWorker);
   logger.info({}, 'token health worker started');
 
   await scheduleTokenHealthJob(logger);
@@ -45,12 +48,14 @@ const shutdown = async (signal: string): Promise<void> => {
     if (webhookWorker) {
       await webhookWorker.close();
       webhookWorker = null;
+      setWebhookWorkerHandle(null);
       logger.info({ signal }, 'webhook worker stopped');
     }
 
     if (tokenHealthWorker) {
       await tokenHealthWorker.close();
       tokenHealthWorker = null;
+      setTokenHealthWorkerHandle(null);
       logger.info({ signal }, 'token health worker stopped');
     }
 

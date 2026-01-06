@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 
 import { Redis as IORedis } from 'ioredis';
-import { createQueue, createQueueEvents, createWorker } from '../queue-manager.js';
+import { createQueue, createQueueEvents, createWorker, pruneQueue } from '../queue-manager.js';
 
 process.env['QUEUE_MANAGER_DLQ_STRICT'] = 'true';
 
@@ -101,6 +101,7 @@ void describe('queue-manager (integration)', { skip: !testConfig }, () => {
       cleanupQueue(`${baseName}-e2e`),
       cleanupQueue(`${baseName}-retry`),
       cleanupQueue(`${baseName}-retry-dlq`),
+      cleanupQueue(`${baseName}-prune`),
     ]);
   });
 
@@ -218,6 +219,82 @@ void describe('queue-manager (integration)', { skip: !testConfig }, () => {
       await worker.close();
       await events.close();
       await createdDlqQueue?.close();
+      await queue.close();
+    }
+  });
+
+  void it('prunes completed/failed/delayed jobs', { timeout: 15_000 }, async () => {
+    const name = `${baseName}-prune`;
+    assert.ok(testConfig);
+    const cfg = testConfig;
+
+    const queue = createQueue(
+      { config: cfg },
+      {
+        name,
+        defaultJobOptions: {
+          removeOnComplete: false,
+          removeOnFail: false,
+        },
+      }
+    );
+
+    const { worker } = createWorker<{ shouldFail?: boolean }>(
+      { config: cfg },
+      {
+        name,
+        processor: (job) => {
+          if (job.data?.shouldFail) return Promise.reject(new Error('boom'));
+          return Promise.resolve();
+        },
+        workerOptions: {
+          concurrency: 1,
+        },
+      }
+    );
+
+    try {
+      const okJob = await queue.add('ok', { shouldFail: false });
+      const failJob = await queue.add('fail', { shouldFail: true }, { attempts: 1 });
+      await queue.add('delayed', { shouldFail: false }, { delay: 60_000 });
+
+      await Promise.race([
+        (async () => {
+          while (true) {
+            const okState = await queue.getJobState(okJob.id!);
+            const failState = await queue.getJobState(failJob.id!);
+
+            if (okState === 'completed' && failState === 'failed') return;
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+        })(),
+        new Promise<void>((_, reject) =>
+          setTimeout(() => reject(new Error('job_state_timeout')), 10_000)
+        ),
+      ]);
+
+      const before = await queue.getJobCounts();
+      assert.ok(
+        (before['completed'] ?? 0) >= 1,
+        `expected >=1 completed before prune; counts=${JSON.stringify(before)}`
+      );
+      assert.ok(
+        (before['failed'] ?? 0) >= 1,
+        `expected >=1 failed before prune; counts=${JSON.stringify(before)}`
+      );
+      assert.ok(
+        (before['delayed'] ?? 0) >= 1,
+        `expected >=1 delayed before prune; counts=${JSON.stringify(before)}`
+      );
+
+      await pruneQueue(queue, { olderThanMs: 0, limit: 1000 });
+
+      const afterCounts = await queue.getJobCounts();
+      assert.equal(afterCounts['completed'] ?? 0, 0);
+      assert.equal(afterCounts['failed'] ?? 0, 0);
+      assert.equal(afterCounts['delayed'] ?? 0, 0);
+    } finally {
+      await worker.close();
       await queue.close();
     }
   });

@@ -21,6 +21,7 @@ import {
   httpRequestSizeBytes,
   httpResponseSizeBytes,
 } from '../otel/metrics.js';
+import { getWorkerReadiness } from '../runtime/worker-registry.js';
 
 function withoutQuery(url: string): string {
   const q = url.indexOf('?');
@@ -177,13 +178,19 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       Promise.resolve(isShopifyApiConfigValid(process.env)),
     ]);
 
+    const { webhookWorkerOk, tokenHealthWorkerOk } = getWorkerReadiness();
+
     const checks = {
       database: databaseOk ? 'ok' : 'fail',
       redis: redisOk ? 'ok' : 'fail',
       shopify_api: shopifyOk ? 'ok' : 'fail',
+      worker_webhook: webhookWorkerOk ? 'ok' : 'fail',
+      ...(tokenHealthWorkerOk == null
+        ? {}
+        : { worker_token_health: tokenHealthWorkerOk ? 'ok' : 'fail' }),
     } as const;
 
-    const allOk = databaseOk && redisOk && shopifyOk;
+    const allOk = databaseOk && redisOk && shopifyOk && webhookWorkerOk;
     const statusCode = allOk ? 200 : 503;
     const status = allOk ? 'ready' : 'not_ready';
 

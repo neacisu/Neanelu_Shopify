@@ -34,14 +34,11 @@ void mock.module('ioredis', {
 const enqueueMock = mock.fn((_payload: WebhookJobPayload) => Promise.resolve());
 const isDuplicateMock = mock.fn(() => Promise.resolve(false));
 const markProcessedMock = mock.fn(() => Promise.resolve());
-
-const queuePath = new URL('../../queue/webhook-queue.js', import.meta.url).href;
 const dedupePath = new URL('../webhooks.dedupe.js', import.meta.url).href;
 
-void mock.module(queuePath, {
+void mock.module('@app/queue-manager', {
   namedExports: {
     enqueueWebhookJob: enqueueMock,
-    closeWebhookQueue: () => Promise.resolve(),
   },
 });
 

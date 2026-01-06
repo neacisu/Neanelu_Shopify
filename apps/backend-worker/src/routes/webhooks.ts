@@ -16,7 +16,7 @@ import Redis from 'ioredis';
 import type { Redis as RedisClient } from 'ioredis';
 import { verifyWebhookHmac } from './webhooks.hmac.js';
 import { isDuplicateWebhook, markWebhookProcessed } from './webhooks.dedupe.js';
-import { enqueueWebhookJob } from '../queue/webhook-queue.js';
+import { enqueueWebhookJob } from '@app/queue-manager';
 import { validateWebhookJobPayload, type WebhookJobPayload } from '@app/types';
 import { sanitizeShopDomain } from '../auth/validation.js';
 import { createHash } from 'node:crypto';
