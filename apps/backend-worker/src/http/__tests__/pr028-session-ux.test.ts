@@ -142,6 +142,11 @@ void describe('PR-028 backend endpoints', () => {
     };
     assert.equal(get1.statusCode, 200);
 
+    const getAlias = (await app.inject({ method: 'GET', url: '/ui-profile' })) as unknown as {
+      statusCode: number;
+    };
+    assert.equal(getAlias.statusCode, 200);
+
     const cookie = get1.cookies.find((c) => c.name === 'neanelu_ui_profile');
     assert.ok(cookie);
     const cookieHeader = cookie ? `${cookie.name}=${cookie.value}` : '';
@@ -153,6 +158,14 @@ void describe('PR-028 backend endpoints', () => {
       headers: { cookie: cookieHeader },
     })) as unknown as { statusCode: number };
     assert.equal(post.statusCode, 200);
+
+    const postAlias = (await app.inject({
+      method: 'POST',
+      url: '/ui-profile',
+      payload: { lastShopDomain: 'demo2.myshopify.com' },
+      headers: { cookie: cookieHeader },
+    })) as unknown as { statusCode: number };
+    assert.equal(postAlias.statusCode, 200);
 
     await app.close();
   });

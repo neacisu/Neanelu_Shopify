@@ -330,26 +330,72 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       secure,
       sameSite: 'lax',
       path: '/',
-      maxAge: 365 * 24 * 60 * 60,
     });
     return id;
   }
 
-  server.get('/api/ui-profile', async (request, reply) => {
+  function normalizeShopDomain(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  function uniqDomainsPreserveOrder(domains: string[], max = 10): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const domain of domains) {
+      const normalized = domain.trim();
+      if (!normalized) continue;
+      const key = normalized.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(normalized);
+      if (out.length >= max) break;
+    }
+    return out;
+  }
+
+  const getUiProfileHandler = async (request: FastifyRequest, reply: FastifyReply) => {
     const id = getOrCreateUiProfileId(request, reply);
 
     try {
-      const result = await pool.query<{
+      let row: {
         active_shop_domain: string | null;
         last_shop_domain: string | null;
-      }>(
-        `SELECT active_shop_domain, last_shop_domain
-         FROM ui_user_profiles
-         WHERE id = $1::uuid`,
-        [id]
-      );
+        recent_shop_domains?: string[] | null;
+      } | null = null;
 
-      const row = result.rows[0] ?? null;
+      try {
+        const result = await pool.query<{
+          active_shop_domain: string | null;
+          last_shop_domain: string | null;
+          recent_shop_domains: string[] | null;
+        }>(
+          `SELECT active_shop_domain, last_shop_domain, recent_shop_domains
+           FROM ui_user_profiles
+           WHERE id = $1::uuid`,
+          [id]
+        );
+        row = result.rows[0] ?? null;
+      } catch (err) {
+        const code = (err as { code?: string } | null)?.code;
+        // Backward compatibility: DB may not have been migrated to include recent_shop_domains yet.
+        if (code === '42703') {
+          const result = await pool.query<{
+            active_shop_domain: string | null;
+            last_shop_domain: string | null;
+          }>(
+            `SELECT active_shop_domain, last_shop_domain
+             FROM ui_user_profiles
+             WHERE id = $1::uuid`,
+            [id]
+          );
+          row = result.rows[0] ?? null;
+        } else {
+          throw err;
+        }
+      }
+
       if (!row) {
         await pool.query(
           `INSERT INTO ui_user_profiles (id)
@@ -364,6 +410,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         data: {
           activeShopDomain: row?.active_shop_domain ?? null,
           lastShopDomain: row?.last_shop_domain ?? null,
+          recentShopDomains: row?.recent_shop_domains ?? [],
         },
         meta: {
           request_id: request.id,
@@ -384,9 +431,9 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         },
       });
     }
-  });
+  };
 
-  server.post('/api/ui-profile', async (request, reply) => {
+  const postUiProfileHandler = async (request: FastifyRequest, reply: FastifyReply) => {
     const id = getOrCreateUiProfileId(request, reply);
 
     const body = (request.body ?? {}) as {
@@ -394,32 +441,65 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       lastShopDomain?: unknown;
     };
 
-    const activeShopDomain =
-      typeof body.activeShopDomain === 'string' && body.activeShopDomain.trim().length
-        ? body.activeShopDomain.trim()
-        : null;
-    const lastShopDomain =
-      typeof body.lastShopDomain === 'string' && body.lastShopDomain.trim().length
-        ? body.lastShopDomain.trim()
-        : null;
+    const activeShopDomain = normalizeShopDomain(body.activeShopDomain);
+    const lastShopDomain = normalizeShopDomain(body.lastShopDomain);
+
+    const newDomains = [activeShopDomain, lastShopDomain].filter((v): v is string => Boolean(v));
 
     try {
-      await pool.query(
-        `INSERT INTO ui_user_profiles (id, active_shop_domain, last_shop_domain)
-         VALUES ($1::uuid, $2, $3)
-         ON CONFLICT (id)
-         DO UPDATE SET
-           active_shop_domain = COALESCE(EXCLUDED.active_shop_domain, ui_user_profiles.active_shop_domain),
-           last_shop_domain = COALESCE(EXCLUDED.last_shop_domain, ui_user_profiles.last_shop_domain),
-           updated_at = now()`,
-        [id, activeShopDomain, lastShopDomain]
-      );
+      let existingDomains: string[] = [];
+      try {
+        const existing = await pool.query<{ recent_shop_domains: string[] | null }>(
+          `SELECT recent_shop_domains
+           FROM ui_user_profiles
+           WHERE id = $1::uuid`,
+          [id]
+        );
+        existingDomains = existing.rows[0]?.recent_shop_domains ?? [];
+      } catch (err) {
+        const code = (err as { code?: string } | null)?.code;
+        if (code !== '42703') throw err;
+      }
+
+      const recentShopDomains = uniqDomainsPreserveOrder([...newDomains, ...existingDomains], 10);
+
+      try {
+        await pool.query(
+          `INSERT INTO ui_user_profiles (id, active_shop_domain, last_shop_domain, recent_shop_domains)
+           VALUES ($1::uuid, $2, $3, $4::text[])
+           ON CONFLICT (id)
+           DO UPDATE SET
+             active_shop_domain = COALESCE(EXCLUDED.active_shop_domain, ui_user_profiles.active_shop_domain),
+             last_shop_domain = COALESCE(EXCLUDED.last_shop_domain, ui_user_profiles.last_shop_domain),
+             recent_shop_domains = $4::text[],
+             updated_at = now()`,
+          [id, activeShopDomain, lastShopDomain, recentShopDomains]
+        );
+      } catch (err) {
+        const code = (err as { code?: string } | null)?.code;
+        // Backward compatibility: DB may not have recent_shop_domains column yet.
+        if (code === '42703') {
+          await pool.query(
+            `INSERT INTO ui_user_profiles (id, active_shop_domain, last_shop_domain)
+             VALUES ($1::uuid, $2, $3)
+             ON CONFLICT (id)
+             DO UPDATE SET
+               active_shop_domain = COALESCE(EXCLUDED.active_shop_domain, ui_user_profiles.active_shop_domain),
+               last_shop_domain = COALESCE(EXCLUDED.last_shop_domain, ui_user_profiles.last_shop_domain),
+               updated_at = now()`,
+            [id, activeShopDomain, lastShopDomain]
+          );
+        } else {
+          throw err;
+        }
+      }
 
       void reply.status(200).send({
         success: true,
         data: {
           activeShopDomain,
           lastShopDomain,
+          recentShopDomains,
         },
         meta: {
           request_id: request.id,
@@ -440,7 +520,14 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         },
       });
     }
-  });
+  };
+
+  // Primary path (expected by frontend)
+  server.get('/api/ui-profile', getUiProfileHandler);
+  server.post('/api/ui-profile', postUiProfileHandler);
+  // Compatibility alias (for proxies that strip /api)
+  server.get('/ui-profile', getUiProfileHandler);
+  server.post('/ui-profile', postUiProfileHandler);
 
   // Best-effort UI error reporting endpoint (used by the web-admin in production).
   // Keep it lightweight: accept JSON, log, and return 204.

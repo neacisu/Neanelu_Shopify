@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { toast } from 'sonner';
 
@@ -7,6 +7,8 @@ import {
   getCachedSessionTokenExpiresAtMs,
   getSessionToken,
 } from '../lib/session-auth';
+
+import { SessionExpiredModal } from '../components/SessionExpiredModal';
 
 import { isValidShopDomain } from './shopify-url';
 import { useShopifyAppBridge } from './useShopifyAppBridge';
@@ -38,6 +40,33 @@ export function SessionTokenUx() {
 
   const warnedRef = useRef(false);
   const refreshingRef = useRef(false);
+  const [expiredOpen, setExpiredOpen] = useState(false);
+
+  const onReauth = useCallback(() => {
+    if (shop && isValidShopDomain(shop)) {
+      window.location.assign(buildAuthUrl(shop));
+    }
+  }, [shop]);
+
+  const onRefresh = useCallback(() => {
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
+
+    (async () => {
+      clearSessionTokenCache();
+      const token = await getSessionToken();
+      refreshingRef.current = false;
+      if (token) {
+        setExpiredOpen(false);
+        toast.success('Sesiune reîmprospătată');
+      } else {
+        setExpiredOpen(true);
+      }
+    })().catch(() => {
+      refreshingRef.current = false;
+      setExpiredOpen(true);
+    });
+  }, []);
 
   // Warm up token early (helps embedded UX).
   useEffect(() => {
@@ -59,10 +88,12 @@ export function SessionTokenUx() {
       // Reset warning after successful refresh (expiry moves forward).
       if (msLeft > 5 * 60_000) {
         warnedRef.current = false;
+        if (expiredOpen) setExpiredOpen(false);
       }
 
-      // Warning threshold.
-      if (!warnedRef.current && msLeft > 0 && msLeft <= 2 * 60_000) {
+      // Warning threshold (plan: 5 minutes).
+      // Avoid warning for short-lived Shopify JWT session tokens (usually ~1 minute).
+      if (!warnedRef.current && msLeft > 60_000 && msLeft <= 5 * 60_000) {
         warnedRef.current = true;
 
         toast('Sesiunea expiră în curând', {
@@ -89,21 +120,11 @@ export function SessionTokenUx() {
           refreshingRef.current = false;
 
           if (!token) {
-            toast.error('Sesiunea a expirat', {
-              description: 'Reautentifică aplicația pentru a continua.',
-              action:
-                shop && isValidShopDomain(shop)
-                  ? {
-                      label: 'Re-auth',
-                      onClick: () => {
-                        window.location.assign(buildAuthUrl(shop));
-                      },
-                    }
-                  : undefined,
-            });
+            setExpiredOpen(true);
           }
         })().catch(() => {
           refreshingRef.current = false;
+          setExpiredOpen(true);
         });
       }
     }, 15_000);
@@ -111,5 +132,13 @@ export function SessionTokenUx() {
     return () => window.clearInterval(interval);
   }, [shop]);
 
-  return null;
+  return (
+    <SessionExpiredModal
+      open={expiredOpen}
+      shopDomain={shop ?? null}
+      onRefresh={onRefresh}
+      onReauth={onReauth}
+      onClose={() => setExpiredOpen(false)}
+    />
+  );
 }

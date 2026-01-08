@@ -37,6 +37,10 @@ export function ShopSelector() {
   const normalized = draft.trim();
   const valid = normalized.length > 0 && isValidShopDomain(normalized);
 
+  const suggestions = useMemo(() => {
+    return (profile.recentShopDomains ?? []).filter((d) => isValidShopDomain(d));
+  }, [profile.recentShopDomains]);
+
   return (
     <div className="min-w-0 text-caption text-muted">
       <label className="sr-only" htmlFor="shop-selector">
@@ -49,6 +53,7 @@ export function ShopSelector() {
           value={draft}
           disabled={loading}
           onChange={(e) => setDraft(e.target.value)}
+          list={suggestions.length > 0 ? 'shop-selector-recent' : undefined}
           onBlur={() => {
             const v = draft.trim();
             if (!v || !isValidShopDomain(v)) return;
@@ -57,6 +62,14 @@ export function ShopSelector() {
           placeholder="example.myshopify.com"
           className="w-55 rounded-md border border-muted/20 bg-background px-2 py-1 text-body text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
         />
+
+        {suggestions.length > 0 ? (
+          <datalist id="shop-selector-recent">
+            {suggestions.map((domain) => (
+              <option key={domain} value={domain} />
+            ))}
+          </datalist>
+        ) : null}
 
         <a
           className={

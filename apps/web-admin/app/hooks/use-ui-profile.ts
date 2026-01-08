@@ -7,6 +7,7 @@ import { ApiError } from '../utils/api-error';
 export interface UiProfile {
   activeShopDomain: string | null;
   lastShopDomain: string | null;
+  recentShopDomains: string[];
 }
 
 const api = createApiClient({ getAuthHeaders: getSessionAuthHeaders });
@@ -17,6 +18,7 @@ export function useUiProfile() {
   const [profile, setProfile] = useState<UiProfile>({
     activeShopDomain: null,
     lastShopDomain: null,
+    recentShopDomains: [],
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
@@ -34,6 +36,11 @@ export function useUiProfile() {
       setProfile({
         activeShopDomain: data.activeShopDomain ?? null,
         lastShopDomain: data.lastShopDomain ?? null,
+        recentShopDomains: Array.isArray(
+          (data as unknown as { recentShopDomains?: unknown }).recentShopDomains
+        )
+          ? (data as unknown as { recentShopDomains: string[] }).recentShopDomains
+          : [],
       });
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
@@ -66,6 +73,11 @@ export function useUiProfile() {
       setProfile({
         activeShopDomain: data.activeShopDomain ?? null,
         lastShopDomain: data.lastShopDomain ?? null,
+        recentShopDomains: Array.isArray(
+          (data as unknown as { recentShopDomains?: unknown }).recentShopDomains
+        )
+          ? (data as unknown as { recentShopDomains: string[] }).recentShopDomains
+          : [],
       });
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
