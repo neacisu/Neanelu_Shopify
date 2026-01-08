@@ -1,4 +1,4 @@
-import type { LoaderFunctionArgs } from 'react-router-dom';
+import type { ActionFunctionArgs, LoaderFunctionArgs } from 'react-router-dom';
 import { redirect } from 'react-router-dom';
 
 import { createApiClient } from '../lib/api-client';
@@ -17,6 +17,18 @@ export function apiLoader<TResult>(
   fn: (args: LoaderFunctionArgs) => Promise<TResult> | TResult
 ): (args: LoaderFunctionArgs) => Promise<TResult> {
   return async (args: LoaderFunctionArgs): Promise<TResult> => {
+    try {
+      return await fn(args);
+    } catch (err) {
+      handleApiError(err);
+    }
+  };
+}
+
+export function apiAction<TResult>(
+  fn: (args: ActionFunctionArgs) => Promise<TResult> | TResult
+): (args: ActionFunctionArgs) => Promise<TResult> {
+  return async (args: ActionFunctionArgs): Promise<TResult> => {
     try {
       return await fn(args);
     } catch (err) {
@@ -48,7 +60,10 @@ function isSafeInternalPath(to: string): boolean {
  *
  * Always prefer this in loaders/actions over raw `redirect()`.
  */
-export function withShopifyQueryRedirect(args: LoaderFunctionArgs, to: string): Response {
+export function withShopifyQueryRedirect(
+  args: LoaderFunctionArgs | ActionFunctionArgs,
+  to: string
+): Response {
   // The app runs under a router `basename` (`/app`). Loaders often see URLs like
   // `https://host/app/route`, so `url.pathname` includes the basename.
   // If we redirect to that pathname, React Router will prepend basename again.

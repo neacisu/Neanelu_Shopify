@@ -4,7 +4,7 @@ import type { RouteObject } from 'react-router-dom';
 import DashboardIndex, { loader as dashboardLoader } from './routes/_index';
 import AuthCallbackPage from './routes/auth.callback';
 import IngestionPage from './routes/ingestion';
-import QueuesPage, { loader as queuesLoader } from './routes/queues';
+import QueuesPage, { action as queuesAction, loader as queuesLoader } from './routes/queues';
 import Root, { ErrorBoundary } from './root';
 import SearchPage from './routes/search';
 import SettingsPage, { action as settingsAction } from './routes/settings';
@@ -33,6 +33,7 @@ export const routes: RouteObject[] = [
         id: 'queues',
         path: 'queues',
         loader: queuesLoader,
+        action: queuesAction,
         handle: { title: 'Queues' },
         element: createElement(QueuesPage),
       },

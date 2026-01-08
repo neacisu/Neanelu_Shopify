@@ -1,7 +1,8 @@
-import type { LoaderFunctionArgs } from 'react-router-dom';
+import type { ActionFunctionArgs, LoaderFunctionArgs } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 import {
+  useFetcher,
   useLoaderData,
   useLocation,
   useNavigate,
@@ -21,6 +22,7 @@ import {
 import { useQueueStream } from '../hooks/use-queue-stream';
 import { ApiError } from '../utils/api-error';
 import {
+  apiAction,
   apiLoader,
   createLoaderApiClient,
   type LoaderData,
@@ -180,6 +182,152 @@ export const loader = apiLoader(async (args: LoaderFunctionArgs) => {
   };
 });
 
+type QueuesActionIntent =
+  | 'queue.pause'
+  | 'queue.resume'
+  | 'queue.clean_failed'
+  | 'jobs.retry'
+  | 'jobs.promote'
+  | 'jobs.delete';
+
+type ActionData =
+  | { ok: true; toast?: { type: 'success' | 'error'; message: string } }
+  | { ok: false; error: string };
+
+function jsonResponse<T>(data: T, init?: ResponseInit): Response {
+  return new Response(JSON.stringify(data), {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init?.headers ?? {}),
+    },
+  });
+}
+
+function getFormString(formData: FormData, key: string): string {
+  const value = formData.get(key);
+  return typeof value === 'string' ? value : '';
+}
+
+function getFormStringArray(formData: FormData, key: string): string[] {
+  return formData
+    .getAll(key)
+    .map((v) => (typeof v === 'string' ? v : ''))
+    .filter((v) => v.length > 0);
+}
+
+export const action = apiAction(async (args: ActionFunctionArgs) => {
+  const api = createLoaderApiClient();
+  const url = new URL(args.request.url);
+  const formData = await args.request.formData();
+
+  const intent = getFormString(formData, 'intent') as QueuesActionIntent;
+  const queueName = getFormString(formData, 'queueName');
+  const ids = getFormStringArray(formData, 'ids');
+  const activeJobId = getFormString(formData, 'activeJobId');
+
+  if (!intent) {
+    return jsonResponse({ ok: false, error: 'missing_intent' } satisfies ActionData, {
+      status: 400,
+    });
+  }
+
+  if (!queueName) {
+    return jsonResponse({ ok: false, error: 'missing_queueName' } satisfies ActionData, {
+      status: 400,
+    });
+  }
+
+  if (intent === 'queue.pause' || intent === 'queue.resume' || intent === 'queue.clean_failed') {
+    if (intent === 'queue.pause') {
+      await api.postApi(`/queues/${encodeURIComponent(queueName)}/pause`, {});
+      return jsonResponse({
+        ok: true,
+        toast: { type: 'success', message: 'Queue paused' },
+      } satisfies ActionData);
+    }
+
+    if (intent === 'queue.resume') {
+      await api.postApi(`/queues/${encodeURIComponent(queueName)}/resume`, {});
+      return jsonResponse({
+        ok: true,
+        toast: { type: 'success', message: 'Queue resumed' },
+      } satisfies ActionData);
+    }
+
+    await api.getApi(`/queues/${encodeURIComponent(queueName)}/jobs/failed`, { method: 'DELETE' });
+    return jsonResponse({
+      ok: true,
+      toast: { type: 'success', message: 'Failed jobs cleaned' },
+    } satisfies ActionData);
+  }
+
+  if (intent === 'jobs.retry' || intent === 'jobs.promote' || intent === 'jobs.delete') {
+    if (ids.length === 0) {
+      return jsonResponse({ ok: false, error: 'missing_ids' } satisfies ActionData, {
+        status: 400,
+      });
+    }
+
+    if (ids.length > 100) {
+      return jsonResponse({ ok: false, error: 'too_many_ids' } satisfies ActionData, {
+        status: 400,
+      });
+    }
+
+    const actionName =
+      intent === 'jobs.retry' ? 'retry' : intent === 'jobs.promote' ? 'promote' : 'delete';
+
+    if (ids.length === 1) {
+      const id = ids[0];
+      if (!id) {
+        return jsonResponse({ ok: false, error: 'missing_id' } satisfies ActionData, {
+          status: 400,
+        });
+      }
+
+      if (actionName === 'retry') {
+        await api.postApi(
+          `/queues/${encodeURIComponent(queueName)}/jobs/${encodeURIComponent(id)}/retry`,
+          {}
+        );
+      } else if (actionName === 'promote') {
+        await api.postApi(
+          `/queues/${encodeURIComponent(queueName)}/jobs/${encodeURIComponent(id)}/promote`,
+          {}
+        );
+      } else {
+        await api.getApi(
+          `/queues/${encodeURIComponent(queueName)}/jobs/${encodeURIComponent(id)}`,
+          { method: 'DELETE' }
+        );
+      }
+    } else {
+      await api.postApi('/queues/jobs/batch', {
+        action: actionName,
+        ids,
+        queueName,
+      });
+    }
+
+    // URL must change if the currently opened job was deleted.
+    if (actionName === 'delete' && activeJobId && ids.includes(activeJobId)) {
+      const next = new URL(url);
+      next.searchParams.delete('jobId');
+      return withShopifyQueryRedirect(args, next.pathname + next.search);
+    }
+
+    return jsonResponse({
+      ok: true,
+      toast: { type: 'success', message: 'Action completed' },
+    } satisfies ActionData);
+  }
+
+  return jsonResponse({ ok: false, error: 'unknown_intent' } satisfies ActionData, {
+    status: 400,
+  });
+});
+
 type RouteLoaderData = LoaderData<typeof loader>;
 
 function updateSearchParams(
@@ -227,6 +375,21 @@ export default function QueuesPage() {
 
   const refreshJobsTimerRef = useRef<number | null>(null);
 
+  const mutationFetcher = useFetcher<ActionData>();
+
+  useEffect(() => {
+    const data = mutationFetcher.data;
+    if (!data) return;
+
+    if (data.ok) {
+      if (data.toast?.type === 'success') toast.success(data.toast.message);
+      if (data.toast?.type === 'error') toast.error(data.toast.message);
+      return;
+    }
+
+    toast.error('Action failed');
+  }, [mutationFetcher.data]);
+
   const breadcrumbs = useMemo(
     () => [
       { label: 'Home', href: '/' },
@@ -268,110 +431,55 @@ export default function QueuesPage() {
     setConfirmDeleteIds([]);
   }, []);
 
-  const performQueueAction = useCallback(
-    async (action: 'pause' | 'resume' | 'clean_failed') => {
+  const submitQueueAction = useCallback(
+    (nextIntent: QueuesActionIntent) => {
       if (!selectedQueue) return;
-      try {
-        const api = createLoaderApiClient();
-        if (action === 'pause') {
-          await api.postApi(`/queues/${encodeURIComponent(selectedQueue)}/pause`, {});
-          toast.success('Queue paused');
-        } else if (action === 'resume') {
-          await api.postApi(`/queues/${encodeURIComponent(selectedQueue)}/resume`, {});
-          toast.success('Queue resumed');
-        } else {
-          await api.getApi(`/queues/${encodeURIComponent(selectedQueue)}/jobs/failed`, {
-            method: 'DELETE',
-          });
-          toast.success('Failed jobs cleaned');
-        }
-
-        await revalidator.revalidate();
-      } catch (_e) {
-        toast.error('Queue action failed');
-      }
+      const formData = new FormData();
+      formData.set('intent', nextIntent);
+      formData.set('queueName', selectedQueue);
+      void mutationFetcher.submit(formData, { method: 'post' });
     },
-    [revalidator, selectedQueue]
+    [mutationFetcher, selectedQueue]
   );
 
-  const runJobAction = useCallback(
-    async (action: 'retry' | 'delete' | 'promote', ids: string[]) => {
+  const submitJobAction = useCallback(
+    (nextIntent: QueuesActionIntent, ids: string[]) => {
       if (!selectedQueue) return;
       if (ids.length === 0) return;
 
-      const api = createLoaderApiClient();
-
-      if (ids.length === 1) {
-        const id = ids[0];
-        if (!id) return;
-        if (action === 'retry') {
-          await api.postApi(
-            `/queues/${encodeURIComponent(selectedQueue)}/jobs/${encodeURIComponent(id)}/retry`,
-            {}
-          );
-        } else if (action === 'promote') {
-          await api.postApi(
-            `/queues/${encodeURIComponent(selectedQueue)}/jobs/${encodeURIComponent(id)}/promote`,
-            {}
-          );
-        } else {
-          await api.getApi(
-            `/queues/${encodeURIComponent(selectedQueue)}/jobs/${encodeURIComponent(id)}`,
-            {
-              method: 'DELETE',
-            }
-          );
-        }
-      } else {
-        await api.postApi('/queues/jobs/batch', {
-          action,
-          ids,
-          queueName: selectedQueue,
-        });
-      }
-    },
-    [selectedQueue]
-  );
-
-  const performJobAction = useCallback(
-    async (action: 'retry' | 'delete' | 'promote', ids: string[]) => {
-      if (!selectedQueue) return;
-      if (ids.length === 0) return;
       if (ids.length > 100) {
         toast.error('Select at most 100 jobs');
         return;
       }
 
-      if (action === 'delete') {
+      const formData = new FormData();
+      formData.set('intent', nextIntent);
+      formData.set('queueName', selectedQueue);
+      if (jobId) formData.set('activeJobId', jobId);
+      for (const id of ids) formData.append('ids', id);
+      void mutationFetcher.submit(formData, { method: 'post' });
+    },
+    [jobId, mutationFetcher, selectedQueue]
+  );
+
+  const performJobAction = useCallback(
+    (next: 'retry' | 'delete' | 'promote', ids: string[]) => {
+      if (next === 'delete') {
         setConfirmDeleteIds(ids);
         setConfirmDeleteOpen(true);
         return;
       }
 
-      try {
-        await runJobAction(action, ids);
-        toast.success('Action completed');
-        await revalidator.revalidate();
-      } catch (_e) {
-        toast.error('Job action failed');
-      }
+      submitJobAction(next === 'retry' ? 'jobs.retry' : 'jobs.promote', ids);
     },
-    [revalidator, runJobAction, selectedQueue]
+    [submitJobAction]
   );
 
-  const confirmDelete = useCallback(async () => {
-    if (!selectedQueue) return;
+  const confirmDelete = useCallback(() => {
     const ids = confirmDeleteIds;
     closeConfirmDelete();
-
-    try {
-      await runJobAction('delete', ids);
-      toast.success('Action completed');
-      await revalidator.revalidate();
-    } catch (_e) {
-      toast.error('Job action failed');
-    }
-  }, [closeConfirmDelete, confirmDeleteIds, revalidator, runJobAction, selectedQueue]);
+    submitJobAction('jobs.delete', ids);
+  }, [closeConfirmDelete, confirmDeleteIds, submitJobAction]);
 
   useEffect(() => {
     if (tab !== 'workers') return;
@@ -529,18 +637,18 @@ export default function QueuesPage() {
                 </div>
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-2">
-                <PolarisButton variant="secondary" onClick={() => void performQueueAction('pause')}>
+                <PolarisButton variant="secondary" onClick={() => submitQueueAction('queue.pause')}>
                   Pause
                 </PolarisButton>
                 <PolarisButton
                   variant="secondary"
-                  onClick={() => void performQueueAction('resume')}
+                  onClick={() => submitQueueAction('queue.resume')}
                 >
                   Resume
                 </PolarisButton>
                 <PolarisButton
                   variant="critical"
-                  onClick={() => void performQueueAction('clean_failed')}
+                  onClick={() => submitQueueAction('queue.clean_failed')}
                 >
                   Clean Failed
                 </PolarisButton>

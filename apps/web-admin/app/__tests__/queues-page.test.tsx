@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { Outlet, RouterProvider, createMemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
-import QueuesPage, { loader as queuesLoader } from '../routes/queues';
+import QueuesPage, { action as queuesAction, loader as queuesLoader } from '../routes/queues';
 
 interface ApiClient {
   getApi: <T>(path: string, init?: RequestInit) => Promise<T>;
@@ -216,6 +216,7 @@ describe('Queue Monitor /queues UI', () => {
             {
               path: 'queues',
               loader: queuesLoader,
+              action: queuesAction,
               element: <QueuesPage />,
             },
           ],
@@ -267,6 +268,7 @@ describe('Queue Monitor /queues UI', () => {
             {
               path: 'queues',
               loader: queuesLoader,
+              action: queuesAction,
               element: <QueuesPage />,
             },
           ],
@@ -328,6 +330,7 @@ describe('Queue Monitor /queues UI', () => {
             {
               path: 'queues',
               loader: queuesLoader,
+              action: queuesAction,
               element: <QueuesPage />,
             },
           ],
@@ -369,6 +372,7 @@ describe('Queue Monitor /queues UI', () => {
             {
               path: 'queues',
               loader: queuesLoader,
+              action: queuesAction,
               element: <QueuesPage />,
             },
           ],
@@ -401,6 +405,7 @@ describe('Queue Monitor /queues UI', () => {
             {
               path: 'queues',
               loader: queuesLoader,
+              action: queuesAction,
               element: <QueuesPage />,
             },
           ],
@@ -454,6 +459,7 @@ describe('Queue Monitor /queues UI', () => {
             {
               path: 'queues',
               loader: queuesLoader,
+              action: queuesAction,
               element: <QueuesPage />,
             },
           ],
