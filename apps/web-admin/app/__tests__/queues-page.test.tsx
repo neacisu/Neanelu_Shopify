@@ -478,7 +478,9 @@ describe('Queue Monitor /queues UI', () => {
       expect(apiCalls.some((c) => c.method === 'GET' && c.path === '/queues/workers')).toBe(true);
     });
 
-    expect(setIntervalSpy.mock.calls.some((c) => c[1] === 5_000)).toBe(true);
+    await waitFor(() => {
+      expect(setIntervalSpy.mock.calls.some((c) => c[1] === 5_000)).toBe(true);
+    });
 
     setIntervalSpy.mockRestore();
   });
