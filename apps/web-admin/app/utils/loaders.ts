@@ -29,6 +29,13 @@ export function createLoaderApiClient() {
   return createApiClient({ getAuthHeaders: getSessionAuthHeaders });
 }
 
+function stripBasenameFromTo(to: string, basename: string): string {
+  if (!basename || basename === '/') return to;
+  if (to === basename) return '/';
+  if (to.startsWith(`${basename}/`)) return to.slice(basename.length);
+  return to;
+}
+
 function isSafeInternalPath(to: string): boolean {
   if (!to.startsWith('/')) return false;
   if (to.startsWith('//')) return false;
@@ -42,13 +49,19 @@ function isSafeInternalPath(to: string): boolean {
  * Always prefer this in loaders/actions over raw `redirect()`.
  */
 export function withShopifyQueryRedirect(args: LoaderFunctionArgs, to: string): Response {
-  if (!isSafeInternalPath(to)) {
+  // The app runs under a router `basename` (`/app`). Loaders often see URLs like
+  // `https://host/app/route`, so `url.pathname` includes the basename.
+  // If we redirect to that pathname, React Router will prepend basename again.
+  // Normalize redirect targets to be relative to the router.
+  const normalizedTo = stripBasenameFromTo(to, '/app');
+
+  if (!isSafeInternalPath(normalizedTo)) {
     // Fail closed: never allow open redirects.
     return redirect('/');
   }
 
   const current = new URL(args.request.url);
-  const merged = withShopifyQuery(to, current.search);
+  const merged = withShopifyQuery(normalizedTo, current.search);
   if (typeof merged === 'string') {
     return redirect(merged);
   }
