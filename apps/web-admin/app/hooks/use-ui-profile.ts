@@ -54,8 +54,12 @@ export function useUiProfile() {
 
     setError(null);
     const payload: Record<string, unknown> = {};
-    if ('activeShopDomain' in next) payload.activeShopDomain = next.activeShopDomain;
-    if ('lastShopDomain' in next) payload.lastShopDomain = next.lastShopDomain;
+    if (typeof next.activeShopDomain !== 'undefined') {
+      payload['activeShopDomain'] = next.activeShopDomain;
+    }
+    if (typeof next.lastShopDomain !== 'undefined') {
+      payload['lastShopDomain'] = next.lastShopDomain;
+    }
 
     try {
       const data = await api.postApi<UiProfile, Record<string, unknown>>('/ui-profile', payload);
