@@ -1,6 +1,7 @@
 import type { ApiErrorResponse, ApiSuccessResponse } from '@app/types';
 
 import { ApiError } from '../utils/api-error';
+import { clearSessionTokenCache } from './session-auth';
 
 export interface ApiClientOptions {
   baseUrl?: string;
@@ -76,22 +77,32 @@ export function createApiClient(options: ApiClientOptions = {}) {
   const fetchImpl = options.fetchImpl ?? fetch;
   const getAuthHeaders = options.getAuthHeaders;
 
-  async function request(input: string, init: RequestInit = {}) {
-    const url = input.startsWith('http')
-      ? input
-      : `${baseUrl}${input.startsWith('/') ? '' : '/'}${input}`;
-
-    const authHeaders = getAuthHeaders ? await getAuthHeaders() : {};
-
-    const response = await fetchImpl(url, {
+  async function doFetch(url: string, init: RequestInit, authHeaders: Record<string, string>) {
+    return fetchImpl(url, {
       ...init,
       headers: {
         ...(init.headers ?? {}),
         ...authHeaders,
       },
-      // Cookie auth (current decision). Future: move to session token header injection.
+      // Cookie auth (fallback). Embedded: Authorization header is preferred.
       credentials: 'include',
     });
+  }
+
+  async function request(input: string, init: RequestInit = {}) {
+    const url = input.startsWith('http')
+      ? input
+      : `${baseUrl}${input.startsWith('/') ? '' : '/'}${input}`;
+
+    let authHeaders = getAuthHeaders ? await getAuthHeaders() : {};
+    let response = await doFetch(url, init, authHeaders);
+
+    // One-shot recovery: refresh session token and retry once.
+    if (response.status === 401 && getAuthHeaders) {
+      clearSessionTokenCache();
+      authHeaders = await getAuthHeaders();
+      response = await doFetch(url, init, authHeaders);
+    }
 
     if (!response.ok) {
       const body = await readResponseBody(response);

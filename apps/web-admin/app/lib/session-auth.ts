@@ -6,12 +6,27 @@ let cachedToken: string | null = null;
 let cachedTokenExpiresAtMs = 0;
 let inflight: Promise<string | null> | null = null;
 let cookieTokenEndpointMissingUntilMs = 0;
+let cachedTokenKey: string | null = null;
 
 export function clearSessionTokenCache(): void {
   cachedToken = null;
   cachedTokenExpiresAtMs = 0;
   inflight = null;
   cookieTokenEndpointMissingUntilMs = 0;
+  cachedTokenKey = null;
+}
+
+export function getCachedSessionTokenExpiresAtMs(): number {
+  return cachedTokenExpiresAtMs;
+}
+
+function getSessionTokenCacheKeyFromUrl(): string {
+  if (typeof window === 'undefined') return 'server';
+  const params = new URLSearchParams(window.location.search);
+  const host = params.get('host') ?? '';
+  const shop = params.get('shop') ?? '';
+  const embedded = params.get('embedded') ?? '';
+  return `${host}|${shop}|${embedded}`;
 }
 
 function getJwtExpiresAtMs(token: string): number | null {
@@ -99,9 +114,18 @@ async function fetchSessionToken(): Promise<string | null> {
 
     const body = (await response.json().catch(() => null)) as ApiSuccessResponse<{
       token: string;
+      expiresAt?: string;
     }> | null;
 
     const token = body?.success === true ? body.data.token : null;
+    const expiresAt = body?.success === true ? (body.data.expiresAt ?? null) : null;
+
+    // For cookie-minted tokens (non-JWT), rely on explicit metadata.
+    if (expiresAt && token && token.split('.').length !== 3) {
+      const parsed = Date.parse(expiresAt);
+      cachedTokenExpiresAtMs = Number.isFinite(parsed) ? parsed : 0;
+    }
+
     return typeof token === 'string' && token.length > 0 ? token : null;
   } catch {
     return null;
@@ -109,6 +133,12 @@ async function fetchSessionToken(): Promise<string | null> {
 }
 
 export async function getSessionToken(): Promise<string | null> {
+  const currentKey = getSessionTokenCacheKeyFromUrl();
+  if (cachedTokenKey && cachedTokenKey !== currentKey) {
+    clearSessionTokenCache();
+  }
+  cachedTokenKey = currentKey;
+
   if (cachedToken) {
     // For Shopify session tokens (JWT), honor expiry.
     if (cachedTokenExpiresAtMs > 0 && Date.now() > cachedTokenExpiresAtMs - 5_000) {
@@ -122,7 +152,9 @@ export async function getSessionToken(): Promise<string | null> {
   inflight ??= (async () => {
     const token = await fetchSessionToken();
     cachedToken = token;
-    cachedTokenExpiresAtMs = token ? (getJwtExpiresAtMs(token) ?? 0) : 0;
+    // Prefer JWT expiry (Shopify session tokens); cookie-token expiry may be set by fetchSessionToken.
+    const jwtExpiresAt = token ? getJwtExpiresAtMs(token) : null;
+    cachedTokenExpiresAtMs = jwtExpiresAt ?? cachedTokenExpiresAtMs ?? 0;
     inflight = null;
     return token;
   })();

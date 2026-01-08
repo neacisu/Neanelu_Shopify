@@ -3,6 +3,7 @@ export { useShopifyAppBridge } from './useShopifyAppBridge';
 export { ShopifyLink } from './ShopifyLink';
 export { MissingHostPage } from './MissingHostPage';
 export { useShopifyTitleBar } from './useShopifyTitleBar';
+export { SessionTokenUx } from './SessionTokenUx';
 
 export {
   buildShopifyAdminAppUrl,

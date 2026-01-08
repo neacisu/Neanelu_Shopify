@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { Cpu, LayoutDashboard, Menu, Search, Settings, UserRound, Workflow } from 'lucide-react';
 
 import { NavLink } from './nav-link';
+import { ShopSelector } from './shop-selector';
 
 export type AppShellProps = PropsWithChildren<{
   sidebarOpen?: boolean;
@@ -83,21 +84,7 @@ export function AppShell({
                 Menu
               </button>
 
-              <div className="min-w-0 text-caption text-muted">
-                <label className="sr-only" htmlFor="shop-selector">
-                  Shop
-                </label>
-                <div className="flex items-center gap-2">
-                  <span className="text-foreground/80">Shop</span>
-                  <select
-                    id="shop-selector"
-                    defaultValue="demo"
-                    className="rounded-md border border-muted/20 bg-background px-2 py-1 text-body text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-                  >
-                    <option value="demo">demo.myshopify.com</option>
-                  </select>
-                </div>
-              </div>
+              <ShopSelector />
 
               <button
                 type="button"
