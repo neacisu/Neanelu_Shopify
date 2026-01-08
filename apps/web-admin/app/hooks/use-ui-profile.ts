@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { createApiClient } from '../lib/api-client';
 import { getSessionAuthHeaders } from '../lib/session-auth';
+import { ApiError } from '../utils/api-error';
 
 export interface UiProfile {
   activeShopDomain: string | null;
@@ -9,6 +10,8 @@ export interface UiProfile {
 }
 
 const api = createApiClient({ getAuthHeaders: getSessionAuthHeaders });
+
+let uiProfileEndpointMissingUntilMs = 0;
 
 export function useUiProfile() {
   const [profile, setProfile] = useState<UiProfile>({
@@ -19,6 +22,11 @@ export function useUiProfile() {
   const [error, setError] = useState<unknown>(null);
 
   const refresh = useCallback(async () => {
+    if (uiProfileEndpointMissingUntilMs > 0 && Date.now() < uiProfileEndpointMissingUntilMs) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -28,6 +36,10 @@ export function useUiProfile() {
         lastShopDomain: data.lastShopDomain ?? null,
       });
     } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        // Backend route not deployed on this environment; stop hammering it.
+        uiProfileEndpointMissingUntilMs = Date.now() + 5 * 60_000;
+      }
       // Profile persistence is a UX enhancement; failures should not crash the app.
       setError(err);
     } finally {
@@ -36,6 +48,10 @@ export function useUiProfile() {
   }, []);
 
   const update = useCallback(async (next: Partial<UiProfile>) => {
+    if (uiProfileEndpointMissingUntilMs > 0 && Date.now() < uiProfileEndpointMissingUntilMs) {
+      return;
+    }
+
     setError(null);
     const payload: Record<string, unknown> = {};
     if ('activeShopDomain' in next) payload.activeShopDomain = next.activeShopDomain;
@@ -48,6 +64,9 @@ export function useUiProfile() {
         lastShopDomain: data.lastShopDomain ?? null,
       });
     } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        uiProfileEndpointMissingUntilMs = Date.now() + 5 * 60_000;
+      }
       setError(err);
     }
   }, []);
