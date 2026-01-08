@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
+
+import { ShopifyLink } from '../../shopify';
 
 export interface BreadcrumbItem {
   label: string;
@@ -26,9 +27,9 @@ export function Breadcrumbs({ items, separator }: BreadcrumbsProps) {
             {index > 0 ? Sep : null}
 
             {item.href && !isLast ? (
-              <Link className="hover:text-foreground" to={item.href}>
+              <ShopifyLink className="hover:text-foreground" to={item.href}>
                 {item.label}
-              </Link>
+              </ShopifyLink>
             ) : (
               <span aria-current={isLast ? 'page' : undefined} className="text-foreground/80">
                 {item.label}

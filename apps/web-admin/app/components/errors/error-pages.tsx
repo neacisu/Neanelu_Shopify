@@ -1,8 +1,9 @@
 import { useEffect } from 'react';
-import { Link, useRevalidator } from 'react-router-dom';
+import { useRevalidator } from 'react-router-dom';
 import { FileQuestion, ServerCrash, WifiOff } from 'lucide-react';
 
 import { reportUiError } from '../../utils/report-ui-error';
+import { ShopifyLink } from '../../shopify';
 
 export function OfflinePage() {
   return (
@@ -61,12 +62,12 @@ export function RouteErrorPage({ status, statusText }: { status: number; statusT
           </button>
         ) : null}
 
-        <Link
+        <ShopifyLink
           to="/"
           className="rounded-md border border-muted/20 bg-background px-4 py-2 text-body text-foreground shadow-sm hover:bg-muted/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
         >
           Home
-        </Link>
+        </ShopifyLink>
       </div>
     </div>
   );

@@ -17,24 +17,29 @@ export const routes: RouteObject[] = [
       {
         index: true,
         loader: dashboardLoader,
+        handle: { title: 'Dashboard' },
         element: createElement(DashboardIndex),
       },
       {
         path: 'queues',
         loader: queuesLoader,
+        handle: { title: 'Queues' },
         element: createElement(QueuesPage),
       },
       {
         path: 'ingestion',
+        handle: { title: 'Ingestion' },
         element: createElement(IngestionPage),
       },
       {
         path: 'search',
+        handle: { title: 'Search' },
         element: createElement(SearchPage),
       },
       {
         path: 'settings',
         action: settingsAction,
+        handle: { title: 'Settings' },
         element: createElement(SettingsPage),
       },
     ],

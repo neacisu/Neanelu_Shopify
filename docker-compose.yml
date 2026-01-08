@@ -246,6 +246,8 @@ services:
       FRONTEND_PORT: ${FRONTEND_PORT:-65001}
       APP_HOSTNAME: ${APP_HOSTNAME}
       NPM_TASKFORCESH_TOKEN: ${NPM_TASKFORCESH_TOKEN}
+      # Vite public env (embedded Shopify App Bridge)
+      VITE_SHOPIFY_API_KEY: ${SHOPIFY_API_KEY}
     networks:
       - neanelu_frontend_network
     labels:

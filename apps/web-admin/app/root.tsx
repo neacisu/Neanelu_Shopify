@@ -1,5 +1,6 @@
+import type { ReactNode } from 'react';
 import { useEffect } from 'react';
-import { isRouteErrorResponse, Link, Outlet, useRouteError } from 'react-router-dom';
+import { isRouteErrorResponse, Outlet, useMatches, useRouteError } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 
@@ -7,6 +8,13 @@ import './globals.css';
 import { AppShell } from './components/layout/app-shell';
 import { OfflinePage, RouteErrorPage } from './components/errors/error-pages';
 import { useOnlineStatus } from './hooks/use-online-status';
+import {
+  MissingHostPage,
+  ShopifyAppBridgeProvider,
+  ShopifyLink,
+  useShopifyAppBridge,
+  useShopifyTitleBar,
+} from './shopify';
 
 function GlobalSpinner() {
   return (
@@ -39,15 +47,37 @@ export function ErrorBoundary() {
     <div className="space-y-4">
       <RouteErrorPage status={500} statusText="Internal Error" />
       <ErrorAlert title="Detalii" message={message} />
-      <Link className="text-caption text-primary hover:underline" to="/">
+      <ShopifyLink className="text-caption text-primary hover:underline" to="/">
         Înapoi la Dashboard
-      </Link>
+      </ShopifyLink>
     </div>
   );
 }
 
+function useRouteTitle(): string {
+  const matches = useMatches();
+  const titleMatch = [...matches]
+    .reverse()
+    .find((match) => typeof (match.handle as { title?: unknown } | undefined)?.title === 'string');
+
+  return (titleMatch?.handle as { title?: string } | undefined)?.title ?? 'Web Admin';
+}
+
+function EmbeddedGate({ children }: { children: ReactNode }) {
+  const { missingHost, apiKey, shop } = useShopifyAppBridge();
+
+  if (missingHost) {
+    return <MissingHostPage {...(apiKey ? { apiKey } : {})} shop={shop} />;
+  }
+
+  return children;
+}
+
 export default function Root() {
   const isOnline = useOnlineStatus();
+  const title = useRouteTitle();
+
+  useShopifyTitleBar(title);
 
   useEffect(() => {
     if (!document.querySelector('script[data-neanelu-polaris="1"]')) {
@@ -61,15 +91,21 @@ export default function Root() {
     toast('Web Admin loaded');
   }, []);
 
+  useEffect(() => {
+    document.title = `${title} · Neanelu`;
+  }, [title]);
+
   return (
     <div className="min-h-screen">
       <Toaster richColors />
-      <AppShell>
-        <div className="mb-4 hidden">
-          <GlobalSpinner />
-        </div>
-        {isOnline ? <Outlet /> : <OfflinePage />}
-      </AppShell>
+      <ShopifyAppBridgeProvider>
+        <AppShell>
+          <div className="mb-4 hidden">
+            <GlobalSpinner />
+          </div>
+          <EmbeddedGate>{isOnline ? <Outlet /> : <OfflinePage />}</EmbeddedGate>
+        </AppShell>
+      </ShopifyAppBridgeProvider>
     </div>
   );
 }
