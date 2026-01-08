@@ -258,6 +258,18 @@ services:
       - traefik.http.routers.web-admin.entrypoints=websecure
       - traefik.http.routers.web-admin.tls.certresolver=${TRAEFIK_CERT_RESOLVER:?TRAEFIK_CERT_RESOLVER is required}
       - traefik.http.services.web-admin.loadbalancer.server.port=${FRONTEND_PORT:-65001}
+
+      # Shopify may open the app at the host root (/ ?shop=...&host=...)
+      # while our SPA is mounted under /app. Redirect root requests to /app/.
+      - traefik.http.routers.web-admin-root.rule=Host(`${APP_HOSTNAME:?APP_HOSTNAME is required}`) && Path(`/`)
+      - traefik.http.routers.web-admin-root.priority=250
+      - traefik.http.routers.web-admin-root.entrypoints=websecure
+      - traefik.http.routers.web-admin-root.tls.certresolver=${TRAEFIK_CERT_RESOLVER:?TRAEFIK_CERT_RESOLVER is required}
+      - traefik.http.routers.web-admin-root.service=web-admin
+      - traefik.http.routers.web-admin-root.middlewares=web-admin-root-redirect
+      - traefik.http.middlewares.web-admin-root-redirect.redirectregex.regex=^/$
+      - traefik.http.middlewares.web-admin-root-redirect.redirectregex.replacement=/app/
+      - traefik.http.middlewares.web-admin-root-redirect.redirectregex.permanent=false
     healthcheck:
       test:
         [

@@ -119,6 +119,80 @@ Callback după autorizare Shopify.
 
 ---
 
+## 2.1 Session Token Helper (Web Admin)
+
+> [!NOTE]
+> Acest endpoint este folosit de UI (web-admin) pentru a obține un `Authorization: Bearer ...`
+> atunci când există deja cookie auth (`neanelu_session`).
+
+### GET /api/session/token
+
+Returnează token-ul de sesiune și momentul expirării.
+
+**Auth:** necesită cookie session (`neanelu_session`). Dacă nu există sesiune: `401`.
+
+**Response:** `200 OK`
+
+```json
+{
+  "success": true,
+  "data": {
+    "token": "<bearer token>",
+    "expiresAt": "2026-01-08T14:06:44.243Z"
+  },
+  "meta": {
+    "request_id": "uuid",
+    "timestamp": "ISO8601"
+  }
+}
+```
+
+---
+
+## 2.2 UI Profile (Multi-shop UX)
+
+> [!NOTE]
+> Endpoint de preferințe UI (fără secrete), cheiat de un cookie httpOnly (`neanelu_ui_profile`).
+> Este intenționat **fără auth** pentru a permite UX în non-embedded / pre-auth.
+
+### GET /api/ui-profile
+
+Returnează profilul UI curent.
+
+**Auth:** nu necesită `Authorization`.
+
+**Response:** `200 OK`
+
+```json
+{
+  "success": true,
+  "data": {
+    "activeShopDomain": "example.myshopify.com",
+    "lastShopDomain": "example.myshopify.com",
+    "recentShopDomains": ["example.myshopify.com"]
+  },
+  "meta": {
+    "request_id": "uuid",
+    "timestamp": "ISO8601"
+  }
+}
+```
+
+### POST /api/ui-profile
+
+Actualizează câmpurile profile-ului (best-effort). Câmpurile omise nu resetează valorile existente.
+
+**Request Body:**
+
+```json
+{
+  "activeShopDomain": "example.myshopify.com",
+  "lastShopDomain": "example.myshopify.com"
+}
+```
+
+**Response:** `200 OK` (aceeași formă ca GET).
+
 ## 3. Webhook Endpoints
 
 ### POST /webhooks/:topic

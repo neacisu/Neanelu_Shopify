@@ -56,6 +56,20 @@ function getShopifyHostFromUrl(): string | null {
   return typeof host === 'string' && host.length > 0 ? host : null;
 }
 
+function isEmbeddedContextForAppBridge(): boolean {
+  if (typeof window === 'undefined') return false;
+
+  const embedded = new URLSearchParams(window.location.search).get('embedded');
+  if (embedded === '1' || embedded === 'true') return true;
+
+  try {
+    return window.self !== window.top;
+  } catch {
+    // Cross-origin iframe access can throw; treat as embedded.
+    return true;
+  }
+}
+
 async function fetchShopifyAppBridgeSessionToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null;
   const apiKey = import.meta.env['VITE_SHOPIFY_API_KEY'] as string | undefined;
@@ -73,6 +87,7 @@ async function fetchShopifyAppBridgeSessionToken(): Promise<string | null> {
     const app =
       existingApp ??
       (() => {
+        if (!isEmbeddedContextForAppBridge()) return null;
         const host = getShopifyHostFromUrl();
         if (!host) return null;
         return createApp({ apiKey, host, forceRedirect: true });

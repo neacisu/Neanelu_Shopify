@@ -37,10 +37,15 @@ export function ShopifyAppBridgeProvider({ children }: PropsWithChildren) {
 
   const app = useMemo<ReturnType<typeof createApp> | null>(() => {
     if (!apiKey) return null;
+    // Important: only initialize App Bridge in embedded context.
+    // If Shopify (or a user) opens the app top-level (not in an iframe) but the URL still
+    // contains a `host` param, App Bridge with `forceRedirect: true` will continuously
+    // bounce between our domain and Shopify Admin.
+    if (!isEmbedded) return null;
     if (!params.host) return null;
 
     return createApp({ apiKey, host: params.host, forceRedirect: true });
-  }, [apiKey, params.host]);
+  }, [apiKey, isEmbedded, params.host]);
 
   useEffect(() => {
     setAppBridgeApp(app);

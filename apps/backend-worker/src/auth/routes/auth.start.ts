@@ -17,6 +17,7 @@ import { generateSecureState, generateNonce, getStateExpiration } from '../state
 
 interface AuthStartQuery {
   shop?: string;
+  returnTo?: string;
 }
 
 export interface AuthStartRouteOptions {
@@ -30,10 +31,24 @@ export function registerAuthStartRoute(
 ): void {
   const { env, logger } = options;
 
+  function normalizeReturnTo(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (trimmed.length > 2048) return null;
+    if (!trimmed.startsWith('/')) return null;
+    if (trimmed.startsWith('//')) return null;
+    if (trimmed.includes('://')) return null;
+    if (!trimmed.startsWith('/app')) return null;
+    if (trimmed === '/app') return '/app/';
+    if (!trimmed.startsWith('/app/')) return null;
+    return trimmed;
+  }
+
   server.get<{ Querystring: AuthStartQuery }>(
     '/auth',
     async (request: FastifyRequest<{ Querystring: AuthStartQuery }>, reply: FastifyReply) => {
-      const { shop } = request.query;
+      const { shop, returnTo } = request.query;
 
       // 1. Validare shop domain
       const validation = validateShopParam(shop);
@@ -51,6 +66,8 @@ export function registerAuthStartRoute(
       const shopDomain = validation.shop;
       logger.info({ shop: shopDomain }, 'Starting OAuth flow');
 
+      const normalizedReturnTo = normalizeReturnTo(returnTo);
+
       // 2. Generare state și nonce
       const state = generateSecureState();
       const nonce = generateNonce();
@@ -62,9 +79,9 @@ export function registerAuthStartRoute(
       // 4. Salvează state în DB
       try {
         await pool.query(
-          `INSERT INTO oauth_states (state, shop_domain, redirect_uri, nonce, expires_at)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [state, shopDomain, redirectUri, nonce, expiresAt]
+          `INSERT INTO oauth_states (state, shop_domain, redirect_uri, nonce, expires_at, return_to)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [state, shopDomain, redirectUri, nonce, expiresAt, normalizedReturnTo]
         );
       } catch (err) {
         logger.error({ err, shop: shopDomain }, 'Failed to save OAuth state');

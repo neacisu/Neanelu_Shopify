@@ -55,6 +55,40 @@ export function registerAuthCallbackRoute(
     return shop;
   }
 
+  function normalizeReturnTo(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (trimmed.length > 2048) return null;
+    if (!trimmed.startsWith('/')) return null;
+    if (trimmed.startsWith('//')) return null;
+    if (trimmed.includes('://')) return null;
+    if (!trimmed.startsWith('/app')) return null;
+    if (trimmed === '/app') return '/app/';
+    if (!trimmed.startsWith('/app/')) return null;
+    return trimmed;
+  }
+
+  function buildReturnToUrl(returnTo: string | null, shopDomain: string): string {
+    const fallback = new URL('/app/', env.appHost.origin);
+    fallback.searchParams.set('shop', shopDomain);
+    if (!returnTo) return fallback.toString();
+
+    try {
+      const url = new URL(returnTo, env.appHost.origin);
+      // Defensive: ensure we never redirect outside our own /app/* UI.
+      if (url.origin !== env.appHost.origin) return fallback.toString();
+      if (!url.pathname.startsWith('/app/')) return fallback.toString();
+
+      if (!url.searchParams.get('shop')) {
+        url.searchParams.set('shop', shopDomain);
+      }
+      return url.toString();
+    } catch {
+      return fallback.toString();
+    }
+  }
+
   function redirectToUi(
     reply: FastifyReply,
     params: { shop?: string | null; error: string }
@@ -165,8 +199,9 @@ export function registerAuthCallbackRoute(
         shop_domain: string;
         expires_at: Date;
         used_at: Date | null;
+        return_to: string | null;
       }>(
-        `SELECT id, shop_domain, expires_at, used_at
+        `SELECT id, shop_domain, expires_at, used_at, return_to
          FROM oauth_states
          WHERE state = $1`,
         [state]
@@ -340,6 +375,8 @@ export function registerAuthCallbackRoute(
 
       logger.info({ shop: shopDomain, shopId }, 'Shop credentials saved successfully');
 
+      const returnTo = buildReturnToUrl(normalizeReturnTo(stateRecord.return_to), shopDomain);
+
       // 10. Clear oauth_state cookie
       void reply.clearCookie('oauth_state', {
         path: '/auth',
@@ -379,8 +416,8 @@ export function registerAuthCallbackRoute(
         return reply.redirect(redirectUrl);
       }
 
-      // Fallback: redirect la app dashboard (web-admin is at /app/)
-      return reply.redirect(`${env.appHost.origin}/app/?shop=${shopDomain}`);
+      // Non-embedded / top-level: return to original UI location when available.
+      return reply.redirect(returnTo);
     }
   );
 }

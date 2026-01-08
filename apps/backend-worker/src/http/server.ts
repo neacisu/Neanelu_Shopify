@@ -220,6 +220,22 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   // Register OAuth routes
   registerAuthRoutes(server, { env, logger });
 
+  // Shopify may load the app at the host root (e.g. /?shop=...&host=...)
+  // while the web-admin SPA is mounted under /app. Redirect root requests
+  // to /app and preserve the full query string.
+  server.get('/', async (request, reply) => {
+    const rawUrl = request.raw.url;
+    const url = typeof rawUrl === 'string' && rawUrl.length > 0 ? rawUrl : '/';
+    const withLeadingSlash = url.startsWith('/') ? url : `/${url}`;
+    const target = `/app${withLeadingSlash}`;
+    return reply.redirect(target);
+  });
+
+  // Avoid noisy 404s in browsers hitting the backend host root.
+  server.get('/favicon.ico', async (_request, reply) => {
+    return reply.redirect('/app/favicon.png');
+  });
+
   const sessionConfig = getDefaultSessionConfig(env.shopifyApiSecret, env.shopifyApiKey);
 
   // Admin APIs (used by web-admin)
