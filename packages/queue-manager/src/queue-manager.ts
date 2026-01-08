@@ -241,6 +241,16 @@ export type CreateWorkerOptions<TData = unknown> = Readonly<{
   /** If true, failed jobs that exhausted retries are copied into `${name}-dlq`. */
   enableDlq?: boolean;
   onDlqEntry?: (entry: DlqEntry) => void;
+  /**
+   * How often (ms) to check for stalled jobs. Defaults to 30_000 (30s).
+   * Set to 0 to disable stall detection.
+   */
+  stalledInterval?: number;
+  /**
+   * Max times a job can be recovered from stalled state before failing.
+   * Defaults to 1. Set higher for long-running jobs that may stall.
+   */
+  maxStalledCount?: number;
 }>;
 
 export function createWorker<TData = unknown>(
@@ -331,6 +341,9 @@ export function createWorker<TData = unknown>(
         if (type === 'exponential') return baseDelay * 2 ** Math.max(0, attemptsMade - 1);
         return baseDelay;
       },
+      // Stall detection settings (F4.2.3)
+      ...(worker.stalledInterval !== undefined && { stalledInterval: worker.stalledInterval }),
+      ...(worker.maxStalledCount !== undefined && { maxStalledCount: worker.maxStalledCount }),
     },
     ...(worker.workerOptions ?? {}),
   });

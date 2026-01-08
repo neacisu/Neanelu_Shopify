@@ -1,8 +1,21 @@
 import type { Redis } from 'ioredis';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { metrics } from '@opentelemetry/api';
 
 import { normalizeShopIdToGroupId } from '../strategies/fairness/group-id.js';
+
+// F4.4.4: Bulk lock metrics
+const meter = metrics.getMeter('neanelu-shopify.bulk-lock');
+const bulkLockAcquireTotal = meter.createCounter('bulk_lock_acquire_total', {
+  description: 'Successful bulk lock acquisitions',
+});
+const bulkLockContentionTotal = meter.createCounter('bulk_lock_contention_total', {
+  description: 'Bulk lock acquisition failures due to contention',
+});
+const bulkLockReleaseTotal = meter.createCounter('bulk_lock_release_total', {
+  description: 'Bulk lock releases',
+});
 
 export type BulkLockOptions = Readonly<{
   ttlMs: number;
@@ -60,7 +73,13 @@ export async function acquireBulkLock(
 
   const token = randomUUID();
   const ok = await evalBulkLock(redis, { lockKey, op: 'acquire', token, ttlMs });
-  if (ok === 1) return { shopId: shopId.trim().toLowerCase(), token };
+
+  // F4.4.4: Emit metrics
+  if (ok === 1) {
+    bulkLockAcquireTotal.add(1);
+    return { shopId: shopId.trim().toLowerCase(), token };
+  }
+  bulkLockContentionTotal.add(1);
   return null;
 }
 
@@ -77,6 +96,11 @@ export async function renewBulkLock(
 export async function releaseBulkLock(redis: Redis, handle: BulkLockHandle): Promise<boolean> {
   const lockKey = lockKeyForShop(handle.shopId);
   const ok = await evalBulkLock(redis, { lockKey, op: 'release', token: handle.token });
+
+  // F4.4.4: Emit metrics
+  if (ok === 1) {
+    bulkLockReleaseTotal.add(1);
+  }
   return ok === 1;
 }
 

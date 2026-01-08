@@ -1,6 +1,9 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
+    // Silence baseUrl deprecation warning until TS 7.0 migration
+    "ignoreDeprecations": "5.0",
+
     // ============================================
     // TARGET & MODULE (Node.js 24 LTS - ESNext/ES2025)
     // ============================================

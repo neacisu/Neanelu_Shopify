@@ -1,5 +1,19 @@
 import type { Redis } from 'ioredis';
 import { readFileSync } from 'node:fs';
+import { metrics } from '@opentelemetry/api';
+
+// F4.4.4: Rate limiter metrics
+const meter = metrics.getMeter('neanelu-shopify.rate-limiter');
+const rateLimitAllowedTotal = meter.createCounter('ratelimit_allowed_total', {
+  description: 'Total requests allowed by rate limiter',
+});
+const rateLimitDeniedTotal = meter.createCounter('ratelimit_denied_total', {
+  description: 'Total requests denied by rate limiter',
+});
+const rateLimitDelayHistogram = meter.createHistogram('ratelimit_delay_seconds', {
+  description: 'Delay imposed by rate limiter in seconds',
+  unit: 's',
+});
 
 export type RateLimiterParams = Readonly<{
   bucketKey: string;
@@ -92,9 +106,23 @@ export async function checkAndConsumeCost(
     ttlMs,
   });
 
+  const isAllowed = allowed === 1;
+  const finalDelayMs = Math.max(0, Number(delayMs) || 0);
+
+  // F4.4.4: Emit metrics
+  const labels = { bucket_key: bucketKey };
+  if (isAllowed) {
+    rateLimitAllowedTotal.add(1, labels);
+  } else {
+    rateLimitDeniedTotal.add(1, labels);
+  }
+  if (finalDelayMs > 0) {
+    rateLimitDelayHistogram.record(finalDelayMs / 1000, labels);
+  }
+
   return {
-    allowed: allowed === 1,
-    delayMs: Math.max(0, Number(delayMs) || 0),
+    allowed: isAllowed,
+    delayMs: finalDelayMs,
     tokensRemaining: Math.max(0, Number(tokensRemaining) || 0),
     tokensNow: Math.max(0, Number(tokensNow) || 0),
   };
