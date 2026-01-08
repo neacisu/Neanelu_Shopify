@@ -6,6 +6,10 @@
 #
 # Utilizare: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 # Sau simplu: pnpm db:up
+#
+# COMPOSE WATCH (Docker Compose 2.22+):
+# docker compose -f docker-compose.yml -f docker-compose.dev.yml watch
+# Sincronizează automat fișierele și rebuilduiește când e necesar
 
 services:
   # ============================================
@@ -16,13 +20,61 @@ services:
       - '${BACKEND_HOST_PORT:-65000}:${PORT:-65000}'
     volumes:
       - .:/app
+    develop:
+      watch:
+        # Sync source files - instant sync without rebuild
+        - path: ./apps/backend-worker/src
+          action: sync
+          target: /app/apps/backend-worker/src
+        - path: ./packages
+          action: sync
+          target: /app/packages
+          ignore:
+            - node_modules/
+        # Rebuild on package.json or config changes
+        - path: ./apps/backend-worker/package.json
+          action: rebuild
+        - path: ./package.json
+          action: rebuild
+        - path: ./pnpm-lock.yaml
+          action: rebuild
+        - path: ./apps/backend-worker/tsconfig.json
+          action: rebuild
 
   # ============================================
-  # Frontend Web Admin - Placeholder (future)
+  # Frontend Web Admin - Development Override
   # ============================================
   web-admin:
     volumes:
       - .:/app
+    develop:
+      watch:
+        # Sync source files - Vite HMR will handle updates
+        - path: ./apps/web-admin/app
+          action: sync
+          target: /app/apps/web-admin/app
+        - path: ./apps/web-admin/components
+          action: sync
+          target: /app/apps/web-admin/components
+        - path: ./apps/web-admin/public
+          action: sync
+          target: /app/apps/web-admin/public
+        - path: ./apps/web-admin/types
+          action: sync
+          target: /app/apps/web-admin/types
+        # Rebuild on package.json, config, or index.html changes
+        - path: ./apps/web-admin/package.json
+          action: rebuild
+        - path: ./apps/web-admin/index.html
+          action: rebuild
+        - path: ./apps/web-admin/vite.config.ts
+          action: rebuild
+        - path: ./apps/web-admin/tailwind.config.ts
+          action: rebuild
+        - path: ./package.json
+          action: rebuild
+        - path: ./pnpm-lock.yaml
+          action: rebuild
 
   # ============================================
   # Bull Board - Placeholder (future)

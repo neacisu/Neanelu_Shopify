@@ -58,8 +58,8 @@ export function QueueMetricsCharts(props: {
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
       <PolarisCard className="p-4">
         <div className="mb-2 text-h4">Throughput (jobs/sec)</div>
-        <div className="h-55">
-          <ResponsiveContainer width="100%" height="100%">
+        <div style={{ width: '100%', height: 220 }}>
+          <ResponsiveContainer width="100%" height={220}>
             <LineChart data={points} margin={{ left: 8, right: 8, top: 8, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="ts" tickFormatter={formatTs} />
@@ -79,8 +79,8 @@ export function QueueMetricsCharts(props: {
 
       <PolarisCard className="p-4">
         <div className="mb-2 text-h4">Outcomes (delta)</div>
-        <div className="h-55">
-          <ResponsiveContainer width="100%" height="100%">
+        <div style={{ width: '100%', height: 220 }}>
+          <ResponsiveContainer width="100%" height={220}>
             <LineChart data={points} margin={{ left: 8, right: 8, top: 8, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="ts" tickFormatter={formatTs} />
@@ -96,8 +96,8 @@ export function QueueMetricsCharts(props: {
       <PolarisCard className="p-4 lg:col-span-2">
         <div className="mb-2 text-h4">Status distribution</div>
         {distData.length ? (
-          <div className="h-70">
-            <ResponsiveContainer width="100%" height="100%">
+          <div style={{ width: '100%', height: 280 }}>
+            <ResponsiveContainer width="100%" height={280}>
               <PieChart>
                 <Tooltip />
                 <Pie

@@ -629,13 +629,21 @@ export const queueRoutes: FastifyPluginAsync<QueueAdminPluginOptions> = (
   });
 
   server.get('/queues/stream', requireAdminSession, async (request, reply) => {
-    // SSE stream: queue snapshots every 2 seconds.
-    reply.raw.setHeader('Content-Type', 'text/event-stream');
-    reply.raw.setHeader('Cache-Control', 'no-cache, no-transform');
-    reply.raw.setHeader('Connection', 'keep-alive');
+    // SSE stream: queue snapshots every 15 seconds.
+    // For HTTP/2 compatibility, don't set Connection header (it's a connection-level concern in H2)
+    void reply.header('Content-Type', 'text/event-stream');
+    void reply.header('Cache-Control', 'no-cache, no-transform');
+    void reply.header('X-Accel-Buffering', 'no'); // Disable nginx/traefik buffering
 
-    // Flush headers
-    reply.raw.write('\n');
+    // Mark as raw response to prevent Fastify from closing the stream
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      'X-Accel-Buffering': 'no',
+    });
+
+    // Flush headers with a comment (SSE keepalive)
+    reply.raw.write(': connected\n\n');
 
     let closed = false;
 
@@ -690,8 +698,8 @@ export const queueRoutes: FastifyPluginAsync<QueueAdminPluginOptions> = (
       unsubscribe();
     });
 
-    // Keep the request open.
-    return reply;
+    // Prevent Fastify from ending the response - we manage it manually
+    reply.hijack();
   });
 
   return Promise.resolve();

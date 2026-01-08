@@ -26,6 +26,8 @@
     "db:logs": "docker compose -f docker-compose.yml -f docker-compose.dev.yml logs -f",
     "db:restart": "pnpm db:down && pnpm db:up",
     "db:clean": "docker compose -f docker-compose.yml -f docker-compose.dev.yml down -v",
+    "db:watch": "docker compose -f docker-compose.yml -f docker-compose.dev.yml watch",
+    "db:watch:build": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build --watch",
     "db:generate": "pnpm --filter @app/database run db:generate",
     "db:migrate": "pnpm --filter @app/database run db:migrate",
     "db:studio": "pnpm --filter @app/database run db:studio",

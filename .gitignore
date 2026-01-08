@@ -85,7 +85,9 @@ dist
 
 # Gatsby files
 .cache/
-public
+# Exclude root public (Gatsby build output), but allow app-specific public folders
+/public
+!apps/web-admin/public/
 
 # Storybook build outputs
 .out

@@ -76,7 +76,7 @@ Retry-After: 2.0
 X-Shopify-Shop-Api-Call-Limit: 40/40
 ```
 
-#### Client Implementation
+#### REST Client Implementation
 
 Our client uses `computeRestDelayMsFromRetryAfter()`:
 
@@ -113,7 +113,7 @@ Shopify allows only **one concurrent bulk operation per shop** for mutations and
 | Max concurrent bulk queries   | 1 per shop |
 | Result file lifetime          | 7 days     |
 
-#### Client Implementation
+#### Bulk Lock Implementation
 
 Our queue-manager uses distributed Redis locks via `bulk-lock.ts`:
 
@@ -211,6 +211,7 @@ Pre-configured dashboards available at:
 4. **Monitor bulk lock contention** — High contention indicates too many bulk operations queued
 
 5. **Implement exponential backoff** — For transient failures, use the queue manager's built-in backoff:
+
    ```typescript
    backoff: { type: 'neanelu-exp4', delay: 1000 }
    ```

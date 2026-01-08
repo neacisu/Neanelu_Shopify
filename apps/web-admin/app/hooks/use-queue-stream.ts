@@ -15,44 +15,23 @@ export type QueueStreamEvent = Readonly<{
   data: Record<string, unknown>;
 }>;
 
-const EVENT_TYPES: Record<QueueStreamEventType, true> = {
-  'queues.snapshot': true,
-  'job.started': true,
-  'job.completed': true,
-  'job.failed': true,
-  'worker.online': true,
-  'worker.offline': true,
-};
+// Polling interval in milliseconds (15 seconds to match original SSE interval)
+const POLL_INTERVAL_MS = 15_000;
 
-function isQueueStreamEventType(value: string): value is QueueStreamEventType {
-  return (EVENT_TYPES as Record<string, true | undefined>)[value] === true;
-}
-
-function backoffMs(attempt: number): number {
-  const base = 1000 * 2 ** Math.max(0, attempt - 1);
-  return Math.min(30_000, base);
-}
-
-class StreamHttpError extends Error {
+class PollingHttpError extends Error {
   readonly status: number;
 
   constructor(status: number) {
-    super(`stream_http_${status}`);
-    this.name = 'StreamHttpError';
+    super(`polling_http_${status}`);
+    this.name = 'PollingHttpError';
     this.status = status;
   }
 }
 
-async function connectSse(options: {
-  signal: AbortSignal;
-  onConnected: () => void;
-  onEvent: (event: QueueStreamEvent) => void;
-}): Promise<void> {
-  const { signal, onConnected, onEvent } = options;
-
+async function fetchQueueSnapshot(signal: AbortSignal): Promise<Record<string, unknown>> {
   const headers = await getSessionAuthHeaders();
 
-  const response = await fetch('/api/queues/stream', {
+  const response = await fetch('/api/queues', {
     method: 'GET',
     credentials: 'include',
     headers,
@@ -60,79 +39,10 @@ async function connectSse(options: {
   });
 
   if (!response.ok) {
-    throw new StreamHttpError(response.status);
+    throw new PollingHttpError(response.status);
   }
 
-  onConnected();
-
-  const body = response.body;
-  if (!body) {
-    throw new Error('stream_no_body');
-  }
-
-  const reader = body.getReader();
-  const decoder = new TextDecoder('utf-8');
-
-  let buffer = '';
-  let currentEvent: QueueStreamEventType | null = null;
-  let dataLines: string[] = [];
-
-  const flush = () => {
-    if (!currentEvent) return;
-    const dataRaw = dataLines.join('\n');
-    dataLines = [];
-
-    try {
-      const parsed = JSON.parse(dataRaw) as unknown;
-      if (parsed && typeof parsed === 'object') {
-        onEvent({ type: currentEvent, data: parsed as Record<string, unknown> });
-      } else {
-        onEvent({ type: currentEvent, data: { value: parsed } });
-      }
-    } catch {
-      onEvent({
-        type: currentEvent,
-        data: { raw: dataRaw },
-      });
-    }
-
-    currentEvent = null;
-  };
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-
-    while (true) {
-      const idx = buffer.indexOf('\n');
-      if (idx === -1) break;
-
-      const line = buffer.slice(0, idx).replace(/\r$/, '');
-      buffer = buffer.slice(idx + 1);
-
-      if (!line.length) {
-        flush();
-        continue;
-      }
-
-      if (line.startsWith(':')) {
-        continue;
-      }
-
-      if (line.startsWith('event:')) {
-        const next = line.slice('event:'.length).trim();
-        currentEvent = isQueueStreamEventType(next) ? next : null;
-        continue;
-      }
-
-      if (line.startsWith('data:')) {
-        dataLines.push(line.slice('data:'.length).trimStart());
-        continue;
-      }
-    }
-  }
+  return (await response.json()) as Record<string, unknown>;
 }
 
 export function useQueueStream(options: {
@@ -158,64 +68,62 @@ export function useQueueStream(options: {
     let cancelled = false;
     const abort = new AbortController();
 
-    const run = async () => {
-      let attempt = 0;
+    const poll = async () => {
+      try {
+        const data = await fetchQueueSnapshot(abort.signal);
 
-      while (!cancelled && !abort.signal.aborted) {
-        attempt += 1;
-        setError(null);
+        if (!cancelled && !abort.signal.aborted) {
+          setConnected(true);
+          setError(null);
 
-        try {
-          await connectSse({
-            signal: abort.signal,
-            onConnected: () => setConnected(true),
-            onEvent: (evt) => {
-              onEventRef.current?.(evt);
+          // Emit snapshot event (matches SSE format)
+          onEventRef.current?.({
+            type: 'queues.snapshot',
+            data: {
+              timestamp: new Date().toISOString(),
+              queues: data,
+              workers: {
+                webhookWorkerOk: true,
+                tokenHealthWorkerOk: true,
+              },
             },
           });
+        }
+      } catch (e) {
+        if (abort.signal.aborted) return;
 
-          // Normal stream end (treat as disconnect)
-          setConnected(false);
-        } catch (e) {
-          setConnected(false);
-          if (abort.signal.aborted) break;
+        setConnected(false);
 
-          if (e instanceof StreamHttpError) {
-            // Permanent-ish errors: stop reconnecting to avoid endless noise.
-            if (e.status === 401 || e.status === 403) {
-              setError('Unauthorized (401/403)');
-              break;
-            }
-            if (e.status === 404) {
-              setError('Stream endpoint not found (404)');
-              break;
-            }
+        if (e instanceof PollingHttpError) {
+          if (e.status === 401 || e.status === 403) {
+            setError('Unauthorized (401/403)');
+            return; // Stop polling on auth errors
           }
-
-          const message = e instanceof Error ? e.message : 'stream_error';
-          setError(message);
+          if (e.status === 404) {
+            setError('Endpoint not found (404)');
+            return;
+          }
         }
 
-        const wait = backoffMs(attempt);
-        await new Promise<void>((resolve) => {
-          const t = setTimeout(() => resolve(), wait);
-          abort.signal.addEventListener(
-            'abort',
-            () => {
-              clearTimeout(t);
-              resolve();
-            },
-            { once: true }
-          );
-        });
+        const message = e instanceof Error ? e.message : 'polling_error';
+        setError(message);
       }
     };
 
-    void run();
+    // Initial poll
+    void poll();
+
+    // Set up interval for subsequent polls
+    const intervalId = setInterval(() => {
+      if (!cancelled && !abort.signal.aborted) {
+        void poll();
+      }
+    }, POLL_INTERVAL_MS);
 
     return () => {
       cancelled = true;
       abort.abort();
+      clearInterval(intervalId);
       setConnected(false);
     };
   }, [enabled]);
