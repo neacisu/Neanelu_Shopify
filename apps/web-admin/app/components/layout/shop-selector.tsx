@@ -55,7 +55,7 @@ export function ShopSelector() {
             void update({ lastShopDomain: v, activeShopDomain: v });
           }}
           placeholder="example.myshopify.com"
-          className="w-[220px] rounded-md border border-muted/20 bg-background px-2 py-1 text-body text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+          className="w-55 rounded-md border border-muted/20 bg-background px-2 py-1 text-body text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
         />
 
         <a
