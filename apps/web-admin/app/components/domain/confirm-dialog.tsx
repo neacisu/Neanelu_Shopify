@@ -11,6 +11,9 @@ export function ConfirmDialog(props: {
   confirmLabel?: string;
   cancelLabel?: string;
   confirmTone?: ConfirmDialogTone;
+  confirmDisabled?: boolean;
+  confirmLoading?: boolean;
+  cancelDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -21,6 +24,9 @@ export function ConfirmDialog(props: {
     confirmLabel = 'Confirm',
     cancelLabel = 'Cancel',
     confirmTone = 'critical',
+    confirmDisabled,
+    confirmLoading,
+    cancelDisabled,
     onConfirm,
     onCancel,
   } = props;
@@ -64,7 +70,7 @@ export function ConfirmDialog(props: {
         <div>
           <div className="text-h3">{title}</div>
         </div>
-        <PolarisButton variant="secondary" onClick={onCancel}>
+        <PolarisButton variant="secondary" disabled={cancelDisabled ?? false} onClick={onCancel}>
           {cancelLabel}
         </PolarisButton>
       </div>
@@ -75,10 +81,15 @@ export function ConfirmDialog(props: {
 
       <div className="border-t p-4">
         <div className="flex items-center justify-end gap-2">
-          <PolarisButton variant="secondary" onClick={onCancel}>
+          <PolarisButton variant="secondary" disabled={cancelDisabled ?? false} onClick={onCancel}>
             {cancelLabel}
           </PolarisButton>
-          <PolarisButton variant={confirmTone} onClick={onConfirm}>
+          <PolarisButton
+            variant={confirmTone}
+            disabled={confirmDisabled ?? false}
+            loading={confirmLoading ?? false}
+            onClick={onConfirm}
+          >
             {confirmLabel}
           </PolarisButton>
         </div>

@@ -149,6 +149,7 @@ export function JobsTable(props: {
           <input
             type="checkbox"
             checked={selected.has(job.id)}
+            disabled={Boolean(loading)}
             onChange={() => toggleOne(job.id)}
             aria-label={`Select job ${job.id}`}
           />
@@ -186,6 +187,7 @@ export function JobsTable(props: {
         <td className="px-3 py-2">
           <PolarisSelect
             value=""
+            disabled={Boolean(loading)}
             options={[
               { label: 'Actions', value: '' },
               { label: 'Retry', value: 'retry' },
@@ -231,6 +233,7 @@ export function JobsTable(props: {
         <input
           type="checkbox"
           checked={selected.has(job.id)}
+          disabled={Boolean(loading)}
           onChange={() => toggleOne(job.id)}
           aria-label={`Select job ${job.id}`}
         />
@@ -263,6 +266,7 @@ export function JobsTable(props: {
         <div className="w-40">
           <PolarisSelect
             value=""
+            disabled={Boolean(loading)}
             options={[
               { label: 'Actions', value: '' },
               { label: 'Retry', value: 'retry' },
@@ -337,12 +341,16 @@ export function JobsTable(props: {
           <div className="flex items-center gap-2">
             <PolarisButton
               variant="secondary"
+              disabled={Boolean(loading)}
+              loading={Boolean(loading)}
               onClick={() => onAction('retry', Array.from(selected))}
             >
               Retry Selected
             </PolarisButton>
             <PolarisButton
               variant="critical"
+              disabled={Boolean(loading)}
+              loading={Boolean(loading)}
               onClick={() => onAction('delete', Array.from(selected))}
             >
               Delete Selected
@@ -363,6 +371,7 @@ export function JobsTable(props: {
                   <input
                     type="checkbox"
                     checked={allOnPageSelected}
+                    disabled={Boolean(loading)}
                     onChange={toggleAllOnPage}
                     aria-label="Select all on page"
                   />
@@ -382,6 +391,7 @@ export function JobsTable(props: {
               <input
                 type="checkbox"
                 checked={allOnPageSelected}
+                disabled={Boolean(loading)}
                 onChange={toggleAllOnPage}
                 aria-label="Select all on page"
               />

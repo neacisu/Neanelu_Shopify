@@ -1,9 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { UNSAFE_DataWithResponseInit } from 'react-router-dom';
 import { Outlet, RouterProvider, createMemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
-import QueuesPage, { loader as queuesLoader } from '../routes/queues';
+import QueuesPage, { action as queuesAction, loader as queuesLoader } from '../routes/queues';
 
 interface ApiClient {
   getApi: <T>(path: string, init?: RequestInit) => Promise<T>;
@@ -216,6 +217,7 @@ describe('Queue Monitor /queues UI', () => {
             {
               path: 'queues',
               loader: queuesLoader,
+              action: queuesAction,
               element: <QueuesPage />,
             },
           ],
@@ -267,6 +269,7 @@ describe('Queue Monitor /queues UI', () => {
             {
               path: 'queues',
               loader: queuesLoader,
+              action: queuesAction,
               element: <QueuesPage />,
             },
           ],
@@ -328,6 +331,7 @@ describe('Queue Monitor /queues UI', () => {
             {
               path: 'queues',
               loader: queuesLoader,
+              action: queuesAction,
               element: <QueuesPage />,
             },
           ],
@@ -369,6 +373,7 @@ describe('Queue Monitor /queues UI', () => {
             {
               path: 'queues',
               loader: queuesLoader,
+              action: queuesAction,
               element: <QueuesPage />,
             },
           ],
@@ -401,6 +406,7 @@ describe('Queue Monitor /queues UI', () => {
             {
               path: 'queues',
               loader: queuesLoader,
+              action: queuesAction,
               element: <QueuesPage />,
             },
           ],
@@ -454,6 +460,7 @@ describe('Queue Monitor /queues UI', () => {
             {
               path: 'queues',
               loader: queuesLoader,
+              action: queuesAction,
               element: <QueuesPage />,
             },
           ],
@@ -474,5 +481,86 @@ describe('Queue Monitor /queues UI', () => {
     expect(setIntervalSpy.mock.calls.some((c) => c[1] === 5_000)).toBe(true);
 
     setIntervalSpy.mockRestore();
+  });
+
+  it('removes jobId from URL when deleting the opened job', async () => {
+    const user = userEvent.setup();
+
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: <Outlet />,
+          children: [
+            {
+              path: 'queues',
+              loader: queuesLoader,
+              action: queuesAction,
+              element: <QueuesPage />,
+            },
+          ],
+        },
+      ],
+      { initialEntries: ['/queues?tab=jobs&queue=webhooks&jobId=1'] }
+    );
+
+    render(<RouterProvider router={router} />);
+
+    // Details modal should open from initial URL and load job.
+    expect(await screen.findByText(/Job details/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(apiCalls.some((c) => c.method === 'GET' && c.path === '/queues/webhooks/jobs/1')).toBe(
+        true
+      );
+    });
+
+    // Select the job and delete it.
+    const checkbox = await screen.findByLabelText('Select job 1');
+    await user.click(checkbox);
+
+    const deleteSelected = await screen.findByText('Delete Selected');
+    await user.click(deleteSelected.closest('polaris-button') ?? deleteSelected);
+
+    const confirm = await screen.findByText('Delete job');
+    await user.click(confirm.closest('polaris-button') ?? confirm);
+
+    await waitFor(() => {
+      expect(
+        apiCalls.some((c) => c.method === 'DELETE' && c.path === '/queues/webhooks/jobs/1')
+      ).toBe(true);
+    });
+
+    await waitFor(() => {
+      expect(router.state.location.search).not.toContain('jobId=');
+    });
+  });
+
+  it('returns 400 ActionData for missing queue', async () => {
+    const formData = new FormData();
+    formData.set('intent', 'queue.pause');
+
+    const res = await queuesAction({
+      request: new Request('http://test.local/queues', { method: 'POST', body: formData }),
+      params: {},
+      context: {},
+    } as unknown as Parameters<typeof queuesAction>[0]);
+
+    const isDataWithInit = (value: unknown): value is UNSAFE_DataWithResponseInit<unknown> => {
+      return typeof value === 'object' && value !== null && 'data' in value;
+    };
+
+    let status: number | undefined;
+    let body: unknown;
+
+    if (res instanceof Response) {
+      status = res.status;
+      body = await res.json();
+    } else if (isDataWithInit(res)) {
+      status = res.init?.status;
+      body = res.data;
+    }
+
+    expect(status).toBe(400);
+    expect(body).toMatchObject({ ok: false, error: { code: 'missing_queue' } });
   });
 });
