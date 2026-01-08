@@ -1,6 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LoaderFunctionArgs } from 'react-router-dom';
-import { useLocation } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { NavigateFunction } from 'react-router-dom';
+import {
+  useLoaderData,
+  useLocation,
+  useNavigate,
+  useNavigation,
+  useRevalidator,
+} from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
@@ -11,10 +18,14 @@ import {
   PolarisCard,
   PolarisSelect,
 } from '../../components/polaris/index.js';
-import { useApiClient } from '../hooks/use-api';
 import { useQueueStream } from '../hooks/use-queue-stream';
-import { handleApiError } from '../utils/handle-api-error';
-import { reportUiError } from '../utils/report-ui-error';
+import { ApiError } from '../utils/api-error';
+import {
+  apiLoader,
+  createLoaderApiClient,
+  type LoaderData,
+  withShopifyQueryRedirect,
+} from '../utils/loaders';
 
 import { ConfirmDialog } from '../components/domain/confirm-dialog';
 import { JobsTable, type QueueJobListItem } from '../components/domain/jobs-table';
@@ -34,54 +45,182 @@ type QueueSummary = Readonly<{
   delayed: number;
 }>;
 
-export function loader({ request }: LoaderFunctionArgs) {
-  try {
-    const url = new URL(request.url);
-    const mode = url.searchParams.get('mode');
+type Tab = 'overview' | 'jobs' | 'workers';
 
-    if (mode === '404') {
-      // eslint-disable-next-line @typescript-eslint/only-throw-error
-      throw new Response('Not Found', { status: 404 });
-    }
+function parseTab(value: string | null): Tab {
+  if (value === 'jobs' || value === 'workers' || value === 'overview') return value;
+  return 'overview';
+}
 
-    if (mode === '500') {
-      throw new Error('Simulated server error');
-    }
+function parseNonNegativeInt(value: string | null, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
 
-    return null;
-  } catch (e) {
-    handleApiError(e);
+function parsePositiveInt(value: string | null, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+export const loader = apiLoader(async (args: LoaderFunctionArgs) => {
+  const api = createLoaderApiClient();
+  const url = new URL(args.request.url);
+
+  // Test helpers (used by routing.test.tsx)
+  const mode = url.searchParams.get('mode');
+  if (mode === '404') {
+    // eslint-disable-next-line @typescript-eslint/only-throw-error
+    throw new Response('Not Found', { status: 404 });
   }
+  if (mode === '500') {
+    throw new Error('Simulated server error');
+  }
+
+  const tab = parseTab(url.searchParams.get('tab'));
+  const requestedQueue = url.searchParams.get('queue') ?? '';
+  const jobId = url.searchParams.get('jobId');
+
+  const jobsStatus = url.searchParams.get('status') ?? 'waiting';
+  const jobsPage = parseNonNegativeInt(url.searchParams.get('page'), 0);
+  const jobsLimit = parsePositiveInt(url.searchParams.get('limit'), 50);
+  const jobsSearch = url.searchParams.get('q') ?? '';
+
+  const queuesRes = await api.getApi<{ queues: QueueSummary[] }>('/queues');
+  const queues = queuesRes.queues;
+
+  const firstQueueName = queues[0]?.name ?? '';
+  const selectedQueue =
+    requestedQueue && queues.some((q) => q.name === requestedQueue)
+      ? requestedQueue
+      : firstQueueName;
+
+  // Make server state shareable/predictable: always normalize `queue=` in the URL.
+  if (selectedQueue && requestedQueue !== selectedQueue) {
+    const next = new URL(url);
+    next.searchParams.set('queue', selectedQueue);
+    next.searchParams.delete('jobId');
+    return withShopifyQueryRedirect(args, next.pathname + next.search);
+  }
+
+  let metricsPoints: QueueMetricsPoint[] = [];
+  let metricsError: string | null = null;
+
+  if (tab === 'overview' && selectedQueue) {
+    try {
+      const metricsRes = await api.getApi<{ points: QueueMetricsPoint[] }>(
+        `/queues/${encodeURIComponent(selectedQueue)}/metrics`
+      );
+      metricsPoints = metricsRes.points;
+    } catch (err) {
+      metricsError = err instanceof Error ? err.message : 'failed_to_load_metrics';
+    }
+  }
+
+  let jobs: QueueJobListItem[] = [];
+  let jobsTotal = 0;
+
+  if (tab === 'jobs' && selectedQueue) {
+    const q = new URLSearchParams();
+    q.set('status', jobsStatus);
+    q.set('page', String(jobsPage));
+    q.set('limit', String(jobsLimit));
+    if (jobsSearch.trim().length) q.set('q', jobsSearch.trim());
+
+    const jobsRes = await api.getApi<{
+      jobs: QueueJobListItem[];
+      total: number;
+    }>(`/queues/${encodeURIComponent(selectedQueue)}/jobs?${q.toString()}`);
+
+    jobs = jobsRes.jobs;
+    jobsTotal = jobsRes.total ?? jobsRes.jobs.length;
+  }
+
+  let workers: WorkerSummary[] = [];
+  if (tab === 'workers') {
+    const workersRes = await api.getApi<{ workers: WorkerSummary[] }>('/queues/workers');
+    workers = workersRes.workers;
+  }
+
+  let jobDetail: QueueJobDetail | null = null;
+  let jobDetailError: string | null = null;
+
+  if (tab === 'jobs' && selectedQueue && jobId) {
+    try {
+      const jobRes = await api.getApi<{ job: QueueJobDetail }>(
+        `/queues/${encodeURIComponent(selectedQueue)}/jobs/${encodeURIComponent(jobId)}`
+      );
+      jobDetail = jobRes.job;
+    } catch (err) {
+      if (err instanceof ApiError) {
+        jobDetailError = err.status === 404 ? 'Job not found' : err.message;
+      } else {
+        jobDetailError = err instanceof Error ? err.message : 'failed_to_load_job';
+      }
+    }
+  }
+
+  return {
+    tab,
+    queues,
+    selectedQueue,
+    metricsPoints,
+    metricsError,
+    jobs,
+    jobsTotal,
+    jobsStatus,
+    jobsPage,
+    jobsLimit,
+    jobsSearch,
+    workers,
+    jobId,
+    jobDetail,
+    jobDetailError,
+  };
+});
+
+type RouteLoaderData = LoaderData<typeof loader>;
+
+function updateSearchParams(
+  navigate: NavigateFunction,
+  locationSearch: string,
+  updates: (params: URLSearchParams) => void
+) {
+  const next = new URLSearchParams(locationSearch);
+  updates(next);
+  void navigate({ search: `?${next.toString()}` }, { replace: false });
 }
 
 export default function QueuesPage() {
   const location = useLocation();
-  const api = useApiClient();
+  const navigate = useNavigate();
+  const revalidator = useRevalidator();
+  const navigation = useNavigation();
+  const isLoading = navigation.state === 'loading' || revalidator.state === 'loading';
 
-  const [tab, setTab] = useState<'overview' | 'jobs' | 'workers'>('overview');
-  const [queues, setQueues] = useState<QueueSummary[]>([]);
-  const [selectedQueue, setSelectedQueue] = useState<string>('');
+  const {
+    tab,
+    queues: loaderQueues,
+    selectedQueue,
+    metricsPoints,
+    metricsError,
+    jobs,
+    jobsTotal,
+    jobsStatus,
+    jobsPage,
+    jobsLimit,
+    jobsSearch,
+    workers,
+    jobId,
+    jobDetail,
+    jobDetailError,
+  } = useLoaderData<RouteLoaderData>();
 
-  const [overviewLoading, setOverviewLoading] = useState(false);
-  const [overviewError, setOverviewError] = useState<string | null>(null);
-
-  const [metricsPoints, setMetricsPoints] = useState<QueueMetricsPoint[]>([]);
-  const [jobs, setJobs] = useState<QueueJobListItem[]>([]);
-  const [jobsTotal, setJobsTotal] = useState(0);
-  const [jobsLoading, setJobsLoading] = useState(false);
-  const [jobsStatus, setJobsStatus] = useState('waiting');
-  const [jobsPage, setJobsPage] = useState(0);
-  const [jobsLimit, setJobsLimit] = useState(50);
-  const [jobsSearch, setJobsSearch] = useState('');
-
-  const [workers, setWorkers] = useState<WorkerSummary[]>([]);
-  const [workersLoading, setWorkersLoading] = useState(false);
-
-  const [jobModalOpen, setJobModalOpen] = useState(false);
-  const [jobModalId, setJobModalId] = useState<string | null>(null);
-  const [jobModalLoading, setJobModalLoading] = useState(false);
-  const [jobModalError, setJobModalError] = useState<string | null>(null);
-  const [jobModalJob, setJobModalJob] = useState<QueueJobDetail | null>(null);
+  const [queues, setQueues] = useState<QueueSummary[]>(loaderQueues);
+  useEffect(() => {
+    setQueues(loaderQueues);
+  }, [loaderQueues]);
 
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[]>([]);
@@ -106,109 +245,23 @@ export default function QueuesPage() {
     [queues, selectedQueue]
   );
 
-  const loadQueues = useCallback(async () => {
-    setOverviewLoading(true);
-    setOverviewError(null);
-    try {
-      const data = await api.getApi<{ queues: QueueSummary[] }>('/queues');
-      setQueues(data.queues);
-      setSelectedQueue((prev) => (prev.length ? prev : (data.queues[0]?.name ?? '')));
-    } catch (e) {
-      reportUiError(e, { source: 'route', route: '/queues' });
-      setOverviewError(e instanceof Error ? e.message : 'failed_to_load_queues');
-    } finally {
-      setOverviewLoading(false);
-    }
-  }, [api]);
-
-  const loadMetrics = useCallback(
-    async (queueName: string) => {
-      try {
-        const data = await api.getApi<{ points: QueueMetricsPoint[] }>(
-          `/queues/${encodeURIComponent(queueName)}/metrics`
-        );
-        setMetricsPoints(data.points);
-      } catch (e) {
-        reportUiError(e, { source: 'route', route: '/queues', status: 500 });
-      }
-    },
-    [api]
-  );
-
-  const loadJobs = useCallback(
-    async (queueName: string, options?: { resetPage?: boolean }) => {
-      setJobsLoading(true);
-      try {
-        const q = new URLSearchParams();
-        q.set('status', jobsStatus);
-        q.set('page', String(options?.resetPage ? 0 : jobsPage));
-        q.set('limit', String(jobsLimit));
-        if (jobsSearch.trim().length) q.set('q', jobsSearch.trim());
-
-        const data = await api.getApi<{
-          jobs: QueueJobListItem[];
-          total: number;
-          page?: number;
-          limit?: number;
-        }>(`/queues/${encodeURIComponent(queueName)}/jobs?${q.toString()}`);
-
-        setJobs(data.jobs);
-        setJobsTotal(data.total ?? data.jobs.length);
-        if (options?.resetPage) setJobsPage(0);
-      } catch (e) {
-        reportUiError(e, { source: 'route', route: '/queues' });
-        toast.error('Failed to load jobs');
-      } finally {
-        setJobsLoading(false);
-      }
-    },
-    [api, jobsLimit, jobsPage, jobsSearch, jobsStatus]
-  );
-
-  const loadWorkers = useCallback(async () => {
-    setWorkersLoading(true);
-    try {
-      const data = await api.getApi<{ workers: WorkerSummary[] }>('/queues/workers');
-      setWorkers(data.workers);
-    } catch (e) {
-      reportUiError(e, { source: 'route', route: '/queues/workers' });
-      toast.error('Failed to load workers');
-    } finally {
-      setWorkersLoading(false);
-    }
-  }, [api]);
-
   const openJobDetails = useCallback(
-    async (jobId: string) => {
+    (nextJobId: string) => {
       if (!selectedQueue) return;
-      setJobModalOpen(true);
-      setJobModalId(jobId);
-      setJobModalLoading(true);
-      setJobModalError(null);
-      setJobModalJob(null);
-
-      try {
-        const data = await api.getApi<{ job: QueueJobDetail }>(
-          `/queues/${encodeURIComponent(selectedQueue)}/jobs/${encodeURIComponent(jobId)}`
-        );
-        setJobModalJob(data.job);
-      } catch (e) {
-        reportUiError(e, { source: 'route', route: '/queues' });
-        setJobModalError(e instanceof Error ? e.message : 'failed_to_load_job');
-      } finally {
-        setJobModalLoading(false);
-      }
+      updateSearchParams(navigate, location.search, (p) => {
+        p.set('tab', 'jobs');
+        p.set('queue', selectedQueue);
+        p.set('jobId', nextJobId);
+      });
     },
-    [api, selectedQueue]
+    [location.search, navigate, selectedQueue]
   );
 
   const closeJobDetails = useCallback(() => {
-    setJobModalOpen(false);
-    setJobModalId(null);
-    setJobModalJob(null);
-    setJobModalError(null);
-    setJobModalLoading(false);
-  }, []);
+    updateSearchParams(navigate, location.search, (p) => {
+      p.delete('jobId');
+    });
+  }, [location.search, navigate]);
 
   const closeConfirmDelete = useCallback(() => {
     setConfirmDeleteOpen(false);
@@ -219,6 +272,7 @@ export default function QueuesPage() {
     async (action: 'pause' | 'resume' | 'clean_failed') => {
       if (!selectedQueue) return;
       try {
+        const api = createLoaderApiClient();
         if (action === 'pause') {
           await api.postApi(`/queues/${encodeURIComponent(selectedQueue)}/pause`, {});
           toast.success('Queue paused');
@@ -232,19 +286,20 @@ export default function QueuesPage() {
           toast.success('Failed jobs cleaned');
         }
 
-        void loadQueues();
-      } catch (e) {
-        reportUiError(e, { source: 'route', route: '/queues' });
+        await revalidator.revalidate();
+      } catch (_e) {
         toast.error('Queue action failed');
       }
     },
-    [api, loadQueues, selectedQueue]
+    [revalidator, selectedQueue]
   );
 
   const runJobAction = useCallback(
     async (action: 'retry' | 'delete' | 'promote', ids: string[]) => {
       if (!selectedQueue) return;
       if (ids.length === 0) return;
+
+      const api = createLoaderApiClient();
 
       if (ids.length === 1) {
         const id = ids[0];
@@ -275,7 +330,7 @@ export default function QueuesPage() {
         });
       }
     },
-    [api, selectedQueue]
+    [selectedQueue]
   );
 
   const performJobAction = useCallback(
@@ -296,14 +351,12 @@ export default function QueuesPage() {
       try {
         await runJobAction(action, ids);
         toast.success('Action completed');
-        void loadJobs(selectedQueue);
-        void loadQueues();
-      } catch (e) {
-        reportUiError(e, { source: 'route', route: '/queues' });
+        await revalidator.revalidate();
+      } catch (_e) {
         toast.error('Job action failed');
       }
     },
-    [loadJobs, loadQueues, runJobAction, selectedQueue]
+    [revalidator, runJobAction, selectedQueue]
   );
 
   const confirmDelete = useCallback(async () => {
@@ -314,36 +367,19 @@ export default function QueuesPage() {
     try {
       await runJobAction('delete', ids);
       toast.success('Action completed');
-      void loadJobs(selectedQueue);
-      void loadQueues();
-    } catch (e) {
-      reportUiError(e, { source: 'route', route: '/queues' });
+      await revalidator.revalidate();
+    } catch (_e) {
       toast.error('Job action failed');
     }
-  }, [closeConfirmDelete, confirmDeleteIds, loadJobs, loadQueues, runJobAction, selectedQueue]);
-
-  useEffect(() => {
-    void loadQueues();
-  }, [loadQueues]);
-
-  useEffect(() => {
-    if (!selectedQueue) return;
-    void loadMetrics(selectedQueue);
-    if (tab === 'jobs') {
-      void loadJobs(selectedQueue);
-    }
-    if (tab === 'workers') {
-      void loadWorkers();
-    }
-  }, [loadJobs, loadMetrics, loadWorkers, selectedQueue, tab]);
+  }, [closeConfirmDelete, confirmDeleteIds, revalidator, runJobAction, selectedQueue]);
 
   useEffect(() => {
     if (tab !== 'workers') return;
     const id = window.setInterval(() => {
-      void loadWorkers();
+      void revalidator.revalidate();
     }, 5_000);
     return () => window.clearInterval(id);
-  }, [loadWorkers, tab]);
+  }, [revalidator, tab]);
 
   const stream = useQueueStream({
     enabled: true,
@@ -366,7 +402,6 @@ export default function QueuesPage() {
 
           if (parsed.length) {
             setQueues(parsed);
-            setSelectedQueue((prev) => (prev.length ? prev : (parsed[0]?.name ?? '')));
           }
         }
       }
@@ -379,14 +414,14 @@ export default function QueuesPage() {
         if (qn && qn === selectedQueue) {
           if (refreshJobsTimerRef.current) window.clearTimeout(refreshJobsTimerRef.current);
           refreshJobsTimerRef.current = window.setTimeout(() => {
-            void loadJobs(qn);
+            void revalidator.revalidate();
           }, 700);
         }
       }
 
       if (evt.type === 'worker.online' || evt.type === 'worker.offline') {
         if (tab === 'workers') {
-          void loadWorkers();
+          void revalidator.revalidate();
         }
       }
     },
@@ -405,8 +440,12 @@ export default function QueuesPage() {
               value={selectedQueue}
               options={queueOptions}
               onChange={(e) => {
-                setSelectedQueue((e.target as HTMLSelectElement).value);
-                setJobsPage(0);
+                const next = (e.target as HTMLSelectElement).value;
+                updateSearchParams(navigate, location.search, (p) => {
+                  p.set('queue', next);
+                  p.delete('jobId');
+                  p.set('page', '0');
+                });
               }}
             />
           </div>
@@ -419,32 +458,50 @@ export default function QueuesPage() {
         </div>
       </PolarisCard>
 
-      {overviewError ? (
-        <ErrorState message={overviewError} onRetry={() => void loadQueues()} />
-      ) : null}
+      <div className="flex flex-wrap gap-2">
+        <PolarisButton
+          variant={tab === 'overview' ? 'primary' : 'secondary'}
+          onClick={() =>
+            updateSearchParams(navigate, location.search, (p) => {
+              p.set('tab', 'overview');
+              p.delete('jobId');
+            })
+          }
+        >
+          Overview
+        </PolarisButton>
+        <PolarisButton
+          variant={tab === 'jobs' ? 'primary' : 'secondary'}
+          onClick={() =>
+            updateSearchParams(navigate, location.search, (p) => {
+              p.set('tab', 'jobs');
+              p.delete('jobId');
+            })
+          }
+        >
+          Jobs
+        </PolarisButton>
+        <PolarisButton
+          variant={tab === 'workers' ? 'primary' : 'secondary'}
+          onClick={() =>
+            updateSearchParams(navigate, location.search, (p) => {
+              p.set('tab', 'workers');
+              p.delete('jobId');
+            })
+          }
+        >
+          Workers
+        </PolarisButton>
 
-      {!overviewError ? (
-        <div className="flex flex-wrap gap-2">
-          <PolarisButton
-            variant={tab === 'overview' ? 'primary' : 'secondary'}
-            onClick={() => setTab('overview')}
-          >
-            Overview
-          </PolarisButton>
-          <PolarisButton
-            variant={tab === 'jobs' ? 'primary' : 'secondary'}
-            onClick={() => setTab('jobs')}
-          >
-            Jobs
-          </PolarisButton>
-          <PolarisButton
-            variant={tab === 'workers' ? 'primary' : 'secondary'}
-            onClick={() => setTab('workers')}
-          >
-            Workers
-          </PolarisButton>
-        </div>
-      ) : null}
+        <PolarisButton
+          variant="secondary"
+          onClick={() => {
+            void revalidator.revalidate();
+          }}
+        >
+          Refresh
+        </PolarisButton>
+      </div>
 
       {tab === 'overview' ? (
         <div className="space-y-3">
@@ -455,7 +512,7 @@ export default function QueuesPage() {
                   <div className="text-h4">{selectedQueue || '—'}</div>
                   <div className="text-caption text-muted">Selected queue</div>
                 </div>
-                {overviewLoading ? <span className="text-caption text-muted">Loading…</span> : null}
+                {isLoading ? <span className="text-caption text-muted">Loading…</span> : null}
               </div>
               <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
                 <div>
@@ -472,9 +529,6 @@ export default function QueuesPage() {
                 </div>
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-2">
-                <PolarisButton variant="secondary" onClick={() => void loadQueues()}>
-                  Refresh
-                </PolarisButton>
                 <PolarisButton variant="secondary" onClick={() => void performQueueAction('pause')}>
                   Pause
                 </PolarisButton>
@@ -520,7 +574,13 @@ export default function QueuesPage() {
                           <button
                             type="button"
                             className="text-primary hover:underline"
-                            onClick={() => setSelectedQueue(q.name)}
+                            onClick={() =>
+                              updateSearchParams(navigate, location.search, (p) => {
+                                p.set('queue', q.name);
+                                p.delete('jobId');
+                                p.set('page', '0');
+                              })
+                            }
                           >
                             {q.name}
                           </button>
@@ -554,6 +614,15 @@ export default function QueuesPage() {
               }
             />
           ) : null}
+
+          {metricsError ? (
+            <ErrorState
+              message={metricsError}
+              onRetry={() => {
+                void revalidator.revalidate();
+              }}
+            />
+          ) : null}
         </div>
       ) : null}
 
@@ -567,28 +636,42 @@ export default function QueuesPage() {
               limit={jobsLimit}
               status={jobsStatus}
               search={jobsSearch}
-              loading={jobsLoading}
+              loading={isLoading}
               onSearchChange={(v) => {
-                setJobsSearch(v);
-                setJobsPage(0);
+                updateSearchParams(navigate, location.search, (p) => {
+                  if (v.trim().length) {
+                    p.set('q', v);
+                  } else {
+                    p.delete('q');
+                  }
+                  p.set('page', '0');
+                });
               }}
               onStatusChange={(v) => {
-                setJobsStatus(v);
-                setJobsPage(0);
+                updateSearchParams(navigate, location.search, (p) => {
+                  p.set('status', v);
+                  p.set('page', '0');
+                });
               }}
-              onPageChange={(p) => setJobsPage(p)}
+              onPageChange={(p) =>
+                updateSearchParams(navigate, location.search, (sp) => {
+                  sp.set('page', String(p));
+                })
+              }
               onLimitChange={(l) => {
-                setJobsLimit(l);
-                setJobsPage(0);
+                updateSearchParams(navigate, location.search, (sp) => {
+                  sp.set('limit', String(l));
+                  sp.set('page', '0');
+                });
               }}
               onAction={(action, ids) => {
                 if (action === 'details' && ids[0]) {
-                  void openJobDetails(ids[0]);
+                  openJobDetails(ids[0]);
                   return;
                 }
                 void performJobAction(action as 'retry' | 'delete' | 'promote', ids);
               }}
-              onOpenDetails={(id) => void openJobDetails(id)}
+              onOpenDetails={(id) => openJobDetails(id)}
             />
           ) : null}
         </div>
@@ -598,9 +681,14 @@ export default function QueuesPage() {
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <div className="text-caption text-muted">
-              {workersLoading ? 'Loading…' : `${workers.length} workers`}
+              {isLoading ? 'Loading…' : `${workers.length} workers`}
             </div>
-            <PolarisButton variant="secondary" onClick={() => void loadWorkers()}>
+            <PolarisButton
+              variant="secondary"
+              onClick={() => {
+                void revalidator.revalidate();
+              }}
+            >
               Refresh
             </PolarisButton>
           </div>
@@ -609,12 +697,12 @@ export default function QueuesPage() {
       ) : null}
 
       <JobDetailModal
-        open={jobModalOpen}
+        open={Boolean(jobId)}
         queueName={selectedQueue}
-        jobId={jobModalId}
-        job={jobModalJob}
-        loading={jobModalLoading}
-        error={jobModalError}
+        jobId={jobId ?? null}
+        job={jobDetail}
+        loading={isLoading}
+        error={jobDetailError}
         onClose={closeJobDetails}
       />
 

@@ -1,25 +1,27 @@
 import { Activity, AlertTriangle, Cpu, Package, RefreshCw } from 'lucide-react';
 
 import type { ComponentType } from 'react';
+import type { LoaderFunctionArgs } from 'react-router-dom';
 import { useLoaderData, useRevalidator } from 'react-router-dom';
 
 import { PolarisButton, PolarisCard } from '../../components/polaris/index.js';
 import { SafeComponent } from '../components/errors/safe-component';
 import { ErrorState, LoadingState } from '../components/patterns';
-import { createApiClient } from '../lib/api-client';
+import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
 
 interface HealthReadyResponse {
   status: 'ready' | 'not_ready' | (string & {});
   checks?: Record<string, 'ok' | 'fail' | (string & {})>;
 }
 
-export async function loader() {
-  const api = createApiClient();
-
+export const loader = apiLoader(async (_args: LoaderFunctionArgs) => {
+  const api = createLoaderApiClient();
   return {
     health: await api.getJson<HealthReadyResponse>('/health/ready'),
   };
-}
+});
+
+type RouteLoaderData = LoaderData<typeof loader>;
 
 interface Kpi {
   title: string;
@@ -56,7 +58,7 @@ const kpis: Kpi[] = [
 ];
 
 export default function DashboardIndex() {
-  const { health } = useLoaderData<{ health: HealthReadyResponse }>();
+  const { health } = useLoaderData<RouteLoaderData>();
   const revalidator = useRevalidator();
   const isRefreshing = revalidator.state === 'loading';
 

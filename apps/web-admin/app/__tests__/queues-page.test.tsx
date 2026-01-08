@@ -1,9 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { Outlet, RouterProvider, createMemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
-import QueuesPage from '../routes/queues';
+import QueuesPage, { loader as queuesLoader } from '../routes/queues';
 
 interface ApiClient {
   getApi: <T>(path: string, init?: RequestInit) => Promise<T>;
@@ -185,12 +185,11 @@ function createApiStub(): ApiClient {
   };
 }
 
-vi.mock('../hooks/use-api', () => {
-  const api = createApiStub();
-  return {
-    useApiClient: () => api,
-  };
-});
+const api = vi.hoisted(() => createApiStub());
+
+vi.mock('../lib/api-client', () => ({
+  createApiClient: () => api,
+}));
 
 vi.mock('../hooks/use-queue-stream', () => ({
   useQueueStream: () => ({ connected: false, error: null }),
@@ -208,13 +207,26 @@ describe('Queue Monitor /queues UI', () => {
   });
 
   it('renders overview and loads queues + metrics', async () => {
-    render(
-      <MemoryRouter initialEntries={['/queues']}>
-        <QueuesPage />
-      </MemoryRouter>
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: <Outlet />,
+          children: [
+            {
+              path: 'queues',
+              loader: queuesLoader,
+              element: <QueuesPage />,
+            },
+          ],
+        },
+      ],
+      { initialEntries: ['/queues'] }
     );
 
-    expect(screen.getByRole('heading', { name: /Queue Monitor/i })).toBeInTheDocument();
+    render(<RouterProvider router={router} />);
+
+    expect(await screen.findByRole('heading', { name: /Queue Monitor/i })).toBeInTheDocument();
 
     await waitFor(() => {
       expect(apiCalls.some((c) => c.method === 'GET' && c.path === '/queues')).toBe(true);
@@ -246,11 +258,24 @@ describe('Queue Monitor /queues UI', () => {
   it('switches to Jobs tab and searches by job id', async () => {
     const user = userEvent.setup();
 
-    render(
-      <MemoryRouter initialEntries={['/queues']}>
-        <QueuesPage />
-      </MemoryRouter>
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: <Outlet />,
+          children: [
+            {
+              path: 'queues',
+              loader: queuesLoader,
+              element: <QueuesPage />,
+            },
+          ],
+        },
+      ],
+      { initialEntries: ['/queues'] }
     );
+
+    render(<RouterProvider router={router} />);
 
     // Click Jobs tab (custom element button).
     const jobsBtn = await screen.findByText('Jobs');
@@ -294,11 +319,24 @@ describe('Queue Monitor /queues UI', () => {
   it('opens job details modal and loads job details', async () => {
     const user = userEvent.setup();
 
-    render(
-      <MemoryRouter initialEntries={['/queues']}>
-        <QueuesPage />
-      </MemoryRouter>
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: <Outlet />,
+          children: [
+            {
+              path: 'queues',
+              loader: queuesLoader,
+              element: <QueuesPage />,
+            },
+          ],
+        },
+      ],
+      { initialEntries: ['/queues'] }
     );
+
+    render(<RouterProvider router={router} />);
 
     const jobsBtn = await screen.findByText('Jobs');
     await user.click(jobsBtn.closest('polaris-button') ?? jobsBtn);
@@ -322,11 +360,24 @@ describe('Queue Monitor /queues UI', () => {
   it('switches to Workers tab and loads workers', async () => {
     const user = userEvent.setup();
 
-    render(
-      <MemoryRouter initialEntries={['/queues']}>
-        <QueuesPage />
-      </MemoryRouter>
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: <Outlet />,
+          children: [
+            {
+              path: 'queues',
+              loader: queuesLoader,
+              element: <QueuesPage />,
+            },
+          ],
+        },
+      ],
+      { initialEntries: ['/queues'] }
     );
+
+    render(<RouterProvider router={router} />);
 
     const workersBtn = await screen.findByText('Workers');
     await user.click(workersBtn.closest('polaris-button') ?? workersBtn);
@@ -341,11 +392,24 @@ describe('Queue Monitor /queues UI', () => {
   it('requires confirmation before deleting a job', async () => {
     const user = userEvent.setup();
 
-    render(
-      <MemoryRouter initialEntries={['/queues']}>
-        <QueuesPage />
-      </MemoryRouter>
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: <Outlet />,
+          children: [
+            {
+              path: 'queues',
+              loader: queuesLoader,
+              element: <QueuesPage />,
+            },
+          ],
+        },
+      ],
+      { initialEntries: ['/queues'] }
     );
+
+    render(<RouterProvider router={router} />);
 
     const jobsBtn = await screen.findByText('Jobs');
     await user.click(jobsBtn.closest('polaris-button') ?? jobsBtn);
@@ -381,11 +445,24 @@ describe('Queue Monitor /queues UI', () => {
     const setIntervalSpy = vi.spyOn(window, 'setInterval');
     const user = userEvent.setup();
 
-    render(
-      <MemoryRouter initialEntries={['/queues']}>
-        <QueuesPage />
-      </MemoryRouter>
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: <Outlet />,
+          children: [
+            {
+              path: 'queues',
+              loader: queuesLoader,
+              element: <QueuesPage />,
+            },
+          ],
+        },
+      ],
+      { initialEntries: ['/queues'] }
     );
+
+    render(<RouterProvider router={router} />);
 
     const workersBtn = await screen.findByText('Workers');
     await user.click(workersBtn.closest('polaris-button') ?? workersBtn);
