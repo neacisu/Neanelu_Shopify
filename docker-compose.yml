@@ -267,7 +267,7 @@ services:
       - traefik.http.routers.web-admin-root.tls.certresolver=${TRAEFIK_CERT_RESOLVER:?TRAEFIK_CERT_RESOLVER is required}
       - traefik.http.routers.web-admin-root.service=web-admin
       - traefik.http.routers.web-admin-root.middlewares=web-admin-root-redirect
-      - traefik.http.middlewares.web-admin-root-redirect.redirectregex.regex=^/$
+      - traefik.http.middlewares.web-admin-root-redirect.redirectregex.regex=^/$$
       - traefik.http.middlewares.web-admin-root-redirect.redirectregex.replacement=/app/
       - traefik.http.middlewares.web-admin-root-redirect.redirectregex.permanent=false
     healthcheck:
