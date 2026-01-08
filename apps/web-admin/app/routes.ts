@@ -2,6 +2,7 @@ import { createElement } from 'react';
 import type { RouteObject } from 'react-router-dom';
 
 import DashboardIndex, { loader as dashboardLoader } from './routes/_index';
+import AuthCallbackPage from './routes/auth.callback';
 import IngestionPage from './routes/ingestion';
 import QueuesPage, { loader as queuesLoader } from './routes/queues';
 import Root, { ErrorBoundary } from './root';
@@ -14,6 +15,11 @@ export const routes: RouteObject[] = [
     element: createElement(Root),
     errorElement: createElement(ErrorBoundary),
     children: [
+      {
+        path: 'auth/callback',
+        handle: { title: 'Auth', skipEmbeddedGate: true },
+        element: createElement(AuthCallbackPage),
+      },
       {
         index: true,
         loader: dashboardLoader,
