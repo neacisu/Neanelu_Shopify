@@ -244,6 +244,40 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     });
   });
 
+  // Alias health endpoints under /api prefix for web-admin compatibility
+  server.get('/api/health/live', async (_request, reply) => {
+    return reply.status(200).send({ status: 'alive' });
+  });
+
+  server.get('/api/health/ready', async (_request, reply) => {
+    const checkTimeoutMs = 1500;
+    const [databaseOk, redisOk, shopifyOk, webhookQueueOk] = await Promise.all([
+      withTimeout(checkDatabaseConnection(), checkTimeoutMs, 'database check').catch(() => false),
+      checkRedisConnection(env.redisUrl, checkTimeoutMs),
+      Promise.resolve(isShopifyApiConfigValid(process.env)),
+      checkWebhookQueueFunctional(env, checkTimeoutMs),
+    ]);
+
+    const { webhookWorkerOk, tokenHealthWorkerOk } = getWorkerReadiness();
+
+    const checks = {
+      database: databaseOk ? 'ok' : 'fail',
+      redis: redisOk ? 'ok' : 'fail',
+      shopify_api: shopifyOk ? 'ok' : 'fail',
+      queue_webhook: webhookQueueOk ? 'ok' : 'fail',
+      worker_webhook: webhookWorkerOk ? 'ok' : 'fail',
+      ...(tokenHealthWorkerOk == null
+        ? {}
+        : { worker_token_health: tokenHealthWorkerOk ? 'ok' : 'fail' }),
+    } as const;
+
+    const allOk = databaseOk && redisOk && shopifyOk && webhookQueueOk && webhookWorkerOk;
+    const statusCode = allOk ? 200 : 503;
+    const status = allOk ? 'ready' : 'not_ready';
+
+    return reply.status(statusCode).send({ status, checks });
+  });
+
   // Helper endpoint for web-admin to obtain a Bearer token when cookie auth is available.
   // This token is the same signed session token used in the session cookie.
   const sessionTokenHandler = (request: FastifyRequest, reply: FastifyReply) => {

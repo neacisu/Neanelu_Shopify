@@ -300,8 +300,8 @@ export function registerAuthCallbackRoute(
         return reply.redirect(redirectUrl);
       }
 
-      // Fallback: redirect la app host
-      return reply.redirect(`${env.appHost.origin}/?shop=${shopDomain}`);
+      // Fallback: redirect la app dashboard (web-admin is at /app/)
+      return reply.redirect(`${env.appHost.origin}/app/?shop=${shopDomain}`);
     }
   );
 }
