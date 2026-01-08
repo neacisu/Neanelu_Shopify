@@ -12,7 +12,41 @@ export interface UiProfile {
 
 const api = createApiClient({ getAuthHeaders: getSessionAuthHeaders });
 
-let uiProfileEndpointMissingUntilMs = 0;
+const UI_PROFILE_BACKOFF_KEY = 'neanelu.uiProfileEndpointMissingUntilMs';
+
+function readUiProfileBackoffUntilMs(): number {
+  if (typeof window === 'undefined') return 0;
+  try {
+    const raw = window.sessionStorage.getItem(UI_PROFILE_BACKOFF_KEY);
+    const parsed = raw ? Number.parseInt(raw, 10) : 0;
+    return Number.isFinite(parsed) ? parsed : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeUiProfileBackoffUntilMs(value: number): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (value > 0) window.sessionStorage.setItem(UI_PROFILE_BACKOFF_KEY, String(value));
+    else window.sessionStorage.removeItem(UI_PROFILE_BACKOFF_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+let uiProfileEndpointMissingUntilMs = readUiProfileBackoffUntilMs();
+
+function setUiProfileBackoffMs(durationMs: number): void {
+  const until = Date.now() + durationMs;
+  uiProfileEndpointMissingUntilMs = until;
+  writeUiProfileBackoffUntilMs(until);
+}
+
+function clearUiProfileBackoff(): void {
+  uiProfileEndpointMissingUntilMs = 0;
+  writeUiProfileBackoffUntilMs(0);
+}
 
 export function useUiProfile() {
   const [profile, setProfile] = useState<UiProfile>({
@@ -33,6 +67,7 @@ export function useUiProfile() {
     setError(null);
     try {
       const data = await api.getApi<UiProfile>('/ui-profile');
+      if (uiProfileEndpointMissingUntilMs > 0) clearUiProfileBackoff();
       setProfile({
         activeShopDomain: data.activeShopDomain ?? null,
         lastShopDomain: data.lastShopDomain ?? null,
@@ -45,7 +80,7 @@ export function useUiProfile() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
         // Backend route not deployed on this environment; stop hammering it.
-        uiProfileEndpointMissingUntilMs = Date.now() + 5 * 60_000;
+        setUiProfileBackoffMs(5 * 60_000);
       }
       // Profile persistence is a UX enhancement; failures should not crash the app.
       setError(err);
@@ -70,6 +105,7 @@ export function useUiProfile() {
 
     try {
       const data = await api.postApi<UiProfile, Record<string, unknown>>('/ui-profile', payload);
+      if (uiProfileEndpointMissingUntilMs > 0) clearUiProfileBackoff();
       setProfile({
         activeShopDomain: data.activeShopDomain ?? null,
         lastShopDomain: data.lastShopDomain ?? null,
@@ -81,7 +117,7 @@ export function useUiProfile() {
       });
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
-        uiProfileEndpointMissingUntilMs = Date.now() + 5 * 60_000;
+        setUiProfileBackoffMs(5 * 60_000);
       }
       setError(err);
     }
