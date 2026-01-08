@@ -1,4 +1,4 @@
-import { checkDatabaseConnection } from '@app/database';
+import { checkDatabaseConnection, pool } from '@app/database';
 import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
@@ -298,9 +298,10 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     }
 
     const token = createSessionToken(session, sessionConfig.secret);
+    const expiresAt = new Date(session.createdAt + sessionConfig.maxAge * 1000).toISOString();
     void reply.status(200).send({
       success: true,
-      data: { token },
+      data: { token, expiresAt },
       meta: {
         request_id: request.id,
         timestamp: new Date().toISOString(),
@@ -312,6 +313,221 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   server.get('/api/session/token', sessionTokenHandler);
   // Compatibility alias (for proxies that strip /api)
   server.get('/session/token', sessionTokenHandler);
+
+  // DB-backed UI profile (preferences only, no secrets).
+  // Used for multi-shop UX in non-embedded mode (e.g., remembering last shop domain).
+  const uiProfileCookie = 'neanelu_ui_profile';
+
+  function getOrCreateUiProfileId(request: FastifyRequest, reply: FastifyReply): string {
+    const existing = request.cookies[uiProfileCookie];
+    if (typeof existing === 'string' && existing.length > 0) return existing;
+
+    const id = randomUUID();
+    // Use secure cookies only when served over HTTPS.
+    const secure = env.appHost.protocol === 'https:';
+    void reply.cookie(uiProfileCookie, id, {
+      httpOnly: true,
+      secure,
+      sameSite: 'lax',
+      path: '/',
+    });
+    return id;
+  }
+
+  function normalizeShopDomain(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  function uniqDomainsPreserveOrder(domains: string[], max = 10): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const domain of domains) {
+      const normalized = domain.trim();
+      if (!normalized) continue;
+      const key = normalized.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(normalized);
+      if (out.length >= max) break;
+    }
+    return out;
+  }
+
+  const getUiProfileHandler = async (request: FastifyRequest, reply: FastifyReply) => {
+    const id = getOrCreateUiProfileId(request, reply);
+
+    try {
+      let row: {
+        active_shop_domain: string | null;
+        last_shop_domain: string | null;
+        recent_shop_domains?: string[] | null;
+      } | null = null;
+
+      try {
+        const result = await pool.query<{
+          active_shop_domain: string | null;
+          last_shop_domain: string | null;
+          recent_shop_domains: string[] | null;
+        }>(
+          `SELECT active_shop_domain, last_shop_domain, recent_shop_domains
+           FROM ui_user_profiles
+           WHERE id = $1::uuid`,
+          [id]
+        );
+        row = result.rows[0] ?? null;
+      } catch (err) {
+        const code = (err as { code?: string } | null)?.code;
+        // Backward compatibility: DB may not have been migrated to include recent_shop_domains yet.
+        if (code === '42703') {
+          const result = await pool.query<{
+            active_shop_domain: string | null;
+            last_shop_domain: string | null;
+          }>(
+            `SELECT active_shop_domain, last_shop_domain
+             FROM ui_user_profiles
+             WHERE id = $1::uuid`,
+            [id]
+          );
+          row = result.rows[0] ?? null;
+        } else {
+          throw err;
+        }
+      }
+
+      if (!row) {
+        await pool.query(
+          `INSERT INTO ui_user_profiles (id)
+           VALUES ($1::uuid)
+           ON CONFLICT (id) DO NOTHING`,
+          [id]
+        );
+      }
+
+      void reply.status(200).send({
+        success: true,
+        data: {
+          activeShopDomain: row?.active_shop_domain ?? null,
+          lastShopDomain: row?.last_shop_domain ?? null,
+          recentShopDomains: row?.recent_shop_domains ?? [],
+        },
+        meta: {
+          request_id: request.id,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    } catch (err) {
+      logger.error({ err }, 'ui_profile_fetch_failed');
+      void reply.status(500).send({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Failed to load UI profile',
+        },
+        meta: {
+          request_id: request.id,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    }
+  };
+
+  const postUiProfileHandler = async (request: FastifyRequest, reply: FastifyReply) => {
+    const id = getOrCreateUiProfileId(request, reply);
+
+    const body = (request.body ?? {}) as {
+      activeShopDomain?: unknown;
+      lastShopDomain?: unknown;
+    };
+
+    const activeShopDomain = normalizeShopDomain(body.activeShopDomain);
+    const lastShopDomain = normalizeShopDomain(body.lastShopDomain);
+
+    const newDomains = [activeShopDomain, lastShopDomain].filter((v): v is string => Boolean(v));
+
+    try {
+      let existingDomains: string[] = [];
+      try {
+        const existing = await pool.query<{ recent_shop_domains: string[] | null }>(
+          `SELECT recent_shop_domains
+           FROM ui_user_profiles
+           WHERE id = $1::uuid`,
+          [id]
+        );
+        existingDomains = existing.rows[0]?.recent_shop_domains ?? [];
+      } catch (err) {
+        const code = (err as { code?: string } | null)?.code;
+        if (code !== '42703') throw err;
+      }
+
+      const recentShopDomains = uniqDomainsPreserveOrder([...newDomains, ...existingDomains], 10);
+
+      try {
+        await pool.query(
+          `INSERT INTO ui_user_profiles (id, active_shop_domain, last_shop_domain, recent_shop_domains)
+           VALUES ($1::uuid, $2, $3, $4::text[])
+           ON CONFLICT (id)
+           DO UPDATE SET
+             active_shop_domain = COALESCE(EXCLUDED.active_shop_domain, ui_user_profiles.active_shop_domain),
+             last_shop_domain = COALESCE(EXCLUDED.last_shop_domain, ui_user_profiles.last_shop_domain),
+             recent_shop_domains = $4::text[],
+             updated_at = now()`,
+          [id, activeShopDomain, lastShopDomain, recentShopDomains]
+        );
+      } catch (err) {
+        const code = (err as { code?: string } | null)?.code;
+        // Backward compatibility: DB may not have recent_shop_domains column yet.
+        if (code === '42703') {
+          await pool.query(
+            `INSERT INTO ui_user_profiles (id, active_shop_domain, last_shop_domain)
+             VALUES ($1::uuid, $2, $3)
+             ON CONFLICT (id)
+             DO UPDATE SET
+               active_shop_domain = COALESCE(EXCLUDED.active_shop_domain, ui_user_profiles.active_shop_domain),
+               last_shop_domain = COALESCE(EXCLUDED.last_shop_domain, ui_user_profiles.last_shop_domain),
+               updated_at = now()`,
+            [id, activeShopDomain, lastShopDomain]
+          );
+        } else {
+          throw err;
+        }
+      }
+
+      void reply.status(200).send({
+        success: true,
+        data: {
+          activeShopDomain,
+          lastShopDomain,
+          recentShopDomains,
+        },
+        meta: {
+          request_id: request.id,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    } catch (err) {
+      logger.error({ err }, 'ui_profile_update_failed');
+      void reply.status(500).send({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Failed to update UI profile',
+        },
+        meta: {
+          request_id: request.id,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    }
+  };
+
+  // Primary path (expected by frontend)
+  server.get('/api/ui-profile', getUiProfileHandler);
+  server.post('/api/ui-profile', postUiProfileHandler);
+  // Compatibility alias (for proxies that strip /api)
+  server.get('/ui-profile', getUiProfileHandler);
+  server.post('/ui-profile', postUiProfileHandler);
 
   // Best-effort UI error reporting endpoint (used by the web-admin in production).
   // Keep it lightweight: accept JSON, log, and return 204.

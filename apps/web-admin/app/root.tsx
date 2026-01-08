@@ -10,6 +10,7 @@ import { OfflinePage, RouteErrorPage } from './components/errors/error-pages';
 import { useOnlineStatus } from './hooks/use-online-status';
 import {
   MissingHostPage,
+  SessionTokenUx,
   ShopifyAppBridgeProvider,
   ShopifyLink,
   useShopifyAppBridge,
@@ -109,6 +110,7 @@ export default function Root() {
     <div className="min-h-screen">
       <Toaster richColors />
       <ShopifyAppBridgeProvider>
+        <SessionTokenUx />
         <AppShell>
           <div className="mb-4 hidden">
             <GlobalSpinner />
