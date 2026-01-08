@@ -64,7 +64,17 @@ function useRouteTitle(): string {
 }
 
 function EmbeddedGate({ children }: { children: ReactNode }) {
+  const matches = useMatches();
   const { missingHost, apiKey, shop } = useShopifyAppBridge();
+
+  const skipEmbeddedGate = [...matches].some(
+    (match) =>
+      (match.handle as { skipEmbeddedGate?: unknown } | undefined)?.skipEmbeddedGate === true
+  );
+
+  if (skipEmbeddedGate) {
+    return children;
+  }
 
   if (missingHost) {
     return <MissingHostPage {...(apiKey ? { apiKey } : {})} shop={shop} />;
