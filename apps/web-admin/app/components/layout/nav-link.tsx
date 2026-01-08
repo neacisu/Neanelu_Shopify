@@ -1,5 +1,7 @@
 import type { ComponentType, PropsWithChildren } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
+
+import { ShopifyLink } from '../../shopify';
 
 type IconType = ComponentType<{ className?: string }>;
 
@@ -22,7 +24,7 @@ export function NavLink({ to, icon: Icon, badge, children }: NavLinkProps) {
   const isActive = current === target || (target !== '/' && current.startsWith(target + '/'));
 
   return (
-    <Link
+    <ShopifyLink
       to={to}
       className={
         'group flex items-center justify-between gap-3 rounded-md px-3 py-2 text-body outline-none transition ' +
@@ -43,6 +45,6 @@ export function NavLink({ to, icon: Icon, badge, children }: NavLinkProps) {
           {badge}
         </span>
       ) : null}
-    </Link>
+    </ShopifyLink>
   );
 }

@@ -1,6 +1,50 @@
 import '@testing-library/jest-dom/vitest';
 
+import type { ReactNode } from 'react';
+import { cloneElement, createElement, isValidElement } from 'react';
 import { vi } from 'vitest';
+
+import type * as Recharts from 'recharts';
+
+// Recharts ResponsiveContainer relies on real layout measurement.
+// In JSDOM, it can compute -1 sizes and spam stderr.
+vi.mock('recharts', async () => {
+  const actual = await vi.importActual<typeof Recharts>('recharts');
+
+  const width = 800;
+  const height = 400;
+
+  interface SizedChildProps {
+    width?: number;
+    height?: number;
+  }
+
+  function withDimensions(node: ReactNode): ReactNode {
+    if (isValidElement<SizedChildProps>(node)) {
+      return cloneElement<SizedChildProps>(node, { width, height });
+    }
+    return node;
+  }
+
+  return {
+    ...actual,
+    ResponsiveContainer: ({
+      children,
+    }: {
+      children?: ReactNode | ((dimensions: { width: number; height: number }) => ReactNode);
+    }) => {
+      if (typeof children === 'function') {
+        return children({ width, height });
+      }
+
+      if (Array.isArray(children)) {
+        return createElement('div', { style: { width, height } }, children.map(withDimensions));
+      }
+
+      return createElement('div', { style: { width, height } }, withDimensions(children));
+    },
+  };
+});
 
 // JSDOM doesn't implement <dialog> APIs fully.
 // Our UI uses showModal()/close() in JobDetailModal.

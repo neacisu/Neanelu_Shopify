@@ -1,5 +1,7 @@
 import type { ApiSuccessResponse } from '@app/types';
 
+import { getAppBridgeApp } from '../shopify/app-bridge-singleton';
+
 let cachedToken: string | null = null;
 let cachedTokenExpiresAtMs = 0;
 let inflight: Promise<string | null> | null = null;
@@ -41,19 +43,28 @@ function getShopifyHostFromUrl(): string | null {
 
 async function fetchShopifyAppBridgeSessionToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null;
-  const host = getShopifyHostFromUrl();
   const apiKey = import.meta.env['VITE_SHOPIFY_API_KEY'] as string | undefined;
 
-  // If not embedded (no host) or missing API key, skip App Bridge.
-  if (!host || !apiKey) return null;
+  // If missing API key, skip App Bridge.
+  if (!apiKey) return null;
 
   try {
     const [{ default: createApp }, { getSessionToken }] = await Promise.all([
       import('@shopify/app-bridge'),
-      import('@shopify/app-bridge-utils'),
+      import('@shopify/app-bridge/utilities/session-token'),
     ]);
 
-    const app = createApp({ apiKey, host, forceRedirect: true });
+    const existingApp = getAppBridgeApp();
+    const app =
+      existingApp ??
+      (() => {
+        const host = getShopifyHostFromUrl();
+        if (!host) return null;
+        return createApp({ apiKey, host, forceRedirect: true });
+      })();
+
+    if (!app) return null;
+
     const token = await getSessionToken(app);
     return typeof token === 'string' && token.length > 0 ? token : null;
   } catch {
