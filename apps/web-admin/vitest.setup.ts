@@ -1,10 +1,18 @@
 import '@testing-library/jest-dom/vitest';
 
+import { cleanup } from '@testing-library/react';
+
 import type { ReactNode } from 'react';
 import { cloneElement, createElement, isValidElement } from 'react';
-import { vi } from 'vitest';
+import { afterEach, vi } from 'vitest';
 
 import type * as Recharts from 'recharts';
+
+// Note: Vitest is configured with `globals: false`, so Testing Library cannot register
+// its auto-cleanup via a global `afterEach`. Ensure we always unmount between tests.
+afterEach(() => {
+  cleanup();
+});
 
 // Recharts ResponsiveContainer relies on real layout measurement.
 // In JSDOM, it can compute -1 sizes and spam stderr.

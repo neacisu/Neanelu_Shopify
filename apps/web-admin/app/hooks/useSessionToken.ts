@@ -70,6 +70,7 @@ export function useSessionToken(options: UseSessionTokenOptions) {
   }, [canUseAppBridge, isEmbedded, isVitest, shopDomain]);
 
   useEffect(() => {
+    if (isVitest) return;
     if (typeof window === 'undefined') return;
 
     const interval = window.setInterval(() => {
@@ -122,7 +123,7 @@ export function useSessionToken(options: UseSessionTokenOptions) {
     }, 15_000);
 
     return () => window.clearInterval(interval);
-  }, [buildAuthUrl, expiredOpen, shopDomain]);
+  }, [buildAuthUrl, expiredOpen, isVitest, shopDomain]);
 
   return {
     expiredOpen,
