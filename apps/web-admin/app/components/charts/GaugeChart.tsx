@@ -1,121 +1,185 @@
 import { useMemo } from 'react';
-import { RadialBarChart, RadialBar, PolarAngleAxis } from 'recharts';
+
+export type GaugeThreshold = Readonly<{ value: number; color: string }>;
 
 export type GaugeChartProps = Readonly<{
-  /** Current value to display */
   value: number;
-  /** Maximum value (100% fill). Can be a fixed number or dynamically calculated. */
+  min?: number;
   max: number;
-  /** Size of the gauge in pixels (width & height) */
+  thresholds?: readonly GaugeThreshold[];
   size?: number;
-  /** Label shown below the value */
+  showValue?: boolean;
   label?: string;
-  /** Color of the filled portion. Defaults to Polaris primary. */
-  fillColor?: string;
-  /** Color of the background track. Defaults to light gray. */
-  trackColor?: string;
-  /** Format function for displaying the value */
   formatValue?: (value: number) => string;
-  /** Optional className for the container */
   className?: string;
+  /** Back-compat: overrides progress color if thresholds are not provided. */
+  fillColor?: string;
+  /** Back-compat: track / zone background. */
+  trackColor?: string;
 }>;
 
-const DEFAULT_SIZE = 80;
-const DEFAULT_FILL_COLOR = '#008060'; // Polaris primary green
-const DEFAULT_TRACK_COLOR = '#e4e5e7'; // Polaris subdued
+const DEFAULT_SIZE = 84;
+const DEFAULT_TRACK_COLOR = '#e4e5e7';
+const DEFAULT_FILL_COLOR = '#008060';
 
-/**
- * Circular gauge chart component using Recharts RadialBarChart.
- * Full 360° circle visualization for metrics like memory, CPU usage.
- *
- * @example
- * ```tsx
- * <GaugeChart
- *   value={heapUsed}
- *   max={heapTotal} // Dynamic max from process.memoryUsage()
- *   label="Heap"
- *   formatValue={formatBytes}
- * />
- * ```
- */
+function clamp(n: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, n));
+}
+
+function polarToCartesian(cx: number, cy: number, r: number, angleDeg: number) {
+  const rad = ((angleDeg - 90) * Math.PI) / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+
+function describeArc(cx: number, cy: number, r: number, startAngle: number, endAngle: number) {
+  const start = polarToCartesian(cx, cy, r, endAngle);
+  const end = polarToCartesian(cx, cy, r, startAngle);
+  const largeArcFlag = endAngle - startAngle <= 180 ? '0' : '1';
+  return `M ${start.x} ${start.y} A ${r} ${r} 0 ${largeArcFlag} 0 ${end.x} ${end.y}`;
+}
+
+function resolveColor(
+  value: number,
+  thresholds: readonly GaugeThreshold[] | undefined,
+  fallback: string
+): string {
+  if (!thresholds?.length) return fallback;
+  const sorted = thresholds.slice().sort((a, b) => a.value - b.value);
+  let color = sorted[0]?.color ?? fallback;
+  for (const t of sorted) {
+    if (value >= t.value) color = t.color;
+  }
+  return color;
+}
+
 export function GaugeChart({
   value,
+  min = 0,
   max,
+  thresholds,
   size = DEFAULT_SIZE,
+  showValue = true,
   label,
-  fillColor = DEFAULT_FILL_COLOR,
-  trackColor = DEFAULT_TRACK_COLOR,
   formatValue,
   className,
+  fillColor = DEFAULT_FILL_COLOR,
+  trackColor = DEFAULT_TRACK_COLOR,
 }: GaugeChartProps) {
-  // Clamp percentage between 0-100
-  const percentage = useMemo(() => {
-    if (!Number.isFinite(value) || !Number.isFinite(max) || max <= 0) return 0;
-    return Math.min(100, Math.max(0, (value / max) * 100));
-  }, [value, max]);
-
-  const data = useMemo(
-    () => [
-      {
-        name: label ?? 'value',
-        value: percentage,
-        fill: fillColor,
-      },
-    ],
-    [percentage, label, fillColor]
-  );
+  const safeMax = Number.isFinite(max) && max > min ? max : min + 1;
+  const safeValue = Number.isFinite(value) ? value : min;
+  const pct = clamp((safeValue - min) / (safeMax - min), 0, 1);
 
   const displayValue = useMemo(() => {
-    if (formatValue) return formatValue(value);
-    if (!Number.isFinite(value)) return '—';
-    return String(Math.round(value));
-  }, [value, formatValue]);
+    if (!showValue) return '';
+    if (formatValue) return formatValue(safeValue);
+    return Number.isFinite(safeValue) ? String(Math.round(safeValue)) : '—';
+  }, [formatValue, safeValue, showValue]);
 
-  // Determine color based on usage threshold
-  const dynamicFillColor = useMemo(() => {
-    if (percentage >= 90) return '#d72c0d'; // Polaris critical
-    if (percentage >= 75) return '#ffc453'; // Polaris warning
-    return fillColor;
-  }, [percentage, fillColor]);
+  // Semi-circle gauge: angles from -180 (left) to 0 (right)
+  const startAngle = -180;
+  const endAngle = 0;
+  const needleAngle = startAngle + pct * (endAngle - startAngle);
+
+  const strokeWidth = Math.max(6, Math.floor(size / 14));
+  const r = (size - strokeWidth) / 2;
+  const cx = size / 2;
+  const cy = size / 2;
+
+  const progressColor = resolveColor(safeValue, thresholds, fillColor);
+
+  const zoneSegments = useMemo(() => {
+    const segs: { from: number; to: number; color: string }[] = [];
+    const sorted = (
+      thresholds?.length
+        ? thresholds
+        : [
+            { value: min + 0.75 * (safeMax - min), color: '#ffc453' },
+            { value: min + 0.9 * (safeMax - min), color: '#d72c0d' },
+          ]
+    )
+      .slice()
+      .sort((a, b) => a.value - b.value);
+
+    let prev = min;
+    let prevColor = trackColor;
+    for (const t of sorted) {
+      const v = clamp(t.value, min, safeMax);
+      if (v > prev) {
+        segs.push({ from: prev, to: v, color: prevColor });
+      }
+      prev = v;
+      prevColor = t.color;
+    }
+    if (prev < safeMax) segs.push({ from: prev, to: safeMax, color: prevColor });
+    return segs;
+  }, [thresholds, min, safeMax, trackColor]);
+
+  const toAngle = (v: number) => startAngle + clamp((v - min) / (safeMax - min), 0, 1) * 180;
+
+  const progressArc = describeArc(cx, cy, r, startAngle, startAngle + pct * 180);
 
   return (
     <div className={className} style={{ width: size, height: size, position: 'relative' }}>
-      <RadialBarChart
-        width={size}
-        height={size}
-        cx="50%"
-        cy="50%"
-        innerRadius="70%"
-        outerRadius="100%"
-        barSize={8}
-        data={data}
-        startAngle={90}
-        endAngle={-270} // Full 360° circle
-      >
-        {/* Background track */}
-        <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
-        <RadialBar
-          background={{ fill: trackColor }}
-          dataKey="value"
-          cornerRadius={4}
-          fill={dynamicFillColor}
-        />
-      </RadialBarChart>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        {/* zones */}
+        {zoneSegments.map((seg, idx) => (
+          <path
+            key={`zone-${idx}`}
+            d={describeArc(cx, cy, r, toAngle(seg.from), toAngle(seg.to))}
+            stroke={seg.color}
+            strokeWidth={strokeWidth}
+            fill="none"
+            strokeLinecap="round"
+            opacity={0.35}
+          />
+        ))}
 
-      {/* Center text overlay */}
-      <div
-        style={{
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          textAlign: 'center',
-          lineHeight: 1.2,
-        }}
-      >
-        <div className="text-xs font-mono font-medium">{displayValue}</div>
-        {label && <div className="text-[10px] text-muted">{label}</div>}
-      </div>
+        {/* progress */}
+        <path
+          d={progressArc}
+          stroke={progressColor}
+          strokeWidth={strokeWidth}
+          fill="none"
+          strokeLinecap="round"
+        />
+
+        {/* needle */}
+        <g
+          style={{
+            transformOrigin: `${cx}px ${cy}px`,
+            transform: `rotate(${needleAngle}deg)`,
+            transition: 'transform 500ms ease',
+          }}
+        >
+          <line
+            x1={cx}
+            y1={cy}
+            x2={cx}
+            y2={cy - r + strokeWidth}
+            stroke="currentColor"
+            strokeWidth={2}
+            opacity={0.65}
+          />
+        </g>
+        <circle cx={cx} cy={cy} r={3} fill="currentColor" opacity={0.65} />
+      </svg>
+
+      {showValue || label ? (
+        <div
+          style={{
+            position: 'absolute',
+            top: '56%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            textAlign: 'center',
+            lineHeight: 1.2,
+            width: '100%',
+          }}
+        >
+          {showValue ? <div className="text-xs font-mono font-medium">{displayValue}</div> : null}
+          {label ? <div className="text-[10px] text-muted">{label}</div> : null}
+        </div>
+      ) : null}
     </div>
   );
 }

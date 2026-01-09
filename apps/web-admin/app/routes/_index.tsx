@@ -9,6 +9,9 @@ import { Button } from '../components/ui/button';
 import { SafeComponent } from '../components/errors/safe-component';
 import { ErrorState, LoadingState } from '../components/patterns';
 import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
+import { ActivityTimeline } from './dashboard/components/ActivityTimeline';
+import { QuickActionsPanel } from './dashboard/components/QuickActionsPanel';
+import { SystemAlertsBanner } from './dashboard/components/SystemAlertsBanner';
 
 interface HealthReadyResponse {
   status: 'ready' | 'not_ready' | (string & {});
@@ -80,6 +83,8 @@ export default function DashboardIndex() {
       </header>
 
       <SafeComponent>
+        <SystemAlertsBanner />
+
         <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           {kpis
             .filter((kpi) => kpi.title !== 'System Health')
@@ -143,6 +148,11 @@ export default function DashboardIndex() {
               </div>
             </div>
           </PolarisCard>
+        </section>
+
+        <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <ActivityTimeline />
+          <QuickActionsPanel />
         </section>
       </SafeComponent>
     </div>

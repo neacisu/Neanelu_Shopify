@@ -34,7 +34,10 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     // So default state is mostly monochrome.
 
     const variants: Record<ButtonVariant, string> = {
-      primary: 'bg-primary text-white hover:bg-primary/90 shadow-sm border border-transparent', // Keep primary distinctive
+      // Use Tailwind core colors here (not theme tokens like bg-primary) so the class always exists
+      // in production builds. This avoids "invisible" buttons if a token isn't configured.
+      primary:
+        'bg-black text-white hover:bg-gray-900 shadow-sm border border-transparent dark:bg-white dark:text-black dark:hover:bg-gray-100',
       secondary:
         'bg-white text-black border border-gray-200 shadow-sm hover:bg-gray-100 dark:bg-black dark:text-white dark:border-gray-800 dark:hover:bg-gray-800', // Standard "White/Black"
       positive:
@@ -44,7 +47,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       neutral:
         'bg-white text-black border border-gray-200 shadow-sm hover:bg-amber-400 hover:text-black hover:border-amber-500', // "Nuante portocalii/galben" on hover
       ghost: 'hover:bg-gray-100 hover:text-gray-900 border-transparent',
-      link: 'text-primary underline-offset-4 hover:underline',
+      link: 'text-black underline-offset-4 hover:underline dark:text-white',
     };
 
     const sizes: Record<ButtonSize, string> = {
