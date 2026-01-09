@@ -4,7 +4,8 @@ import type { ComponentType } from 'react';
 import type { LoaderFunctionArgs } from 'react-router-dom';
 import { useLoaderData, useRevalidator } from 'react-router-dom';
 
-import { PolarisButton, PolarisCard } from '../../components/polaris/index.js';
+import { PolarisCard } from '../../components/polaris/index.js';
+import { Button } from '../components/ui/button';
 import { SafeComponent } from '../components/errors/safe-component';
 import { ErrorState, LoadingState } from '../components/patterns';
 import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
@@ -70,12 +71,12 @@ export default function DashboardIndex() {
           <p className="mt-1 text-body text-muted">System Overview & Health Status</p>
         </div>
 
-        <PolarisButton onClick={() => void revalidator.revalidate()}>
+        <Button variant="secondary" onClick={() => void revalidator.revalidate()}>
           <span className="inline-flex items-center gap-2">
             <RefreshCw className="size-4" />
             Refresh Data
           </span>
-        </PolarisButton>
+        </Button>
       </header>
 
       <SafeComponent>

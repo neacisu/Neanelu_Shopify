@@ -1,13 +1,11 @@
 export { PolarisBadge } from './badge';
 export { PolarisBanner } from './banner';
-export { PolarisButton } from './button';
 export { PolarisCard } from './card';
 export { PolarisDataTable } from './data-table';
 export { PolarisModal } from './modal';
 export { PolarisProgressBar } from './progress-bar';
 export { PolarisSelect } from './select';
 export { PolarisSkeleton } from './skeleton';
-export { PolarisTabs } from './tabs';
 export { PolarisTextField } from './text-field';
 export { PolarisToast } from './toast';
 export { PolarisTooltip } from './tooltip';

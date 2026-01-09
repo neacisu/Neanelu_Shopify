@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 
-import { PolarisButton } from '../../components/polaris/index.js';
+import { Button } from './ui/button';
 
 export function SessionExpiredModal(props: {
   open: boolean;
@@ -57,9 +57,9 @@ export function SessionExpiredModal(props: {
         <div>
           <div className="text-h3">{title}</div>
         </div>
-        <PolarisButton variant="secondary" onClick={onClose}>
+        <Button variant="secondary" onClick={onClose}>
           Close
-        </PolarisButton>
+        </Button>
       </div>
 
       <div className="p-4">
@@ -68,12 +68,12 @@ export function SessionExpiredModal(props: {
 
       <div className="border-t p-4">
         <div className="flex items-center justify-end gap-2">
-          <PolarisButton variant="secondary" onClick={onRefresh}>
+          <Button variant="secondary" onClick={onRefresh}>
             Refresh
-          </PolarisButton>
-          <PolarisButton variant="critical" disabled={!shopDomain} onClick={onReauth}>
+          </Button>
+          <Button variant="destructive" disabled={!shopDomain} onClick={onReauth}>
             Re-auth
-          </PolarisButton>
+          </Button>
         </div>
       </div>
     </dialog>

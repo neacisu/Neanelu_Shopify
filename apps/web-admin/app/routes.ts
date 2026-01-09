@@ -5,7 +5,7 @@ import DashboardIndex, { loader as dashboardLoader } from './routes/_index';
 import AuthCallbackPage from './routes/auth.callback';
 import IngestionPage from './routes/ingestion';
 import QueuesPage, { action as queuesAction, loader as queuesLoader } from './routes/queues';
-import Root, { ErrorBoundary } from './root';
+import Root, { ErrorBoundary, HydrateFallback } from './root';
 import SearchPage from './routes/search';
 import SettingsPage, { action as settingsAction } from './routes/settings';
 
@@ -15,6 +15,7 @@ export const routes: RouteObject[] = [
     path: '/',
     element: createElement(Root),
     errorElement: createElement(ErrorBoundary),
+    hydrateFallbackElement: createElement(HydrateFallback),
     children: [
       {
         id: 'auth-callback',

@@ -3,11 +3,11 @@ import { List, type RowComponentProps } from 'react-window';
 
 import {
   PolarisBadge,
-  PolarisButton,
   PolarisProgressBar,
   PolarisSelect,
   PolarisTextField,
 } from '../../../components/polaris/index.js';
+import { Button } from '../ui/button';
 
 export type QueueJobListItem = Readonly<{
   id: string;
@@ -313,23 +313,23 @@ export function JobsTable(props: {
           />
         </div>
         <div className="flex items-center gap-2">
-          <PolarisButton
+          <Button
             variant="secondary"
             disabled={page <= 0 || Boolean(loading)}
             onClick={() => onPageChange(Math.max(0, page - 1))}
           >
             Prev
-          </PolarisButton>
+          </Button>
           <div className="text-caption text-muted">
             Page {page + 1} / {pageCount}
           </div>
-          <PolarisButton
+          <Button
             variant="secondary"
             disabled={page + 1 >= pageCount || Boolean(loading)}
             onClick={() => onPageChange(Math.min(pageCount - 1, page + 1))}
           >
             Next
-          </PolarisButton>
+          </Button>
         </div>
       </div>
 
@@ -339,25 +339,25 @@ export function JobsTable(props: {
             Selected: <span className="font-mono">{selectedCount}</span>
           </div>
           <div className="flex items-center gap-2">
-            <PolarisButton
-              variant="secondary"
+            <Button
+              variant="neutral"
               disabled={Boolean(loading)}
               loading={Boolean(loading)}
               onClick={() => onAction('retry', Array.from(selected))}
             >
               Retry Selected
-            </PolarisButton>
-            <PolarisButton
-              variant="critical"
+            </Button>
+            <Button
+              variant="destructive"
               disabled={Boolean(loading)}
               loading={Boolean(loading)}
               onClick={() => onAction('delete', Array.from(selected))}
             >
               Delete Selected
-            </PolarisButton>
-            <PolarisButton variant="plain" onClick={clearSelection}>
+            </Button>
+            <Button variant="ghost" onClick={clearSelection}>
               Clear
-            </PolarisButton>
+            </Button>
           </div>
         </div>
       ) : null}

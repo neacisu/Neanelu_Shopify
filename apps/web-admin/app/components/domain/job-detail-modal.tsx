@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 
-import { PolarisButton, PolarisBadge } from '../../../components/polaris/index.js';
+import { PolarisBadge } from '../../../components/polaris/index.js';
+import { Button } from '@/app/components/ui/button';
 
 export type QueueJobDetail = Readonly<{
   id: string;
@@ -162,9 +163,9 @@ export function JobDetailModal(props: {
         </div>
         <div className="flex items-center gap-2">
           {job?.state ? <PolarisBadge tone="neutral">{job.state}</PolarisBadge> : null}
-          <PolarisButton variant="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose}>
             Close
-          </PolarisButton>
+          </Button>
         </div>
       </div>
 
@@ -217,9 +218,9 @@ export function JobDetailModal(props: {
                   {payload.truncated ? 'truncated · ' : ''}
                   {payloadHtml ? 'syntax highlighted' : 'plain'}
                 </div>
-                <PolarisButton variant="plain" onClick={() => void copyText(payload.text)}>
+                <Button variant="ghost" onClick={() => void copyText(payload.text)}>
                   Copy
-                </PolarisButton>
+                </Button>
               </div>
               <pre className="overflow-auto rounded-md border bg-muted/10 p-3 text-xs">
                 {payloadHtml ? <code dangerouslySetInnerHTML={payloadHtml} /> : payload.text}
@@ -232,9 +233,9 @@ export function JobDetailModal(props: {
                 <div className="text-caption text-muted">
                   {optsHtml ? 'syntax highlighted' : 'plain'}
                 </div>
-                <PolarisButton variant="plain" onClick={() => void copyText(opts.text)}>
+                <Button variant="ghost" onClick={() => void copyText(opts.text)}>
                   Copy
-                </PolarisButton>
+                </Button>
               </div>
               <pre className="overflow-auto rounded-md border bg-muted/10 p-3 text-xs">
                 {optsHtml ? <code dangerouslySetInnerHTML={optsHtml} /> : opts.text}
@@ -247,9 +248,9 @@ export function JobDetailModal(props: {
                 <div className="text-caption text-muted">
                   {resultHtml ? 'syntax highlighted' : 'plain'}
                 </div>
-                <PolarisButton variant="plain" onClick={() => void copyText(result.text)}>
+                <Button variant="ghost" onClick={() => void copyText(result.text)}>
                   Copy
-                </PolarisButton>
+                </Button>
               </div>
               <pre className="overflow-auto rounded-md border bg-muted/10 p-3 text-xs">
                 {resultHtml ? <code dangerouslySetInnerHTML={resultHtml} /> : result.text}
@@ -262,9 +263,9 @@ export function JobDetailModal(props: {
                 <div className="text-caption text-muted">
                   {stackHtml ? 'syntax highlighted' : 'plain'}
                 </div>
-                <PolarisButton variant="plain" onClick={() => void copyText(stack.text)}>
+                <Button variant="ghost" onClick={() => void copyText(stack.text)}>
                   Copy
-                </PolarisButton>
+                </Button>
               </div>
               <pre className="overflow-auto rounded-md border bg-muted/10 p-3 text-xs">
                 {stackHtml ? <code dangerouslySetInnerHTML={stackHtml} /> : stack.text}
@@ -281,9 +282,9 @@ export function JobDetailModal(props: {
 
       <div className="border-t p-4">
         <div className="flex items-center justify-end gap-2">
-          <PolarisButton variant="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose}>
             Close
-          </PolarisButton>
+          </Button>
         </div>
       </div>
     </dialog>

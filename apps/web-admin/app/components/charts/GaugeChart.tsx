@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { RadialBarChart, RadialBar, ResponsiveContainer, PolarAngleAxis } from 'recharts';
+import { RadialBarChart, RadialBar, PolarAngleAxis } from 'recharts';
 
 export type GaugeChartProps = Readonly<{
   /** Current value to display */
@@ -80,27 +80,27 @@ export function GaugeChart({
 
   return (
     <div className={className} style={{ width: size, height: size, position: 'relative' }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <RadialBarChart
-          cx="50%"
-          cy="50%"
-          innerRadius="70%"
-          outerRadius="100%"
-          barSize={8}
-          data={data}
-          startAngle={90}
-          endAngle={-270} // Full 360° circle
-        >
-          {/* Background track */}
-          <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
-          <RadialBar
-            background={{ fill: trackColor }}
-            dataKey="value"
-            cornerRadius={4}
-            fill={dynamicFillColor}
-          />
-        </RadialBarChart>
-      </ResponsiveContainer>
+      <RadialBarChart
+        width={size}
+        height={size}
+        cx="50%"
+        cy="50%"
+        innerRadius="70%"
+        outerRadius="100%"
+        barSize={8}
+        data={data}
+        startAngle={90}
+        endAngle={-270} // Full 360° circle
+      >
+        {/* Background track */}
+        <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
+        <RadialBar
+          background={{ fill: trackColor }}
+          dataKey="value"
+          cornerRadius={4}
+          fill={dynamicFillColor}
+        />
+      </RadialBarChart>
 
       {/* Center text overlay */}
       <div

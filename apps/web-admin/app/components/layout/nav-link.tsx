@@ -27,10 +27,10 @@ export function NavLink({ to, icon: Icon, badge, children }: NavLinkProps) {
     <ShopifyLink
       to={to}
       className={
-        'group flex items-center justify-between gap-3 rounded-md px-3 py-2 text-body outline-none transition ' +
+        'group flex items-center justify-between gap-3 rounded-md px-3 py-2 text-body outline-none transition-all duration-200 ease-in-out ' +
         (isActive
-          ? 'border-l-4 border-primary bg-primary/10 text-foreground'
-          : 'border-l-4 border-transparent text-foreground/80 hover:bg-muted/10 hover:text-foreground') +
+          ? 'border-l-4 border-primary bg-primary/10 text-foreground shadow-sm'
+          : 'border-l-4 border-transparent text-foreground/70 hover:bg-muted/15 hover:text-foreground hover:border-black/5 hover:translate-x-1') +
         ' focus-visible:ring-2 focus-visible:ring-primary/40'
       }
       aria-current={isActive ? 'page' : undefined}

@@ -1,8 +1,22 @@
 import { useEffect, useRef } from 'react';
 
-import { PolarisButton } from '../../../components/polaris/index.js';
+import { Button } from '../ui/button';
 
 export type ConfirmDialogTone = 'critical' | 'primary' | 'secondary';
+
+// Helper to map old tone to new variant
+function mapTone(tone: ConfirmDialogTone) {
+  switch (tone) {
+    case 'critical':
+      return 'destructive';
+    case 'primary':
+      return 'primary';
+    case 'secondary':
+      return 'secondary';
+    default:
+      return 'secondary';
+  }
+}
 
 export function ConfirmDialog(props: {
   open: boolean;
@@ -70,9 +84,9 @@ export function ConfirmDialog(props: {
         <div>
           <div className="text-h3">{title}</div>
         </div>
-        <PolarisButton variant="secondary" disabled={cancelDisabled ?? false} onClick={onCancel}>
-          {cancelLabel}
-        </PolarisButton>
+        <Button variant="ghost" disabled={cancelDisabled ?? false} onClick={onCancel}>
+          ✕
+        </Button>
       </div>
 
       <div className="p-4">
@@ -81,17 +95,17 @@ export function ConfirmDialog(props: {
 
       <div className="border-t p-4">
         <div className="flex items-center justify-end gap-2">
-          <PolarisButton variant="secondary" disabled={cancelDisabled ?? false} onClick={onCancel}>
+          <Button variant="secondary" disabled={cancelDisabled ?? false} onClick={onCancel}>
             {cancelLabel}
-          </PolarisButton>
-          <PolarisButton
-            variant={confirmTone}
+          </Button>
+          <Button
+            variant={mapTone(confirmTone)}
             disabled={confirmDisabled ?? false}
             loading={confirmLoading ?? false}
             onClick={onConfirm}
           >
             {confirmLabel}
-          </PolarisButton>
+          </Button>
         </div>
       </div>
     </dialog>

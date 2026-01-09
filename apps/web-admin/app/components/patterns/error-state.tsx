@@ -1,4 +1,5 @@
-import { PolarisBanner, PolarisButton } from '../../../components/polaris/index.js';
+import { PolarisBanner } from '../../../components/polaris/index.js';
+import { Button } from '../ui/button';
 
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
@@ -7,7 +8,9 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
         <div className="text-body text-foreground/90">{message}</div>
         {onRetry ? (
           <div>
-            <PolarisButton onClick={onRetry}>Retry</PolarisButton>
+            <Button variant="secondary" onClick={onRetry}>
+              Retry
+            </Button>
           </div>
         ) : null}
       </div>

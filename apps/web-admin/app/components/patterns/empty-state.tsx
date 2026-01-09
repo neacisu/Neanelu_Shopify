@@ -1,6 +1,7 @@
 import type { ComponentType, ReactNode } from 'react';
 
-import { PolarisButton, PolarisCard } from '../../../components/polaris/index.js';
+import { PolarisCard } from '../../../components/polaris/index.js';
+import { Button } from '../ui/button';
 
 export function EmptyState({
   icon: Icon,
@@ -27,7 +28,9 @@ export function EmptyState({
         {description ? <div className="mt-2 text-body text-muted">{description}</div> : null}
         {actionLabel && onAction ? (
           <div className="mt-4 flex justify-center">
-            <PolarisButton onClick={onAction}>{actionLabel}</PolarisButton>
+            <Button variant="secondary" onClick={onAction}>
+              {actionLabel}
+            </Button>
           </div>
         ) : null}
       </div>

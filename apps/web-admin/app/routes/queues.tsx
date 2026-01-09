@@ -14,12 +14,9 @@ import { toast } from 'sonner';
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { ErrorState } from '../components/patterns/error-state';
-import {
-  PolarisBadge,
-  PolarisButton,
-  PolarisCard,
-  PolarisSelect,
-} from '../../components/polaris/index.js';
+import { Button } from '../components/ui/button';
+import { Tabs } from '../components/ui/tabs';
+import { PolarisBadge, PolarisCard, PolarisSelect } from '../../components/polaris/index.js';
 import { useQueueStream } from '../hooks/use-queue-stream';
 import { ApiError } from '../utils/api-error';
 import {
@@ -611,49 +608,30 @@ export default function QueuesPage() {
         </div>
       </PolarisCard>
 
-      <div className="flex flex-wrap gap-2">
-        <PolarisButton
-          variant={tab === 'overview' ? 'primary' : 'secondary'}
-          onClick={() =>
+      <div className="flex flex-wrap items-center gap-4">
+        <Tabs
+          items={[
+            { label: 'Overview', value: 'overview' },
+            { label: 'Jobs', value: 'jobs' },
+            { label: 'Workers', value: 'workers' },
+          ]}
+          value={tab}
+          onValueChange={(v) =>
             updateSearchParams(navigate, location.search, (p) => {
-              p.set('tab', 'overview');
+              p.set('tab', v);
               p.delete('jobId');
             })
           }
-        >
-          Overview
-        </PolarisButton>
-        <PolarisButton
-          variant={tab === 'jobs' ? 'primary' : 'secondary'}
-          onClick={() =>
-            updateSearchParams(navigate, location.search, (p) => {
-              p.set('tab', 'jobs');
-              p.delete('jobId');
-            })
-          }
-        >
-          Jobs
-        </PolarisButton>
-        <PolarisButton
-          variant={tab === 'workers' ? 'primary' : 'secondary'}
-          onClick={() =>
-            updateSearchParams(navigate, location.search, (p) => {
-              p.set('tab', 'workers');
-              p.delete('jobId');
-            })
-          }
-        >
-          Workers
-        </PolarisButton>
+        />
 
-        <PolarisButton
+        <Button
           variant="secondary"
           onClick={() => {
             void revalidator.revalidate();
           }}
         >
           Refresh
-        </PolarisButton>
+        </Button>
       </div>
 
       {tab === 'overview' ? (
@@ -682,30 +660,30 @@ export default function QueuesPage() {
                 </div>
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-2">
-                <PolarisButton
-                  variant="secondary"
+                <Button
+                  variant="neutral"
                   disabled={queueMutating || isLoading}
                   loading={queueMutating}
                   onClick={() => submitQueueAction('queue.pause')}
                 >
                   Pause
-                </PolarisButton>
-                <PolarisButton
-                  variant="secondary"
+                </Button>
+                <Button
+                  variant="positive"
                   disabled={queueMutating || isLoading}
                   loading={queueMutating}
                   onClick={() => submitQueueAction('queue.resume')}
                 >
                   Resume
-                </PolarisButton>
-                <PolarisButton
-                  variant="critical"
+                </Button>
+                <Button
+                  variant="destructive"
                   disabled={queueMutating || isLoading}
                   loading={queueMutating}
                   onClick={() => submitQueueAction('queue.cleanFailed')}
                 >
                   Clean Failed
-                </PolarisButton>
+                </Button>
               </div>
             </PolarisCard>
             <PolarisCard className="p-4 lg:col-span-2">
@@ -845,14 +823,14 @@ export default function QueuesPage() {
             <div className="text-caption text-muted">
               {isLoading ? 'Loading…' : `${workers.length} workers`}
             </div>
-            <PolarisButton
+            <Button
               variant="secondary"
               onClick={() => {
                 void revalidator.revalidate();
               }}
             >
               Refresh
-            </PolarisButton>
+            </Button>
           </div>
           <WorkersGrid workers={workers} />
         </div>

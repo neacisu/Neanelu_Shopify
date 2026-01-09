@@ -84,6 +84,17 @@ function EmbeddedGate({ children }: { children: ReactNode }) {
   return children;
 }
 
+export function HydrateFallback() {
+  return (
+    <div className="flex min-h-screen items-center justify-center">
+      <div className="inline-flex items-center gap-2 text-muted">
+        <Loader2 className="size-6 animate-spin" />
+        <span className="text-body font-medium">Loading application...</span>
+      </div>
+    </div>
+  );
+}
+
 export default function Root() {
   const isOnline = useOnlineStatus();
   const title = useRouteTitle();
