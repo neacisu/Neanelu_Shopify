@@ -8,6 +8,8 @@ import './globals.css';
 import { AppShell } from './components/layout/app-shell';
 import { OfflinePage, RouteErrorPage } from './components/errors/error-pages';
 import { useOnlineStatus } from './hooks/use-online-status';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from './lib/query-client';
 import {
   MissingHostPage,
   SessionTokenUx,
@@ -119,16 +121,18 @@ export default function Root() {
 
   return (
     <div className="min-h-screen">
-      <Toaster richColors />
-      <ShopifyAppBridgeProvider>
-        <SessionTokenUx />
-        <AppShell>
-          <div className="mb-4 hidden">
-            <GlobalSpinner />
-          </div>
-          <EmbeddedGate>{isOnline ? <Outlet /> : <OfflinePage />}</EmbeddedGate>
-        </AppShell>
-      </ShopifyAppBridgeProvider>
+      <QueryClientProvider client={queryClient}>
+        <Toaster richColors />
+        <ShopifyAppBridgeProvider>
+          <SessionTokenUx />
+          <AppShell>
+            <div className="mb-4 hidden">
+              <GlobalSpinner />
+            </div>
+            <EmbeddedGate>{isOnline ? <Outlet /> : <OfflinePage />}</EmbeddedGate>
+          </AppShell>
+        </ShopifyAppBridgeProvider>
+      </QueryClientProvider>
     </div>
   );
 }
