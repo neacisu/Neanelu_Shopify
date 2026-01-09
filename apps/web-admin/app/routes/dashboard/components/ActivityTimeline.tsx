@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import type { DashboardActivityResponse } from '@app/types';
 import { useQuery } from '@tanstack/react-query';
@@ -59,29 +59,12 @@ export function ActivityTooltipContent({ active, payload }: ActivityTooltipProps
 }
 
 export function ActivityTimeline() {
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const [wrapperSize, setWrapperSize] = useState(() => ({ width: 0, height: 0 }));
+  const [isClientMounted, setIsClientMounted] = useState(false);
 
   useEffect(() => {
-    const el = wrapperRef.current;
-    if (!el) return;
-
-    const update = () => {
-      setWrapperSize({
-        width: el.clientWidth,
-        height: el.clientHeight,
-      });
-    };
-
-    update();
-
-    if (typeof ResizeObserver === 'undefined') {
-      return;
-    }
-
-    const ro = new ResizeObserver(() => update());
-    ro.observe(el);
-    return () => ro.disconnect();
+    // In embedded/hydrated layouts, Recharts can briefly measure 0x0 (reported as -1/-1).
+    // Defer chart mount to the first client paint to avoid false warnings.
+    setIsClientMounted(true);
   }, []);
 
   const query = useQuery({
@@ -119,8 +102,8 @@ export function ActivityTimeline() {
           onRetry={() => void query.refetch()}
         />
       ) : (
-        <div ref={wrapperRef} style={{ width: '100%', height: '100%' }}>
-          {wrapperSize.width > 0 && wrapperSize.height > 0 ? (
+        <div style={{ width: '100%', height: '100%' }}>
+          {isClientMounted ? (
             <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
               <RechartsLineChart data={data} margin={{ top: 8, right: 12, bottom: 8, left: 12 }}>
                 <ChartGrid strokeDasharray="3 3" vertical={false} className="opacity-30" />

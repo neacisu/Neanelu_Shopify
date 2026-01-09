@@ -42,7 +42,7 @@ describe('ActivityTimeline', () => {
 
     render(<ActivityTimeline />);
 
-    expect(useQueryMock).toHaveBeenCalledTimes(1);
+    expect(useQueryMock).toHaveBeenCalled();
     const options = useQueryMock.mock.calls[0]?.[0] as unknown as UseQueryOptions | undefined;
     expect(options?.staleTime).toBe(60_000);
     expect(options?.refetchInterval).toBe(60_000);
