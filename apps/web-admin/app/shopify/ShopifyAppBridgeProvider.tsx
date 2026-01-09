@@ -33,6 +33,14 @@ export function ShopifyAppBridgeProvider({ children }: PropsWithChildren) {
   const params = useMemo(() => readShopifyParams(location.search), [location.search]);
   const isEmbedded = useMemo(() => isProbablyEmbedded(params), [params]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    // Persist last known Shopify params to help recovery when navigation drops query params.
+    if (params.shop) window.localStorage.setItem('neanelu_last_shop', params.shop);
+    if (params.host) window.localStorage.setItem('neanelu_last_host', params.host);
+    if (params.embedded) window.localStorage.setItem('neanelu_last_embedded', params.embedded);
+  }, [params.embedded, params.host, params.shop]);
+
   const missingHost = Boolean(isEmbedded && !params.host);
 
   const app = useMemo<ReturnType<typeof createApp> | null>(() => {
