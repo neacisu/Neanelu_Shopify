@@ -38,6 +38,7 @@ import {
 } from '../../otel/metrics.js';
 import { handleAppUninstalled } from './handlers/app-uninstalled.handler.js';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
+import { incrementDashboardActivity } from '../../runtime/dashboard-activity.js';
 
 const env = loadEnv();
 
@@ -301,6 +302,9 @@ export function startWebhookWorker(logger: Logger): WebhookWorkerHandle {
               );
             }
           }
+
+          // Best-effort activity timeline counter.
+          await incrementDashboardActivity(redis, 'webhook', 1).catch(() => undefined);
         }
       });
     },

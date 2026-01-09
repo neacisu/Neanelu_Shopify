@@ -6,6 +6,7 @@ import { createLogger } from '@app/logger';
 import { buildServer } from './http/server.js';
 import { startWebhookWorker } from './processors/webhooks/worker.js';
 import { startTokenHealthWorker } from './processors/auth/token-health.worker.js';
+import { startSyncWorker } from './processors/sync/worker.js';
 import { scheduleTokenHealthJob, closeTokenHealthQueue } from './queue/token-health-queue.js';
 import { setTokenHealthWorkerHandle, setWebhookWorkerHandle } from './runtime/worker-registry.js';
 import { emitQueueStreamEvent } from './runtime/queue-stream.js';
@@ -24,6 +25,7 @@ const server = await buildServer({
 
 let webhookWorker: Awaited<ReturnType<typeof startWebhookWorker>> | null = null;
 let tokenHealthWorker: Awaited<ReturnType<typeof startTokenHealthWorker>> | null = null;
+let syncWorker: Awaited<ReturnType<typeof startSyncWorker>> | null = null;
 
 try {
   await server.listen({ port: env.port, host: '0.0.0.0' });
@@ -48,6 +50,14 @@ try {
   });
 
   await scheduleTokenHealthJob(logger);
+
+  syncWorker = startSyncWorker(logger);
+  logger.info({}, 'sync worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'sync-worker',
+    timestamp: new Date().toISOString(),
+  });
 } catch (error) {
   logger.fatal({ error }, 'server failed to start');
   process.exitCode = 1;
@@ -76,6 +86,17 @@ const shutdown = async (signal: string): Promise<void> => {
       emitQueueStreamEvent({
         type: 'worker.offline',
         workerId: 'token-health-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (syncWorker) {
+      await syncWorker.close();
+      syncWorker = null;
+      logger.info({ signal }, 'sync worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'sync-worker',
         timestamp: new Date().toISOString(),
       });
     }
