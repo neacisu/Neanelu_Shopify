@@ -41,16 +41,16 @@ export function QuickActionsPanel() {
                     '/dashboard/actions/start-sync',
                     {}
                   );
-                  toast.success(`Sync enqueued (${res.jobId})`);
+                  toast.success(`Webhook reconcile enqueued (${res.jobId})`);
                 } catch (err) {
-                  toast.error(err instanceof Error ? err.message : 'Failed to start sync');
+                  toast.error(err instanceof Error ? err.message : 'Failed to reconcile webhooks');
                 }
               })();
             }}
           >
             <span className="inline-flex items-center gap-2">
               <RefreshCw className="size-4" />
-              Start Sync
+              Reconcile Webhooks
             </span>
           </Button>
 

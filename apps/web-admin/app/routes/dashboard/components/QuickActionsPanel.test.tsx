@@ -31,11 +31,11 @@ describe('QuickActionsPanel', () => {
     vi.clearAllMocks();
   });
 
-  it('Start Sync calls backend and shows toast', async () => {
+  it('Reconcile Webhooks calls backend and shows toast', async () => {
     postApiMock.mockResolvedValueOnce({ jobId: 'job-1' });
 
     render(<QuickActionsPanel />);
-    fireEvent.click(screen.getByRole('button', { name: /Start Sync/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Reconcile Webhooks/i }));
 
     await waitFor(() => {
       expect(postApiMock).toHaveBeenCalledWith('/dashboard/actions/start-sync', {});
