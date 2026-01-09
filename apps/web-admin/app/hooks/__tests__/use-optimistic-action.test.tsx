@@ -49,4 +49,39 @@ describe('useOptimisticAction', () => {
 
     expect(result.current).toBe(5);
   });
+
+  it('rolls back to current value when fetcher returns to idle', () => {
+    // 1. Initial State (Idle)
+    let mockFetcher = {
+      state: 'idle',
+      formData: undefined,
+    } as unknown as ReturnType<typeof useFetcher>;
+
+    const { result, rerender } = renderHook(
+      ({ fetcher }) => useOptimisticAction('original', 'status', fetcher),
+      { initialProps: { fetcher: mockFetcher } }
+    );
+    expect(result.current).toBe('original');
+
+    // 2. Optimization (Submitting)
+    const formData = new FormData();
+    formData.append('status', 'optimistic');
+    mockFetcher = {
+      state: 'submitting',
+      formData: formData,
+    } as unknown as ReturnType<typeof useFetcher>;
+
+    rerender({ fetcher: mockFetcher });
+    expect(result.current).toBe('optimistic');
+
+    // 3. Rollback/Completion (Idle again)
+    // Even if server value didn't change (e.g. error), it should return passed currentValue
+    mockFetcher = {
+      state: 'idle',
+      formData: undefined, // formData is cleared on idle
+    } as unknown as ReturnType<typeof useFetcher>;
+
+    rerender({ fetcher: mockFetcher });
+    expect(result.current).toBe('original');
+  });
 });
