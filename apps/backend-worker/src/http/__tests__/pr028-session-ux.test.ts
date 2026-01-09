@@ -24,6 +24,10 @@ void mock.module('@app/queue-manager', {
       getJobCounts: () => Promise.resolve({ waiting: 0 }),
       close: () => Promise.resolve(),
     }),
+    createRedisConnection: () => ({
+      on: () => undefined,
+      quit: () => Promise.resolve(undefined),
+    }),
     WEBHOOK_QUEUE_NAME: 'webhooks',
   },
 });

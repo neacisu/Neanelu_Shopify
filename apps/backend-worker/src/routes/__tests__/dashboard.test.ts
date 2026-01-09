@@ -26,6 +26,7 @@ void mock.module(latencyPath, {
 });
 
 interface RedisStub {
+  on: (event: string, handler: (...args: unknown[]) => void) => void;
   ping: () => Promise<string>;
   hgetall: (key: string) => Promise<Record<string, string>>;
   set: (...args: unknown[]) => Promise<'OK' | null>;
@@ -51,6 +52,7 @@ function createRedisStub(): {
   };
 
   const redis: RedisStub = {
+    on: (_event: string, _handler: (...args: unknown[]) => void) => undefined,
     ping: () => {
       if (!state.pingOk) return Promise.reject(new Error('redis_down'));
       return Promise.resolve('PONG');

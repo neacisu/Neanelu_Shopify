@@ -1,6 +1,6 @@
 import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
-import { configFromEnv, createQueue } from '@app/queue-manager';
+import { configFromEnv, createQueue, createRedisConnection } from '@app/queue-manager';
 import type {
   DashboardActivityResponse,
   DashboardAlertsResponse,
@@ -9,7 +9,6 @@ import type {
   DashboardAlert,
 } from '@app/types';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
-import { Redis } from 'ioredis';
 import type { Redis as RedisClient } from 'ioredis';
 import type { SessionConfig } from '../auth/session.js';
 import { requireSession, getSessionFromRequest } from '../auth/session.js';
@@ -161,11 +160,21 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
 ): Promise<void> => {
   const { env, logger, sessionConfig } = opts;
 
-  const redis = new Redis(env.redisUrl, {
-    enableReadyCheck: true,
-    maxRetriesPerRequest: 1,
-    lazyConnect: false,
+  const redis = createRedisConnection({
+    redisUrl: env.redisUrl,
+    redisOptions: {
+      // Avoid eager connect during server startup (especially in tests/CI).
+      lazyConnect: true,
+      // Keep individual route calls from hanging when Redis is down.
+      maxRetriesPerRequest: 1,
+    },
   });
+
+  // Prevent noisy/"Unhandled error event" logs from ioredis when Redis is not reachable.
+  redis.on('error', (error: unknown) => {
+    logger.warn({ error }, 'Redis error (dashboard)');
+  });
+
   server.addHook('onClose', async () => {
     await redis.quit().catch(() => undefined);
   });
