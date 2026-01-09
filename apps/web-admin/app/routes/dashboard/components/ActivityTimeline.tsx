@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { DashboardActivityResponse } from '@app/types';
 import { useQuery } from '@tanstack/react-query';
@@ -59,6 +59,31 @@ export function ActivityTooltipContent({ active, payload }: ActivityTooltipProps
 }
 
 export function ActivityTimeline() {
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const [wrapperSize, setWrapperSize] = useState(() => ({ width: 0, height: 0 }));
+
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+
+    const update = () => {
+      setWrapperSize({
+        width: el.clientWidth,
+        height: el.clientHeight,
+      });
+    };
+
+    update();
+
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const ro = new ResizeObserver(() => update());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const query = useQuery({
     queryKey: ['dashboard', 'activity', 7],
     queryFn: () => api.getApi<DashboardActivityResponse>('/dashboard/activity?days=7'),
@@ -94,29 +119,33 @@ export function ActivityTimeline() {
           onRetry={() => void query.refetch()}
         />
       ) : (
-        <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-          <RechartsLineChart data={data} margin={{ top: 8, right: 12, bottom: 8, left: 12 }}>
-            <ChartGrid strokeDasharray="3 3" vertical={false} className="opacity-30" />
-            <XAxis dataKey="date" tickLine={false} axisLine={false} />
-            <YAxis tickLine={false} axisLine={false} width={40} />
+        <div ref={wrapperRef} style={{ width: '100%', height: '100%' }}>
+          {wrapperSize.width > 0 && wrapperSize.height > 0 ? (
+            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+              <RechartsLineChart data={data} margin={{ top: 8, right: 12, bottom: 8, left: 12 }}>
+                <ChartGrid strokeDasharray="3 3" vertical={false} className="opacity-30" />
+                <XAxis dataKey="date" tickLine={false} axisLine={false} />
+                <YAxis tickLine={false} axisLine={false} width={40} />
 
-            <ChartTooltip
-              content={(p) => (
-                <ActivityTooltipContent {...(p as unknown as ActivityTooltipProps)} />
-              )}
-            />
+                <ChartTooltip
+                  content={(p) => (
+                    <ActivityTooltipContent {...(p as unknown as ActivityTooltipProps)} />
+                  )}
+                />
 
-            <Line
-              type="monotone"
-              dataKey="total"
-              name="Total"
-              stroke="#008060"
-              strokeWidth={2}
-              dot={false}
-              activeDot={{ r: 4 }}
-            />
-          </RechartsLineChart>
-        </ResponsiveContainer>
+                <Line
+                  type="monotone"
+                  dataKey="total"
+                  name="Total"
+                  stroke="#008060"
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                />
+              </RechartsLineChart>
+            </ResponsiveContainer>
+          ) : null}
+        </div>
       )}
     </ChartContainer>
   );
