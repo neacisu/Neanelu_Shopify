@@ -9,6 +9,7 @@ import { AppShell } from './components/layout/app-shell';
 import { OfflinePage, RouteErrorPage } from './components/errors/error-pages';
 import { useOnlineStatus } from './hooks/use-online-status';
 import { QueryClientProvider } from '@tanstack/react-query';
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { queryClient } from './lib/query-client';
 import {
   MissingHostPage,
@@ -132,6 +133,7 @@ export default function Root() {
             <EmbeddedGate>{isOnline ? <Outlet /> : <OfflinePage />}</EmbeddedGate>
           </AppShell>
         </ShopifyAppBridgeProvider>
+        <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-right" />
       </QueryClientProvider>
     </div>
   );
