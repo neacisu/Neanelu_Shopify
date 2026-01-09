@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
 
 import { VirtualizedList } from '../components/ui/VirtualizedList';
 
@@ -95,5 +96,56 @@ describe('VirtualizedList', () => {
     (scroller as HTMLDivElement).dispatchEvent(new Event('scroll', { bubbles: true }));
 
     expect(await screen.findByText('Row 0')).toBeInTheDocument();
+  });
+
+  it('calls loadMore when scrolled near the end', () => {
+    const loadMore = vi.fn();
+
+    render(
+      <VirtualizedList
+        items={Array.from({ length: 50 }, (_, i) => i)}
+        renderItem={(v) => <div>{`Row ${v}`}</div>}
+        estimateSize={20}
+        height={120}
+        ariaLabel="List"
+        loadMore={loadMore}
+      />
+    );
+
+    const scroller = screen.getByLabelText('List');
+    Object.defineProperty(scroller, 'scrollHeight', { value: 1000, configurable: true });
+    Object.defineProperty(scroller, 'clientHeight', { value: 100, configurable: true });
+    Object.defineProperty(scroller, 'scrollTop', {
+      value: 900,
+      configurable: true,
+      writable: true,
+    });
+
+    scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
+    expect(loadMore).toHaveBeenCalled();
+  });
+
+  it('supports keyboard navigation between rows', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <VirtualizedList
+        items={Array.from({ length: 30 }, (_, i) => i)}
+        renderItem={(v) => <div>{`Row ${v}`}</div>}
+        estimateSize={20}
+        height={120}
+        ariaLabel="List"
+        keyboardNavigation
+      />
+    );
+
+    const first = screen.getAllByRole('option')[0]!;
+    first.focus();
+    await user.keyboard('{ArrowDown}');
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect((document.activeElement as HTMLElement).getAttribute('data-virtualized-index')).toBe(
+      '1'
+    );
   });
 });

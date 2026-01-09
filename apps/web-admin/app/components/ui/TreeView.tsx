@@ -15,6 +15,8 @@ export type TreeNode = Readonly<{
   id: string;
   label: ReactNode;
   children?: readonly TreeNode[];
+  /** When true and children are not present yet, this node can be lazy-loaded. */
+  hasChildren?: boolean;
   disabled?: boolean;
 }>;
 
@@ -27,16 +29,35 @@ type FlatNode = Readonly<{
 }>;
 
 export type TreeViewProps = Readonly<{
-  nodes: readonly TreeNode[];
+  /** Preferred prop name (used in codebase). */
+  nodes?: readonly TreeNode[];
+  /** Plan alias. */
+  data?: readonly TreeNode[];
 
   /** Controlled selection */
   selectedId?: string | null;
   onSelect?: (id: string) => void;
 
+  /** Plan aliases */
+  selected?: string | null;
+
   /** Controlled expansion */
   expandedIds?: readonly string[];
   defaultExpandedIds?: readonly string[];
   onExpandedIdsChange?: (ids: string[]) => void;
+
+  /** Plan aliases */
+  expanded?: readonly string[];
+  onExpand?: (ids: string[]) => void;
+
+  /** Multi-select support */
+  multiSelect?: boolean;
+  selectedIds?: readonly string[];
+  defaultSelectedIds?: readonly string[];
+  onSelectedIdsChange?: (ids: string[]) => void;
+
+  /** Lazy-loading support */
+  loadChildren?: (nodeId: string) => Promise<readonly TreeNode[]>;
 
   /** Enable drag & drop (source/target ids). */
   draggable?: boolean;
@@ -47,15 +68,20 @@ export type TreeViewProps = Readonly<{
   ariaLabel?: string;
 }>;
 
-function flattenTree(nodes: readonly TreeNode[], expanded: Set<string>): FlatNode[] {
+function flattenTree(
+  nodes: readonly TreeNode[],
+  expanded: Set<string>,
+  loadedChildren: Map<string, readonly TreeNode[]>
+): FlatNode[] {
   const out: FlatNode[] = [];
 
   const walk = (list: readonly TreeNode[], depth: number, parentId: string | null) => {
     for (const n of list) {
-      const hasChildren = Boolean(n.children?.length);
+      const children = n.children ?? loadedChildren.get(n.id);
+      const hasChildren = Boolean(children?.length) || Boolean(n.hasChildren);
       out.push({ id: n.id, node: n, depth, parentId, hasChildren });
       if (hasChildren && expanded.has(n.id)) {
-        walk(n.children!, depth + 1, n.id);
+        if (children) walk(children, depth + 1, n.id);
       }
     }
   };
@@ -75,9 +101,10 @@ function TreeRow(props: {
   flat: FlatNode;
   isSelected: boolean;
   isExpanded: boolean;
+  isLoadingChildren: boolean;
   draggable: boolean;
   onToggleExpand: (id: string) => void;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, meta: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) => void;
   tabIndex: number;
   onFocus: () => void;
   itemClassName?: string | undefined;
@@ -86,6 +113,7 @@ function TreeRow(props: {
     flat,
     isSelected,
     isExpanded,
+    isLoadingChildren,
     draggable,
     onToggleExpand,
     onSelect,
@@ -127,9 +155,17 @@ function TreeRow(props: {
         <span className="h-6 w-6 shrink-0" />
       )}
 
-      <button type="button" className="flex-1 text-left" onClick={() => onSelect(flat.id)}>
+      <button
+        type="button"
+        className="flex-1 text-left"
+        onClick={(e) =>
+          onSelect(flat.id, { ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey })
+        }
+      >
         {flat.node.label}
       </button>
+
+      {isLoadingChildren ? <span className="text-xs text-muted">Loading…</span> : null}
 
       {draggable ? (
         <button
@@ -149,12 +185,21 @@ function TreeRow(props: {
 
 export function TreeView(props: TreeViewProps) {
   const {
-    nodes,
+    nodes: nodesProp,
+    data,
     selectedId,
     onSelect,
+    selected,
     expandedIds,
+    expanded,
     defaultExpandedIds,
     onExpandedIdsChange,
+    onExpand,
+    multiSelect = false,
+    selectedIds,
+    defaultSelectedIds,
+    onSelectedIdsChange,
+    loadChildren,
     draggable = false,
     onMove,
     className,
@@ -162,20 +207,42 @@ export function TreeView(props: TreeViewProps) {
     ariaLabel = 'Tree',
   } = props;
 
+  const nodes = nodesProp ?? data ?? [];
+
   const [internalSelectedId, setInternalSelectedId] = useState<string | null>(null);
+  const [internalSelectedIds, setInternalSelectedIds] = useState<Set<string>>(
+    () => new Set(defaultSelectedIds ?? [])
+  );
   const [internalExpanded, setInternalExpanded] = useState<Set<string>>(
     () => new Set(defaultExpandedIds ?? [])
   );
 
+  const [loadedChildren, setLoadedChildren] = useState<Map<string, readonly TreeNode[]>>(
+    () => new Map()
+  );
+  const [loadingChildren, setLoadingChildren] = useState<Set<string>>(() => new Set());
+
   const expandedSet = useMemo(() => {
-    if (expandedIds) return new Set(expandedIds);
+    if (expandedIds ?? expanded) return new Set(expandedIds ?? expanded);
     return internalExpanded;
-  }, [expandedIds, internalExpanded]);
+  }, [expanded, expandedIds, internalExpanded]);
 
-  const flat = useMemo(() => flattenTree(nodes, expandedSet), [nodes, expandedSet]);
+  const flat = useMemo(
+    () => flattenTree(nodes, expandedSet, loadedChildren),
+    [nodes, expandedSet, loadedChildren]
+  );
 
-  const selected = selectedId ?? internalSelectedId;
-  const [activeId, setActiveId] = useState<string | null>(() => selected ?? flat[0]?.id ?? null);
+  const selectedSingle = selectedId ?? selected ?? internalSelectedId;
+  const selectedSet = useMemo(() => {
+    if (!multiSelect) return new Set(selectedSingle ? [selectedSingle] : []);
+    if (selectedIds) return new Set(selectedIds);
+    if (selectedSingle) return new Set([selectedSingle]);
+    return internalSelectedIds;
+  }, [internalSelectedIds, multiSelect, selectedIds, selectedSingle]);
+
+  const [activeId, setActiveId] = useState<string | null>(
+    () => selectedSingle ?? flat[0]?.id ?? null
+  );
 
   const idToIndex = useMemo(() => {
     const m = new Map<string, number>();
@@ -191,34 +258,95 @@ export function TreeView(props: TreeViewProps) {
 
   const updateExpanded = useCallback(
     (next: Set<string>) => {
-      if (expandedIds) {
+      if (expandedIds ?? expanded) {
         onExpandedIdsChange?.([...next]);
+        onExpand?.([...next]);
         return;
       }
       setInternalExpanded(next);
       onExpandedIdsChange?.([...next]);
+      onExpand?.([...next]);
     },
-    [expandedIds, onExpandedIdsChange]
+    [expanded, expandedIds, onExpand, onExpandedIdsChange]
   );
 
   const handleToggleExpand = useCallback(
     (id: string) => {
+      const isExpanding = !expandedSet.has(id);
+
+      if (isExpanding && loadChildren) {
+        const node = flat.find((n) => n.id === id)?.node;
+        const already = loadedChildren.get(id);
+        const canLazyLoad = Boolean(node?.hasChildren) && !node?.children?.length;
+
+        if (canLazyLoad && !already && !loadingChildren.has(id)) {
+          setLoadingChildren((prev) => new Set(prev).add(id));
+          void loadChildren(id)
+            .then((children) => {
+              setLoadedChildren((prev) => {
+                const next = new Map(prev);
+                next.set(id, children);
+                return next;
+              });
+            })
+            .finally(() => {
+              setLoadingChildren((prev) => {
+                const next = new Set(prev);
+                next.delete(id);
+                return next;
+              });
+            });
+        }
+      }
+
       updateExpanded(toggle(expandedSet, id));
     },
-    [expandedSet, updateExpanded]
+    [expandedSet, flat, loadChildren, loadedChildren, loadingChildren, updateExpanded]
   );
 
   const handleSelect = useCallback(
-    (id: string) => {
+    (id: string, meta?: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) => {
       setActiveId(id);
-      if (selectedId !== undefined) {
+
+      if (!multiSelect) {
+        if (selectedId !== undefined || selected !== undefined) {
+          onSelect?.(id);
+          return;
+        }
+        setInternalSelectedId(id);
         onSelect?.(id);
         return;
       }
-      setInternalSelectedId(id);
+
+      const m = meta ?? { ctrlKey: false, metaKey: false, shiftKey: false };
+      const toggleOne = (prev: Set<string>) => {
+        const next = new Set(prev);
+        const shouldToggle = m.ctrlKey || m.metaKey;
+        if (shouldToggle) {
+          if (next.has(id)) next.delete(id);
+          else next.add(id);
+        } else {
+          next.clear();
+          next.add(id);
+        }
+        return next;
+      };
+
+      if (selectedIds) {
+        const next = toggleOne(new Set(selectedIds));
+        onSelectedIdsChange?.([...next]);
+        onSelect?.(id);
+        return;
+      }
+
+      setInternalSelectedIds((prev) => {
+        const next = toggleOne(prev);
+        onSelectedIdsChange?.([...next]);
+        return next;
+      });
       onSelect?.(id);
     },
-    [onSelect, selectedId]
+    [multiSelect, onSelect, onSelectedIdsChange, selected, selectedId, selectedIds]
   );
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
@@ -279,7 +407,11 @@ export function TreeView(props: TreeViewProps) {
         case 'Enter':
         case ' ':
           e.preventDefault();
-          handleSelect(current.id);
+          handleSelect(current.id, {
+            ctrlKey: e.ctrlKey,
+            metaKey: e.metaKey,
+            shiftKey: e.shiftKey,
+          });
           break;
         default:
           break;
@@ -288,18 +420,21 @@ export function TreeView(props: TreeViewProps) {
     [activeId, expandedSet, flat, handleSelect, idToIndex, idToParent, updateExpanded]
   );
 
+  const focusedId = activeId ?? selectedSingle ?? flat[0]?.id ?? null;
+
   const content = (
     <div role="tree" aria-label={ariaLabel} className={className} onKeyDown={onKeyDown}>
       {flat.map((n) => (
         <TreeRow
           key={n.id}
           flat={n}
-          isSelected={selected === n.id}
+          isSelected={selectedSet.has(n.id)}
           isExpanded={expandedSet.has(n.id)}
+          isLoadingChildren={loadingChildren.has(n.id)}
           draggable={draggable}
           onToggleExpand={handleToggleExpand}
-          onSelect={handleSelect}
-          tabIndex={(activeId ?? selected ?? flat[0]?.id) === n.id ? 0 : -1}
+          onSelect={(id, meta) => handleSelect(id, meta)}
+          tabIndex={focusedId === n.id ? 0 : -1}
           onFocus={() => setActiveId(n.id)}
           itemClassName={itemClassName}
         />

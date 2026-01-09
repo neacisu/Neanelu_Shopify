@@ -31,4 +31,19 @@ describe('JsonViewer', () => {
     await user.click(screen.getByRole('button', { name: 'Expand' }));
     expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
   });
+
+  it('supports searching within JSON', async () => {
+    const user = userEvent.setup();
+
+    render(<JsonViewer value={{ foo: { bar: 'needle' } }} />);
+
+    await user.type(screen.getByRole('textbox', { name: 'Search' }), 'needle');
+    expect(screen.getByText(/Matches:/)).toBeInTheDocument();
+    expect(screen.getByText('foo.bar')).toBeInTheDocument();
+  });
+
+  it('accepts plan aliases (data/theme/collapsed)', () => {
+    const { container } = render(<JsonViewer data={{ a: 1 }} theme="dark" collapsed />);
+    expect(container.firstChild).toHaveAttribute('data-theme', 'dark');
+  });
 });

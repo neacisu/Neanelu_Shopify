@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
-import { useCallback, useMemo, useRef } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useVirtualizer } from '@tanstack/react-virtual';
 
@@ -30,6 +30,29 @@ export type VirtualizedListProps<TItem> = Readonly<{
   itemClassName?: string;
 
   loading?: boolean;
+  /** Plan alias: loading indicator (recommended for infinite scroll use-cases). */
+  isLoading?: boolean;
+
+  /** Infinite scroll callback. Called when the list is scrolled near the end. */
+  loadMore?: () => void | Promise<void>;
+
+  /** Whether more items can be loaded (defaults to true if loadMore is provided). */
+  hasMore?: boolean;
+
+  /** Pixel threshold to trigger loadMore near the end. */
+  loadMoreThresholdPx?: number;
+
+  /** Optional keyboard navigation (ArrowUp/ArrowDown/Home/End). */
+  keyboardNavigation?: boolean;
+
+  /** Initial active index for keyboard navigation. */
+  defaultActiveIndex?: number;
+
+  /** Notification when active index changes (keyboard nav / focus). */
+  onActiveIndexChange?: (index: number) => void;
+
+  /** Optional footer shown when isLoading is true and items exist. */
+  loadingMoreState?: ReactNode;
   loadingState?: ReactNode;
   emptyState?: ReactNode;
 
@@ -49,12 +72,32 @@ export function VirtualizedList<TItem>(props: VirtualizedListProps<TItem>) {
     listClassName,
     itemClassName,
     loading = false,
+    isLoading = false,
+    loadMore,
+    hasMore: hasMoreProp,
+    loadMoreThresholdPx = 320,
+    keyboardNavigation = false,
+    defaultActiveIndex = 0,
+    onActiveIndexChange,
+    loadingMoreState,
     loadingState,
     emptyState,
     ariaLabel,
   } = props;
 
   const parentRef = useRef<HTMLDivElement | null>(null);
+  const loadMoreInFlightRef = useRef(false);
+  const loadMoreTriggeredForLengthRef = useRef<number | null>(null);
+  const hasMore = hasMoreProp ?? Boolean(loadMore);
+
+  const [activeIndex, setActiveIndex] = useState<number>(() => defaultActiveIndex);
+
+  const focusRenderedIndex = useCallback((index: number) => {
+    const root = parentRef.current;
+    if (!root) return;
+    const el = root.querySelector<HTMLElement>(`[data-virtualized-index="${index}"]`);
+    el?.focus();
+  }, []);
 
   const getItemKey = useMemo(() => {
     return itemKey ?? ((_: TItem, index: number) => index);
@@ -141,7 +184,96 @@ export function VirtualizedList<TItem>(props: VirtualizedListProps<TItem>) {
     getItemKey: (index) => getItemKey(items[index] as TItem, index),
   });
 
+  const virtualItems = virtualizer.getVirtualItems();
+
+  const maybeLoadMore = useCallback(() => {
+    const el = parentRef.current;
+    if (!el) return;
+    if (!loadMore || !hasMore) return;
+    if (loading || isLoading) return;
+    if (loadMoreInFlightRef.current) return;
+
+    const remainingPx = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (remainingPx > loadMoreThresholdPx) return;
+
+    if (loadMoreTriggeredForLengthRef.current === items.length) return;
+    loadMoreTriggeredForLengthRef.current = items.length;
+
+    loadMoreInFlightRef.current = true;
+    void Promise.resolve(loadMore()).finally(() => {
+      loadMoreInFlightRef.current = false;
+    });
+  }, [hasMore, isLoading, items.length, loadMore, loadMoreThresholdPx, loading]);
+
+  useEffect(() => {
+    // If the list doesn't fill the viewport, try fetching more.
+    maybeLoadMore();
+  }, [items.length, maybeLoadMore]);
+
+  useEffect(() => {
+    // Near-end detection based on what's currently virtualized.
+    const last = virtualItems[virtualItems.length - 1];
+    if (!last) return;
+    if (last.index >= Math.max(0, items.length - 1)) {
+      maybeLoadMore();
+    }
+  }, [items.length, maybeLoadMore, virtualItems]);
+
+  const focusIndex = useCallback(
+    (nextIndex: number) => {
+      const clamped = Math.max(0, Math.min(items.length - 1, nextIndex));
+      setActiveIndex(clamped);
+      onActiveIndexChange?.(clamped);
+      virtualizer.scrollToIndex(clamped, { align: 'auto' });
+      // Focus after virtualization has had a chance to render the row.
+      if (typeof window !== 'undefined') {
+        window.setTimeout(() => focusRenderedIndex(clamped), 0);
+      }
+    },
+    [focusRenderedIndex, items.length, onActiveIndexChange, virtualizer]
+  );
+
+  const onKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLDivElement>) => {
+      if (!keyboardNavigation) return;
+      if (!items.length) return;
+
+      switch (e.key) {
+        case 'ArrowDown':
+          e.preventDefault();
+          focusIndex(activeIndex + 1);
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          focusIndex(activeIndex - 1);
+          break;
+        case 'Home':
+          e.preventDefault();
+          focusIndex(0);
+          break;
+        case 'End':
+          e.preventDefault();
+          focusIndex(items.length - 1);
+          break;
+        default:
+          break;
+      }
+    },
+    [activeIndex, focusIndex, items.length, keyboardNavigation]
+  );
+
+  // Back-compat: `loading` keeps the old behavior (always shows loading state).
   if (loading) {
+    return (
+      <div className={className} style={{ height, width, overflow: 'auto' }} aria-label={ariaLabel}>
+        {loadingState ?? <div className="p-3 text-sm text-muted">Loading…</div>}
+      </div>
+    );
+  }
+
+  // New behavior: `isLoading` is treated as initial-load when the list is empty,
+  // otherwise it shows a bottom loading indicator.
+  if (isLoading && items.length === 0) {
     return (
       <div className={className} style={{ height, width, overflow: 'auto' }} aria-label={ariaLabel}>
         {loadingState ?? <div className="p-3 text-sm text-muted">Loading…</div>}
@@ -157,14 +289,15 @@ export function VirtualizedList<TItem>(props: VirtualizedListProps<TItem>) {
     );
   }
 
-  const virtualItems = virtualizer.getVirtualItems();
-
   return (
     <div
       ref={parentRef}
       className={className}
       style={{ height, width, overflow: 'auto' }}
       aria-label={ariaLabel}
+      onScroll={() => maybeLoadMore()}
+      onKeyDown={onKeyDown}
+      role={keyboardNavigation ? 'listbox' : undefined}
     >
       <div
         className={listClassName}
@@ -185,12 +318,24 @@ export function VirtualizedList<TItem>(props: VirtualizedListProps<TItem>) {
                 width: '100%',
                 transform: `translateY(${virtualRow.start}px)`,
               }}
+              data-virtualized-index={index}
+              role={keyboardNavigation ? 'option' : undefined}
+              tabIndex={keyboardNavigation && index === activeIndex ? 0 : -1}
+              onFocus={() => {
+                if (!keyboardNavigation) return;
+                setActiveIndex(index);
+                onActiveIndexChange?.(index);
+              }}
             >
               {renderItem(item as TItem, index)}
             </div>
           );
         })}
       </div>
+
+      {isLoading && items.length > 0 ? (
+        <div className="p-2 text-sm text-muted">{loadingMoreState ?? 'Loading…'}</div>
+      ) : null}
     </div>
   );
 }
