@@ -3,6 +3,7 @@ import type { RouteObject } from 'react-router-dom';
 
 import DashboardIndex, { loader as dashboardLoader } from './routes/_index';
 import AuthCallbackPage from './routes/auth.callback';
+import AuthRequiredPage from './routes/auth.required';
 import IngestionPage from './routes/ingestion';
 import QueuesPage, { action as queuesAction, loader as queuesLoader } from './routes/queues';
 import Root, { ErrorBoundary, HydrateFallback } from './root';
@@ -22,6 +23,12 @@ export const routes: RouteObject[] = [
         path: 'auth/callback',
         handle: { title: 'Auth', skipEmbeddedGate: true },
         element: createElement(AuthCallbackPage),
+      },
+      {
+        id: 'auth-required',
+        path: 'auth/required',
+        handle: { title: 'Auth', skipEmbeddedGate: true },
+        element: createElement(AuthRequiredPage),
       },
       {
         id: 'dashboard',

@@ -1,6 +1,7 @@
 import type { ApiSuccessResponse } from '@app/types';
 
 import { getAppBridgeApp } from '../shopify/app-bridge-singleton';
+import { isValidShopDomain } from '../shopify/shopify-url';
 
 let cachedToken: string | null = null;
 let cachedTokenExpiresAtMs = 0;
@@ -70,6 +71,55 @@ function isEmbeddedContextForAppBridge(): boolean {
   }
 }
 
+function maybeRedirectToOAuthStartOnUnauthorized(): void {
+  if (typeof window === 'undefined') return;
+  if (import.meta.env.MODE === 'test') return;
+  // In embedded context, App Bridge (forceRedirect) is the canonical path.
+  if (isEmbeddedContextForAppBridge()) return;
+
+  // Only attempt to start OAuth from within our UI routes.
+  if (!window.location.pathname.startsWith('/app/')) return;
+  if (window.location.pathname.startsWith('/app/auth/')) return;
+
+  const params = new URLSearchParams(window.location.search);
+  const shopFromUrl = params.get('shop');
+  const shopFromStorage = (() => {
+    try {
+      return window.localStorage.getItem('neanelu_last_shop');
+    } catch {
+      return null;
+    }
+  })();
+
+  const shop =
+    shopFromUrl && isValidShopDomain(shopFromUrl)
+      ? shopFromUrl
+      : shopFromStorage && isValidShopDomain(shopFromStorage)
+        ? shopFromStorage
+        : null;
+
+  const returnTo = `${window.location.pathname}${window.location.search}`;
+
+  // If we don't know the shop, route the user to an in-app page that can prompt for it.
+  if (!shop) {
+    const requiredUrl = new URL('/app/auth/required', window.location.origin);
+    requiredUrl.searchParams.set('returnTo', returnTo);
+    window.location.assign(requiredUrl.toString());
+    return;
+  }
+
+  // Avoid redirect loops (e.g. misconfigured env / invalid install).
+  const storageKey = `neanelu_oauth_redirected:${shop}`;
+  const last = Number.parseInt(sessionStorage.getItem(storageKey) ?? '', 10);
+  if (Number.isFinite(last) && Date.now() - last < 30_000) return;
+  sessionStorage.setItem(storageKey, String(Date.now()));
+
+  const url = new URL('/auth', window.location.origin);
+  url.searchParams.set('shop', shop);
+  url.searchParams.set('returnTo', returnTo);
+  window.location.assign(url.toString());
+}
+
 async function fetchShopifyAppBridgeSessionToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null;
   const apiKey = import.meta.env['VITE_SHOPIFY_API_KEY'] as string | undefined;
@@ -123,6 +173,10 @@ async function fetchSessionToken(): Promise<string | null> {
     if (!response.ok) {
       if (response.status === 404) {
         cookieTokenEndpointMissingUntilMs = Date.now() + 5 * 60_000;
+      } else if (response.status === 401) {
+        // Back off a bit to reduce noisy retries; also attempt recovery via OAuth.
+        cookieTokenEndpointMissingUntilMs = Date.now() + 30_000;
+        maybeRedirectToOAuthStartOnUnauthorized();
       }
       return null;
     }
