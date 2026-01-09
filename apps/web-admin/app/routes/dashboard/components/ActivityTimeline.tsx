@@ -94,7 +94,7 @@ export function ActivityTimeline() {
           onRetry={() => void query.refetch()}
         />
       ) : (
-        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+        <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
           <RechartsLineChart data={data} margin={{ top: 8, right: 12, bottom: 8, left: 12 }}>
             <ChartGrid strokeDasharray="3 3" vertical={false} className="opacity-30" />
             <XAxis dataKey="date" tickLine={false} axisLine={false} />
