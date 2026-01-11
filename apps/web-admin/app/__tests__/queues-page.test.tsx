@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { UNSAFE_DataWithResponseInit } from 'react-router-dom';
 import { Outlet, RouterProvider, createMemoryRouter } from 'react-router-dom';
@@ -290,20 +290,10 @@ describe('Queue Monitor /queues UI', () => {
       ).toBe(true);
     });
 
-    // Enter search (PolarisTextField renders as <polaris-text-field label="Search" ... />)
-    const tf = document.querySelector('polaris-text-field[label="Search"]');
-    expect(tf).toBeTruthy();
-
-    if (!(tf instanceof HTMLElement)) {
-      throw new Error('Expected search field to be an HTMLElement');
-    }
-
-    Object.defineProperty(tf, 'value', {
-      value: 'job-xyz',
-      writable: true,
-      configurable: true,
-    });
-    fireEvent(tf, new Event('input', { bubbles: true }));
+    // Enter search (SearchInput renders a native <input> labelled "Search").
+    const input = await screen.findByLabelText('Search');
+    await user.clear(input);
+    await user.type(input, 'job-xyz');
 
     await waitFor(() => {
       expect(
