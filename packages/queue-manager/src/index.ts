@@ -1,4 +1,5 @@
 export * from './names.js';
+export * from './bulk.js';
 export * from './job-delay.js';
 export * from './locks/bulk-lock.js';
 export * from './policy.js';
