@@ -11,6 +11,14 @@ type SmokeTest = Readonly<{
   nodeArgs: readonly string[];
 }>;
 
+function out(line = ''): void {
+  process.stdout.write(`${line}\n`);
+}
+
+function err(line: string): void {
+  process.stderr.write(`${line}\n`);
+}
+
 function isTruthyEnv(value: string | undefined): boolean {
   const v = (value ?? '').trim().toLowerCase();
   return v === '1' || v === 'true' || v === 'yes' || v === 'on';
@@ -97,7 +105,15 @@ async function readPackageMeta(packageJsonAbs: string): Promise<{ name: string; 
 function buildNodeArgsForPackage(packageName: string, testFileRel: string): readonly string[] {
   // Keep this aligned with each package's test runner conventions.
   // backend-worker uses module mocks in several tests.
-  const base: string[] = ['--import', 'tsx', '--test', '--test-name-pattern=smoke', testFileRel];
+  // Use --test-force-exit so CI doesn't hang on open handles if a smoke test fails.
+  const base: string[] = [
+    '--import',
+    'tsx',
+    '--test',
+    '--test-force-exit',
+    '--test-name-pattern=smoke',
+    testFileRel,
+  ];
   if (packageName === '@app/backend-worker') {
     return ['--experimental-test-module-mocks', ...base];
   }
@@ -181,7 +197,7 @@ async function runCommand(cmd: string, args: string[], cwd: string): Promise<num
 }
 
 function printHelp(): void {
-  console.log(`smoke-runner
+  out(`smoke-runner
 
 Usage:
   pnpm smoke
@@ -208,23 +224,23 @@ const plan = await buildSmokePlan(rootAbs);
 
 if (wantsList) {
   if (!plan.length) {
-    console.log('No smoke tests found (expected *smoke*.test.ts).');
+    out('No smoke tests found (expected *smoke*.test.ts).');
     process.exit(0);
   }
 
-  console.log('Smoke tests discovered:');
+  out('Smoke tests discovered:');
   for (const t of plan) {
     const rel = path.relative(rootAbs, t.filePathAbs);
-    console.log(`- ${t.id}`);
-    console.log(`  flag: ${t.flag}=1`);
-    console.log(`  pkg:  ${t.packageName}`);
-    console.log(`  file: ${rel}`);
+    out(`- ${t.id}`);
+    out(`  flag: ${t.flag}=1`);
+    out(`  pkg:  ${t.packageName}`);
+    out(`  file: ${rel}`);
   }
   process.exit(0);
 }
 
 if (!plan.length) {
-  console.error('No smoke tests found (expected *smoke*.test.ts).');
+  err('No smoke tests found (expected *smoke*.test.ts).');
   process.exit(2);
 }
 
@@ -232,20 +248,18 @@ const selectedFlags = getSelectedFlags();
 const selected = selectedFlags.size ? plan.filter((t) => selectedFlags.has(t.flag)) : plan;
 
 if (!selected.length) {
-  console.error(
-    `No smoke tests matched selection flags: ${Array.from(selectedFlags).sort().join(', ')}`
-  );
+  err(`No smoke tests matched selection flags: ${Array.from(selectedFlags).sort().join(', ')}`);
   process.exit(2);
 }
 
-console.log(`Running ${selected.length}/${plan.length} smoke test(s)...`);
+out(`Running ${selected.length}/${plan.length} smoke test(s)...`);
 
 let exitCode = 0;
 for (const t of selected) {
   const rel = path.relative(rootAbs, t.filePathAbs);
-  console.log(`\n=== SMOKE ${t.id} ===`);
-  console.log(`pkg: ${t.packageName}`);
-  console.log(`file: ${rel}`);
+  out(`\n=== SMOKE ${t.id} ===`);
+  out(`pkg: ${t.packageName}`);
+  out(`file: ${rel}`);
 
   // Use pnpm filter so workspace resolution + deps are correct.
   const code = await runCommand(
