@@ -43,11 +43,17 @@ const fallbackLogger: BulkQueueLoggerLike = {
 
 export const BULK_QUEUE_NAME = 'bulk-queue';
 
+// Poller runs in a separate queue so the orchestrator worker cannot consume poller jobs.
+// BullMQ workers process all job names in a queue; without separation, the orchestrator
+// worker would "drop" poller jobs due to payload validation and mark them completed.
+export const BULK_POLLER_QUEUE_NAME = 'bulk-poller-queue';
+
 export const BULK_ORCHESTRATOR_JOB_NAME = 'bulk.orchestrator.start';
 export const BULK_POLLER_JOB_NAME = 'bulk.poller';
 
 let cachedConfig: QueueManagerConfig | null = null;
-let bulkQueue: ReturnType<typeof createQueue> | undefined;
+let bulkOrchestratorQueue: ReturnType<typeof createQueue> | undefined;
+let bulkPollerQueue: ReturnType<typeof createQueue> | undefined;
 
 function getConfig(): QueueManagerConfig {
   if (cachedConfig) return cachedConfig;
@@ -56,14 +62,24 @@ function getConfig(): QueueManagerConfig {
   return cachedConfig;
 }
 
-function getQueue(): ReturnType<typeof createQueue> {
-  bulkQueue ??= createQueue(
+function getOrchestratorQueue(): ReturnType<typeof createQueue> {
+  bulkOrchestratorQueue ??= createQueue(
     { config: getConfig() },
     {
       name: BULK_QUEUE_NAME,
     }
   );
-  return bulkQueue;
+  return bulkOrchestratorQueue;
+}
+
+function getPollerQueue(): ReturnType<typeof createQueue> {
+  bulkPollerQueue ??= createQueue(
+    { config: getConfig() },
+    {
+      name: BULK_POLLER_QUEUE_NAME,
+    }
+  );
+  return bulkPollerQueue;
 }
 
 function deriveIdempotencyKey(input: {
@@ -94,7 +110,7 @@ export async function enqueueBulkOrchestratorJob(
   payload: BulkOrchestratorJobPayload,
   logger?: BulkQueueLoggerLike
 ): Promise<void> {
-  const queue = getQueue();
+  const queue = getOrchestratorQueue();
   const log = logger ?? fallbackLogger;
 
   const telemetry = buildJobTelemetryFromActiveContext();
@@ -179,7 +195,7 @@ export async function enqueueBulkPollerJob(
   payload: BulkPollerJobPayload,
   logger?: BulkQueueLoggerLike
 ): Promise<void> {
-  const queue = getQueue();
+  const queue = getPollerQueue();
   const log = logger ?? fallbackLogger;
   const telemetry = buildJobTelemetryFromActiveContext();
 
@@ -193,7 +209,7 @@ export async function enqueueBulkPollerJob(
   const tracer = trace.getTracer('neanelu-shopify');
   const span = tracer.startSpan('queue.enqueue', {
     attributes: {
-      'queue.name': BULK_QUEUE_NAME,
+      'queue.name': BULK_POLLER_QUEUE_NAME,
       'queue.job.name': BULK_POLLER_JOB_NAME,
       'queue.group.id': normalizedShopId,
       'shop.id': normalizedShopId,
@@ -245,7 +261,12 @@ export async function enqueueBulkPollerJob(
 }
 
 export async function closeBulkQueue(): Promise<void> {
-  if (!bulkQueue) return;
-  await bulkQueue.close();
-  bulkQueue = undefined;
+  if (bulkOrchestratorQueue) {
+    await bulkOrchestratorQueue.close();
+    bulkOrchestratorQueue = undefined;
+  }
+  if (bulkPollerQueue) {
+    await bulkPollerQueue.close();
+    bulkPollerQueue = undefined;
+  }
 }

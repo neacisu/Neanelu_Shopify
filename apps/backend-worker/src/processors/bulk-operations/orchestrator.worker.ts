@@ -27,15 +27,22 @@ import {
   enqueueBulkPollerJob,
   BULK_QUEUE_NAME,
 } from '@app/queue-manager';
-import { createHash } from 'node:crypto';
 import Redis from 'ioredis';
 import type { Redis as RedisClient } from 'ioredis';
 import { ShopifyRateLimitedError } from '@app/shopify-client';
 
 import { shopifyApi } from '../../shopify/client.js';
 import { withTokenRetry } from '../../auth/token-lifecycle.js';
-import { recordDbQuery } from '../../otel/metrics.js';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
+
+import {
+  sha256Hex,
+  deriveIdempotencyKey,
+  insertOrLoadBulkRun,
+  insertBulkStep,
+  markBulkRunFailed,
+  markBulkRunStarted,
+} from './state-machine.js';
 
 const env = loadEnv();
 
@@ -58,10 +65,6 @@ class BulkLockContentionError extends Error {
   }
 }
 
-function sha256Hex(value: string): string {
-  return createHash('sha256').update(value, 'utf8').digest('hex');
-}
-
 function buildBulkRunQueryMutation(): string {
   // Shopify expects the query argument to be a single string.
   // Using a GraphQL block string avoids escaping most query content.
@@ -71,189 +74,6 @@ function buildBulkRunQueryMutation(): string {
     userErrors { field message }
   }
 }`;
-}
-
-type BulkRunRow = Readonly<{
-  id: string;
-  shop_id: string;
-  status: string;
-  shopify_operation_id: string | null;
-  idempotency_key: string | null;
-}>;
-
-async function insertOrLoadBulkRun(params: {
-  shopId: string;
-  operationType: string;
-  queryType: string | null;
-  idempotencyKey: string;
-  graphqlQueryHash: string;
-}): Promise<BulkRunRow> {
-  const started = Date.now();
-  try {
-    return await withTenantContext(params.shopId, async (client) => {
-      const result = await client.query<BulkRunRow>(
-        `INSERT INTO bulk_runs (
-           shop_id,
-           operation_type,
-           query_type,
-           status,
-           idempotency_key,
-           graphql_query_hash,
-           retry_count,
-           max_retries,
-           created_at,
-           updated_at
-         )
-         VALUES ($1, $2, $3, 'pending', $4, $5, 0, 3, now(), now())
-         RETURNING id, shop_id, status, shopify_operation_id, idempotency_key`,
-        [
-          params.shopId,
-          params.operationType,
-          params.queryType,
-          params.idempotencyKey,
-          params.graphqlQueryHash,
-        ]
-      );
-
-      const row = result.rows[0];
-      if (!row) throw new Error('bulk_run_insert_missing_row');
-      return row;
-    });
-  } catch (err) {
-    // Unique violations can happen for:
-    // - idempotency_key unique constraint
-    // - idx_bulk_runs_active_shop partial unique index
-    const message = err instanceof Error ? err.message : String(err);
-    if (!message.toLowerCase().includes('duplicate key value')) throw err;
-
-    return await withTenantContext(params.shopId, async (client) => {
-      // Prefer idempotency lookup; this makes retries deterministic.
-      const byIdempotency = await client.query<BulkRunRow>(
-        `SELECT id, shop_id, status, shopify_operation_id, idempotency_key
-         FROM bulk_runs
-         WHERE idempotency_key = $1
-         LIMIT 1`,
-        [params.idempotencyKey]
-      );
-      if (byIdempotency.rows[0]) return byIdempotency.rows[0];
-
-      // Fallback: active run for shop (should be at most 1 by DB constraint).
-      const active = await client.query<BulkRunRow>(
-        `SELECT id, shop_id, status, shopify_operation_id, idempotency_key
-         FROM bulk_runs
-         WHERE shop_id = $1
-           AND status IN ('pending', 'running')
-         ORDER BY created_at DESC
-         LIMIT 1`,
-        [params.shopId]
-      );
-      const row = active.rows[0];
-      if (!row) throw err;
-      return row;
-    });
-  } finally {
-    recordDbQuery('insert', (Date.now() - started) / 1000);
-  }
-}
-
-async function insertBulkStep(params: {
-  shopId: string;
-  bulkRunId: string;
-  stepName: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  errorMessage?: string | null;
-}): Promise<void> {
-  const started = Date.now();
-  const isTerminal = params.status === 'completed' || params.status === 'failed';
-  await withTenantContext(params.shopId, async (client) => {
-    await client.query(
-      `INSERT INTO bulk_steps (
-         bulk_run_id,
-         shop_id,
-         step_name,
-         step_order,
-         status,
-         started_at,
-         completed_at,
-         error_message,
-         created_at,
-         updated_at
-       )
-       VALUES ($1, $2, $3, 0, $4, now(), CASE WHEN $5::boolean THEN now() ELSE NULL END, $6, now(), now())`,
-      [
-        params.bulkRunId,
-        params.shopId,
-        params.stepName,
-        params.status,
-        isTerminal,
-        params.errorMessage ?? null,
-      ]
-    );
-  });
-  recordDbQuery('insert', (Date.now() - started) / 1000);
-}
-
-async function markBulkRunFailed(params: {
-  shopId: string;
-  bulkRunId: string;
-  errorMessage: string;
-  errorType: string;
-  errorCode?: string | null;
-}): Promise<void> {
-  await withTenantContext(params.shopId, async (client) => {
-    await client.query(
-      `UPDATE bulk_runs
-       SET status = 'failed',
-           error_message = $1,
-           completed_at = now(),
-           updated_at = now()
-       WHERE id = $2`,
-      [params.errorMessage, params.bulkRunId]
-    );
-
-    await client.query(
-      `INSERT INTO bulk_errors (
-         bulk_run_id,
-         shop_id,
-         error_type,
-         error_code,
-         error_message,
-         created_at
-       )
-       VALUES ($1, $2, $3, $4, $5, now())`,
-      [
-        params.bulkRunId,
-        params.shopId,
-        params.errorType,
-        params.errorCode ?? null,
-        params.errorMessage,
-      ]
-    );
-  });
-}
-
-async function markBulkRunStarted(params: {
-  shopId: string;
-  bulkRunId: string;
-  shopifyOperationId: string;
-  apiVersion: string;
-  costEstimate: number | null;
-}): Promise<void> {
-  const started = Date.now();
-  await withTenantContext(params.shopId, async (client) => {
-    await client.query(
-      `UPDATE bulk_runs
-       SET status = 'running',
-           started_at = COALESCE(started_at, now()),
-           shopify_operation_id = $1,
-           api_version = $2,
-           cost_estimate = COALESCE($3, cost_estimate),
-           updated_at = now()
-       WHERE id = $4`,
-      [params.shopifyOperationId, params.apiVersion, params.costEstimate, params.bulkRunId]
-    );
-  });
-  recordDbQuery('update', (Date.now() - started) / 1000);
 }
 
 export function startBulkOrchestratorWorker(logger: Logger): BulkOrchestratorWorkerHandle {
@@ -313,9 +133,12 @@ export function startBulkOrchestratorWorker(logger: Logger): BulkOrchestratorWor
             const graphqlQueryHash = sha256Hex(payload.graphqlQuery);
             const idempotencyKey = payload.idempotencyKey?.trim()
               ? payload.idempotencyKey.trim()
-              : sha256Hex(
-                  `${payload.shopId}|${payload.operationType}|${payload.queryType ?? ''}|${graphqlQueryHash}`
-                );
+              : deriveIdempotencyKey({
+                  shopId: payload.shopId,
+                  operationType: payload.operationType,
+                  queryType: payload.queryType ?? null,
+                  graphqlQueryHash,
+                });
 
             const run = await insertOrLoadBulkRun({
               shopId: payload.shopId,
