@@ -38,26 +38,26 @@
 
 ### Table: `shops`
 
-| Column                  | Type        | Constraints              | Description                            |
-| ----------------------- | ----------- | ------------------------ | -------------------------------------- |
-| id                      | UUID        | PK DEFAULT uuidv7()      | Shop identifier                        |
-| shopify_domain          | CITEXT      | UNIQUE NOT NULL          | myshop.myshopify.com                   |
-| shopify_shop_id         | BIGINT      | UNIQUE                   | Shopify numeric ID for API correlation |
-| plan_tier               | VARCHAR(20) | NOT NULL DEFAULT 'basic' | basic/pro/enterprise                   |
-| api_version             | VARCHAR(20) | DEFAULT '2025-10'        | Current Shopify API version            |
-| access_token_ciphertext | BYTEA       | NOT NULL                 | AES-256-GCM encrypted                  |
-| access_token_iv         | BYTEA       | NOT NULL                 | Initialization vector                  |
-| access_token_tag        | BYTEA       | NOT NULL                 | Auth tag                               |
-| webhook_secret          | BYTEA       |                          | HMAC validation key for webhooks       |
-| key_version             | INTEGER     | NOT NULL DEFAULT 1       | Key rotation version                   |
-| scopes                  | TEXT[]      | NOT NULL                 | Granted OAuth scopes.                  |
+| Column                  | Type        | Constraints                | Description                            |
+| ----------------------- | ----------- | -------------------------- | -------------------------------------- |
+| id                      | UUID        | PK DEFAULT uuidv7()        | Shop identifier                        |
+| shopify_domain          | CITEXT      | UNIQUE NOT NULL            | myshop.myshopify.com                   |
+| shopify_shop_id         | BIGINT      | UNIQUE                     | Shopify numeric ID for API correlation |
+| plan_tier               | VARCHAR(20) | NOT NULL DEFAULT 'basic'.  | basic/pro/enterprise                   |
+| api_version             | VARCHAR(20) | DEFAULT '2025-10'          | Current Shopify API version            |
+| access_token_ciphertext | BYTEA       | NOT NULL                   | AES-256-GCM encrypted                  |
+| access_token_iv         | BYTEA       | NOT NULL                   | Initialization vector                  |
+| access_token_tag        | BYTEA       | NOT NULL                   | Auth tag                               |
+| webhook_secret          | BYTEA       |                            | HMAC validation key for webhooks       |
+| key_version             | INTEGER     | NOT NULL DEFAULT 1         | Key rotation version                   |
+| scopes                  | TEXT[]      | NOT NULL                   | Granted OAuth scopes.                  |
 | timezone                | VARCHAR(50) | DEFAULT 'Europe/Bucharest' | Shop timezone (IANA)                   |
-| currency_code           | VARCHAR(3)  | DEFAULT 'RON'            | Primary currency (ISO 4217)            |
-| settings                | JSONB       | DEFAULT '{}'             | Shop-level config                      |
-| installed_at            | TIMESTAMPTZ | DEFAULT now()            | Install timestamp                      |
-| uninstalled_at          | TIMESTAMPTZ |                          | Uninstall timestamp                    |
-| created_at              | TIMESTAMPTZ | DEFAULT now()            |                                        |
-| updated_at              | TIMESTAMPTZ | DEFAULT now()            |                                        |
+| currency_code           | VARCHAR(3)  | DEFAULT 'RON'              | Primary currency (ISO 4217)            |
+| settings                | JSONB       | DEFAULT '{}'               | Shop-level config                      |
+| installed_at            | TIMESTAMPTZ | DEFAULT now()              | Install timestamp                      |
+| uninstalled_at          | TIMESTAMPTZ |                            | Uninstall timestamp                    |
+| created_at              | TIMESTAMPTZ | DEFAULT now()              |                                        |
+| updated_at              | TIMESTAMPTZ | DEFAULT now()              |                                        |
 
 **Indexes:**
 
@@ -176,20 +176,20 @@
 
 > **Purpose:** Per-shop feature flag configurations (F7.0)
 
-| Column             | Type         | Constraints             | Description                |
-| ------------------ | ------------ | ----------------------- | -------------------------- |
-| id                 | UUID         | PK DEFAULT uuidv7()     | Flag identifier            |
-| flag_key           | VARCHAR(100) | UNIQUE NOT NULL         | Flag name (e.g., 'bulk_v2')|
-| description        | TEXT         |                         | Purpose description        |
-| default_value      | BOOLEAN      | NOT NULL DEFAULT false  | Default state              |
-| is_active          | BOOLEAN      | NOT NULL DEFAULT true   | Kill switch                |
-| rollout_percentage | INTEGER      | DEFAULT 0 CHECK (rollout_percentage >= 0 AND rollout_percentage <= 100) | Gradual rollout (0-100%) |
-| allowed_shop_ids   | UUID[]       | DEFAULT '{}'            | Whitelist                  |
-| blocked_shop_ids   | UUID[]       | DEFAULT '{}'            | Blacklist                  |
-| conditions         | JSONB        | DEFAULT '{}'            | Complex rules              |
-| created_by         | UUID         | FK staff_users(id)      |                            |
-| created_at         | TIMESTAMPTZ  | DEFAULT now()           |                            |
-| updated_at         | TIMESTAMPTZ  | DEFAULT now()           |                            |
+| Column             | Type         | Constraints                                                             | Description                |
+| ------------------ | ------------ | ----------------------------------------------------------------------- | -------------------------- |
+| id                 | UUID         | PK DEFAULT uuidv7()                                                     | Flag identifier            |
+| flag_key           | VARCHAR(100) | UNIQUE NOT NULL                                                         | Flag name (e.g., 'bulk_v2')|
+| description        | TEXT         |                                                                         | Purpose description        |
+| default_value      | BOOLEAN      | NOT NULL DEFAULT false                                                  | Default state              |
+| is_active          | BOOLEAN      | NOT NULL DEFAULT true                                                   | Kill switch                |
+| rollout_percentage | INTEGER      | DEFAULT 0 CHECK (rollout_percentage >= 0 AND rollout_percentage <= 100) | Gradual rollout (0-100%)   |
+| allowed_shop_ids   | UUID[]       | DEFAULT '{}'                                                            | Whitelist                  |
+| blocked_shop_ids   | UUID[]       | DEFAULT '{}'                                                            | Blacklist                  |
+| conditions         | JSONB        | DEFAULT '{}'                                                            | Complex rules              |
+| created_by         | UUID         | FK staff_users(id)                                                      |                            |
+| created_at         | TIMESTAMPTZ  | DEFAULT now()                                                           |                            |
+| updated_at         | TIMESTAMPTZ  | DEFAULT now()                                                           |                            |
 
 **Indexes:**
 
@@ -288,6 +288,7 @@
 ---
 
 ### Table: `shopify_variants`
+
 ### Table: `shopify_tokens`
 
 | Column                  | Type        | Constraints               | Description                             |
@@ -318,39 +319,39 @@
 - Decriptare este backward-compatible pe `key_version`.
 - Script rotație: `packages/database/scripts/rotate-encryption-key.ts` recriptează toate token-urile cu versiunea activă fără a șterge cheile vechi.
 
-| Column             | Type           | Constraints                      | Description               |
-| ------------------ | -------------- | -------------------------------- | ------------------------- |
-| id                 | UUID           | PK DEFAULT uuidv7()              | Internal ID               |
-| shop_id            | UUID           | FK shops(id) NOT NULL            |                           |
-| product_id         | UUID           | FK shopify_products(id) NOT NULL |                           |
-| shopify_gid        | VARCHAR(100)   | NOT NULL                         | gid://shopify/Product/123 |
-| legacy_resource_id | BIGINT         | NOT NULL                         | Numeric Shopify ID        |
-| title              | VARCHAR(255)   | NOT NULL                         | Variant title             |
+| Column             | Type           | Constraints                      | Description                              |
+| ------------------ | -------------- | -------------------------------- | ---------------------------------------- |
+| id                 | UUID           | PK DEFAULT uuidv7()              | Internal ID                              |
+| shop_id            | UUID           | FK shops(id) NOT NULL            |                                          |
+| product_id         | UUID           | FK shopify_products(id) NOT NULL |                                          |
+| shopify_gid        | VARCHAR(100)   | NOT NULL                         | gid://shopify/Product/123                |
+| legacy_resource_id | BIGINT         | NOT NULL                         | Numeric Shopify ID                       |
+| title              | VARCHAR(255)   | NOT NULL                         | Variant title                            |
 | sku                | VARCHAR(255)   |                                  | Stock keeping unit (optional in Shopify) |
 | barcode            | VARCHAR(100)   |                                  | UPC/EAN/ISBN (optional in Shopify)       |
-| price              | DECIMAL(12,2)  | NOT NULL                         |                           |
-| compare_at_price   | DECIMAL(12,2)  | NOT NULL                         |                           |
-| currency_code      | VARCHAR(3)     | DEFAULT 'RON'                    |                           |
-| cost               | DECIMAL(12,2)  |                                  | Unit cost                 |
-| weight             | DECIMAL(10,4)  |                                  |                           |
-| weight_unit        | VARCHAR(20)    | DEFAULT 'KILOGRAMS'              |                           |
-| inventory_quantity | INTEGER        | DEFAULT 0                        |                           |
-| inventory_policy   | VARCHAR(20)    | DEFAULT 'DENY'                   | DENY/CONTINUE             |
-| inventory_item_id  | VARCHAR(100)   |                                  | Inventory item GID        |
-| taxable            | BOOLEAN        | DEFAULT true                     |                           |
-| tax_code           | VARCHAR(50)    |                                  | Tax code                  |
-| available_for_sale | BOOLEAN        | DEFAULT true                     |                           |
-| requires_shipping  | BOOLEAN        | DEFAULT true                     |                           |
-| requires_components| BOOLEAN        | DEFAULT false                    | Bundle variant            |
-| position           | INTEGER        | DEFAULT 1                        | Sort order                |
-| selected_options   | JSONB          | DEFAULT '[]'                     | [{name,value}]            |
-| image_url          | TEXT           |                                  | Variant image             |
-| metafields         | JSONB          | DEFAULT '{}'                     |                           |
-| created_at_shopify | TIMESTAMPTZ    |                                  |                           |
-| updated_at_shopify | TIMESTAMPTZ    |                                  |                           |
-| synced_at          | TIMESTAMPTZ    | DEFAULT now()                    |                           |
-| created_at         | TIMESTAMPTZ    | DEFAULT now()                    |                           |
-| updated_at         | TIMESTAMPTZ    | DEFAULT now()                    |                           |
+| price              | DECIMAL(12,2)  | NOT NULL                         |                                          |
+| compare_at_price   | DECIMAL(12,2)  | NOT NULL                         |                                          |
+| currency_code      | VARCHAR(3)     | DEFAULT 'RON'                    |                                          |
+| cost               | DECIMAL(12,2)  |                                  | Unit cost                                |
+| weight             | DECIMAL(10,4)  |                                  |                                          |
+| weight_unit        | VARCHAR(20)    | DEFAULT 'KILOGRAMS'              |                                          |
+| inventory_quantity | INTEGER        | DEFAULT 0                        |                                          |
+| inventory_policy   | VARCHAR(20)    | DEFAULT 'DENY'                   | DENY/CONTINUE                            |
+| inventory_item_id  | VARCHAR(100)   |                                  | Inventory item GID                       |
+| taxable            | BOOLEAN        | DEFAULT true                     |                                          |
+| tax_code           | VARCHAR(50)    |                                  | Tax code                                 |
+| available_for_sale | BOOLEAN        | DEFAULT true                     |                                          |
+| requires_shipping  | BOOLEAN        | DEFAULT true                     |                                          |
+| requires_components| BOOLEAN        | DEFAULT false                    | Bundle variant                           |
+| position           | INTEGER        | DEFAULT 1                        | Sort order                               |
+| selected_options   | JSONB          | DEFAULT '[]'                     | [{name,value}]                           |
+| image_url          | TEXT           |                                  | Variant image                            |
+| metafields         | JSONB          | DEFAULT '{}'                     |                                          |
+| created_at_shopify | TIMESTAMPTZ    |                                  |                                          |
+| updated_at_shopify | TIMESTAMPTZ    |                                  |                                          |
+| synced_at          | TIMESTAMPTZ    | DEFAULT now()                    |                                          |
+| created_at         | TIMESTAMPTZ    | DEFAULT now()                    |                                          |
+| updated_at         | TIMESTAMPTZ    | DEFAULT now()                    |                                          |
 
 **Indexes:**
 
@@ -898,30 +899,30 @@
 
 ### Table: `prod_master`
 
-| Column            | Type         | Constraints          | Description               |
-| ------------------| ------------ | ---------------------| --------------------------|
-| id                | UUID         | PK DEFAULT uuidv7()  | Golden record ID          |
-| internal_sku      | VARCHAR(100) | UNIQUE NOT NULL      | Master SKU                |
-| canonical_title   | TEXT         | NOT NULL             | Resolved title            |
-| brand             | VARCHAR(255) |                      |                           |
-| manufacturer      | VARCHAR(255) |                      |                           |
-| mpn               | VARCHAR(100) |                      | Manufacturer part #       |
-| gtin              | VARCHAR(14)  |                      | Global Trade Item #       |
-| taxonomy_id       | UUID         | FK prod_taxonomy(id) |                           |
-| dedupe_status     | VARCHAR(20)  | DEFAULT 'unique'     | unique/merged/duplicate   |
-| dedupe_cluster_id | UUID         |                      | Cluster reference         |
-| primary_source_id | UUID         | FK prod_sources(id)  |                           |
-| lifecycle_status    | VARCHAR(20)  | DEFAULT 'active'     | active/discontinued/draft |
-| data_quality_level  | VARCHAR(20)  | NOT NULL DEFAULT 'bronze' CHECK (data_quality_level IN ('bronze', 'silver', 'golden', 'review_needed')) | PIM maturity stage |
-| quality_score       | DECIMAL(3,2) |                      | 0.0-1.0 computed score    |
-| quality_score_breakdown | JSONB    | DEFAULT '{}'         | {completeness, accuracy, consistency} |
-| last_quality_check  | TIMESTAMPTZ  |                      | When quality was last evaluated |
-| promoted_to_silver_at | TIMESTAMPTZ |                     | Timestamp of silver promotion |
-| promoted_to_golden_at | TIMESTAMPTZ |                     | Timestamp of golden promotion |
-| needs_review        | BOOLEAN      | DEFAULT false        |                           |
-| review_notes        | TEXT         |                      |                           |
-| created_at          | TIMESTAMPTZ  | DEFAULT now()        |                           |
-| updated_at          | TIMESTAMPTZ  | DEFAULT now()        |                           |
+| Column                  | Type         | Constraints                                                                                             | Description                           |
+| ------------------------| ------------ | --------------------------------------------------------------------------------------------------------| --------------------------------------|
+| id                      | UUID         | PK DEFAULT uuidv7()                                                                                     | Golden record ID                      |
+| internal_sku            | VARCHAR(100) | UNIQUE NOT NULL                                                                                         | Master SKU                            |
+| canonical_title         | TEXT         | NOT NULL                                                                                                | Resolved title                        |
+| brand                   | VARCHAR(255) |                                                                                                         |                                       |
+| manufacturer            | VARCHAR(255) |                                                                                                         |                                       |
+| mpn                     | VARCHAR(100) |                                                                                                         | Manufacturer part #                   |
+| gtin                    | VARCHAR(14)  |                                                                                                         | Global Trade Item #                   |
+| taxonomy_id             | UUID         | FK prod_taxonomy(id)                                                                                    |                                       |
+| dedupe_status           | VARCHAR(20)  | DEFAULT 'unique'                                                                                        | unique/merged/duplicate               |
+| dedupe_cluster_id       | UUID         |                                                                                                         | Cluster reference                     |
+| primary_source_id       | UUID         | FK prod_sources(id)                                                                                     |                                       |
+| lifecycle_status        | VARCHAR(20)  | DEFAULT 'active'                                                                                        | active/discontinued/draft             |
+| data_quality_level      | VARCHAR(20)  | NOT NULL DEFAULT 'bronze' CHECK (data_quality_level IN ('bronze', 'silver', 'golden', 'review_needed')) | PIM maturity stage                    |
+| quality_score           | DECIMAL(3,2) |                                                                                                         | 0.0-1.0 computed score                |
+| quality_score_breakdown | JSONB        | DEFAULT '{}'                                                                                            | {completeness, accuracy, consistency} |
+| last_quality_check      | TIMESTAMPTZ  |                                                                                                         | When quality was last evaluated       |
+| promoted_to_silver_at   | TIMESTAMPTZ  |                                                                                                         | Timestamp of silver promotion         |
+| promoted_to_golden_at   | TIMESTAMPTZ  |                                                                                                         | Timestamp of golden promotion         |
+| needs_review            | BOOLEAN      | DEFAULT false                                                                                           |                                       |
+| review_notes            | TEXT         |                                                                                                         |                                       |
+| created_at              | TIMESTAMPTZ  | DEFAULT now()                                                                                           |                                       |
+| updated_at              | TIMESTAMPTZ  | DEFAULT now()                                                                                           |                                       |
 
 **Indexes:**
 
@@ -1098,31 +1099,31 @@
 
 > **Purpose:** Store external product matches from broad search/research (Google, suppliers, web scraping) for 95-100% similarity validation
 
-| Column               | Type           | Constraints                            | Description                              |
-| -------------------- | -------------- | -------------------------------------- | ---------------------------------------- |
-| id                   | UUID           | PK DEFAULT uuidv7()                    |                                          |
-| product_id           | UUID           | FK prod_master(id) NOT NULL            | Our internal product                     |
-| source_id            | UUID           | FK prod_sources(id)                    | Where the match was found                |
-| source_url           | TEXT           | NOT NULL                               | URL of external product page             |
-| source_product_id    | VARCHAR(255)   |                                        | External product ID (ASIN, eMag ID)      |
-| source_gtin          | VARCHAR(14)    |                                        | GTIN from external source                |
-| source_title         | TEXT           |                                        | Title from external source               |
-| source_brand         | VARCHAR(255)   |                                        | Brand from external source               |
-| source_price         | DECIMAL(12,2)  |                                        | Price from external source               |
-| source_currency      | VARCHAR(3)     |                                        | Currency code                            |
-| similarity_score     | DECIMAL(5,4)   | NOT NULL CHECK (similarity_score >= 0 AND similarity_score <= 1) | 0.95-1.00 for valid matches |
-| match_method         | VARCHAR(30)    | NOT NULL                               | gtin_exact/vector_semantic/title_fuzzy/mpn_exact |
-| match_confidence     | VARCHAR(20)    | DEFAULT 'pending'                      | pending/confirmed/rejected/uncertain     |
-| match_details        | JSONB          | DEFAULT '{}'                           | {matched_fields, scores_breakdown}       |
-| extraction_session_id| UUID           | FK prod_extraction_sessions(id)        | If specs were extracted                  |
-| specs_extracted      | JSONB          |                                        | Specs harvested from this source         |
-| scraped_at           | TIMESTAMPTZ    |                                        | When the source was scraped              |
-| validated_at         | TIMESTAMPTZ    |                                        | When human/AI validated                  |
-| validated_by         | UUID           | FK staff_users(id)                     | Who validated (if human)                 |
-| validation_notes     | TEXT           |                                        |                                          |
-| is_primary_source    | BOOLEAN        | DEFAULT false                          | Is this the best match for enrichment    |
-| created_at           | TIMESTAMPTZ    | DEFAULT now()                          |                                          |
-| updated_at           | TIMESTAMPTZ    | DEFAULT now()                          |                                          |
+| Column               | Type           | Constraints                                                      | Description                                      |
+| -------------------- | -------------- | ---------------------------------------------------------------- | ------------------------------------------------ |
+| id                   | UUID           | PK DEFAULT uuidv7()                                              |                                                  |
+| product_id           | UUID           | FK prod_master(id) NOT NULL                                      | Our internal product                             |
+| source_id            | UUID           | FK prod_sources(id)                                              | Where the match was found                        |
+| source_url           | TEXT           | NOT NULL                                                         | URL of external product page                     |
+| source_product_id    | VARCHAR(255)   |                                                                  | External product ID (ASIN, eMag ID)              |
+| source_gtin          | VARCHAR(14)    |                                                                  | GTIN from external source                        |
+| source_title         | TEXT           |                                                                  | Title from external source                       |
+| source_brand         | VARCHAR(255)   |                                                                  | Brand from external source                       |
+| source_price         | DECIMAL(12,2)  |                                                                  | Price from external source                       |
+| source_currency      | VARCHAR(3)     |                                                                  | Currency code                                    |
+| similarity_score     | DECIMAL(5,4)   | NOT NULL CHECK (similarity_score >= 0 AND similarity_score <= 1) | 0.95-1.00 for valid matches                      |
+| match_method         | VARCHAR(30)    | NOT NULL                                                         | gtin_exact/vector_semantic/title_fuzzy/mpn_exact |
+| match_confidence     | VARCHAR(20)    | DEFAULT 'pending'                                                | pending/confirmed/rejected/uncertain             |
+| match_details        | JSONB          | DEFAULT '{}'                                                     | {matched_fields, scores_breakdown}               |
+| extraction_session_id| UUID           | FK prod_extraction_sessions(id)                                  | If specs were extracted                          |
+| specs_extracted      | JSONB          |                                                                  | Specs harvested from this source                 |
+| scraped_at           | TIMESTAMPTZ    |                                                                  | When the source was scraped                      |
+| validated_at         | TIMESTAMPTZ    |                                                                  | When human/AI validated                          |
+| validated_by         | UUID           | FK staff_users(id)                                               | Who validated (if human)                         |
+| validation_notes     | TEXT           |                                                                  |                                                  |
+| is_primary_source    | BOOLEAN        | DEFAULT false                                                    | Is this the best match for enrichment            |
+| created_at           | TIMESTAMPTZ    | DEFAULT now()                                                    |                                                  |
+| updated_at           | TIMESTAMPTZ    | DEFAULT now()                                                    |                                                  |
 
 **Indexes:**
 
@@ -1143,22 +1144,22 @@
 
 > **Purpose:** Track quality level changes for audit trail and notifications (Gap #5)
 
-| Column             | Type         | Constraints                    | Description                           |
-| ------------------ | ------------ | ------------------------------ | ------------------------------------- |
-| id                 | UUID         | PK DEFAULT uuidv7()            |                                       |
-| product_id         | UUID         | FK prod_master(id) NOT NULL    |                                       |
-| event_type         | VARCHAR(50)  | NOT NULL                       | quality_promoted/quality_demoted/review_requested |
-| previous_level     | VARCHAR(20)  |                                | bronze/silver/golden                  |
-| new_level          | VARCHAR(20)  | NOT NULL                       | bronze/silver/golden/review_needed    |
-| quality_score_before | DECIMAL(3,2) |                              |                                       |
-| quality_score_after  | DECIMAL(3,2) |                              |                                       |
-| trigger_reason     | VARCHAR(100) | NOT NULL                       | auto_enrichment/manual_review/data_change/scheduled_check |
-| trigger_details    | JSONB        | DEFAULT '{}'                   | {changed_fields, enrichment_source}   |
-| triggered_by       | UUID         | FK staff_users(id)             | NULL if automated                     |
-| job_id             | VARCHAR(255) |                                | BullMQ job reference if async         |
-| webhook_sent       | BOOLEAN      | DEFAULT false                  | Was notification sent                 |
-| webhook_sent_at    | TIMESTAMPTZ  |                                |                                       |
-| created_at         | TIMESTAMPTZ  | DEFAULT now()                  |                                       |
+| Column               | Type         | Constraints                    | Description                                               |
+| -------------------- | ------------ | ------------------------------ | --------------------------------------------------------- |
+| id                   | UUID         | PK DEFAULT uuidv7()            |                                                           |
+| product_id           | UUID         | FK prod_master(id) NOT NULL    |                                                           |
+| event_type           | VARCHAR(50)  | NOT NULL                       | quality_promoted/quality_demoted/review_requested         |
+| previous_level       | VARCHAR(20)  |                                | bronze/silver/golden                                      |
+| new_level            | VARCHAR(20)  | NOT NULL                       | bronze/silver/golden/review_needed                        |
+| quality_score_before | DECIMAL(3,2) |                                |                                                           |
+| quality_score_after  | DECIMAL(3,2) |                                |                                                           |
+| trigger_reason       | VARCHAR(100) | NOT NULL                       | auto_enrichment/manual_review/data_change/scheduled_check |
+| trigger_details      | JSONB        | DEFAULT '{}'                   | {changed_fields, enrichment_source}                       |
+| triggered_by         | UUID         | FK staff_users(id)             | NULL if automated                                         |
+| job_id               | VARCHAR(255) |                                | BullMQ job reference if async                             |
+| webhook_sent         | BOOLEAN      | DEFAULT false                  | Was notification sent                                     |
+| webhook_sent_at      | TIMESTAMPTZ  |                                |                                                           |
+| created_at           | TIMESTAMPTZ  | DEFAULT now()                  |                                                           |
 
 **Indexes:**
 
@@ -2837,22 +2838,22 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_embeddings_product_current
 
 ## Table Summary
 
-| Module                  | Tables                | Purpose                                                     |
-| ----------------------- | --------------------- | ----------------------------------------------------------- |
-| A: System Core          | 9                     | Multi-tenancy, auth, sessions, OAuth, feature flags, config |
-| B: Shopify Mirror       | 9                     | Shopify data sync + webhook events                          |
-| C: Bulk Operations      | 6                     | Bulk import staging                                         |
+| Module                  | Tables                | Purpose                                                                               |
+| ----------------------- | --------------------- | ------------------------------------------------------------------------------------- |
+| A: System Core          | 9                     | Multi-tenancy, auth, sessions, OAuth, feature flags, config                           |
+| B: Shopify Mirror       | 9                     | Shopify data sync + webhook events                                                    |
+| C: Bulk Operations      | 6                     | Bulk import staging                                                                   |
 | D: Global PIM           | 8+4+2 = 14            | Product info + proposals + dedup + translations + similarity matches + quality events |
-| E: Normalization        | 4                     | Attributes, PIM vectors + per-shop embeddings               |
-| F: AI Batch             | 3                     | AI processing jobs + embedding batches                      |
-| G: Queue                | 4                     | Job tracking + rate limiting                                |
-| H: Audit                | 2                     | Observability                                               |
-| I: Inventory            | 2+1 MV                | High-velocity inventory tracking                            |
-| J: Media & Publications | 5                     | Shopify media, channels                                     |
-| K: Menus                | 2                     | Navigation structures                                       |
-| L: Scraper              | 4 + 1 View            | Web scraping management + API cost tracking                 |
-| M: Analytics            | 2+6 MVs               | Precomputed metrics + dashboard MVs + PIM progress MVs      |
-| **Total**               | **66 tables + 7 MVs + 1 View** |                                                      |
+| E: Normalization        | 4                     | Attributes, PIM vectors + per-shop embeddings                                         |
+| F: AI Batch             | 3                     | AI processing jobs + embedding batches                                                |
+| G: Queue                | 4                     | Job tracking + rate limiting                                                          |
+| H: Audit                | 2                     | Observability                                                                         |
+| I: Inventory            | 2+1 MV                | High-velocity inventory tracking                                                      |
+| J: Media & Publications | 5                     | Shopify media, channels                                                               |
+| K: Menus                | 2                     | Navigation structures                                                                 |
+| L: Scraper              | 4 + 1 View            | Web scraping management + API cost tracking                                           |
+| M: Analytics            | 2+6 MVs               | Precomputed metrics + dashboard MVs + PIM progress MVs                                |
+| **Total**               | **66T + 7MVs + 1V**   |                                                                                       |
 
 ### New Tables Added (v2.6)
 
