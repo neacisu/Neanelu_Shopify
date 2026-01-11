@@ -362,17 +362,17 @@ interface LogEntry {
 
 **Path:** `/apps/web-admin/app/components/domain/ShopifyAdminLink.tsx`
 
-| Prop           | Type                    | Required | Default  | Description                                       |
-|----------------|-------------------------|----------|----------|---------------------------------------------------|
-| resourceType   | `ShopifyResourceType`   | ✓        | -        | Type of Shopify resource (products, orders, etc.) |
-| resourceId     | `string \| number`      |          | -        | Resource ID for specific item link                |
-| subPath        | `string`                |          | -        | Sub-path (e.g., 'edit', 'variants')               |
-| className      | `string`                |          | -        | Additional CSS classes                            |
-| disabled       | `boolean`               |          | `false`  | Disables the link                                 |
-| fallbackNewTab | `boolean`               |          | `true`   | Opens in new tab when App Bridge unavailable      |
-| title          | `string`                |          | -        | Title attribute for tooltip                       |
-| onClick        | `(e: MouseEvent) => void` |        | -        | Click handler before navigation                   |
-| children       | `ReactNode`             | ✓        | -        | Link content                                      |
+| Prop           | Type                      | Required | Default  | Description                                       |
+|----------------|---------------------------|----------|----------|---------------------------------------------------|
+| resourceType   | `ShopifyResourceType`     | ✓        | -        | Type of Shopify resource (products, orders, etc.) |
+| resourceId     | `string \| number`        |          | -        | Resource ID for specific item link                |
+| subPath        | `string`                  |          | -        | Sub-path (e.g., 'edit', 'variants')               |
+| className      | `string`                  |          | -        | Additional CSS classes                            |
+| disabled       | `boolean`                 |          | `false`  | Disables the link                                 |
+| fallbackNewTab | `boolean`                 |          | `true`   | Opens in new tab when App Bridge unavailable      |
+| title          | `string`                  |          | -        | Title attribute for tooltip                       |
+| onClick        | `(e: MouseEvent) => void` |          | -        | Click handler before navigation                   |
+| children       | `ReactNode`               | ✓        | -        | Link content                                      |
 
 **ShopifyResourceType:**
 
@@ -417,22 +417,22 @@ type ShopifyResourceType =
 
 **Path:** `/apps/web-admin/app/components/ui/Timeline.tsx`
 
-| Prop             | Type                        | Required | Default                    | Description                              |
-|------------------|-----------------------------|----------|----------------------------|------------------------------------------|
-| events           | `readonly TimelineEvent[]`  | ✓        | -                          | List of timeline events                  |
-| orientation      | `'vertical' \| 'horizontal'`|          | `'vertical'`               | Timeline layout direction                |
-| loading          | `boolean`                   |          | `false`                    | Shows loading state                      |
-| loadingState     | `ReactNode`                 |          | -                          | Custom loading element                   |
-| loadMore         | `() => void \| Promise<void>` |        | -                          | Infinite scroll callback                 |
-| hasMore          | `boolean`                   |          | `false`                    | Whether more events can be loaded        |
-| showGroupHeaders | `boolean`                   |          | `true`                     | Group events by day with headers         |
-| relativeTime     | `boolean`                   |          | `true`                     | Show relative time (e.g., "2 hours ago") |
-| expandable       | `boolean`                   |          | `true`                     | Allow click to expand event details      |
-| maxHeight        | `number \| string`          |          | -                          | Max container height                     |
-| className        | `string`                    |          | -                          | Additional CSS classes                   |
-| emptyState       | `ReactNode`                 |          | -                          | Custom empty state                       |
-| timeFormat       | `string`                    |          | `'HH:mm'`                  | date-fns format for time                 |
-| dateFormat       | `string`                    |          | `'EEEE, MMMM d, yyyy'`     | date-fns format for date headers         |
+| Prop             | Type                          | Required | Default                    | Description                              |
+|------------------|-------------------------------|----------|----------------------------|------------------------------------------|
+| events           | `readonly TimelineEvent[]`    | ✓        | -                          | List of timeline events                  |
+| orientation      | `'vertical' \| 'horizontal'`  |          | `'vertical'`               | Timeline layout direction                |
+| loading          | `boolean`                     |          | `false`                    | Shows loading state                      |
+| loadingState     | `ReactNode`                   |          | -                          | Custom loading element                   |
+| loadMore         | `() => void \| Promise<void>` |          | -                          | Infinite scroll callback                 |
+| hasMore          | `boolean`                     |          | `false`                    | Whether more events can be loaded        |
+| showGroupHeaders | `boolean`                     |          | `true`                     | Group events by day with headers         |
+| relativeTime     | `boolean`                     |          | `true`                     | Show relative time (e.g., "2 hours ago") |
+| expandable       | `boolean`                     |          | `true`                     | Allow click to expand event details      |
+| maxHeight        | `number \| string`            |          | -                          | Max container height                     |
+| className        | `string`                      |          | -                          | Additional CSS classes                   |
+| emptyState       | `ReactNode`                   |          | -                          | Custom empty state                       |
+| timeFormat       | `string`                      |          | `'HH:mm'`                  | date-fns format for time                 |
+| dateFormat       | `string`                      |          | `'EEEE, MMMM d, yyyy'`     | date-fns format for date headers         |
 
 **TimelineEvent Type:**
 
@@ -563,8 +563,8 @@ function useApiRequest<TArgs extends unknown[], TResult>(
 
 ## Changelog
 
-| Date       | Version | Changes                                                       |
-|------------|---------|---------------------------------------------------------------|
-| 2025-12-25 | 1.0     | Initial specification                                                     |
-| 2026-01-04 | 1.1     | Added API client hooks, state components, and form primitives             |
+| Date       | Version | Changes                                                                     |
+|------------|---------|-----------------------------------------------------------------------------|
+| 2025-12-25 | 1.0     | Initial specification                                                       |
+| 2026-01-04 | 1.1     | Added API client hooks, state components, and form primitives               |
 | 2026-01-11 | 1.2     | Added Timeline (F3.9.3) and ShopifyAdminLink (F3.7.5) - Sprint 5 completion |

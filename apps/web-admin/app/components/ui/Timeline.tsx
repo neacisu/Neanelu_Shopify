@@ -310,10 +310,7 @@ export function Timeline(props: TimelineProps) {
       >
         <div className="flex items-start gap-4 p-4">
           {parsedEvents.map((parsed) => (
-            <div
-              key={parsed.event.id}
-              className="flex flex-col items-center min-w-[140px] max-w-[200px]"
-            >
+            <div key={parsed.event.id} className="flex flex-col items-center min-w-35 max-w-50">
               <div
                 className={`h-3 w-3 rounded-full border-2 ${
                   statusColors[parsed.event.status ?? 'neutral']
