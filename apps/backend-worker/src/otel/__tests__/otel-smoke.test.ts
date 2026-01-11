@@ -5,7 +5,9 @@ import { spawn } from 'node:child_process';
 
 const enabled = process.env['RUN_OTEL_SMOKE'] === '1';
 
-void describe('otel smoke (dev)', { skip: !enabled }, () => {
+const enabledForSmokeRun = process.env['SMOKE_RUN'] === '1';
+
+void describe('otel smoke (dev)', { skip: !(enabled || enabledForSmokeRun) }, () => {
   void it('exports OTLP traces to the configured endpoint', async () => {
     let traceRequests = 0;
     let metricRequests = 0;
@@ -38,6 +40,7 @@ void describe('otel smoke (dev)', { skip: !enabled }, () => {
           ...process.env,
           NODE_ENV: 'development',
           OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${port}`,
+          OTEL_SERVICE_NAME: process.env['OTEL_SERVICE_NAME'] ?? 'neanelu-shopify-smoke',
           OTEL_SAMPLING_RATIO: '1.0',
           OBS_DEBUG: '0',
         },
