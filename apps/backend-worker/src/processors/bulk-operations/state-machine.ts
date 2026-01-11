@@ -176,7 +176,27 @@ export async function markBulkRunFailed(params: {
        WHERE id = $2`,
       [params.errorMessage, params.bulkRunId]
     );
+  });
 
+  await insertBulkError({
+    shopId: params.shopId,
+    bulkRunId: params.bulkRunId,
+    errorType: params.errorType,
+    errorCode: params.errorCode ?? null,
+    errorMessage: params.errorMessage,
+  });
+}
+
+export async function insertBulkError(params: {
+  shopId: string;
+  bulkRunId: string;
+  errorType: string;
+  errorCode?: string | null;
+  errorMessage: string;
+  payload?: unknown;
+  lineNumber?: number | null;
+}): Promise<void> {
+  await withTenantContext(params.shopId, async (client) => {
     await client.query(
       `INSERT INTO bulk_errors (
          bulk_run_id,
@@ -184,15 +204,19 @@ export async function markBulkRunFailed(params: {
          error_type,
          error_code,
          error_message,
+         line_number,
+         payload,
          created_at
        )
-       VALUES ($1, $2, $3, $4, $5, now())`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, now())`,
       [
         params.bulkRunId,
         params.shopId,
         params.errorType,
         params.errorCode ?? null,
         params.errorMessage,
+        params.lineNumber ?? null,
+        params.payload ?? null,
       ]
     );
   });
@@ -217,6 +241,24 @@ export async function markBulkRunStarted(params: {
            updated_at = now()
        WHERE id = $4`,
       [params.shopifyOperationId, params.apiVersion, params.costEstimate, params.bulkRunId]
+    );
+  });
+  recordDbQuery('update', (Date.now() - started) / 1000);
+}
+
+export async function patchBulkRunCursorState(params: {
+  shopId: string;
+  bulkRunId: string;
+  patch: Record<string, unknown>;
+}): Promise<void> {
+  const started = Date.now();
+  await withTenantContext(params.shopId, async (client) => {
+    await client.query(
+      `UPDATE bulk_runs
+       SET cursor_state = COALESCE(cursor_state, '{}'::jsonb) || $1::jsonb,
+           updated_at = now()
+       WHERE id = $2`,
+      [JSON.stringify(params.patch), params.bulkRunId]
     );
   });
   recordDbQuery('update', (Date.now() - started) / 1000);

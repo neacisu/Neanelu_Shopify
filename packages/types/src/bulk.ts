@@ -27,6 +27,8 @@ export interface BulkOrchestratorJobPayload {
   operationType: BulkOperationType;
   /** Optional category for observability/debugging (e.g. 'core', 'inventory'). */
   queryType?: string;
+  /** Optional version tag for a versioned query contract (e.g. 'v1'). */
+  queryVersion?: string;
   /** GraphQL query to run via bulkOperationRunQuery. */
   graphqlQuery: string;
   /** Optional idempotency key. If omitted, orchestrator will derive one from inputs. */
@@ -60,6 +62,8 @@ export function validateBulkOrchestratorJobPayload(
   if (!(BULK_OPERATION_TYPES as readonly string[]).includes(job.operationType)) return false;
 
   if (job.queryType !== undefined && typeof job.queryType !== 'string') return false;
+
+  if (job.queryVersion !== undefined && typeof job.queryVersion !== 'string') return false;
 
   if (typeof job.graphqlQuery !== 'string' || !job.graphqlQuery.trim()) return false;
 

@@ -240,10 +240,23 @@ void describe('smoke: bulk poller (enqueue → poll → bulk_runs completed + ar
     // Wait up to ~5s for completion.
     let status: string | null = null;
     let resultUrl: string | null = null;
+    let partialDataUrl: string | null = null;
+    let cursorPartial: string | null = null;
     for (let i = 0; i < 50; i++) {
       const row = await withTenantContext(shopId, async (client) => {
-        const res = await client.query<{ status: string; result_url: string | null }>(
-          `SELECT status, result_url FROM bulk_runs WHERE id = $1`,
+        const res = await client.query<{
+          status: string;
+          result_url: string | null;
+          partial_data_url: string | null;
+          cursor_partial: string | null;
+        }>(
+          `SELECT
+             status,
+             result_url,
+             partial_data_url,
+             cursor_state ->> 'partialDataUrl' AS cursor_partial
+           FROM bulk_runs
+           WHERE id = $1`,
           [bulkRunId]
         );
         return res.rows[0] ?? null;
@@ -251,12 +264,16 @@ void describe('smoke: bulk poller (enqueue → poll → bulk_runs completed + ar
 
       status = row?.status ?? null;
       resultUrl = row?.result_url ?? null;
+      partialDataUrl = row?.partial_data_url ?? null;
+      cursorPartial = row?.cursor_partial ?? null;
       if (status === 'completed') break;
       await sleep(100);
     }
 
     assert.equal(status, 'completed');
     assert.equal(resultUrl, MOCK_RESULT_URL);
+    assert.equal(partialDataUrl, MOCK_PARTIAL_URL);
+    assert.equal(cursorPartial, MOCK_PARTIAL_URL);
 
     const artifact = await withTenantContext(shopId, async (client) => {
       const res = await client.query<{ url: string }>(

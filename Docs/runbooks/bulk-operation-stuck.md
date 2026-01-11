@@ -44,6 +44,7 @@ This runbook documents recovery procedures for Shopify Bulk Operations that beco
          objectCount
          fileSize
          url
+         partialDataUrl
        }
      }
    }
@@ -52,9 +53,21 @@ This runbook documents recovery procedures for Shopify Bulk Operations that beco
 2. **Check operation status in database:**
 
    ```sql
-   SELECT * FROM bulk_runs
-   WHERE id = '{bulk_run_id}'
-   -- Check: shopify_operation_id, started_at, records_processed
+   SELECT
+     id,
+     status,
+     shop_id,
+     operation_type,
+     query_type,
+     retry_count,
+     max_retries,
+     shopify_operation_id,
+     started_at,
+     completed_at,
+     error_message,
+     cursor_state
+   FROM bulk_runs
+   WHERE id = '{bulk_run_id}';
    ```
 
 3. **Check Redis for job state:**
@@ -68,12 +81,32 @@ This runbook documents recovery procedures for Shopify Bulk Operations that beco
 **If Shopify shows COMPLETED but DB shows RUNNING:**
 
 ```sql
--- Force status update
-UPDATE bulk_runs SET
-  status = 'completed',
-  completed_at = NOW(),
-  result_url = '{url_from_shopify}'
+-- Prefer: let the poller reconcile first.
+-- If you must hotfix, set result_url and store the URL as an artifact.
+UPDATE bulk_runs
+SET status = 'completed',
+      completed_at = NOW(),
+      result_url = '{url_from_shopify}',
+      updated_at = NOW()
 WHERE id = '{bulk_run_id}';
+
+INSERT INTO bulk_artifacts (
+   bulk_run_id,
+   shop_id,
+   artifact_type,
+   file_path,
+   url,
+   created_at
+)
+VALUES (
+   '{bulk_run_id}',
+   '{shop_id}',
+   'shopify_bulk_result_url',
+   'shopify://bulk/{bulk_run_id}/result',
+   '{url_from_shopify}',
+   NOW()
+)
+ON CONFLICT DO NOTHING;
 ```
 
 **If Shopify shows RUNNING:**
@@ -84,11 +117,55 @@ WHERE id = '{bulk_run_id}';
 **If Shopify shows FAILED:**
 
 ```sql
-UPDATE bulk_runs SET
-  status = 'failed',
-  completed_at = NOW(),
-  error_message = '{error_from_shopify}'
+-- Note: poller applies enterprise failure policy:
+-- - transient failures can auto-retry up to max_retries
+-- - permanent failures can go DLQ-direct
+-- Only force to failed if you're sure no retry is pending.
+UPDATE bulk_runs
+SET status = 'failed',
+      completed_at = NOW(),
+      error_message = '{error_from_shopify}',
+      updated_at = NOW()
 WHERE id = '{bulk_run_id}';
+
+INSERT INTO bulk_errors (
+   bulk_run_id,
+   shop_id,
+   error_type,
+   error_code,
+   error_message,
+   payload,
+   created_at
+)
+VALUES (
+   '{bulk_run_id}',
+   '{shop_id}',
+   'poller_terminal',
+   '{error_code_from_shopify}',
+   '{error_from_shopify}',
+   jsonb_build_object('source', 'manual_runbook'),
+   NOW()
+);
+
+-- If Shopify provided partialDataUrl, store it for later salvage.
+-- (This is normally done automatically by the poller.)
+INSERT INTO bulk_artifacts (
+   bulk_run_id,
+   shop_id,
+   artifact_type,
+   file_path,
+   url,
+   created_at
+)
+VALUES (
+   '{bulk_run_id}',
+   '{shop_id}',
+   'shopify_bulk_partial_url',
+   'shopify://bulk/{bulk_run_id}/partial',
+   '{partial_data_url_from_shopify}',
+   NOW()
+)
+ON CONFLICT DO NOTHING;
 ```
 
 ---
@@ -116,6 +193,26 @@ WHERE id = '{bulk_run_id}';
    # Manually trigger retry
    pnpm run queue:dispatch bulk-sync --shop-id={shop_id} --retry=true
    ```
+
+---
+
+## Scenario 2b: Job moved to DLQ (DLQ-direct or attempts exhausted)
+
+### DLQ Symptoms
+
+- Bulk worker logs: "job moved to DLQ"
+- Queue `${QUEUE_NAME}-dlq` contains an entry with `originalQueue`, `failedReason`
+
+### DLQ Diagnosis Steps
+
+1. Inspect DLQ entry payload fields:
+   - `originalQueue`, `originalJobId`, `attemptsMade`, `failedReason`, `data`
+2. Check `bulk_errors` and `bulk_runs.retry_count/max_retries` for context.
+
+### DLQ Resolution
+
+- Permanent failures (auth/query invalid) are configuration issues; fix scopes/credentials and re-run.
+- Transient failures that hit max retries usually indicate infra/rate-limit pressure; stabilize first, then start a fresh run.
 
 ---
 

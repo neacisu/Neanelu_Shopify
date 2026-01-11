@@ -3,6 +3,8 @@ import {
   createWorker,
   withJobTelemetryContext,
   configFromEnv,
+  type DlqEntry,
+  type DlqQueueLike,
 } from '@app/queue-manager';
 import { loadEnv, SHOPIFY_API_VERSION } from '@app/config';
 import { OTEL_ATTR, type Logger } from '@app/logger';
@@ -16,7 +18,8 @@ import {
 } from '../../shopify/graphql-rate-limit.js';
 import { Redis as IORedis, type Redis } from 'ioredis';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
-import { markBulkRunFailed } from './state-machine.js';
+import { insertBulkError, markBulkRunFailed, patchBulkRunCursorState } from './state-machine.js';
+import { enqueueDlqDirect, enqueueRetryOrDlq } from './failure-handler.js';
 
 const env = loadEnv();
 
@@ -142,6 +145,7 @@ async function markRunCompleted(params: {
   shopId: string;
   bulkRunId: string;
   resultUrl: string;
+  partialDataUrl?: string | null;
   resultSizeBytes?: number | null;
   shopifyCompletedAt?: Date | null;
 }): Promise<void> {
@@ -152,12 +156,14 @@ async function markRunCompleted(params: {
            completed_at = COALESCE($1::timestamptz, completed_at, now()),
            result_url = $2,
            result_size_bytes = COALESCE($3::bigint, result_size_bytes),
+           partial_data_url = COALESCE($4::text, partial_data_url),
            updated_at = now()
-       WHERE id = $4`,
+       WHERE id = $5`,
       [
         params.shopifyCompletedAt ? params.shopifyCompletedAt.toISOString() : null,
         params.resultUrl,
         params.resultSizeBytes ?? null,
+        params.partialDataUrl ?? null,
         params.bulkRunId,
       ]
     );
@@ -249,6 +255,37 @@ async function ensureUrlArtifact(params: {
   });
 }
 
+async function recordPartialDataUrlForResume(params: {
+  shopId: string;
+  bulkRunId: string;
+  partialDataUrl: string;
+}): Promise<void> {
+  // Persist separately for later pipeline resume/salvage (Plan F5.1.7).
+  await withTenantContext(params.shopId, async (client) => {
+    await client.query(
+      `UPDATE bulk_runs
+       SET partial_data_url = $1,
+           updated_at = now()
+       WHERE id = $2
+         AND (partial_data_url IS DISTINCT FROM $1)`,
+      [params.partialDataUrl, params.bulkRunId]
+    );
+  });
+
+  await patchBulkRunCursorState({
+    shopId: params.shopId,
+    bulkRunId: params.bulkRunId,
+    patch: {
+      resume: {
+        source: 'partialDataUrl',
+        available: true,
+        observedAt: new Date().toISOString(),
+      },
+      partialDataUrl: params.partialDataUrl,
+    },
+  });
+}
+
 async function updateJobDataSafe(
   job: JobWithUpdateData<BulkPollerJobPayload> | null | undefined,
   data: BulkPollerJobPayload
@@ -268,7 +305,9 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
   const cfg = getShopifyGraphqlRateLimitConfig();
   const qmOptions = { config: configFromEnv(env) };
 
-  const { worker, dlqQueue } = createWorker<BulkPollerJobPayload>(qmOptions, {
+  let dlqQueueRef: DlqQueueLike | null = null;
+
+  const created = createWorker<BulkPollerJobPayload>(qmOptions, {
     name: BULK_POLLER_QUEUE_NAME,
     enableDelayHandling: true,
     enableDlq: true,
@@ -373,6 +412,11 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
           );
 
           if (bulk.partialDataUrl) {
+            await recordPartialDataUrlForResume({
+              shopId: payload.shopId,
+              bulkRunId: payload.bulkRunId,
+              partialDataUrl: bulk.partialDataUrl,
+            });
             const expiresAt = new Date(Date.now() + SHOPIFY_BULK_URL_TTL_MS);
             await ensureUrlArtifact({
               shopId: payload.shopId,
@@ -422,6 +466,7 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
               shopId: payload.shopId,
               bulkRunId: payload.bulkRunId,
               resultUrl: chosenUrl,
+              partialDataUrl: bulk.partialDataUrl ?? null,
               resultSizeBytes: safeIntFromString(bulk.fileSize),
               shopifyCompletedAt: completedAt,
             });
@@ -430,6 +475,64 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
           }
 
           if (bulk.status === 'FAILED' || bulk.status === 'CANCELED' || bulk.status === 'EXPIRED') {
+            if (bulk.partialDataUrl) {
+              await recordPartialDataUrlForResume({
+                shopId: payload.shopId,
+                bulkRunId: payload.bulkRunId,
+                partialDataUrl: bulk.partialDataUrl,
+              });
+            }
+
+            // Always record the terminal failure for audit/debugging.
+            await insertBulkError({
+              shopId: payload.shopId,
+              bulkRunId: payload.bulkRunId,
+              errorType: 'poller_terminal',
+              errorCode: bulk.errorCode ?? bulk.status,
+              errorMessage: `Bulk operation terminal status: ${bulk.status}`,
+              payload: { status: bulk.status, errorCode: bulk.errorCode ?? null },
+            });
+
+            const dlqContext = {
+              originalQueue: BULK_POLLER_QUEUE_NAME,
+              originalJobId: job?.id != null ? String(job.id) : null,
+              originalJobName: String(job?.name ?? 'bulk.poller'),
+            };
+
+            const dlqEnqueue = async (entry: DlqEntry): Promise<void> => {
+              await enqueueDlqDirect({
+                dlqQueue: dlqQueueRef,
+                entry,
+              });
+            };
+
+            const retryOutcome = await enqueueRetryOrDlq({
+              logger,
+              shopId: payload.shopId,
+              bulkRunId: payload.bulkRunId,
+              triggeredBy: payload.triggeredBy,
+              originalJob: {
+                queue: BULK_POLLER_QUEUE_NAME,
+                id: job?.id != null ? String(job.id) : null,
+                name: String(job?.name ?? 'bulk.poller'),
+                data: job?.data,
+              },
+              dlqEnqueue,
+              dlqContext,
+              terminalStatus: bulk.status,
+              shopifyErrorCode: bulk.errorCode ?? null,
+            });
+
+            if (retryOutcome === 'retry_enqueued') {
+              await insertStep({
+                shopId: payload.shopId,
+                bulkRunId: payload.bulkRunId,
+                step: 'poller.retry_enqueued',
+                details: { status: bulk.status, errorCode: bulk.errorCode },
+              });
+              return { outcome: 'retry_enqueued' as const };
+            }
+
             await insertStep({
               shopId: payload.shopId,
               bulkRunId: payload.bulkRunId,
@@ -444,7 +547,7 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
               errorCode: bulk.errorCode ?? bulk.status,
               errorMessage: `Bulk operation terminal status: ${bulk.status}`,
             });
-            return { outcome: 'failed' as const };
+            return { outcome: retryOutcome === 'dlq' ? ('dlq' as const) : ('failed' as const) };
           }
 
           const delayMs = nextBackoffMs(pollAttempt);
@@ -463,6 +566,9 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
       group: { concurrency: env.maxActivePerShop },
     },
   });
+
+  const { worker, dlqQueue } = created;
+  dlqQueueRef = (dlqQueue as DlqQueueLike | null | undefined) ?? null;
 
   worker.on('failed', (job, err) => {
     logger.warn({ jobId: job?.id, err }, 'Poller job failed');

@@ -147,6 +147,9 @@ export async function enqueueBulkOrchestratorJob(
       'shop.id': normalizedShopId,
       'bulk.operation_type': normalizedPayload.operationType,
       ...(normalizedPayload.queryType ? { 'bulk.query_type': normalizedPayload.queryType } : {}),
+      ...(normalizedPayload.queryVersion
+        ? { 'bulk.query_version': normalizedPayload.queryVersion }
+        : {}),
     },
   });
 

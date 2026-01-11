@@ -26,6 +26,8 @@ import {
   withJobTelemetryContext,
   enqueueBulkPollerJob,
   BULK_QUEUE_NAME,
+  type DlqEntry,
+  type DlqQueueLike,
 } from '@app/queue-manager';
 import Redis from 'ioredis';
 import type { Redis as RedisClient } from 'ioredis';
@@ -46,7 +48,10 @@ import {
   insertBulkStep,
   markBulkRunFailed,
   markBulkRunStarted,
+  patchBulkRunCursorState,
 } from './state-machine.js';
+
+import { enqueueDlqDirect } from './failure-handler.js';
 
 const env = loadEnv();
 
@@ -80,12 +85,43 @@ function buildBulkRunQueryMutation(): string {
 }`;
 }
 
+function isPermanentBulkStartError(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes('access denied') ||
+    m.includes('unauthorized') ||
+    m.includes('forbidden') ||
+    m.includes('invalid') ||
+    m.includes('not installed') ||
+    m.includes('missing scope')
+  );
+}
+
+function classifyPermanentBulkStartErrorType(
+  message: string
+): 'INVALID_QUERY' | 'AUTH_FAILED' | 'UNKNOWN' {
+  const m = message.toLowerCase();
+  if (m.includes('invalid')) return 'INVALID_QUERY';
+  if (
+    m.includes('access denied') ||
+    m.includes('unauthorized') ||
+    m.includes('forbidden') ||
+    m.includes('missing scope')
+  ) {
+    return 'AUTH_FAILED';
+  }
+  if (m.includes('not installed')) return 'AUTH_FAILED';
+  return 'UNKNOWN';
+}
+
 export function startBulkOrchestratorWorker(logger: Logger): BulkOrchestratorWorkerHandle {
   const redis = new RedisCtor(env.redisUrl);
   const qmOptions = { config: configFromEnv(env) };
   const graphqlLimiterCfg = getShopifyGraphqlRateLimitConfig();
 
-  const { worker, dlqQueue } = createWorker<BulkOrchestratorJobPayload>(qmOptions, {
+  let dlqQueueRef: DlqQueueLike | null = null;
+
+  const created = createWorker<BulkOrchestratorJobPayload>(qmOptions, {
     name: BULK_QUEUE_NAME,
     enableDelayHandling: true,
     enableDlq: true,
@@ -114,6 +150,7 @@ export function startBulkOrchestratorWorker(logger: Logger): BulkOrchestratorWor
           span.setAttribute(OTEL_ATTR.QUEUE_GROUP_ID, payload.shopId);
           span.setAttribute('bulk.operation_type', payload.operationType);
           if (payload.queryType) span.setAttribute('bulk.query_type', payload.queryType);
+          if (payload.queryVersion) span.setAttribute('bulk.query_version', payload.queryVersion);
 
           setWorkerCurrentJob('bulk-orchestrator-worker', {
             jobId,
@@ -151,6 +188,20 @@ export function startBulkOrchestratorWorker(logger: Logger): BulkOrchestratorWor
               queryType: payload.queryType ?? null,
               idempotencyKey,
               graphqlQueryHash,
+            });
+
+            // Persist contract metadata for deterministic retries/recovery.
+            // Use cursor_state as a forward-compatible JSONB bag.
+            await patchBulkRunCursorState({
+              shopId: payload.shopId,
+              bulkRunId: run.id,
+              patch: {
+                bulkQueryContract: {
+                  queryType: payload.queryType ?? null,
+                  version: payload.queryVersion ?? null,
+                  graphqlQueryHash,
+                },
+              },
             });
 
             // If the run already has a Shopify operation id, it was started before (idempotent resume).
@@ -275,6 +326,53 @@ export function startBulkOrchestratorWorker(logger: Logger): BulkOrchestratorWor
             }
 
             const errorMessage = err instanceof Error ? err.message : 'unknown_error';
+
+            // Permanent failures (invalid query/auth) should go to DLQ immediately.
+            // We still persist bulk_runs/bulk_errors best-effort.
+            if (isPermanentBulkStartError(errorMessage)) {
+              try {
+                const errorType = classifyPermanentBulkStartErrorType(errorMessage);
+                const entry: DlqEntry = {
+                  originalQueue: BULK_QUEUE_NAME,
+                  originalJobId: job?.id != null ? String(job.id) : null,
+                  originalJobName: String(job?.name ?? 'bulk.orchestrator.start'),
+                  attemptsMade: job?.attemptsMade ?? 0,
+                  failedReason: errorMessage,
+                  stacktrace: job?.stacktrace ?? [],
+                  data: {
+                    originalJob: {
+                      queue: BULK_QUEUE_NAME,
+                      id: job?.id != null ? String(job.id) : null,
+                      name: String(job?.name ?? 'bulk.orchestrator.start'),
+                      data: job?.data,
+                    },
+                    errorType,
+                    attempts: {
+                      retryCount: job?.attemptsMade ?? 0,
+                      maxRetries: job?.opts?.attempts ?? null,
+                    },
+                    lastError: {
+                      message: errorMessage,
+                    },
+                  },
+                  occurredAt: new Date().toISOString(),
+                };
+                await enqueueDlqDirect({ dlqQueue: dlqQueueRef, entry });
+              } catch {
+                // best-effort
+              }
+              logger.error(
+                {
+                  event: 'bulk.orchestrator.permanent_fail',
+                  queueName: BULK_QUEUE_NAME,
+                  jobId,
+                  shopId: (job.data as { shopId?: unknown } | undefined)?.shopId,
+                  err,
+                },
+                'Bulk orchestrator permanent failure (DLQ direct)'
+              );
+              return;
+            }
             logger.error(
               {
                 event: 'bulk.orchestrator.fail',
@@ -338,6 +436,9 @@ export function startBulkOrchestratorWorker(logger: Logger): BulkOrchestratorWor
       group: { concurrency: env.maxActivePerShop },
     },
   });
+
+  const { worker, dlqQueue } = created;
+  dlqQueueRef = (dlqQueue as DlqQueueLike | null | undefined) ?? null;
 
   const close = async (): Promise<void> => {
     await worker.close();
