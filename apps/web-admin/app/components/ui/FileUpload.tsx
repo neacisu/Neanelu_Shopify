@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useDropzone, type Accept, type FileRejection } from 'react-dropzone';
 
 import { Button } from './button';
@@ -20,7 +20,15 @@ export type FileUploadProps = Readonly<{
 
   accept?: Accept;
   maxFiles?: number;
+
+  /** Plan API: max size in bytes. */
+  maxSize?: number;
+
+  /** Back-compat alias. */
   maxSizeBytes?: number;
+
+  /** Plan API: toggle thumbnails. */
+  preview?: boolean;
 
   disabled?: boolean;
 
@@ -29,9 +37,19 @@ export type FileUploadProps = Readonly<{
   onItemsChange?: (items: UploadItem[]) => void;
 
   /**
-   * Optional upload strategy. When provided, newly added items will transition to uploading and
-   * progress can be reported via the provided callback.
+   * Plan API: called for each accepted file. When provided, uploads auto-start.
+   * Progress can be reported via the provided callback.
    */
+  onUpload?: (
+    file: File,
+    api: {
+      setProgress: (progress: number) => void;
+      setError: (message: string) => void;
+      setDone: () => void;
+    }
+  ) => Promise<void>;
+
+  /** Back-compat alias (item-based). */
   uploadFn?: (
     item: UploadItem,
     api: {
@@ -64,13 +82,22 @@ export function FileUpload(props: FileUploadProps) {
     description,
     accept,
     maxFiles = 5,
+    maxSize,
     maxSizeBytes,
+    preview = true,
     disabled,
     items: itemsProp,
     onItemsChange,
+    onUpload,
     uploadFn,
     className,
   } = props;
+
+  const labelId = useId();
+  const descriptionId = useId();
+  const errorId = useId();
+
+  const effectiveMaxSize = typeof maxSize === 'number' ? maxSize : maxSizeBytes;
 
   const [uncontrolled, setUncontrolled] = useState<UploadItem[]>([]);
   const items = itemsProp ? Array.from(itemsProp) : uncontrolled;
@@ -105,10 +132,10 @@ export function FileUpload(props: FileUploadProps) {
       }
 
       const toAdd = files.slice(0, remaining);
-      const next: UploadItem[] = [
+      const nextItems: UploadItem[] = [
         ...items,
         ...toAdd.map((file) => {
-          const previewUrl = isImage(file) ? URL.createObjectURL(file) : null;
+          const previewUrl = preview && isImage(file) ? URL.createObjectURL(file) : null;
           return {
             id: newId(),
             file,
@@ -119,9 +146,9 @@ export function FileUpload(props: FileUploadProps) {
         }),
       ];
 
-      setItems(next);
+      setItems(nextItems);
     },
-    [items, maxFiles, setItems]
+    [items, maxFiles, preview, setItems]
   );
 
   const remove = useCallback(
@@ -140,40 +167,69 @@ export function FileUpload(props: FileUploadProps) {
     [items, setItems]
   );
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    ...(accept ? { accept } : {}),
-    ...(typeof disabled === 'boolean' ? { disabled } : {}),
-    multiple: true,
-    maxFiles,
-    ...(typeof maxSizeBytes === 'number' ? { maxSize: maxSizeBytes } : {}),
-    onDrop: (acceptedFiles, fileRejections) => {
-      addFiles(acceptedFiles, fileRejections);
-    },
-  });
-
-  const startUploads = useCallback(async () => {
-    if (!uploadFn) return;
-
-    const pending = items.filter((i) => i.status === 'ready' && !i.error);
-    for (const item of pending) {
+  const runUpload = useCallback(
+    async (item: UploadItem) => {
       updateItem(item.id, { status: 'uploading', progress: 0 });
       try {
-        await uploadFn(item, {
-          setProgress: (p) => updateItem(item.id, { progress: Math.max(0, Math.min(100, p)) }),
-          setError: (message) => updateItem(item.id, { status: 'error', error: message }),
-          setDone: () => updateItem(item.id, { status: 'done', progress: 100 }),
-        });
+        if (onUpload) {
+          await onUpload(item.file, {
+            setProgress: (p) => updateItem(item.id, { progress: Math.max(0, Math.min(100, p)) }),
+            setError: (message) => updateItem(item.id, { status: 'error', error: message }),
+            setDone: () => updateItem(item.id, { status: 'done', progress: 100 }),
+          });
+          return;
+        }
+
+        if (uploadFn) {
+          await uploadFn(item, {
+            setProgress: (p) => updateItem(item.id, { progress: Math.max(0, Math.min(100, p)) }),
+            setError: (message) => updateItem(item.id, { status: 'error', error: message }),
+            setDone: () => updateItem(item.id, { status: 'done', progress: 100 }),
+          });
+          return;
+        }
+
+        // No upload strategy.
+        updateItem(item.id, { status: 'done', progress: 100 });
       } catch (e) {
         updateItem(item.id, {
           status: 'error',
           error: e instanceof Error ? e.message : 'Upload failed',
         });
       }
-    }
-  }, [items, updateItem, uploadFn]);
+    },
+    [onUpload, updateItem, uploadFn]
+  );
+
+  const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
+    ...(accept ? { accept } : {}),
+    ...(typeof disabled === 'boolean' ? { disabled } : {}),
+    multiple: true,
+    maxFiles,
+    ...(typeof effectiveMaxSize === 'number' ? { maxSize: effectiveMaxSize } : {}),
+    onDrop: (acceptedFiles, fileRejections) => {
+      addFiles(acceptedFiles, fileRejections);
+    },
+  });
+
+  // Auto-start uploads whenever new "ready" items exist and an upload strategy is present.
+  useEffect(() => {
+    if (!onUpload && !uploadFn) return;
+    const pending = items.filter((i) => i.status === 'ready' && !i.error);
+    if (pending.length === 0) return;
+    void (async () => {
+      for (const item of pending) {
+        // Re-check latest snapshot.
+        const current = itemByIdRef.current.get(item.id);
+        if (!current) continue;
+        if (current.status !== 'ready' || current.error) continue;
+        await runUpload(current);
+      }
+    })();
+  }, [items, onUpload, runUpload, uploadFn]);
 
   const hasUploads = items.length > 0;
-  const canStart = Boolean(uploadFn) && items.some((i) => i.status === 'ready' && !i.error);
+  const canStart = false;
 
   const summary = useMemo(() => {
     const done = items.filter((i) => i.status === 'done').length;
@@ -184,8 +240,14 @@ export function FileUpload(props: FileUploadProps) {
 
   return (
     <div className={className}>
-      <div className="text-caption text-muted">{label}</div>
-      {description ? <div className="text-caption text-muted">{description}</div> : null}
+      <div id={labelId} className="text-caption text-muted">
+        {label}
+      </div>
+      {description ? (
+        <div id={descriptionId} className="text-caption text-muted">
+          {description}
+        </div>
+      ) : null}
 
       <div
         {...getRootProps({
@@ -193,6 +255,21 @@ export function FileUpload(props: FileUploadProps) {
             'mt-2 rounded-md border border-dashed p-4 text-sm ' +
             (isDragActive ? 'bg-muted/20' : 'bg-background') +
             (disabled ? ' opacity-60' : ''),
+          role: 'button',
+          tabIndex: disabled ? -1 : 0,
+          'aria-disabled': disabled ? true : undefined,
+          'aria-labelledby': labelId,
+          'aria-describedby':
+            [description ? descriptionId : null, globalError ? errorId : null]
+              .filter(Boolean)
+              .join(' ') || undefined,
+          onKeyDown: (e: React.KeyboardEvent) => {
+            if (disabled) return;
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              open();
+            }
+          },
         })}
       >
         <input {...getInputProps()} />
@@ -200,12 +277,19 @@ export function FileUpload(props: FileUploadProps) {
         <div className="text-caption text-muted">Or click to browse</div>
         <div className="mt-2 text-caption text-muted">
           Max files: {maxFiles}
-          {maxSizeBytes ? ` · Max size: ${Math.round(maxSizeBytes / 1024 / 1024)}MB` : ''}
+          {typeof effectiveMaxSize === 'number'
+            ? ` · Max size: ${Math.round(effectiveMaxSize / 1024 / 1024)}MB`
+            : ''}
         </div>
       </div>
 
       {globalError ? (
-        <div className="mt-2 rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-800">
+        <div
+          id={errorId}
+          role="alert"
+          aria-live="assertive"
+          className="mt-2 rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-800"
+        >
           {globalError}
         </div>
       ) : null}
@@ -217,13 +301,7 @@ export function FileUpload(props: FileUploadProps) {
               {summary.total} files · {summary.uploading} uploading · {summary.done} done
               {summary.errors ? ` · ${summary.errors} errors` : ''}
             </div>
-            <div className="flex items-center gap-2">
-              {canStart ? (
-                <Button type="button" variant="primary" onClick={() => void startUploads()}>
-                  Start upload
-                </Button>
-              ) : null}
-            </div>
+            <div className="flex items-center gap-2">{canStart ? null : null}</div>
           </div>
 
           <ul className="space-y-2">
@@ -249,6 +327,11 @@ export function FileUpload(props: FileUploadProps) {
                   </div>
                   <div className="mt-1 h-2 w-full overflow-hidden rounded bg-muted/20">
                     <div
+                      role="progressbar"
+                      aria-label={`Upload progress for ${item.file.name}`}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={Math.max(0, Math.min(100, item.progress))}
                       className={
                         'h-full ' +
                         (item.status === 'error'

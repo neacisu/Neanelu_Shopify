@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { UNSAFE_DataWithResponseInit } from 'react-router-dom';
 import { Outlet, RouterProvider, createMemoryRouter } from 'react-router-dom';
@@ -293,7 +293,8 @@ describe('Queue Monitor /queues UI', () => {
     // Enter search (SearchInput renders a native <input> labelled "Search").
     const input = await screen.findByLabelText('Search');
     await user.clear(input);
-    await user.type(input, 'job-xyz');
+    // Avoid typing character-by-character because each change updates the URL and can interrupt typing.
+    fireEvent.change(input, { target: { value: 'job-xyz' } });
 
     await waitFor(() => {
       expect(

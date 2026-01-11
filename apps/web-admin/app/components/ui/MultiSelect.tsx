@@ -15,11 +15,15 @@ export type MultiSelectProps = Readonly<{
   onChange: (next: string[]) => void;
 
   disabled?: boolean;
+
+  /** Plan API */
+  maxItems?: number;
+  searchable?: boolean;
+  allowCreate?: boolean;
+
+  /** Back-compat aliases */
   maxSelected?: number;
-
   filterable?: boolean;
-
-  /** Allow creating a new option when filter yields no matches. */
   creatable?: boolean;
   onCreateOption?: (label: string) => MultiSelectOption | null;
 
@@ -38,12 +42,19 @@ export function MultiSelect(props: MultiSelectProps) {
     value,
     onChange,
     disabled,
+    maxItems,
+    searchable,
+    allowCreate,
     maxSelected,
-    filterable = true,
-    creatable = false,
+    filterable,
+    creatable,
     onCreateOption,
     className,
   } = props;
+
+  const effectiveMax = maxItems ?? maxSelected;
+  const effectiveSearchable = searchable ?? filterable ?? true;
+  const effectiveCreatable = allowCreate ?? creatable ?? false;
 
   const inputId = useId();
   const listboxId = useId();
@@ -56,20 +67,33 @@ export function MultiSelect(props: MultiSelectProps) {
 
   const selectedSet = useMemo(() => new Set(value), [value]);
 
-  const selectedOptions = useMemo(
-    () => options.filter((o) => selectedSet.has(o.value)),
-    [options, selectedSet]
-  );
+  const optionByValue = useMemo(() => new Map(options.map((o) => [o.value, o])), [options]);
+
+  const selectedLabels = useMemo(() => {
+    return value
+      .map((v) => {
+        const o = optionByValue.get(v);
+        return { value: v, label: o?.label ?? v };
+      })
+      .filter((x) => x.label.trim().length > 0);
+  }, [optionByValue, value]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const base =
-      q && filterable ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
+      q && effectiveSearchable ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
 
     return base;
-  }, [filterable, options, query]);
+  }, [effectiveSearchable, options, query]);
 
-  const canSelectMore = maxSelected ? value.length < maxSelected : true;
+  const normalizedQuery = query.trim();
+  const normalizedQueryLower = normalizedQuery.toLowerCase();
+  const hasExactOption = useMemo(() => {
+    if (!normalizedQuery) return false;
+    return options.some((o) => o.label.toLowerCase() === normalizedQueryLower);
+  }, [normalizedQuery, normalizedQueryLower, options]);
+
+  const canSelectMore = effectiveMax ? value.length < effectiveMax : true;
 
   const toggleValue = useCallback(
     (v: string) => {
@@ -96,20 +120,37 @@ export function MultiSelect(props: MultiSelectProps) {
     [disabled, onChange, value]
   );
 
+  const showCreate =
+    effectiveCreatable &&
+    Boolean(normalizedQuery) &&
+    filtered.length === 0 &&
+    canSelectMore &&
+    !selectedSet.has(normalizedQuery) &&
+    !hasExactOption;
+
+  type MenuItem =
+    | { type: 'create'; label: string; value: string }
+    | { type: 'option'; option: MultiSelectOption };
+
+  const menuItems = useMemo((): MenuItem[] => {
+    const items: MenuItem[] = [];
+    if (showCreate) items.push({ type: 'create', label: normalizedQuery, value: normalizedQuery });
+    for (const o of filtered.slice(0, 50)) items.push({ type: 'option', option: o });
+    return items;
+  }, [filtered, normalizedQuery, showCreate]);
+
   useEffect(() => {
     if (!open) {
       setActiveIndex(-1);
       return;
     }
-    setActiveIndex((idx) => clamp(idx, -1, Math.max(-1, filtered.length - 1)));
-  }, [filtered.length, open]);
+    setActiveIndex((idx) => clamp(idx, -1, Math.max(-1, menuItems.length - 1)));
+  }, [menuItems.length, open]);
 
-  const showCreate =
-    creatable &&
-    Boolean(query.trim()) &&
-    filtered.length === 0 &&
-    typeof onCreateOption === 'function' &&
-    canSelectMore;
+  const activeDescendantId =
+    open && activeIndex >= 0 && activeIndex < menuItems.length
+      ? `${listboxId}-opt-${activeIndex}`
+      : undefined;
 
   return (
     <div className={className}>
@@ -130,7 +171,7 @@ export function MultiSelect(props: MultiSelectProps) {
         }}
       >
         <div className="flex flex-wrap items-center gap-2">
-          {selectedOptions.map((o) => (
+          {selectedLabels.map((o) => (
             <span
               key={o.value}
               className="inline-flex items-center gap-1 rounded-md border bg-muted/20 px-2 py-1"
@@ -157,11 +198,14 @@ export function MultiSelect(props: MultiSelectProps) {
             ref={inputRef}
             value={query}
             disabled={disabled}
-            placeholder={selectedOptions.length === 0 ? placeholder : ''}
+            placeholder={selectedLabels.length === 0 ? placeholder : ''}
             className="min-w-24 flex-1 bg-transparent outline-none"
+            role="combobox"
+            aria-haspopup="listbox"
             aria-expanded={open}
             aria-controls={listboxId}
             aria-autocomplete="list"
+            aria-activedescendant={activeDescendantId}
             onFocus={() => {
               if (!disabled) setOpen(true);
             }}
@@ -181,28 +225,38 @@ export function MultiSelect(props: MultiSelectProps) {
               if (e.key === 'ArrowDown') {
                 e.preventDefault();
                 setOpen(true);
-                setActiveIndex((idx) => clamp(idx + 1, 0, Math.max(0, filtered.length - 1)));
+                setActiveIndex((idx) => clamp(idx + 1, 0, Math.max(0, menuItems.length - 1)));
                 return;
               }
 
               if (e.key === 'ArrowUp') {
                 e.preventDefault();
                 setOpen(true);
-                setActiveIndex((idx) => clamp(idx - 1, 0, Math.max(0, filtered.length - 1)));
+                setActiveIndex((idx) => clamp(idx - 1, 0, Math.max(0, menuItems.length - 1)));
                 return;
               }
 
               if (e.key === 'Enter') {
-                if (open && activeIndex >= 0 && activeIndex < filtered.length) {
+                if (open && activeIndex >= 0 && activeIndex < menuItems.length) {
                   e.preventDefault();
-                  toggleValue(filtered[activeIndex]?.value ?? '');
-                } else if (showCreate) {
-                  e.preventDefault();
-                  const created = onCreateOption?.(query.trim());
-                  if (created) {
-                    toggleValue(created.value);
+                  const item = menuItems[activeIndex];
+                  if (!item) return;
+                  if (item.type === 'create') {
+                    const created = onCreateOption?.(item.value);
+                    toggleValue(created?.value ?? item.value);
                     setQuery('');
+                    return;
                   }
+
+                  toggleValue(item.option.value);
+                  return;
+                }
+
+                if (showCreate) {
+                  e.preventDefault();
+                  const created = onCreateOption?.(normalizedQuery);
+                  toggleValue(created?.value ?? normalizedQuery);
+                  setQuery('');
                 }
                 return;
               }
@@ -222,59 +276,84 @@ export function MultiSelect(props: MultiSelectProps) {
       </div>
 
       {open ? (
-        <div id={listboxId} role="listbox" className="relative" aria-label={`${label} options`}>
+        <div
+          id={listboxId}
+          role="listbox"
+          aria-multiselectable="true"
+          className="relative"
+          aria-label={`${label} options`}
+        >
           <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-md border bg-background shadow">
-            {showCreate ? (
-              <button
-                type="button"
-                data-multi-select-option="true"
-                className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted/20"
-                onMouseDown={(ev) => ev.preventDefault()}
-                onClick={() => {
-                  const created = onCreateOption?.(query.trim());
-                  if (created) {
-                    toggleValue(created.value);
-                    setQuery('');
-                  }
-                }}
-              >
-                Create “{query.trim()}”
-              </button>
-            ) : null}
+            {menuItems.length > 0 ? (
+              menuItems.map((item, idx) => {
+                const active = idx === activeIndex;
 
-            {filtered.slice(0, 50).map((o, idx) => {
-              const checked = selectedSet.has(o.value);
-              const active = idx === activeIndex;
-              const optionDisabled = Boolean(o.disabled) || (!checked && !canSelectMore);
+                if (item.type === 'create') {
+                  return (
+                    <button
+                      key="__create__"
+                      id={`${listboxId}-opt-${idx}`}
+                      type="button"
+                      data-multi-select-option="true"
+                      role="option"
+                      aria-selected={active}
+                      tabIndex={-1}
+                      className={
+                        'flex w-full items-center justify-between px-3 py-2 text-left text-sm ' +
+                        (active ? 'bg-muted/40' : 'hover:bg-muted/20')
+                      }
+                      onMouseEnter={() => setActiveIndex(idx)}
+                      onMouseDown={(ev) => ev.preventDefault()}
+                      onClick={() => {
+                        const created = onCreateOption?.(item.value);
+                        toggleValue(created?.value ?? item.value);
+                        setQuery('');
+                      }}
+                    >
+                      Create “{item.label}”
+                    </button>
+                  );
+                }
 
-              return (
-                <button
-                  key={o.value}
-                  type="button"
-                  data-multi-select-option="true"
-                  role="option"
-                  aria-selected={checked}
-                  disabled={disabled === true || optionDisabled}
-                  className={
-                    'flex w-full items-center justify-between px-3 py-2 text-left text-sm ' +
-                    (active ? 'bg-muted/40' : 'hover:bg-muted/20') +
-                    (optionDisabled ? ' opacity-60' : '')
-                  }
-                  onMouseEnter={() => setActiveIndex(idx)}
-                  onMouseDown={(ev) => ev.preventDefault()}
-                  onClick={() => toggleValue(o.value)}
-                >
-                  <span className="truncate">{o.label}</span>
-                  <span aria-hidden="true" className="font-mono text-xs text-muted">
-                    {checked ? '✓' : ''}
-                  </span>
-                </button>
-              );
-            })}
+                const o = item.option;
+                const checked = selectedSet.has(o.value);
+                const optionDisabled = Boolean(o.disabled) || (!checked && !canSelectMore);
 
-            {filtered.length === 0 && !showCreate ? (
+                return (
+                  <button
+                    key={o.value}
+                    id={`${listboxId}-opt-${idx}`}
+                    type="button"
+                    data-multi-select-option="true"
+                    role="option"
+                    aria-selected={checked}
+                    tabIndex={-1}
+                    disabled={disabled === true || optionDisabled}
+                    className={
+                      'flex w-full items-center justify-between px-3 py-2 text-left text-sm ' +
+                      (active ? 'bg-muted/40' : 'hover:bg-muted/20') +
+                      (optionDisabled ? ' opacity-60' : '')
+                    }
+                    onMouseEnter={() => setActiveIndex(idx)}
+                    onMouseDown={(ev) => ev.preventDefault()}
+                    onClick={() => toggleValue(o.value)}
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        readOnly
+                        tabIndex={-1}
+                        aria-hidden="true"
+                      />
+                      <span className="truncate">{o.label}</span>
+                    </span>
+                  </button>
+                );
+              })
+            ) : (
               <div className="px-3 py-2 text-sm text-muted">No results</div>
-            ) : null}
+            )}
           </div>
         </div>
       ) : null}

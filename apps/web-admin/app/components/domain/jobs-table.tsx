@@ -57,15 +57,7 @@ export function JobsTable(props: {
   } = props;
 
   const recent = useRecentSearches({ storageKey: 'neanelu:web-admin:queues:jobs:search:v1' });
-  const recentSuggestions = useMemo(
-    () =>
-      recent.items.map((v) => ({
-        id: v,
-        label: v,
-        value: v,
-      })),
-    [recent.items]
-  );
+  const recentSearches = recent.items;
 
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
 
@@ -305,13 +297,12 @@ export function JobsTable(props: {
             value={search}
             label="Search"
             placeholder="Job id"
-            suggestions={recentSuggestions}
-            openOnFocus={true}
             debounceMs={250}
             onChange={(v) => {
               onSearchChange(v);
             }}
-            onSelectSuggestion={(v) => {
+            recentSearches={recentSearches}
+            onSearch={(v) => {
               recent.add(v);
               onSearchChange(v);
             }}

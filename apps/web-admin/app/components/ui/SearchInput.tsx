@@ -6,29 +6,31 @@ export type SearchSuggestion = Readonly<{
   value: string;
 }>;
 
+type SuggestionLike = string | SearchSuggestion;
+
 export type SearchInputProps = Readonly<{
   value: string;
   onChange: (value: string) => void;
+
+  /** Triggered for search execution (debounced typing + immediate select/enter). */
+  onSearch?: (value: string) => void;
 
   label?: string;
   placeholder?: string;
   disabled?: boolean;
   loading?: boolean;
 
-  suggestions?: readonly SearchSuggestion[];
+  /** Suggestions list. Can be strings or objects (id/label/value). */
+  suggestions?: readonly SuggestionLike[];
+
+  /** Recent searches (shown when input is empty, Polaris Autocomplete-style). */
+  recentSearches?: readonly string[];
+
+  /** Back-compat: fired when a suggestion is selected (also triggers onSearch). */
   onSelectSuggestion?: (value: string) => void;
 
-  /**
-   * Debounce delay for `onChange` calls when typing.
-   * Selection actions (enter/click) are immediate.
-   */
+  /** Debounce delay for `onSearch` calls when typing. */
   debounceMs?: number;
-
-  /**
-   * When true, the suggestions menu can open even if the input is empty.
-   * Useful for recent searches.
-   */
-  openOnFocus?: boolean;
 
   /**
    * Max number of suggestions rendered.
@@ -46,20 +48,22 @@ export function SearchInput(props: SearchInputProps) {
   const {
     value,
     onChange,
+    onSearch,
     label = 'Search',
     placeholder,
     disabled,
     loading,
-    suggestions = [],
+    suggestions: suggestionsProp = [],
+    recentSearches = [],
     onSelectSuggestion,
     debounceMs = 200,
-    openOnFocus = false,
     maxSuggestions = 20,
     className,
   } = props;
 
   const inputId = useId();
   const listboxId = useId();
+  const statusId = useId();
 
   const [draft, setDraft] = useState(value);
   const [open, setOpen] = useState(false);
@@ -74,32 +78,66 @@ export function SearchInput(props: SearchInputProps) {
 
   const trimmed = draft.trim();
 
+  const normalizedSuggestions = useMemo((): SearchSuggestion[] => {
+    const base: SearchSuggestion[] = [];
+
+    for (const s of suggestionsProp) {
+      if (typeof s === 'string') {
+        base.push({ id: s, label: s, value: s });
+      } else {
+        base.push(s);
+      }
+    }
+
+    // Prepend recent searches when input is empty.
+    if (trimmed.length === 0 && recentSearches.length > 0) {
+      const existing = new Set(base.map((x) => x.value));
+      for (const v of recentSearches) {
+        if (!v.trim()) continue;
+        if (existing.has(v)) continue;
+        base.unshift({ id: `recent:${v}`, label: v, value: v });
+      }
+    }
+
+    return base;
+  }, [recentSearches, suggestionsProp, trimmed.length]);
+
   const filtered = useMemo(() => {
     const q = trimmed.toLowerCase();
     const items = q
-      ? suggestions.filter(
+      ? normalizedSuggestions.filter(
           (s) => s.label.toLowerCase().includes(q) || s.value.toLowerCase().includes(q)
         )
-      : suggestions;
+      : normalizedSuggestions;
 
     return items.slice(0, maxSuggestions);
-  }, [maxSuggestions, suggestions, trimmed]);
+  }, [maxSuggestions, normalizedSuggestions, trimmed]);
 
-  const canOpen = openOnFocus || trimmed.length > 0;
+  const canOpen = trimmed.length > 0 || recentSearches.length > 0;
   const shouldShowMenu = open && canOpen && filtered.length > 0;
 
-  const commitChange = useCallback(
+  const statusText = useMemo(() => {
+    if (disabled) return '';
+    if (loading) return 'Loading suggestions';
+    if (!canOpen) return '';
+    if (!open) return '';
+    if (filtered.length === 0) return 'No suggestions';
+    return `${filtered.length} suggestion${filtered.length === 1 ? '' : 's'} available`;
+  }, [canOpen, disabled, filtered.length, loading, open]);
+
+  const commitSearch = useCallback(
     (next: string) => {
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
+      if (!onSearch) return;
       if (debounceMs <= 0) {
-        onChange(next);
+        onSearch(next);
         return;
       }
       debounceRef.current = window.setTimeout(() => {
-        onChange(next);
+        onSearch(next);
       }, debounceMs);
     },
-    [debounceMs, onChange]
+    [debounceMs, onSearch]
   );
 
   useEffect(() => {
@@ -113,12 +151,13 @@ export function SearchInput(props: SearchInputProps) {
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
       setDraft(nextValue);
       onChange(nextValue);
+      onSearch?.(nextValue);
       onSelectSuggestion?.(nextValue);
       setOpen(false);
       setActiveIndex(-1);
       inputRef.current?.focus();
     },
-    [onChange, onSelectSuggestion]
+    [onChange, onSearch, onSelectSuggestion]
   );
 
   const onKeyDown = useCallback(
@@ -144,6 +183,11 @@ export function SearchInput(props: SearchInputProps) {
           e.preventDefault();
           select(filtered[activeIndex]?.value ?? draft);
           return;
+        }
+        if (trimmed.length > 0) {
+          e.preventDefault();
+          if (debounceRef.current) window.clearTimeout(debounceRef.current);
+          onSearch?.(trimmed);
         }
         return;
       }
@@ -175,12 +219,16 @@ export function SearchInput(props: SearchInputProps) {
           className={
             'mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-60'
           }
+          role="combobox"
+          aria-haspopup="listbox"
           aria-autocomplete={filtered.length ? 'list' : 'none'}
           aria-controls={listboxId}
           aria-expanded={shouldShowMenu}
+          aria-busy={loading ? true : undefined}
+          aria-describedby={statusText ? statusId : undefined}
           aria-activedescendant={
             shouldShowMenu && activeIndex >= 0 && activeIndex < filtered.length
-              ? `${listboxId}-${filtered[activeIndex]?.id ?? activeIndex}`
+              ? `${listboxId}-opt-${activeIndex}`
               : undefined
           }
           onFocus={() => {
@@ -197,12 +245,19 @@ export function SearchInput(props: SearchInputProps) {
             setOpen(true);
             setActiveIndex(-1);
             setDraft(e.target.value);
-            commitChange(e.target.value);
+            onChange(e.target.value);
+            commitSearch(e.target.value);
           }}
         />
         {loading ? (
           <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted">
             Loading…
+          </div>
+        ) : null}
+
+        {statusText ? (
+          <div id={statusId} className="sr-only" aria-live="polite">
+            {statusText}
           </div>
         ) : null}
 
@@ -219,9 +274,10 @@ export function SearchInput(props: SearchInputProps) {
                   key={s.id}
                   type="button"
                   data-search-suggestion="true"
-                  id={`${listboxId}-${s.id}`}
+                  id={`${listboxId}-opt-${idx}`}
                   role="option"
                   aria-selected={active}
+                  tabIndex={-1}
                   className={
                     'flex w-full items-center justify-between px-3 py-2 text-left text-sm ' +
                     (active ? 'bg-muted/40' : 'hover:bg-muted/20')

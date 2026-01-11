@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { DateRangePicker } from '../components/ui/DateRangePicker';
@@ -10,21 +10,55 @@ describe('DateRangePicker', () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
 
+    const presets = [
+      {
+        id: 'last7',
+        label: 'Last 7 days',
+        range: {
+          from: new Date('2026-01-05T00:00:00.000Z'),
+          to: new Date('2026-01-11T00:00:00.000Z'),
+        },
+      },
+    ] as const;
+
     render(
       <DateRangePicker
         label="Date range"
         value={undefined}
         onChange={onChange}
         timeZone="Europe/Bucharest"
-        now={new Date('2026-01-11T10:00:00.000Z')}
+        presets={presets}
       />
     );
 
-    await user.click(screen.getByRole('button', { name: /select range/i }));
+    const trigger = screen.getByRole('button', { name: /select range/i });
+    await user.click(trigger);
     expect(screen.getByRole('dialog', { name: 'Date range' })).toBeInTheDocument();
+
+    // Focus should move inside the popup.
+    expect(await screen.findByRole('button', { name: 'Last 7 days' })).toHaveFocus();
 
     await user.click(screen.getByRole('button', { name: 'Last 7 days' }));
     expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes on Escape and returns focus to the trigger', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <DateRangePicker label="Date range" value={undefined} onChange={onChange} presets={[]} />
+    );
+
+    const trigger = screen.getByRole('button', { name: /select range/i });
+    await user.click(trigger);
+    expect(screen.getByRole('dialog', { name: 'Date range' })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Date range' })).not.toBeInTheDocument()
+    );
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
 
   it('converts selected range to UTC ISO boundaries', () => {
