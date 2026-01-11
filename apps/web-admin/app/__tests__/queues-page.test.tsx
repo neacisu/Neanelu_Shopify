@@ -290,20 +290,11 @@ describe('Queue Monitor /queues UI', () => {
       ).toBe(true);
     });
 
-    // Enter search (PolarisTextField renders as <polaris-text-field label="Search" ... />)
-    const tf = document.querySelector('polaris-text-field[label="Search"]');
-    expect(tf).toBeTruthy();
-
-    if (!(tf instanceof HTMLElement)) {
-      throw new Error('Expected search field to be an HTMLElement');
-    }
-
-    Object.defineProperty(tf, 'value', {
-      value: 'job-xyz',
-      writable: true,
-      configurable: true,
-    });
-    fireEvent(tf, new Event('input', { bubbles: true }));
+    // Enter search (SearchInput renders a native <input> labelled "Search").
+    const input = await screen.findByLabelText('Search');
+    await user.clear(input);
+    // Avoid typing character-by-character because each change updates the URL and can interrupt typing.
+    fireEvent.change(input, { target: { value: 'job-xyz' } });
 
     await waitFor(() => {
       expect(

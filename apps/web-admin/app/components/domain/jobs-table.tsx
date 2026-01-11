@@ -5,9 +5,10 @@ import {
   PolarisBadge,
   PolarisProgressBar,
   PolarisSelect,
-  PolarisTextField,
 } from '../../../components/polaris/index.js';
 import { Button } from '../ui/button';
+import { SearchInput } from '../ui/SearchInput';
+import { useRecentSearches } from '../../hooks/use-recent-searches';
 
 export type QueueJobListItem = Readonly<{
   id: string;
@@ -54,6 +55,9 @@ export function JobsTable(props: {
     onAction,
     onOpenDetails,
   } = props;
+
+  const recent = useRecentSearches({ storageKey: 'neanelu:web-admin:queues:jobs:search:v1' });
+  const recentSearches = recent.items;
 
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
 
@@ -289,11 +293,19 @@ export function JobsTable(props: {
     <div className="space-y-3">
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-64">
-          <PolarisTextField
+          <SearchInput
             value={search}
             label="Search"
             placeholder="Job id"
-            onInput={(e) => onSearchChange((e.target as HTMLInputElement).value)}
+            debounceMs={250}
+            onChange={(v) => {
+              onSearchChange(v);
+            }}
+            recentSearches={recentSearches}
+            onSearch={(v) => {
+              recent.add(v);
+              onSearchChange(v);
+            }}
           />
         </div>
         <div className="min-w-48">
