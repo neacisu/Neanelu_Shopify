@@ -121,16 +121,14 @@ export const PRODUCTS_EXPORT_INVENTORY_QUERY_V2 = `#graphql
             id
             tracked
             inventoryLevels(first: 250) {
-              edges {
-                node {
+              nodes {
+                __typename
+                id
+                available
+                location {
                   __typename
                   id
-                  available
-                  location {
-                    __typename
-                    id
-                    name
-                  }
+                  name
                 }
               }
             }

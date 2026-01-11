@@ -10,6 +10,7 @@ import {
 } from '@app/queue-manager';
 
 import { getBulkQueryContract, type BulkQuerySet, type BulkQueryVersion } from './queries/index.js';
+import { patchBulkRunCursorState } from './state-machine.js';
 
 export type BulkTerminalStatus = 'FAILED' | 'CANCELED' | 'EXPIRED';
 
@@ -27,6 +28,16 @@ export type BulkFailureErrorType =
 
 export const BULK_MAX_RETRY_COUNT_DEFAULT = 3;
 export const BULK_ERROR_RATE_THRESHOLD_DEFAULT = 0.1;
+
+const BULK_RETRY_BACKOFF_BASE_MS = 30_000;
+const BULK_RETRY_BACKOFF_MAX_MS = 30 * 60_000;
+
+function bulkRetryBackoffMs(retryCount: number): number {
+  // retryCount is 1-based after increment.
+  const attempt = Number.isFinite(retryCount) ? Math.max(1, Math.trunc(retryCount)) : 1;
+  const delay = BULK_RETRY_BACKOFF_BASE_MS * 2 ** Math.max(0, attempt - 1);
+  return Math.min(BULK_RETRY_BACKOFF_MAX_MS, Math.max(0, Math.trunc(delay)));
+}
 
 export function shouldAbortDueToErrorRate(params: {
   errorCount: number;
@@ -242,7 +253,7 @@ export async function enqueueRetryOrDlq(params: {
   dlqContext?: { originalQueue: string; originalJobId: string | null; originalJobName: string };
   terminalStatus: BulkTerminalStatus;
   shopifyErrorCode?: string | null;
-}): Promise<'retry_enqueued' | 'dlq' | 'no_retry'> {
+}): Promise<'retry_enqueued' | 'dlq' | 'no_retry' | 'salvaged_partial'> {
   const decision = classifyBulkTerminalFailure({
     status: params.terminalStatus,
     shopifyErrorCode: params.shopifyErrorCode ?? null,
@@ -286,6 +297,18 @@ export async function enqueueRetryOrDlq(params: {
   }
 
   if (info.retryCount >= info.maxRetries) {
+    const partialDataUrl = await loadBulkRunPartialDataUrl(params.shopId, params.bulkRunId);
+    if (partialDataUrl) {
+      await salvageBulkRunWithPartialDataUrl({
+        shopId: params.shopId,
+        bulkRunId: params.bulkRunId,
+        partialDataUrl,
+        terminalStatus: params.terminalStatus,
+        shopifyErrorCode: params.shopifyErrorCode ?? null,
+      });
+      return 'salvaged_partial';
+    }
+
     if (params.dlqEnqueue && params.dlqContext) {
       await params.dlqEnqueue({
         originalQueue: params.dlqContext.originalQueue,
@@ -320,16 +343,21 @@ export async function enqueueRetryOrDlq(params: {
   const querySet = coerceBulkQuerySet(info.queryType) ?? 'core';
   const contract = getBulkQueryContract({ operationType: info.operationType, querySet, version });
 
-  await enqueueBulkOrchestratorJob({
-    shopId: params.shopId,
-    operationType: info.operationType,
-    queryType: contract.querySet,
-    queryVersion: contract.version,
-    graphqlQuery: contract.graphqlQuery,
-    ...(info.idempotencyKey ? { idempotencyKey: info.idempotencyKey } : {}),
-    triggeredBy: params.triggeredBy,
-    requestedAt: Date.now(),
-  });
+  await enqueueBulkOrchestratorJob(
+    {
+      shopId: params.shopId,
+      operationType: info.operationType,
+      queryType: contract.querySet,
+      queryVersion: contract.version,
+      graphqlQuery: contract.graphqlQuery,
+      ...(info.idempotencyKey ? { idempotencyKey: info.idempotencyKey } : {}),
+      triggeredBy: params.triggeredBy,
+      requestedAt: Date.now(),
+    },
+    {
+      delayMs: bulkRetryBackoffMs(updated.retryCount),
+    }
+  );
 
   params.logger.warn(
     {
@@ -343,6 +371,142 @@ export async function enqueueRetryOrDlq(params: {
   );
 
   return 'retry_enqueued';
+}
+
+async function loadBulkRunPartialDataUrl(
+  shopId: string,
+  bulkRunId: string
+): Promise<string | null> {
+  return await withTenantContext(shopId, async (client) => {
+    const res = await client.query<{ partial_data_url: string | null }>(
+      `SELECT partial_data_url
+       FROM bulk_runs
+       WHERE id = $1
+       LIMIT 1`,
+      [bulkRunId]
+    );
+    const value = res.rows[0]?.partial_data_url ?? null;
+    const trimmed = value?.trim();
+    if (!trimmed) return null;
+    return trimmed;
+  });
+}
+
+async function salvageBulkRunWithPartialDataUrl(params: {
+  shopId: string;
+  bulkRunId: string;
+  partialDataUrl: string;
+  terminalStatus: BulkTerminalStatus;
+  shopifyErrorCode?: string | null;
+}): Promise<void> {
+  await withTenantContext(params.shopId, async (client) => {
+    await client.query(
+      `UPDATE bulk_runs
+       SET status = 'completed',
+           completed_at = COALESCE(completed_at, now()),
+           result_url = $1,
+           partial_data_url = COALESCE(partial_data_url, $1),
+           updated_at = now()
+       WHERE id = $2`,
+      [params.partialDataUrl, params.bulkRunId]
+    );
+
+    // Record an explicit step for auditability.
+    await client.query(
+      `INSERT INTO bulk_steps (
+         bulk_run_id,
+         shop_id,
+         step_name,
+         step_order,
+         status,
+         started_at,
+         completed_at,
+         error_message,
+         error_details,
+         created_at,
+         updated_at
+       )
+       VALUES ($1, $2, 'poller.completed_partial', 0, 'completed', now(), now(), NULL, $3::jsonb, now(), now())`,
+      [
+        params.bulkRunId,
+        params.shopId,
+        JSON.stringify({
+          terminalStatus: params.terminalStatus,
+          shopifyErrorCode: params.shopifyErrorCode ?? null,
+          source: 'partialDataUrl',
+        }),
+      ]
+    );
+
+    // Ensure a result URL artifact exists so downstream pipeline can treat it as a normal download URL.
+    const existing = await client.query<{ ok: number }>(
+      `SELECT 1 as ok
+       FROM bulk_artifacts
+       WHERE bulk_run_id = $1
+         AND shop_id = $2
+         AND artifact_type = 'shopify_bulk_result_url'
+         AND url = $3
+       LIMIT 1`,
+      [params.bulkRunId, params.shopId, params.partialDataUrl]
+    );
+
+    if (existing.rows.length === 0) {
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      await client.query(
+        `INSERT INTO bulk_artifacts (
+           bulk_run_id,
+           shop_id,
+           artifact_type,
+           file_path,
+           url,
+           bytes_size,
+           expires_at,
+           created_at
+         )
+         VALUES ($1, $2, 'shopify_bulk_result_url', $3, $4, NULL, $5, now())`,
+        [
+          params.bulkRunId,
+          params.shopId,
+          `shopify://bulk/${params.bulkRunId}/result`,
+          params.partialDataUrl,
+          expiresAt,
+        ]
+      );
+    }
+
+    // Record a compact bulk_error for visibility.
+    await client.query(
+      `INSERT INTO bulk_errors (
+         bulk_run_id,
+         shop_id,
+         error_type,
+         error_code,
+         error_message,
+         line_number,
+         payload,
+         created_at
+       )
+       VALUES ($1, $2, 'partial_data_url_salvaged', $3, $4, NULL, NULL, now())`,
+      [
+        params.bulkRunId,
+        params.shopId,
+        params.shopifyErrorCode ?? params.terminalStatus,
+        `Run salvaged using partialDataUrl after max retries exceeded (${params.terminalStatus})`,
+      ]
+    );
+  });
+
+  await patchBulkRunCursorState({
+    shopId: params.shopId,
+    bulkRunId: params.bulkRunId,
+    patch: {
+      result: {
+        source: 'partialDataUrl',
+        isPartial: true,
+        usedAt: new Date().toISOString(),
+      },
+    },
+  });
 }
 
 // Helper for DLQ-direct from processors without consuming attempts.

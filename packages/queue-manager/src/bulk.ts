@@ -51,6 +51,11 @@ export const BULK_POLLER_QUEUE_NAME = 'bulk-poller-queue';
 export const BULK_ORCHESTRATOR_JOB_NAME = 'bulk.orchestrator.start';
 export const BULK_POLLER_JOB_NAME = 'bulk.poller';
 
+export type EnqueueBulkJobOptions = Readonly<{
+  /** Delay the job by N milliseconds (BullMQ `delay`). */
+  delayMs?: number;
+}>;
+
 let cachedConfig: QueueManagerConfig | null = null;
 let bulkOrchestratorQueue: ReturnType<typeof createQueue> | undefined;
 let bulkPollerQueue: ReturnType<typeof createQueue> | undefined;
@@ -104,14 +109,36 @@ export async function enqueueBulkOrchestratorJob(
 ): Promise<void>;
 export async function enqueueBulkOrchestratorJob(
   payload: BulkOrchestratorJobPayload,
+  options: EnqueueBulkJobOptions
+): Promise<void>;
+export async function enqueueBulkOrchestratorJob(
+  payload: BulkOrchestratorJobPayload,
   logger: BulkQueueLoggerLike
 ): Promise<void>;
 export async function enqueueBulkOrchestratorJob(
   payload: BulkOrchestratorJobPayload,
-  logger?: BulkQueueLoggerLike
+  logger: BulkQueueLoggerLike,
+  options: EnqueueBulkJobOptions
+): Promise<void>;
+export async function enqueueBulkOrchestratorJob(
+  payload: BulkOrchestratorJobPayload,
+  loggerOrOptions?: BulkQueueLoggerLike | EnqueueBulkJobOptions,
+  maybeOptions?: EnqueueBulkJobOptions
 ): Promise<void> {
   const queue = getOrchestratorQueue();
-  const log = logger ?? fallbackLogger;
+
+  const looksLikeLogger = (value: unknown): value is BulkQueueLoggerLike => {
+    if (!value || typeof value !== 'object') return false;
+    const v = value as Partial<Record<keyof BulkQueueLoggerLike, unknown>>;
+    return (
+      typeof v.info === 'function' && typeof v.warn === 'function' && typeof v.error === 'function'
+    );
+  };
+
+  const log = looksLikeLogger(loggerOrOptions) ? loggerOrOptions : fallbackLogger;
+  const options: EnqueueBulkJobOptions = looksLikeLogger(loggerOrOptions)
+    ? (maybeOptions ?? {})
+    : (loggerOrOptions ?? {});
 
   const telemetry = buildJobTelemetryFromActiveContext();
 
@@ -161,6 +188,9 @@ export async function enqueueBulkOrchestratorJob(
         // BullMQ Pro: job-level `priority` cannot be combined with `group`.
         // Use group priority to keep fairness + priority semantics.
         group: { id: normalizedShopId, priority: 10 },
+        ...(typeof options.delayMs === 'number' && Number.isFinite(options.delayMs)
+          ? { delay: Math.max(0, Math.floor(options.delayMs)) }
+          : {}),
         ...(telemetry ? { telemetry } : {}),
       });
     });

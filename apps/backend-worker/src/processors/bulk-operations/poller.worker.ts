@@ -146,6 +146,7 @@ async function markRunCompleted(params: {
   bulkRunId: string;
   resultUrl: string;
   partialDataUrl?: string | null;
+  objectCount?: number | null;
   resultSizeBytes?: number | null;
   shopifyCompletedAt?: Date | null;
 }): Promise<void> {
@@ -157,13 +158,15 @@ async function markRunCompleted(params: {
            result_url = $2,
            result_size_bytes = COALESCE($3::bigint, result_size_bytes),
            partial_data_url = COALESCE($4::text, partial_data_url),
+           records_processed = COALESCE($5::int, records_processed),
            updated_at = now()
-       WHERE id = $5`,
+       WHERE id = $6`,
       [
         params.shopifyCompletedAt ? params.shopifyCompletedAt.toISOString() : null,
         params.resultUrl,
         params.resultSizeBytes ?? null,
         params.partialDataUrl ?? null,
+        params.objectCount ?? null,
         params.bulkRunId,
       ]
     );
@@ -467,6 +470,7 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
               bulkRunId: payload.bulkRunId,
               resultUrl: chosenUrl,
               partialDataUrl: bulk.partialDataUrl ?? null,
+              objectCount: safeIntFromString(bulk.objectCount),
               resultSizeBytes: safeIntFromString(bulk.fileSize),
               shopifyCompletedAt: completedAt,
             });
@@ -531,6 +535,16 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
                 details: { status: bulk.status, errorCode: bulk.errorCode },
               });
               return { outcome: 'retry_enqueued' as const };
+            }
+
+            if (retryOutcome === 'salvaged_partial') {
+              await insertStep({
+                shopId: payload.shopId,
+                bulkRunId: payload.bulkRunId,
+                step: 'poller.salvaged_partial',
+                details: { status: bulk.status, errorCode: bulk.errorCode },
+              });
+              return { outcome: 'completed_partial' as const, resultUrl: bulk.partialDataUrl };
             }
 
             await insertStep({

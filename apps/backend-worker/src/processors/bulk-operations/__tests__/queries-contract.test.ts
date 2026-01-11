@@ -48,6 +48,7 @@ void describe('PR-038 bulk query contract', () => {
 
     // Inventory must include per-location inventoryLevels.
     assert.ok(inv.graphqlQuery.includes('inventoryLevels'));
+    assert.ok(inv.graphqlQuery.includes('inventoryLevels(first: 250) {\n              nodes'));
     assert.ok(inv.graphqlQuery.includes('location'));
   });
 
