@@ -56,6 +56,7 @@ export const bulkRuns = pgTable(
     // URLs
     pollingUrl: text('polling_url'),
     resultUrl: text('result_url'),
+    partialDataUrl: text('partial_data_url'),
 
     // Result metadata
     resultSizeBytes: bigint('result_size_bytes', { mode: 'number' }),
@@ -159,3 +160,71 @@ export const bulkSteps = pgTable(
 
 export type BulkStep = typeof bulkSteps.$inferSelect;
 export type NewBulkStep = typeof bulkSteps.$inferInsert;
+
+// ============================================
+// Table: bulk_artifacts
+// ============================================
+export const bulkArtifacts = pgTable(
+  'bulk_artifacts',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`uuidv7()`),
+
+    bulkRunId: uuid('bulk_run_id')
+      .notNull()
+      .references(() => bulkRuns.id, { onDelete: 'cascade' }),
+
+    shopId: uuid('shop_id')
+      .notNull()
+      .references(() => shops.id, { onDelete: 'cascade' }),
+
+    artifactType: varchar('artifact_type', { length: 50 }).notNull(),
+    filePath: text('file_path').notNull(),
+
+    url: text('url'),
+    bytesSize: bigint('bytes_size', { mode: 'number' }),
+    rowsCount: integer('rows_count'),
+    checksum: varchar('checksum', { length: 64 }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  },
+  (table) => [index('idx_bulk_artifacts_run').on(table.bulkRunId)]
+);
+
+export type BulkArtifact = typeof bulkArtifacts.$inferSelect;
+export type NewBulkArtifact = typeof bulkArtifacts.$inferInsert;
+
+// ============================================
+// Table: bulk_errors
+// ============================================
+export const bulkErrors = pgTable(
+  'bulk_errors',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`uuidv7()`),
+
+    bulkRunId: uuid('bulk_run_id')
+      .notNull()
+      .references(() => bulkRuns.id, { onDelete: 'cascade' }),
+
+    shopId: uuid('shop_id')
+      .notNull()
+      .references(() => shops.id, { onDelete: 'cascade' }),
+
+    errorType: varchar('error_type', { length: 50 }).notNull(),
+    errorCode: varchar('error_code', { length: 50 }),
+    errorMessage: text('error_message').notNull(),
+    lineNumber: integer('line_number'),
+    payload: jsonb('payload'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    index('idx_bulk_errors_run').on(table.bulkRunId),
+    index('idx_bulk_errors_type').on(table.shopId, table.errorType),
+  ]
+);
+
+export type BulkError = typeof bulkErrors.$inferSelect;
+export type NewBulkError = typeof bulkErrors.$inferInsert;

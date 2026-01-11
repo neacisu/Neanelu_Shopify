@@ -185,6 +185,33 @@ export type DlqEntry = Readonly<{
   occurredAt: string;
 }>;
 
+export type DlqQueueLike = Readonly<{
+  name?: string;
+  add: (
+    name: string,
+    data: unknown,
+    opts?: {
+      jobId?: string;
+      removeOnComplete?: { age: number };
+      removeOnFail?: { age: number };
+    }
+  ) => Promise<unknown>;
+}>;
+
+export async function enqueueDlqEntry(dlqQueue: DlqQueueLike, entry: DlqEntry): Promise<void> {
+  // BullMQ validates that custom jobIds cannot contain ':'
+  const derivedJobId = entry.originalJobId
+    ? `${entry.originalQueue}__${entry.originalJobId.replaceAll(':', '_')}`
+    : null;
+  const ageSeconds = dlqRetentionAgeSeconds();
+
+  await dlqQueue.add(entry.originalJobName, entry, {
+    ...(derivedJobId ? { jobId: derivedJobId } : {}),
+    removeOnComplete: { age: ageSeconds },
+    removeOnFail: { age: ageSeconds },
+  });
+}
+
 export type CreateQueueOptions = Readonly<{
   name: string;
   queueOptions?: Omit<QueueProOptions, 'connection' | 'defaultJobOptions'>;
@@ -405,16 +432,7 @@ export function createWorker<TData = unknown>(
       };
 
       try {
-        // BullMQ validates that custom jobIds cannot contain ':'
-        const derivedJobId = entry.originalJobId
-          ? `${worker.name}__${entry.originalJobId.replaceAll(':', '_')}`
-          : null;
-        const ageSeconds = dlqRetentionAgeSeconds();
-        await dlqQueue.add(job.name, entry, {
-          ...(derivedJobId ? { jobId: derivedJobId } : {}),
-          removeOnComplete: { age: ageSeconds },
-          removeOnFail: { age: ageSeconds },
-        });
+        await enqueueDlqEntry(dlqQueue, entry);
 
         dlqEntriesTotal.add(1, { queue_name: worker.name });
 

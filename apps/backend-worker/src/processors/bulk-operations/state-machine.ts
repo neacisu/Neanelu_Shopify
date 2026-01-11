@@ -176,7 +176,27 @@ export async function markBulkRunFailed(params: {
        WHERE id = $2`,
       [params.errorMessage, params.bulkRunId]
     );
+  });
 
+  await insertBulkError({
+    shopId: params.shopId,
+    bulkRunId: params.bulkRunId,
+    errorType: params.errorType,
+    errorCode: params.errorCode ?? null,
+    errorMessage: params.errorMessage,
+  });
+}
+
+export async function insertBulkError(params: {
+  shopId: string;
+  bulkRunId: string;
+  errorType: string;
+  errorCode?: string | null;
+  errorMessage: string;
+  payload?: unknown;
+  lineNumber?: number | null;
+}): Promise<void> {
+  await withTenantContext(params.shopId, async (client) => {
     await client.query(
       `INSERT INTO bulk_errors (
          bulk_run_id,
@@ -184,18 +204,100 @@ export async function markBulkRunFailed(params: {
          error_type,
          error_code,
          error_message,
+         line_number,
+         payload,
          created_at
        )
-       VALUES ($1, $2, $3, $4, $5, now())`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, now())`,
       [
         params.bulkRunId,
         params.shopId,
         params.errorType,
         params.errorCode ?? null,
         params.errorMessage,
+        params.lineNumber ?? null,
+        params.payload ?? null,
       ]
     );
   });
+
+  // Plan F5.1.7: abort when row-level error rate exceeds threshold.
+  // Only consider errors that have an associated line_number (i.e., per-row processing errors).
+  if (params.lineNumber != null) {
+    await abortBulkRunIfErrorRateExceeded({ shopId: params.shopId, bulkRunId: params.bulkRunId });
+  }
+}
+
+const BULK_ERROR_RATE_THRESHOLD_DEFAULT = 0.1;
+
+export async function abortBulkRunIfErrorRateExceeded(params: {
+  shopId: string;
+  bulkRunId: string;
+  threshold?: number;
+}): Promise<boolean> {
+  const threshold =
+    typeof params.threshold === 'number' && Number.isFinite(params.threshold)
+      ? Math.max(0, params.threshold)
+      : BULK_ERROR_RATE_THRESHOLD_DEFAULT;
+
+  const snapshot = await withTenantContext(params.shopId, async (client) => {
+    const res = await client.query<{ total: number | null; error_count: number | null }>(
+      `WITH totals AS (
+         SELECT records_processed::int AS total
+         FROM bulk_runs
+         WHERE id = $1
+         LIMIT 1
+       ), errs AS (
+         SELECT COUNT(*)::int AS error_count
+         FROM bulk_errors
+         WHERE bulk_run_id = $1
+           AND shop_id = $2
+           AND line_number IS NOT NULL
+       )
+       SELECT totals.total, errs.error_count
+       FROM totals, errs`,
+      [params.bulkRunId, params.shopId]
+    );
+    return res.rows[0] ?? null;
+  });
+
+  const totalCount = snapshot?.total ?? null;
+  const errorCount = snapshot?.error_count ?? null;
+  if (!totalCount || totalCount <= 0) return false;
+  if (!errorCount || errorCount <= 0) return false;
+
+  if (errorCount / totalCount < threshold) return false;
+
+  await withTenantContext(params.shopId, async (client) => {
+    await client.query(
+      `UPDATE bulk_runs
+       SET status = 'failed',
+           error_message = COALESCE(error_message, 'error_rate_threshold_exceeded'),
+           completed_at = COALESCE(completed_at, now()),
+           updated_at = now()
+       WHERE id = $1
+         AND status IS DISTINCT FROM 'failed'`,
+      [params.bulkRunId]
+    );
+  });
+
+  await insertBulkStep({
+    shopId: params.shopId,
+    bulkRunId: params.bulkRunId,
+    stepName: 'error_rate_abort',
+    status: 'failed',
+    errorMessage: `Error rate threshold exceeded (${errorCount}/${totalCount} >= ${threshold})`,
+  });
+
+  await insertBulkError({
+    shopId: params.shopId,
+    bulkRunId: params.bulkRunId,
+    errorType: 'error_rate_abort',
+    errorCode: 'ERROR_RATE_THRESHOLD',
+    errorMessage: `Error rate threshold exceeded (${errorCount}/${totalCount} >= ${threshold})`,
+  });
+
+  return true;
 }
 
 export async function markBulkRunStarted(params: {
@@ -217,6 +319,24 @@ export async function markBulkRunStarted(params: {
            updated_at = now()
        WHERE id = $4`,
       [params.shopifyOperationId, params.apiVersion, params.costEstimate, params.bulkRunId]
+    );
+  });
+  recordDbQuery('update', (Date.now() - started) / 1000);
+}
+
+export async function patchBulkRunCursorState(params: {
+  shopId: string;
+  bulkRunId: string;
+  patch: Record<string, unknown>;
+}): Promise<void> {
+  const started = Date.now();
+  await withTenantContext(params.shopId, async (client) => {
+    await client.query(
+      `UPDATE bulk_runs
+       SET cursor_state = COALESCE(cursor_state, '{}'::jsonb) || $1::jsonb,
+           updated_at = now()
+       WHERE id = $2`,
+      [JSON.stringify(params.patch), params.bulkRunId]
     );
   });
   recordDbQuery('update', (Date.now() - started) / 1000);

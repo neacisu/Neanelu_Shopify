@@ -6,10 +6,9 @@ import type { QueuePro } from '@taskforcesh/bullmq-pro';
 const tokenLifecyclePath = new URL('../../../auth/token-lifecycle.js', import.meta.url).href;
 const shopifyClientPath = new URL('../../../shopify/client.js', import.meta.url).href;
 
-const MOCK_SHOPIFY_OPERATION_ID = 'gid://shopify/BulkOperation/123';
-const MOCK_RESULT_URL = 'https://shopify.example/bulk/result.jsonl';
-const MOCK_PARTIAL_URL = 'https://shopify.example/bulk/partial.jsonl';
-const MOCK_SHOP_DOMAIN = 'test-poller-store.myshopify.com';
+const MOCK_SHOPIFY_OPERATION_ID = 'gid://shopify/BulkOperation/999';
+const MOCK_PARTIAL_URL = 'https://shopify.example/bulk/partial-only.jsonl';
+const MOCK_SHOP_DOMAIN = 'test-poller-salvage.myshopify.com';
 
 await (async () => {
   await Promise.resolve(
@@ -34,7 +33,6 @@ await (async () => {
           createClient: (_options: unknown) => {
             return {
               request: (query: string, variables?: Record<string, unknown>) => {
-                // The poller uses node(id: $id).
                 if (!query.includes('query BulkOperationNode')) {
                   throw new Error('unexpected_query');
                 }
@@ -46,13 +44,14 @@ await (async () => {
                     node: {
                       __typename: 'BulkOperation',
                       id: MOCK_SHOPIFY_OPERATION_ID,
-                      status: 'COMPLETED',
-                      errorCode: null,
+                      status: 'FAILED',
+                      // Keep it transient (will retry), but retries are exhausted.
+                      errorCode: 'TIMEOUT',
                       createdAt: new Date(Date.now() - 60_000).toISOString(),
                       completedAt: new Date().toISOString(),
                       objectCount: '10',
                       fileSize: '1234',
-                      url: MOCK_RESULT_URL,
+                      url: null,
                       partialDataUrl: MOCK_PARTIAL_URL,
                     },
                   },
@@ -100,7 +99,7 @@ async function sleep(ms: number): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
 }
 
-void describe('smoke: bulk poller (enqueue → poll → bulk_runs completed + artifact)', () => {
+void describe('smoke: bulk poller (terminal failure + partialDataUrl + retries exhausted → salvage)', () => {
   let shopId: string;
   let bulkRunId: string;
   let close: (() => Promise<void>) | null = null;
@@ -143,7 +142,7 @@ void describe('smoke: bulk poller (enqueue → poll → bulk_runs completed + ar
            created_at,
            updated_at
          )
-         VALUES ($1, 'PRODUCTS_EXPORT', 'core', 'running', $2, 0, 3, now(), now())
+         VALUES ($1, 'PRODUCTS_EXPORT', 'core', 'running', $2, 3, 3, now(), now())
          RETURNING id`,
         [shopId, MOCK_SHOPIFY_OPERATION_ID]
       );
@@ -220,7 +219,7 @@ void describe('smoke: bulk poller (enqueue → poll → bulk_runs completed + ar
     }
   });
 
-  void it('marks run completed and writes result URL artifact', async (t) => {
+  void it('marks run completed with partial result url and does not DLQ', async (t) => {
     if (!isCiIntegrationEnvPresent()) {
       t.skip('Requires DATABASE_URL/REDIS_URL/BULLMQ_PRO_TOKEN and other CI env vars');
       return;
@@ -237,24 +236,24 @@ void describe('smoke: bulk poller (enqueue → poll → bulk_runs completed + ar
 
     const { withTenantContext } = await import('@app/database');
 
-    // Wait up to ~5s for completion.
     let status: string | null = null;
     let resultUrl: string | null = null;
     let partialDataUrl: string | null = null;
-    let cursorPartial: string | null = null;
+    let resultSource: string | null = null;
+
     for (let i = 0; i < 50; i++) {
       const row = await withTenantContext(shopId, async (client) => {
         const res = await client.query<{
           status: string;
           result_url: string | null;
           partial_data_url: string | null;
-          cursor_partial: string | null;
+          result_source: string | null;
         }>(
           `SELECT
              status,
              result_url,
              partial_data_url,
-             cursor_state ->> 'partialDataUrl' AS cursor_partial
+             cursor_state #>> '{result,source}' AS result_source
            FROM bulk_runs
            WHERE id = $1`,
           [bulkRunId]
@@ -265,15 +264,15 @@ void describe('smoke: bulk poller (enqueue → poll → bulk_runs completed + ar
       status = row?.status ?? null;
       resultUrl = row?.result_url ?? null;
       partialDataUrl = row?.partial_data_url ?? null;
-      cursorPartial = row?.cursor_partial ?? null;
+      resultSource = row?.result_source ?? null;
       if (status === 'completed') break;
       await sleep(100);
     }
 
     assert.equal(status, 'completed');
-    assert.equal(resultUrl, MOCK_RESULT_URL);
+    assert.equal(resultUrl, MOCK_PARTIAL_URL);
     assert.equal(partialDataUrl, MOCK_PARTIAL_URL);
-    assert.equal(cursorPartial, MOCK_PARTIAL_URL);
+    assert.equal(resultSource, 'partialDataUrl');
 
     const artifact = await withTenantContext(shopId, async (client) => {
       const res = await client.query<{ url: string }>(
@@ -288,21 +287,10 @@ void describe('smoke: bulk poller (enqueue → poll → bulk_runs completed + ar
       return res.rows[0] ?? null;
     });
 
-    assert.equal(artifact?.url, MOCK_RESULT_URL);
+    assert.equal(artifact?.url, MOCK_PARTIAL_URL);
 
-    const partial = await withTenantContext(shopId, async (client) => {
-      const res = await client.query<{ url: string }>(
-        `SELECT url
-         FROM bulk_artifacts
-         WHERE bulk_run_id = $1
-           AND shop_id = $2
-           AND artifact_type = 'shopify_bulk_partial_url'
-         LIMIT 1`,
-        [bulkRunId, shopId]
-      );
-      return res.rows[0] ?? null;
-    });
-
-    assert.equal(partial?.url, MOCK_PARTIAL_URL);
+    // DLQ should remain empty.
+    const dlqCount = await pollerDlqQueue?.getJobCountByTypes('waiting', 'delayed', 'failed');
+    assert.equal(dlqCount ?? 0, 0);
   });
 });
