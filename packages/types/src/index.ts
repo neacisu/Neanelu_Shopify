@@ -1,4 +1,5 @@
 export * from './api.js';
+export * from './bulk.js';
 export * from './dashboard.js';
 export * from './jobs.js';
 export * from './products.js';

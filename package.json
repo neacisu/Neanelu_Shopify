@@ -18,6 +18,7 @@
     "typecheck": "pnpm -w exec tsc --noEmit",
     "test": "pnpm -r --if-present run test",
     "ci": "pnpm lint && pnpm typecheck && pnpm test",
+    "smoke": "node --import tsx ./scripts/smoke-runner.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky",

@@ -57,6 +57,19 @@ export const bulkRuns = pgTable(
     pollingUrl: text('polling_url'),
     resultUrl: text('result_url'),
 
+    // Result metadata
+    resultSizeBytes: bigint('result_size_bytes', { mode: 'number' }),
+
+    // Query hash for caching/analysis
+    graphqlQueryHash: varchar('graphql_query_hash', { length: 64 }),
+
+    // Cancellation tracking
+    cancelledBy: uuid('cancelled_by'),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+
+    // Cost estimate (Shopify query cost points)
+    costEstimate: integer('cost_estimate'),
+
     // Idempotency
     idempotencyKey: varchar('idempotency_key', { length: 100 }).unique(),
 
@@ -84,6 +97,13 @@ export const bulkRuns = pgTable(
     index('idx_bulk_runs_shop_status').on(table.shopId, table.status),
     index('idx_bulk_runs_shopify_op').on(table.shopifyOperationId),
     uniqueIndex('idx_bulk_runs_idempotency').on(table.idempotencyKey),
+    // CRITICAL: Prevent multiple concurrent active runs per shop.
+    uniqueIndex('idx_bulk_runs_active_shop')
+      .on(table.shopId)
+      .where(sql`${table.status} in ('pending', 'running')`),
+    index('idx_bulk_runs_query_hash')
+      .on(table.graphqlQueryHash)
+      .where(sql`${table.graphqlQueryHash} is not null`),
   ]
 );
 

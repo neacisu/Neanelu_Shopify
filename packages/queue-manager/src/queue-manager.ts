@@ -277,20 +277,43 @@ export function createWorker<TData = unknown>(
         return worker.processor(job, token, signal);
       }
 
-      const timeoutController = new AbortController();
-      const combinedSignal = signal
-        ? AbortSignal.any([signal, timeoutController.signal])
-        : timeoutController.signal;
+      // NOTE:
+      // BullMQ/BullMQ Pro may pass an AbortSignal instance that is not compatible with
+      // the current realm's AbortSignal helpers (e.g. AbortSignal.any). In Node, this can
+      // throw: "The \"signals[0]\" argument must be an instance of AbortSignal...".
+      // To stay robust, combine signals manually.
+      const controller = new AbortController();
+      const combinedSignal = controller.signal;
+
+      const abortFrom = (source: AbortSignal): void => {
+        try {
+          const reason: unknown = (source as unknown as { reason?: unknown }).reason;
+          controller.abort(reason);
+        } catch {
+          controller.abort();
+        }
+      };
+
+      if (signal) {
+        if (signal.aborted) {
+          abortFrom(signal);
+        } else {
+          signal.addEventListener('abort', () => abortFrom(signal), { once: true });
+        }
+      }
+
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        controller.abort(new Error(`Job exceeded timeout of ${resolvedTimeoutMs}ms`));
+      }, resolvedTimeoutMs);
 
       const timeoutPromise = new Promise<never>((_, reject) => {
-        const timer = setTimeout(() => {
-          timeoutController.abort();
-          reject(new Error(`Job exceeded timeout of ${resolvedTimeoutMs}ms`));
-        }, resolvedTimeoutMs);
-
         combinedSignal.addEventListener(
           'abort',
           () => {
+            if (settled) return;
+            settled = true;
             clearTimeout(timer);
             const reason: unknown = (combinedSignal as unknown as { reason?: unknown }).reason;
             reject(reason instanceof Error ? reason : new Error('Job aborted'));
@@ -299,7 +322,17 @@ export function createWorker<TData = unknown>(
         );
       });
 
-      return Promise.race([worker.processor(job, token, combinedSignal), timeoutPromise]);
+      try {
+        return await Promise.race([
+          worker.processor(job, token, combinedSignal).finally(() => {
+            settled = true;
+          }),
+          timeoutPromise,
+        ]);
+      } finally {
+        settled = true;
+        clearTimeout(timer);
+      }
     });
   };
 
@@ -373,7 +406,9 @@ export function createWorker<TData = unknown>(
 
       try {
         // BullMQ validates that custom jobIds cannot contain ':'
-        const derivedJobId = entry.originalJobId ? `${worker.name}__${entry.originalJobId}` : null;
+        const derivedJobId = entry.originalJobId
+          ? `${worker.name}__${entry.originalJobId.replaceAll(':', '_')}`
+          : null;
         const ageSeconds = dlqRetentionAgeSeconds();
         await dlqQueue.add(job.name, entry, {
           ...(derivedJobId ? { jobId: derivedJobId } : {}),

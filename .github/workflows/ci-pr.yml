@@ -290,6 +290,13 @@ jobs:
           DATABASE_URL: postgresql://test:test@localhost:65010/test_db
           DATABASE_URL_MIGRATE: postgresql://test:test@localhost:65010/test_db
 
+      - name: Smoke tests (bulk orchestrator)
+        run: pnpm smoke
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:65010/test_db
+          DATABASE_URL_MIGRATE: postgresql://test:test@localhost:65010/test_db
+          REDIS_URL: redis://localhost:65011
+
       - name: Run tests (@app/backend-worker)
         run: pnpm --filter @app/backend-worker test
         env:
