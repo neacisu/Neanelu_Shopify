@@ -358,9 +358,141 @@ interface LogEntry {
 
 ---
 
-## 5. Hooks
+### 4.6 ShopifyAdminLink
 
-### 5.1 useJobPolling
+**Path:** `/apps/web-admin/app/components/domain/ShopifyAdminLink.tsx`
+
+| Prop           | Type                      | Required | Default  | Description                                       |
+|----------------|---------------------------|----------|----------|---------------------------------------------------|
+| resourceType   | `ShopifyResourceType`     | ✓        | -        | Type of Shopify resource (products, orders, etc.) |
+| resourceId     | `string \| number`        |          | -        | Resource ID for specific item link                |
+| subPath        | `string`                  |          | -        | Sub-path (e.g., 'edit', 'variants')               |
+| className      | `string`                  |          | -        | Additional CSS classes                            |
+| disabled       | `boolean`                 |          | `false`  | Disables the link                                 |
+| fallbackNewTab | `boolean`                 |          | `true`   | Opens in new tab when App Bridge unavailable      |
+| title          | `string`                  |          | -        | Title attribute for tooltip                       |
+| onClick        | `(e: MouseEvent) => void` |          | -        | Click handler before navigation                   |
+| children       | `ReactNode`               | ✓        | -        | Link content                                      |
+
+**ShopifyResourceType:**
+
+```typescript
+type ShopifyResourceType =
+  | 'products' | 'orders' | 'customers' | 'collections'
+  | 'inventory' | 'draft_orders' | 'discounts' | 'gift_cards'
+  | 'metafields' | 'files' | 'pages' | 'blogs'
+  | 'navigation' | 'themes' | 'settings';
+```
+
+**Behavior:**
+
+- When App Bridge is available: Uses `Redirect.Action.ADMIN_PATH` for seamless embedded navigation
+- When App Bridge is unavailable: Falls back to opening in new tab (if `fallbackNewTab` is true)
+- Automatically builds admin URLs from shop domain in URL params
+
+**Usage:**
+
+```tsx
+// Link to products list
+<ShopifyAdminLink resourceType="products">
+  View Products
+</ShopifyAdminLink>
+
+// Link to specific product
+<ShopifyAdminLink resourceType="products" resourceId="123456789">
+  View Product
+</ShopifyAdminLink>
+
+// Link to order edit page
+<ShopifyAdminLink resourceType="orders" resourceId="987654321" subPath="edit">
+  Edit Order
+</ShopifyAdminLink>
+```
+
+---
+
+## 5. UI Components
+
+### 5.1 Timeline
+
+**Path:** `/apps/web-admin/app/components/ui/Timeline.tsx`
+
+| Prop             | Type                          | Required | Default                    | Description                              |
+|------------------|-------------------------------|----------|----------------------------|------------------------------------------|
+| events           | `readonly TimelineEvent[]`    | ✓        | -                          | List of timeline events                  |
+| orientation      | `'vertical' \| 'horizontal'`  |          | `'vertical'`               | Timeline layout direction                |
+| loading          | `boolean`                     |          | `false`                    | Shows loading state                      |
+| loadingState     | `ReactNode`                   |          | -                          | Custom loading element                   |
+| loadMore         | `() => void \| Promise<void>` |          | -                          | Infinite scroll callback                 |
+| hasMore          | `boolean`                     |          | `false`                    | Whether more events can be loaded        |
+| showGroupHeaders | `boolean`                     |          | `true`                     | Group events by day with headers         |
+| relativeTime     | `boolean`                     |          | `true`                     | Show relative time (e.g., "2 hours ago") |
+| expandable       | `boolean`                     |          | `true`                     | Allow click to expand event details      |
+| maxHeight        | `number \| string`            |          | -                          | Max container height                     |
+| className        | `string`                      |          | -                          | Additional CSS classes                   |
+| emptyState       | `ReactNode`                   |          | -                          | Custom empty state                       |
+| timeFormat       | `string`                      |          | `'HH:mm'`                  | date-fns format for time                 |
+| dateFormat       | `string`                      |          | `'EEEE, MMMM d, yyyy'`     | date-fns format for date headers         |
+
+**TimelineEvent Type:**
+
+```typescript
+type TimelineEvent = Readonly<{
+  id: string;
+  timestamp: Date | string | number;
+  title: string;
+  description?: string;
+  icon?: ReactNode;
+  status?: 'success' | 'error' | 'warning' | 'info' | 'neutral';
+  metadata?: Record<string, unknown>;
+  children?: ReactNode;
+}>;
+```
+
+**Features:**
+
+- Automatic grouping by day with "Today", "Yesterday", or full date headers
+- Relative timestamps using `formatDistanceToNow` from date-fns
+- Expandable event details with metadata display
+- Infinite scroll support with `loadMore` callback
+- Status-colored dots (success=green, error=red, warning=amber, info=blue, neutral=gray)
+- Horizontal and vertical orientations
+- Keyboard accessible (Enter/Space to expand)
+
+**Usage:**
+
+```tsx
+const events = [
+  {
+    id: '1',
+    timestamp: new Date(),
+    title: 'Product updated',
+    description: 'Price changed from $10 to $15',
+    status: 'success',
+    metadata: { productId: '123', field: 'price' },
+  },
+  {
+    id: '2',
+    timestamp: new Date(Date.now() - 86400000),
+    title: 'Sync completed',
+    status: 'info',
+  },
+];
+
+<Timeline
+  events={events}
+  showGroupHeaders
+  relativeTime
+  expandable
+  maxHeight={400}
+/>
+```
+
+---
+
+## 6. Hooks
+
+### 6.1 useJobPolling
 
 ```typescript
 function useJobPolling(jobId: string, options?: {
@@ -376,7 +508,7 @@ function useJobPolling(jobId: string, options?: {
 
 ---
 
-### 5.2 useRecentSearches
+### 6.2 useRecentSearches
 
 ```typescript
 function useRecentSearches(options?: {
@@ -391,7 +523,7 @@ function useRecentSearches(options?: {
 
 ---
 
-### 5.3 useApiClient
+### 6.3 useApiClient
 
 **Path:** `/apps/web-admin/app/hooks/use-api.ts`
 
@@ -412,7 +544,7 @@ function useApiClient(options?: {
 
 ---
 
-### 5.4 useApiRequest
+### 6.4 useApiRequest
 
 **Path:** `/apps/web-admin/app/hooks/use-api.ts`
 
@@ -431,7 +563,8 @@ function useApiRequest<TArgs extends unknown[], TResult>(
 
 ## Changelog
 
-| Date       | Version | Changes                                                       |
-|------------|---------|---------------------------------------------------------------|
-| 2025-12-25 | 1.0     | Initial specification                                         |
-| 2026-01-04 | 1.1     | Added API client hooks, state components, and form primitives |
+| Date       | Version | Changes                                                                     |
+|------------|---------|-----------------------------------------------------------------------------|
+| 2025-12-25 | 1.0     | Initial specification                                                       |
+| 2026-01-04 | 1.1     | Added API client hooks, state components, and form primitives               |
+| 2026-01-11 | 1.2     | Added Timeline (F3.9.3) and ShopifyAdminLink (F3.7.5) - Sprint 5 completion |

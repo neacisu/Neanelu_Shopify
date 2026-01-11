@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { PolarisBadge } from '../../../components/polaris/index.js';
 import { Button } from '@/app/components/ui/button';
 import { JsonViewer } from '@/app/components/ui/JsonViewer';
+import { ShopifyAdminLink, type ShopifyResourceType } from './ShopifyAdminLink';
 
 export type QueueJobDetail = Readonly<{
   id: string;
@@ -80,6 +81,46 @@ export function JobDetailModal(props: {
     return typeof v === 'number' && Number.isFinite(v) ? v : null;
   }, [job?.opts]);
 
+  // Extract Shopify resource info from job payload for linking
+  const shopifyResource = useMemo(() => {
+    const data = job?.data;
+    if (!data || typeof data !== 'object') return null;
+
+    const dataObj = data as Record<string, unknown>;
+
+    // Try to detect resource type and ID from common payload patterns
+    if (dataObj['productId'] || dataObj['product_id']) {
+      return {
+        type: 'products' as ShopifyResourceType,
+        id: String(dataObj['productId'] ?? dataObj['product_id']),
+        label: 'View Product in Shopify',
+      };
+    }
+    if (dataObj['orderId'] || dataObj['order_id']) {
+      return {
+        type: 'orders' as ShopifyResourceType,
+        id: String(dataObj['orderId'] ?? dataObj['order_id']),
+        label: 'View Order in Shopify',
+      };
+    }
+    if (dataObj['customerId'] || dataObj['customer_id']) {
+      return {
+        type: 'customers' as ShopifyResourceType,
+        id: String(dataObj['customerId'] ?? dataObj['customer_id']),
+        label: 'View Customer in Shopify',
+      };
+    }
+    if (dataObj['collectionId'] || dataObj['collection_id']) {
+      return {
+        type: 'collections' as ShopifyResourceType,
+        id: String(dataObj['collectionId'] ?? dataObj['collection_id']),
+        label: 'View Collection in Shopify',
+      };
+    }
+
+    return null;
+  }, [job?.data]);
+
   return (
     <dialog
       ref={dialogRef}
@@ -120,6 +161,20 @@ export function JobDetailModal(props: {
                 </div>
               </div>
             </div>
+
+            {/* Shopify Admin Link - extracted from payload */}
+            {shopifyResource ? (
+              <div className="rounded-md border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-950">
+                <div className="text-caption text-muted mb-1">Related Shopify Resource</div>
+                <ShopifyAdminLink
+                  resourceType={shopifyResource.type}
+                  resourceId={shopifyResource.id}
+                  className="text-sm font-medium"
+                >
+                  {shopifyResource.label} →
+                </ShopifyAdminLink>
+              </div>
+            ) : null}
 
             <section className="space-y-2">
               <div className="text-h4">Timeline</div>
