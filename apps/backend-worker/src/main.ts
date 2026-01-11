@@ -8,9 +8,11 @@ import { startWebhookWorker } from './processors/webhooks/worker.js';
 import { startTokenHealthWorker } from './processors/auth/token-health.worker.js';
 import { startSyncWorker } from './processors/sync/worker.js';
 import { startBulkOrchestratorWorker } from './processors/bulk-operations/orchestrator.worker.js';
+import { startBulkPollerWorker } from './processors/bulk-operations/poller.worker.js';
 import { scheduleTokenHealthJob, closeTokenHealthQueue } from './queue/token-health-queue.js';
 import {
   setBulkOrchestratorWorkerHandle,
+  setBulkPollerWorkerHandle,
   setTokenHealthWorkerHandle,
   setWebhookWorkerHandle,
 } from './runtime/worker-registry.js';
@@ -32,6 +34,7 @@ let webhookWorker: Awaited<ReturnType<typeof startWebhookWorker>> | null = null;
 let tokenHealthWorker: Awaited<ReturnType<typeof startTokenHealthWorker>> | null = null;
 let syncWorker: Awaited<ReturnType<typeof startSyncWorker>> | null = null;
 let bulkOrchestratorWorker: Awaited<ReturnType<typeof startBulkOrchestratorWorker>> | null = null;
+let bulkPollerWorker: Awaited<ReturnType<typeof startBulkPollerWorker>> | null = null;
 
 try {
   await server.listen({ port: env.port, host: '0.0.0.0' });
@@ -71,6 +74,15 @@ try {
   emitQueueStreamEvent({
     type: 'worker.online',
     workerId: 'bulk-orchestrator-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  bulkPollerWorker = startBulkPollerWorker(logger);
+  setBulkPollerWorkerHandle(bulkPollerWorker);
+  logger.info({}, 'bulk poller worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'bulk-poller-worker',
     timestamp: new Date().toISOString(),
   });
 } catch (error) {
@@ -124,6 +136,18 @@ const shutdown = async (signal: string): Promise<void> => {
       emitQueueStreamEvent({
         type: 'worker.offline',
         workerId: 'bulk-orchestrator-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (bulkPollerWorker) {
+      await bulkPollerWorker.close();
+      bulkPollerWorker = null;
+      setBulkPollerWorkerHandle(null);
+      logger.info({ signal }, 'bulk poller worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'bulk-poller-worker',
         timestamp: new Date().toISOString(),
       });
     }

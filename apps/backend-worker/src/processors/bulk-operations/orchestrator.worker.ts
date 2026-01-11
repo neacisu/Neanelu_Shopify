@@ -32,6 +32,10 @@ import type { Redis as RedisClient } from 'ioredis';
 import { ShopifyRateLimitedError } from '@app/shopify-client';
 
 import { shopifyApi } from '../../shopify/client.js';
+import {
+  gateShopifyGraphqlRequest,
+  getShopifyGraphqlRateLimitConfig,
+} from '../../shopify/graphql-rate-limit.js';
 import { withTokenRetry } from '../../auth/token-lifecycle.js';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
 
@@ -79,6 +83,7 @@ function buildBulkRunQueryMutation(): string {
 export function startBulkOrchestratorWorker(logger: Logger): BulkOrchestratorWorkerHandle {
   const redis = new RedisCtor(env.redisUrl);
   const qmOptions = { config: configFromEnv(env) };
+  const graphqlLimiterCfg = getShopifyGraphqlRateLimitConfig();
 
   const { worker, dlqQueue } = createWorker<BulkOrchestratorJobPayload>(qmOptions, {
     name: BULK_QUEUE_NAME,
@@ -172,6 +177,15 @@ export function startBulkOrchestratorWorker(logger: Logger): BulkOrchestratorWor
 
             // Start Shopify bulk operation outside DB tx.
             const encryptionKey = Buffer.from(env.encryptionKeyHex, 'hex');
+
+            // Proactive (distributed) GraphQL rate limiting.
+            // Reactive throttling is handled by shopifyApi client (ShopifyRateLimitedError).
+            await gateShopifyGraphqlRequest({
+              redis,
+              shopId: payload.shopId,
+              costToConsume: graphqlLimiterCfg.defaultBulkStartCost,
+              config: graphqlLimiterCfg,
+            });
 
             const { bulkOperationId, costEstimate } = await withTokenRetry(
               payload.shopId,

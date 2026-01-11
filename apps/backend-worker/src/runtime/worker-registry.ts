@@ -16,6 +16,7 @@ export type WorkerCurrentJob = Readonly<{
 let webhookWorker: WorkerLike | null = null;
 let tokenHealthWorker: WorkerLike | null = null;
 let bulkOrchestratorWorker: WorkerLike | null = null;
+let bulkPollerWorker: WorkerLike | null = null;
 
 const currentJobByWorkerId = new Map<string, WorkerCurrentJob>();
 
@@ -29,6 +30,10 @@ export function setTokenHealthWorkerHandle(handle: WorkerHandleLike | null): voi
 
 export function setBulkOrchestratorWorkerHandle(handle: WorkerHandleLike | null): void {
   bulkOrchestratorWorker = handle?.worker ?? null;
+}
+
+export function setBulkPollerWorkerHandle(handle: WorkerHandleLike | null): void {
+  bulkPollerWorker = handle?.worker ?? null;
 }
 
 export function setWorkerCurrentJob(workerId: string, job: WorkerCurrentJob): void {
@@ -66,6 +71,7 @@ export function getWorkerReadiness(): Readonly<{
   webhookWorkerOk: boolean;
   tokenHealthWorkerOk: boolean | null;
   bulkOrchestratorWorkerOk: boolean | null;
+  bulkPollerWorkerOk: boolean | null;
 }> {
   return {
     webhookWorkerOk: isWorkerRunning(webhookWorker),
@@ -73,5 +79,6 @@ export function getWorkerReadiness(): Readonly<{
     bulkOrchestratorWorkerOk: bulkOrchestratorWorker
       ? isWorkerRunning(bulkOrchestratorWorker)
       : null,
+    bulkPollerWorkerOk: bulkPollerWorker ? isWorkerRunning(bulkPollerWorker) : null,
   };
 }

@@ -41,6 +41,8 @@ export interface BulkPollerJobPayload {
   shopifyOperationId: string;
   triggeredBy: BulkJobTriggeredBy;
   requestedAt: number;
+  /** Optional internal counter for exponential backoff; maintained by poller worker. */
+  pollAttempt?: number;
 }
 
 function isCanonicalUuid(value: string): boolean {
@@ -95,6 +97,13 @@ export function validateBulkPollerJobPayload(data: unknown): data is BulkPollerJ
   }
 
   if (typeof job.requestedAt !== 'number' || !Number.isFinite(job.requestedAt)) return false;
+
+  if (job.pollAttempt !== undefined) {
+    if (typeof job.pollAttempt !== 'number') return false;
+    if (!Number.isFinite(job.pollAttempt)) return false;
+    if (!Number.isInteger(job.pollAttempt)) return false;
+    if (job.pollAttempt < 0) return false;
+  }
 
   return true;
 }

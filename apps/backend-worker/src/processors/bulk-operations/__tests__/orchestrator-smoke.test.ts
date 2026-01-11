@@ -2,6 +2,8 @@ import { describe, it, after, before, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import type { QueuePro } from '@taskforcesh/bullmq-pro';
+import { Redis as IORedis } from 'ioredis';
+import { acquireBulkLock, enqueueBulkOrchestratorJob, releaseBulkLock } from '@app/queue-manager';
 
 const tokenLifecyclePath = new URL('../../../auth/token-lifecycle.js', import.meta.url).href;
 const shopifyClientPath = new URL('../../../shopify/client.js', import.meta.url).href;
@@ -65,6 +67,8 @@ await (async () => {
 function isCiIntegrationEnvPresent(): boolean {
   // `@app/config.loadEnv()` is evaluated at import-time by the worker.
   // Only run this smoke test when the full CI/local integration env is present.
+  // Smoke tests are intended to run via `pnpm smoke` (see scripts/smoke-runner.ts).
+  if ((process.env['SMOKE_RUN'] ?? '').trim() !== '1') return false;
   const required = [
     'APP_HOST',
     'DATABASE_URL',
@@ -90,6 +94,16 @@ async function cleanupBulkRuns(shopId: string): Promise<void> {
   await withTenantContext(shopId, async (client) => {
     await client.query(`DELETE FROM bulk_runs WHERE shop_id = $1`, [shopId]);
   });
+
+  // Clear distributed GraphQL rate limiter state for determinism.
+  // Without this, a previous run can leave low tokens and delay the orchestrator.
+  const redis = new IORedis(process.env['REDIS_URL'] ?? '');
+  try {
+    await redis.del(`neanelu:ratelimit:graphql:${shopId}`);
+    await redis.del(`bulk-lock:${shopId.trim().toLowerCase()}`);
+  } finally {
+    await redis.quit().catch(() => undefined);
+  }
 }
 
 void describe('smoke: bulk orchestrator (enqueue → DB → poller scheduled)', () => {
@@ -218,7 +232,6 @@ void describe('smoke: bulk orchestrator (enqueue → DB → poller scheduled)', 
       return;
     }
 
-    const { enqueueBulkOrchestratorJob } = await import('@app/queue-manager');
     const { withTenantContext } = await import('@app/database');
 
     const pollerQ = pollerQueue;
@@ -245,8 +258,10 @@ void describe('smoke: bulk orchestrator (enqueue → DB → poller scheduled)', 
           id: string;
           status: string;
           shopify_operation_id: string | null;
+          error_message: string | null;
         }>(
           `SELECT id, status, shopify_operation_id
+                  , error_message
            FROM bulk_runs
            WHERE shop_id = $1
            ORDER BY created_at DESC
@@ -255,6 +270,10 @@ void describe('smoke: bulk orchestrator (enqueue → DB → poller scheduled)', 
         );
         return res.rows[0] ?? null;
       });
+
+      if (row?.status === 'failed') {
+        assert.fail(`Bulk orchestrator marked run failed: ${row.error_message ?? 'unknown'}`);
+      }
 
       if (row?.status === 'running' && row.shopify_operation_id === MOCK_SHOPIFY_OPERATION_ID) {
         assert.equal(row.shopify_operation_id, MOCK_SHOPIFY_OPERATION_ID);
@@ -283,9 +302,6 @@ void describe('smoke: bulk orchestrator (enqueue → DB → poller scheduled)', 
     const pollerQ = pollerQueue;
     assert.ok(pollerQ, 'poller queue should be initialized');
 
-    const { default: Redis } = await import('ioredis');
-    const { acquireBulkLock, releaseBulkLock, enqueueBulkOrchestratorJob } =
-      await import('@app/queue-manager');
     const { withTenantContext, pool } = await import('@app/database');
 
     // Use a separate shopId/group so group-level rate limiting from contention
@@ -312,7 +328,7 @@ void describe('smoke: bulk orchestrator (enqueue → DB → poller scheduled)', 
 
     await cleanupBulkRuns(contentionShopId);
 
-    const redis = new Redis(process.env['REDIS_URL'] ?? '');
+    const redis = new IORedis(process.env['REDIS_URL'] ?? '');
     let lockToken: Readonly<{ shopId: string; token: string }> | null = null;
     lockToken = await acquireBulkLock(redis, contentionShopId, { ttlMs: 30_000 });
     if (!lockToken) throw new Error('expected to acquire bulk lock for contention test');
@@ -383,8 +399,6 @@ void describe('smoke: bulk orchestrator (enqueue → DB → poller scheduled)', 
     assert.ok(pollerQ, 'poller queue should be initialized');
 
     const { withTenantContext } = await import('@app/database');
-    const { enqueueBulkOrchestratorJob } = await import('@app/queue-manager');
-
     await cleanupBulkRuns(shopId);
 
     const idempotencyKey = `resume-test-${randomUUID()}`;
