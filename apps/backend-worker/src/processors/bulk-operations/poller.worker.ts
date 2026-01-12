@@ -3,6 +3,7 @@ import {
   createWorker,
   withJobTelemetryContext,
   configFromEnv,
+  enqueueBulkMutationReconcileJob,
   type DlqEntry,
   type DlqQueueLike,
 } from '@app/queue-manager';
@@ -18,7 +19,12 @@ import {
 } from '../../shopify/graphql-rate-limit.js';
 import { Redis as IORedis, type Redis } from 'ioredis';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
-import { insertBulkError, markBulkRunFailed, patchBulkRunCursorState } from './state-machine.js';
+import {
+  insertBulkError,
+  loadBulkRunContext,
+  markBulkRunFailed,
+  patchBulkRunCursorState,
+} from './state-machine.js';
 import { enqueueDlqDirect, enqueueRetryOrDlq } from './failure-handler.js';
 
 const env = loadEnv();
@@ -475,6 +481,39 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
               shopifyCompletedAt: completedAt,
             });
 
+            // PR-039: if this run is a bulk mutation, enqueue reconcile.
+            try {
+              const ctx = await loadBulkRunContext({
+                shopId: payload.shopId,
+                bulkRunId: payload.bulkRunId,
+              });
+              const cursor = ctx?.cursor_state;
+              const isMutationRun =
+                !!cursor &&
+                typeof cursor === 'object' &&
+                cursor !== null &&
+                'bulkMutationContract' in (cursor as Record<string, unknown>);
+
+              if (isMutationRun) {
+                await enqueueBulkMutationReconcileJob({
+                  shopId: payload.shopId,
+                  bulkRunId: payload.bulkRunId,
+                  resultUrl: chosenUrl,
+                  triggeredBy: payload.triggeredBy,
+                  requestedAt: Date.now(),
+                });
+
+                await insertStep({
+                  shopId: payload.shopId,
+                  bulkRunId: payload.bulkRunId,
+                  step: 'poller.reconcile_enqueued',
+                  details: { resultUrl: chosenUrl },
+                });
+              }
+            } catch {
+              // Best-effort: poller should not fail due to reconcile enqueue.
+            }
+
             return { outcome: 'completed' as const, resultUrl: chosenUrl };
           }
 
@@ -538,6 +577,38 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
             }
 
             if (retryOutcome === 'salvaged_partial') {
+              // PR-039: if this run is a bulk mutation, enqueue reconcile against partialDataUrl.
+              try {
+                const ctx = await loadBulkRunContext({
+                  shopId: payload.shopId,
+                  bulkRunId: payload.bulkRunId,
+                });
+                const cursor = ctx?.cursor_state;
+                const isMutationRun =
+                  !!cursor &&
+                  typeof cursor === 'object' &&
+                  cursor !== null &&
+                  'bulkMutationContract' in (cursor as Record<string, unknown>);
+
+                if (isMutationRun && bulk.partialDataUrl) {
+                  await enqueueBulkMutationReconcileJob({
+                    shopId: payload.shopId,
+                    bulkRunId: payload.bulkRunId,
+                    resultUrl: bulk.partialDataUrl,
+                    triggeredBy: payload.triggeredBy,
+                    requestedAt: Date.now(),
+                  });
+                  await insertStep({
+                    shopId: payload.shopId,
+                    bulkRunId: payload.bulkRunId,
+                    step: 'poller.reconcile_enqueued',
+                    details: { resultUrl: bulk.partialDataUrl, salvaged: true },
+                  });
+                }
+              } catch {
+                // ignore
+              }
+
               await insertStep({
                 shopId: payload.shopId,
                 bulkRunId: payload.bulkRunId,

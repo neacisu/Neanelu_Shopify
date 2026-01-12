@@ -51,6 +51,13 @@ import {
   patchBulkRunCursorState,
 } from './state-machine.js';
 
+import {
+  buildBulkRunMutationMutation,
+  buildStagedUploadsCreateMutation,
+  uploadJsonlToStagedTarget,
+  type StagedUploadTarget,
+} from './mutations/staged-upload.js';
+
 import { enqueueDlqDirect } from './failure-handler.js';
 
 const env = loadEnv();
@@ -83,6 +90,56 @@ function buildBulkRunQueryMutation(): string {
     userErrors { field message }
   }
 }`;
+}
+
+async function insertArtifact(params: {
+  shopId: string;
+  bulkRunId: string;
+  artifactType: string;
+  filePath: string;
+  url?: string | null;
+  bytesSize?: number | null;
+  rowsCount?: number | null;
+  checksum?: string | null;
+  expiresAt?: Date | null;
+}): Promise<void> {
+  await withTenantContext(params.shopId, async (client) => {
+    await client.query(
+      `INSERT INTO bulk_artifacts (
+         bulk_run_id,
+         shop_id,
+         artifact_type,
+         file_path,
+         url,
+         bytes_size,
+         rows_count,
+         checksum,
+         expires_at,
+         created_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())`,
+      [
+        params.bulkRunId,
+        params.shopId,
+        params.artifactType,
+        params.filePath,
+        params.url ?? null,
+        params.bytesSize ?? null,
+        params.rowsCount ?? null,
+        params.checksum ?? null,
+        params.expiresAt ? params.expiresAt.toISOString() : null,
+      ]
+    );
+  });
+}
+
+function isMutationPayload(
+  payload: BulkOrchestratorJobPayload
+): payload is Extract<BulkOrchestratorJobPayload, { graphqlMutation: string }> {
+  return (
+    typeof (payload as Partial<{ graphqlMutation: unknown }>).graphqlMutation === 'string' &&
+    Boolean((payload as Partial<{ graphqlMutation?: string }>).graphqlMutation?.trim())
+  );
 }
 
 function isPermanentBulkStartError(message: string): boolean {
@@ -149,8 +206,20 @@ export function startBulkOrchestratorWorker(logger: Logger): BulkOrchestratorWor
           span.setAttribute(OTEL_ATTR.SHOP_ID, payload.shopId);
           span.setAttribute(OTEL_ATTR.QUEUE_GROUP_ID, payload.shopId);
           span.setAttribute('bulk.operation_type', payload.operationType);
-          if (payload.queryType) span.setAttribute('bulk.query_type', payload.queryType);
-          if (payload.queryVersion) span.setAttribute('bulk.query_version', payload.queryVersion);
+          if (isMutationPayload(payload)) {
+            span.setAttribute('bulk.mutation_type', payload.mutationType);
+            if (payload.mutationVersion)
+              span.setAttribute('bulk.mutation_version', payload.mutationVersion);
+            if (typeof payload.chunkIndex === 'number')
+              span.setAttribute('bulk.chunk_index', payload.chunkIndex);
+            if (typeof payload.chunkCount === 'number')
+              span.setAttribute('bulk.chunk_count', payload.chunkCount);
+            if (typeof payload.retryAttempt === 'number')
+              span.setAttribute('bulk.retry_attempt', payload.retryAttempt);
+          } else {
+            if (payload.queryType) span.setAttribute('bulk.query_type', payload.queryType);
+            if (payload.queryVersion) span.setAttribute('bulk.query_version', payload.queryVersion);
+          }
 
           setWorkerCurrentJob('bulk-orchestrator-worker', {
             jobId,
@@ -172,22 +241,38 @@ export function startBulkOrchestratorWorker(logger: Logger): BulkOrchestratorWor
           });
 
           try {
-            const graphqlQueryHash = sha256Hex(payload.graphqlQuery);
+            const isMutation = isMutationPayload(payload);
+
+            const mutationPayload = isMutation ? payload : null;
+            const queryPayload = !isMutation ? payload : null;
+
+            const graphqlHash = sha256Hex(
+              isMutation ? mutationPayload!.graphqlMutation : queryPayload!.graphqlQuery
+            );
             const idempotencyKey = payload.idempotencyKey?.trim()
               ? payload.idempotencyKey.trim()
               : deriveIdempotencyKey({
                   shopId: payload.shopId,
                   operationType: payload.operationType,
-                  queryType: payload.queryType ?? null,
-                  graphqlQueryHash,
+                  queryType: isMutation
+                    ? mutationPayload!.mutationType
+                    : (queryPayload!.queryType ?? null),
+                  // Include input checksum when we don't have a caller-provided idempotency key.
+                  graphqlQueryHash: isMutation
+                    ? sha256Hex(
+                        `${graphqlHash}|${mutationPayload!.inputChecksum ?? mutationPayload!.inputPath}`
+                      )
+                    : graphqlHash,
                 });
 
             const run = await insertOrLoadBulkRun({
               shopId: payload.shopId,
               operationType: payload.operationType,
-              queryType: payload.queryType ?? null,
+              queryType: isMutation
+                ? mutationPayload!.mutationType
+                : (queryPayload!.queryType ?? null),
               idempotencyKey,
-              graphqlQueryHash,
+              graphqlQueryHash: graphqlHash,
             });
 
             // Persist contract metadata for deterministic retries/recovery.
@@ -195,14 +280,44 @@ export function startBulkOrchestratorWorker(logger: Logger): BulkOrchestratorWor
             await patchBulkRunCursorState({
               shopId: payload.shopId,
               bulkRunId: run.id,
-              patch: {
-                bulkQueryContract: {
-                  queryType: payload.queryType ?? null,
-                  version: payload.queryVersion ?? null,
-                  graphqlQueryHash,
-                },
-              },
+              patch: isMutation
+                ? {
+                    bulkMutationContract: {
+                      mutationType: mutationPayload!.mutationType,
+                      version: mutationPayload!.mutationVersion ?? null,
+                      graphqlHash,
+                      chunkIndex: mutationPayload!.chunkIndex ?? null,
+                      chunkCount: mutationPayload!.chunkCount ?? null,
+                      retryAttempt: mutationPayload!.retryAttempt ?? 0,
+                      input: {
+                        path: mutationPayload!.inputPath,
+                        checksum: mutationPayload!.inputChecksum ?? null,
+                        bytes: mutationPayload!.inputBytes ?? null,
+                        rows: mutationPayload!.inputRows ?? null,
+                      },
+                    },
+                  }
+                : {
+                    bulkQueryContract: {
+                      queryType: queryPayload!.queryType ?? null,
+                      version: queryPayload!.queryVersion ?? null,
+                      graphqlQueryHash: graphqlHash,
+                    },
+                  },
             });
+
+            if (isMutation) {
+              // Best-effort artifact persistence for input file.
+              await insertArtifact({
+                shopId: payload.shopId,
+                bulkRunId: run.id,
+                artifactType: 'mutation_input_chunk',
+                filePath: mutationPayload!.inputPath,
+                bytesSize: mutationPayload!.inputBytes ?? null,
+                rowsCount: mutationPayload!.inputRows ?? null,
+                checksum: mutationPayload!.inputChecksum ?? null,
+              }).catch(() => undefined);
+            }
 
             // If the run already has a Shopify operation id, it was started before (idempotent resume).
             if (run.shopify_operation_id) {
@@ -229,15 +344,10 @@ export function startBulkOrchestratorWorker(logger: Logger): BulkOrchestratorWor
             // Start Shopify bulk operation outside DB tx.
             const encryptionKey = Buffer.from(env.encryptionKeyHex, 'hex');
 
+            // (isMutation + payload narrowing already computed above)
+
             // Proactive (distributed) GraphQL rate limiting.
             // Reactive throttling is handled by shopifyApi client (ShopifyRateLimitedError).
-            await gateShopifyGraphqlRequest({
-              redis,
-              shopId: payload.shopId,
-              costToConsume: graphqlLimiterCfg.defaultBulkStartCost,
-              config: graphqlLimiterCfg,
-            });
-
             const { bulkOperationId, costEstimate } = await withTokenRetry(
               payload.shopId,
               encryptionKey,
@@ -249,32 +359,179 @@ export function startBulkOrchestratorWorker(logger: Logger): BulkOrchestratorWor
                   apiVersion: SHOPIFY_API_VERSION,
                 });
 
-                const mutation = buildBulkRunQueryMutation();
-                const variables = { query: payload.graphqlQuery };
-                const res = await client.request<{
-                  bulkOperationRunQuery?: {
+                if (!isMutation) {
+                  await gateShopifyGraphqlRequest({
+                    redis,
+                    shopId: payload.shopId,
+                    costToConsume: graphqlLimiterCfg.defaultBulkStartCost,
+                    config: graphqlLimiterCfg,
+                  });
+
+                  const mutation = buildBulkRunQueryMutation();
+                  const variables = { query: queryPayload!.graphqlQuery };
+                  const res = await client.request<{
+                    bulkOperationRunQuery?: {
+                      bulkOperation?: { id?: string | null; status?: string | null } | null;
+                      userErrors?: { field?: string[] | null; message?: string | null }[] | null;
+                    };
+                  }>(mutation, variables);
+
+                  const userErrors = res.data?.bulkOperationRunQuery?.userErrors ?? [];
+                  if (userErrors.length) {
+                    const message = userErrors
+                      .map((e) => e?.message)
+                      .filter((m): m is string => Boolean(m))
+                      .join('; ');
+                    throw new Error(message || 'bulk_run_user_errors');
+                  }
+
+                  const opId = res.data?.bulkOperationRunQuery?.bulkOperation?.id;
+                  if (!opId) {
+                    throw new Error('bulk_operation_id_missing');
+                  }
+
+                  const actualCost = res.extensions?.cost?.actualQueryCost;
+                  const estimate =
+                    typeof actualCost === 'number' && Number.isFinite(actualCost)
+                      ? actualCost
+                      : null;
+
+                  return { bulkOperationId: opId, costEstimate: estimate };
+                }
+
+                // Mutations: stagedUploadsCreate -> multipart upload -> bulkOperationRunMutation
+                const stagedCost = Math.max(
+                  1,
+                  Math.floor(graphqlLimiterCfg.defaultBulkStartCost / 2)
+                );
+
+                await gateShopifyGraphqlRequest({
+                  redis,
+                  shopId: payload.shopId,
+                  costToConsume: stagedCost,
+                  config: graphqlLimiterCfg,
+                });
+
+                const stagedMutation = buildStagedUploadsCreateMutation();
+                const stagedInput: Record<string, unknown> = {
+                  resource: 'BULK_MUTATION_VARIABLES',
+                  filename: 'variables.jsonl',
+                  mimeType: 'text/jsonl',
+                  httpMethod: 'POST',
+                };
+                if (
+                  typeof mutationPayload!.inputBytes === 'number' &&
+                  Number.isFinite(mutationPayload!.inputBytes)
+                ) {
+                  stagedInput['fileSize'] = Math.max(0, Math.floor(mutationPayload!.inputBytes));
+                }
+
+                const stagedRes = await client.request<{
+                  stagedUploadsCreate?: {
+                    stagedTargets?:
+                      | {
+                          url?: string | null;
+                          resourceUrl?: string | null;
+                          parameters?: { name?: string | null; value?: string | null }[] | null;
+                        }[]
+                      | null;
+                    userErrors?: { field?: string[] | null; message?: string | null }[] | null;
+                  };
+                }>(stagedMutation, { input: [stagedInput] });
+
+                const stagedErrors = stagedRes.data?.stagedUploadsCreate?.userErrors ?? [];
+                if (stagedErrors.length) {
+                  const message = stagedErrors
+                    .map((e) => e?.message)
+                    .filter((m): m is string => Boolean(m))
+                    .join('; ');
+                  throw new Error(message || 'staged_upload_user_errors');
+                }
+
+                const targetRaw = stagedRes.data?.stagedUploadsCreate?.stagedTargets?.[0] ?? null;
+                const url = targetRaw?.url ?? null;
+                const resourceUrl = targetRaw?.resourceUrl ?? null;
+                if (!url || !resourceUrl) throw new Error('staged_target_missing');
+
+                const paramsList = (targetRaw?.parameters ?? [])
+                  .map((p) => ({ name: p?.name ?? '', value: p?.value ?? '' }))
+                  .filter((p) => p.name && p.value);
+
+                const target: StagedUploadTarget = {
+                  url,
+                  resourceUrl,
+                  parameters: paramsList,
+                };
+
+                await insertBulkStep({
+                  shopId: payload.shopId,
+                  bulkRunId: run.id,
+                  stepName: 'orchestrator.staged_upload.reserve',
+                  status: 'completed',
+                });
+
+                await insertArtifact({
+                  shopId: payload.shopId,
+                  bulkRunId: run.id,
+                  artifactType: 'shopify_staged_upload_target',
+                  filePath: `shopify://staged/${run.id}`,
+                  url: target.url,
+                }).catch(() => undefined);
+
+                await uploadJsonlToStagedTarget({
+                  target,
+                  filePath: mutationPayload!.inputPath,
+                });
+
+                await insertBulkStep({
+                  shopId: payload.shopId,
+                  bulkRunId: run.id,
+                  stepName: 'orchestrator.staged_upload.upload',
+                  status: 'completed',
+                });
+
+                await gateShopifyGraphqlRequest({
+                  redis,
+                  shopId: payload.shopId,
+                  costToConsume: graphqlLimiterCfg.defaultBulkStartCost,
+                  config: graphqlLimiterCfg,
+                });
+
+                const runMutation = buildBulkRunMutationMutation();
+                const runRes = await client.request<{
+                  bulkOperationRunMutation?: {
                     bulkOperation?: { id?: string | null; status?: string | null } | null;
                     userErrors?: { field?: string[] | null; message?: string | null }[] | null;
                   };
-                }>(mutation, variables);
+                }>(runMutation, {
+                  mutation: mutationPayload!.graphqlMutation,
+                  stagedUploadPath: target.resourceUrl,
+                });
 
-                const userErrors = res.data?.bulkOperationRunQuery?.userErrors ?? [];
+                const userErrors = runRes.data?.bulkOperationRunMutation?.userErrors ?? [];
                 if (userErrors.length) {
                   const message = userErrors
                     .map((e) => e?.message)
                     .filter((m): m is string => Boolean(m))
                     .join('; ');
-                  throw new Error(message || 'bulk_run_user_errors');
+                  throw new Error(message || 'bulk_mutation_user_errors');
                 }
 
-                const opId = res.data?.bulkOperationRunQuery?.bulkOperation?.id;
+                const opId = runRes.data?.bulkOperationRunMutation?.bulkOperation?.id;
                 if (!opId) {
                   throw new Error('bulk_operation_id_missing');
                 }
 
-                const actualCost = res.extensions?.cost?.actualQueryCost;
+                const actualCost = runRes.extensions?.cost?.actualQueryCost;
                 const estimate =
                   typeof actualCost === 'number' && Number.isFinite(actualCost) ? actualCost : null;
+
+                await insertBulkStep({
+                  shopId: payload.shopId,
+                  bulkRunId: run.id,
+                  stepName: 'orchestrator.start_shopify_bulk_mutation',
+                  status: 'completed',
+                });
 
                 return { bulkOperationId: opId, costEstimate: estimate };
               }
@@ -302,7 +559,9 @@ export function startBulkOrchestratorWorker(logger: Logger): BulkOrchestratorWor
               resourceId: run.id,
               details: {
                 operationType: payload.operationType,
-                queryType: payload.queryType ?? null,
+                queryType: isMutationPayload(payload)
+                  ? payload.mutationType
+                  : (payload.queryType ?? null),
                 idempotencyKey,
                 shopifyOperationId: bulkOperationId,
               },

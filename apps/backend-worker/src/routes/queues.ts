@@ -582,6 +582,7 @@ export const queueRoutes: FastifyPluginAsync<QueueAdminPluginOptions> = (
     const tokenHealthJob = registry.getWorkerCurrentJob('token-health-worker');
     const bulkOrchestratorJob = registry.getWorkerCurrentJob('bulk-orchestrator-worker');
     const bulkPollerJob = registry.getWorkerCurrentJob('bulk-poller-worker');
+    const bulkMutationReconcileJob = registry.getWorkerCurrentJob('bulk-mutation-reconcile-worker');
 
     const mem = process.memoryUsage();
     const cpu = process.cpuUsage();
@@ -619,6 +620,12 @@ export const queueRoutes: FastifyPluginAsync<QueueAdminPluginOptions> = (
         ok: readiness.bulkPollerWorkerOk ?? false,
         ...base,
         currentJob: bulkPollerJob,
+      },
+      {
+        id: 'bulk-mutation-reconcile-worker',
+        ok: readiness.bulkMutationReconcileWorkerOk ?? false,
+        ...base,
+        currentJob: bulkMutationReconcileJob,
       },
     ];
 
