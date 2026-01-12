@@ -111,7 +111,7 @@ void describe('queue-manager (integration)', { skip: !testConfig }, () => {
     ]);
   });
 
-  void it('processes a job end-to-end (queue + worker)', async () => {
+  void it('processes a job end-to-end (queue + worker)', { timeout: 10_000 }, async () => {
     const name = `${baseName}-e2e`;
     assert.ok(testConfig);
     const cfg = testConfig;
@@ -133,6 +133,9 @@ void describe('queue-manager (integration)', { skip: !testConfig }, () => {
     );
 
     try {
+      await events.waitUntilReady();
+      await worker.waitUntilReady();
+
       const completed = new Promise<void>((resolve) => {
         events.once('completed', () => resolve());
       });
@@ -191,6 +194,9 @@ void describe('queue-manager (integration)', { skip: !testConfig }, () => {
     );
 
     try {
+      await events.waitUntilReady();
+      await worker.waitUntilReady();
+
       const completed = new Promise<void>((resolve) => {
         events.once('completed', () => resolve());
       });
@@ -232,6 +238,9 @@ void describe('queue-manager (integration)', { skip: !testConfig }, () => {
     try {
       // Sanity: ensure DLQ queue exists (created by the worker factory).
       assert.ok(createdDlqQueue);
+
+      await events.waitUntilReady();
+      await worker.waitUntilReady();
 
       worker.on('failed', (job) => {
         if (!job) return;

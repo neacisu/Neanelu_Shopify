@@ -177,6 +177,9 @@ void describe('rate limiting + bulk lock (integration)', { skip: !testConfig }, 
       );
 
       try {
+        await events.waitUntilReady();
+        await worker.waitUntilReady();
+
         const completed = new Promise<void>((resolve) => {
           events.once('completed', () => resolve());
         });
@@ -241,6 +244,9 @@ void describe('rate limiting + bulk lock (integration)', { skip: !testConfig }, 
       );
 
       try {
+        await events.waitUntilReady();
+        await worker.waitUntilReady();
+
         const completed = new Promise<void>((resolve) => {
           events.once('completed', () => resolve());
         });
@@ -304,6 +310,9 @@ void describe('rate limiting + bulk lock (integration)', { skip: !testConfig }, 
       );
 
       try {
+        await events.waitUntilReady();
+        await worker.waitUntilReady();
+
         const completed = new Promise<void>((resolve) => {
           events.once('completed', () => resolve());
         });
