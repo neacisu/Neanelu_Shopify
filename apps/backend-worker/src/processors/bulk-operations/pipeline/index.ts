@@ -14,6 +14,12 @@ import { Writable } from 'node:stream';
 import { createDownloadStream } from './stages/download.js';
 import { createJsonlParseStream } from './stages/parse.js';
 import type { MinimalBulkJsonlObject, PipelineCounters, ParseIssue } from './types.js';
+import {
+  ParentChildRemapper,
+  type StitchingCounters,
+  type StitchedRecord,
+} from './stages/transformation/stitching/parent-child-remapper.js';
+import type { Logger } from '@app/logger';
 
 export type RunBulkStreamingPipelineParams = Readonly<{
   url: string;
@@ -32,6 +38,25 @@ export type RunBulkStreamingPipelineParams = Readonly<{
 
 export type RunBulkStreamingPipelineResult = Readonly<{
   counters: PipelineCounters;
+}>;
+
+export type RunBulkStreamingPipelineWithStitchingParams = Readonly<{
+  shopId: string;
+  artifactsDir: string;
+  logger: Logger;
+  url: string;
+  tolerateInvalidLines?: boolean;
+  parseEngine?: 'stream-json' | 'json-parse';
+  onRecord: (record: StitchedRecord) => Promise<void> | void;
+  onParseIssue?: (issue: ParseIssue) => void;
+  bucketCount?: number;
+  maxInMemoryParents?: number;
+  maxInMemoryOrphans?: number;
+}>;
+
+export type RunBulkStreamingPipelineWithStitchingResult = Readonly<{
+  counters: PipelineCounters;
+  stitching: StitchingCounters;
 }>;
 
 /**
@@ -74,4 +99,57 @@ export async function runBulkStreamingPipeline(
 
   await pipeline(download.stream, parse, sink);
   return { counters };
+}
+
+/**
+ * Pipeline with stitching transform (PR-041 / F5.2.4 + F5.2.11).
+ *
+ * download → parse → remap (__parentId) → emit records
+ */
+export async function runBulkStreamingPipelineWithStitching(
+  params: RunBulkStreamingPipelineWithStitchingParams
+): Promise<RunBulkStreamingPipelineWithStitchingResult> {
+  const counters: PipelineCounters = {
+    bytesProcessed: 0,
+    totalLines: 0,
+    validLines: 0,
+    invalidLines: 0,
+  };
+
+  const remapper = new ParentChildRemapper({
+    shopId: params.shopId,
+    artifactsDir: params.artifactsDir,
+    logger: params.logger,
+    onRecord: params.onRecord,
+    ...(params.bucketCount !== undefined ? { bucketCount: params.bucketCount } : {}),
+    ...(params.maxInMemoryParents !== undefined
+      ? { maxInMemoryParents: params.maxInMemoryParents }
+      : {}),
+    ...(params.maxInMemoryOrphans !== undefined
+      ? { maxInMemoryOrphans: params.maxInMemoryOrphans }
+      : {}),
+  });
+  await remapper.init();
+
+  const download = await createDownloadStream({ url: params.url });
+  const parse = createJsonlParseStream({
+    counters,
+    tolerateInvalidLines: params.tolerateInvalidLines ?? true,
+    engine: params.parseEngine ?? 'stream-json',
+    ...(params.onParseIssue ? { onParseIssue: params.onParseIssue } : {}),
+  });
+
+  const sink = new Writable({
+    objectMode: true,
+    write: (obj: unknown, _enc, cb) => {
+      Promise.resolve(remapper.processLine(obj as MinimalBulkJsonlObject))
+        .then(() => cb())
+        .catch((err) => cb(err instanceof Error ? err : new Error('stitch_process_failed')));
+    },
+  });
+
+  await pipeline(download.stream, parse, sink);
+  await remapper.finalize();
+
+  return { counters, stitching: remapper.getCounters() };
 }
