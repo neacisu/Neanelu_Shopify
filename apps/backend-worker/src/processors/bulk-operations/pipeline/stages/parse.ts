@@ -5,6 +5,15 @@ import JsonlParser from 'stream-json/jsonl/Parser.js';
 
 import type { MinimalBulkJsonlObject, ParseIssue, PipelineCounters } from '../types.js';
 
+interface JsonlParserLike {
+  on(event: 'data', listener: (evt: unknown) => void): unknown;
+  on(event: 'error', listener: (err: unknown) => void): unknown;
+  on(event: 'end', listener: () => void): unknown;
+  end(chunk: string, encoding: BufferEncoding): void;
+}
+
+type JsonlParserConstructor = new () => JsonlParserLike;
+
 export function createJsonlParseStream(params: {
   counters: PipelineCounters;
   tolerateInvalidLines: boolean;
@@ -127,7 +136,8 @@ function isMinimallyValidBulkObject(value: unknown): value is MinimalBulkJsonlOb
 async function parseJsonlLineWithStreamJson(line: string): Promise<unknown> {
   // Parse a single JSON value using stream-json's JSONL parser.
   // Using a per-line parser keeps PR-040's tolerance requirement: invalid lines won't poison the whole stream.
-  const parser = new JsonlParser();
+  const JsonlParserCtor = JsonlParser as unknown as JsonlParserConstructor;
+  const parser = new JsonlParserCtor();
 
   return await new Promise<unknown>((resolve, reject) => {
     let gotValue = false;
