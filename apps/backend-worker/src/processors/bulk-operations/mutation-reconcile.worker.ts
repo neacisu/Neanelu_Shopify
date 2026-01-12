@@ -34,6 +34,7 @@ import {
   type BulkMutationType,
   type BulkMutationVersion,
 } from './mutations/index.js';
+import { classifyBulkMutationResultLineFailure } from './mutations/requeue-policy.js';
 import { enqueueBulkOrchestratorJob } from '@app/queue-manager';
 
 const env = loadEnv();
@@ -243,7 +244,9 @@ export function startBulkMutationReconcileWorker(
           let lineNumber = 0;
           let processed = 0;
           let errorLines = 0;
+          let recoverableErrorLines = 0;
           const failedLineNumbers = new Set<number>();
+          const recoverableFailedLineNumbers = new Set<number>();
 
           for await (const rawLine of rl) {
             lineNumber += 1;
@@ -257,6 +260,7 @@ export function startBulkMutationReconcileWorker(
               obj = JSON.parse(line);
             } catch (err) {
               failedLineNumbers.add(lineNumber);
+              // Parse errors are treated as permanent: do not requeue.
               errorLines += 1;
               await insertBulkError({
                 shopId: payload.shopId,
@@ -277,8 +281,18 @@ export function startBulkMutationReconcileWorker(
 
             if (gqlErrors.length === 0 && userErrors.length === 0) continue;
 
+            const decision = classifyBulkMutationResultLineFailure({
+              graphqlErrors: gqlErrors,
+              userErrors,
+            });
+
             failedLineNumbers.add(lineNumber);
             errorLines += 1;
+
+            if (decision.classification === 'recoverable') {
+              recoverableFailedLineNumbers.add(lineNumber);
+              recoverableErrorLines += 1;
+            }
 
             if (gqlErrors.length > 0) {
               await insertBulkError({
@@ -324,8 +338,11 @@ export function startBulkMutationReconcileWorker(
             resultUrl: payload.resultUrl,
             processed,
             errorLines,
+            recoverableErrorLines,
             failedLineNumbers: Array.from(failedLineNumbers).slice(0, 5_000),
             truncated: failedLineNumbers.size > 5_000,
+            recoverableFailedLineNumbers: Array.from(recoverableFailedLineNumbers).slice(0, 5_000),
+            recoverableTruncated: recoverableFailedLineNumbers.size > 5_000,
             generatedAt: new Date().toISOString(),
           };
 
@@ -344,7 +361,9 @@ export function startBulkMutationReconcileWorker(
               bulkMutationReconcile: {
                 processed,
                 errorLines,
+                recoverableErrorLines,
                 failedLines: failedLineNumbers.size,
+                recoverableFailedLines: recoverableFailedLineNumbers.size,
                 reportPath,
                 reconciledAt: new Date().toISOString(),
               },
@@ -353,7 +372,11 @@ export function startBulkMutationReconcileWorker(
 
           // Selective requeue (bounded).
           const MAX_REQUEUE_ATTEMPTS = 2;
-          if (failedLineNumbers.size > 0 && retryAttempt < MAX_REQUEUE_ATTEMPTS && inputPath) {
+          if (
+            recoverableFailedLineNumbers.size > 0 &&
+            retryAttempt < MAX_REQUEUE_ATTEMPTS &&
+            inputPath
+          ) {
             const requeueDir = await ensureBulkMutationArtifactsDir({
               shopId: payload.shopId,
               purpose: 'requeue',
@@ -364,7 +387,7 @@ export function startBulkMutationReconcileWorker(
               inputPath,
               outputDir: requeueDir,
               outputName,
-              includeLines: failedLineNumbers,
+              includeLines: recoverableFailedLineNumbers,
             });
 
             await insertArtifact({
