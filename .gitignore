@@ -16,6 +16,9 @@ out/
 **/src/**/*.d.ts.map
 **/*.tsbuildinfo
 
+# Allow intentional, hand-written declaration shims
+!**/src/types/**/*.d.ts
+
 # Environment files
 .env
 .env.local
