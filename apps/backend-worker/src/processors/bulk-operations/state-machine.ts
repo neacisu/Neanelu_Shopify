@@ -19,6 +19,54 @@ export type BulkRunRow = Readonly<{
   idempotency_key: string | null;
 }>;
 
+export type BulkRunContextRow = Readonly<{
+  id: string;
+  shop_id: string;
+  status: string;
+  operation_type: string;
+  query_type: string | null;
+  idempotency_key: string | null;
+  max_retries: number | null;
+  records_processed: number | null;
+  bytes_processed: number | null;
+  cursor_state: unknown;
+  result_url: string | null;
+  partial_data_url: string | null;
+}>;
+
+export async function loadBulkRunContext(params: {
+  shopId: string;
+  bulkRunId: string;
+}): Promise<BulkRunContextRow | null> {
+  const started = Date.now();
+  try {
+    return await withTenantContext(params.shopId, async (client) => {
+      const res = await client.query<BulkRunContextRow>(
+        `SELECT id,
+                shop_id,
+                status,
+                operation_type,
+                query_type,
+                idempotency_key,
+                max_retries,
+                records_processed,
+                bytes_processed,
+                cursor_state,
+                result_url,
+                partial_data_url
+         FROM bulk_runs
+         WHERE id = $1
+           AND shop_id = $2
+         LIMIT 1`,
+        [params.bulkRunId, params.shopId]
+      );
+      return res.rows[0] ?? null;
+    });
+  } finally {
+    recordDbQuery('select', (Date.now() - started) / 1000);
+  }
+}
+
 export function sha256Hex(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }

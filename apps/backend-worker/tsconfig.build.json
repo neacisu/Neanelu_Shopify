@@ -2,7 +2,17 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src"
+    "rootDir": "./src",
+    "baseUrl": ".",
+    "paths": {
+      "@app/database": ["../../packages/database/dist/index.d.ts"],
+      "@app/shopify-client": ["../../packages/shopify-client/dist/index.d.ts"],
+      "@app/queue-manager": ["../../packages/queue-manager/dist/index.d.ts"],
+      "@app/config": ["../../packages/config/dist/index.d.ts"],
+      "@app/types": ["../../packages/types/dist/index.d.ts"],
+      "@app/logger": ["../../packages/logger/dist/index.d.ts"],
+      "@app/validation": ["../../packages/validation/dist/index.d.ts"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": [

@@ -31,10 +31,12 @@
     "bullmq": "^5.66.4",
     "dotenv": "^17.2.3",
     "fastify": "^5.6.2",
+    "form-data": "^4.0.5",
     "ioredis": "^5.8.2",
     "redis": "^5.10.0"
   },
   "devDependencies": {
+    "@types/form-data": "^2.5.2",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }

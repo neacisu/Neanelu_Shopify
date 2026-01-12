@@ -1,4 +1,11 @@
-export const QUEUE_NAMES = ['webhook-queue', 'sync-queue', 'bulk-queue', 'ai-batch-queue'] as const;
+export const QUEUE_NAMES = [
+  'webhook-queue',
+  'sync-queue',
+  'bulk-queue',
+  'bulk-poller-queue',
+  'bulk-mutation-reconcile-queue',
+  'ai-batch-queue',
+] as const;
 
 export type KnownQueueName = (typeof QUEUE_NAMES)[number];
 

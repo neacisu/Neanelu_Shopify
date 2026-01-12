@@ -38,13 +38,27 @@ describe('Timeline', () => {
   });
 
   it('groups events by day with headers', () => {
-    render(
-      <Timeline events={mockEvents} showGroupHeaders relativeTime={false} timeFormat="HH:mm" />
-    );
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-12T12:00:00Z'));
+    try {
+      const events: TimelineEvent[] = [
+        {
+          id: 'today',
+          timestamp: new Date('2026-01-12T08:00:00Z'),
+          title: 'Today event',
+          status: 'info',
+        },
+        ...mockEvents,
+      ];
 
-    // Today and Yesterday headers should appear
-    expect(screen.getByText('Today')).toBeInTheDocument();
-    expect(screen.getByText('Yesterday')).toBeInTheDocument();
+      render(<Timeline events={events} showGroupHeaders relativeTime={false} timeFormat="HH:mm" />);
+
+      // Today and Yesterday headers should appear
+      expect(screen.getByText('Today')).toBeInTheDocument();
+      expect(screen.getByText('Yesterday')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('displays relative timestamps when relativeTime is true', () => {

@@ -9,9 +9,11 @@ import { startTokenHealthWorker } from './processors/auth/token-health.worker.js
 import { startSyncWorker } from './processors/sync/worker.js';
 import { startBulkOrchestratorWorker } from './processors/bulk-operations/orchestrator.worker.js';
 import { startBulkPollerWorker } from './processors/bulk-operations/poller.worker.js';
+import { startBulkMutationReconcileWorker } from './processors/bulk-operations/mutation-reconcile.worker.js';
 import { scheduleTokenHealthJob, closeTokenHealthQueue } from './queue/token-health-queue.js';
 import {
   setBulkOrchestratorWorkerHandle,
+  setBulkMutationReconcileWorkerHandle,
   setBulkPollerWorkerHandle,
   setTokenHealthWorkerHandle,
   setWebhookWorkerHandle,
@@ -35,6 +37,9 @@ let tokenHealthWorker: Awaited<ReturnType<typeof startTokenHealthWorker>> | null
 let syncWorker: Awaited<ReturnType<typeof startSyncWorker>> | null = null;
 let bulkOrchestratorWorker: Awaited<ReturnType<typeof startBulkOrchestratorWorker>> | null = null;
 let bulkPollerWorker: Awaited<ReturnType<typeof startBulkPollerWorker>> | null = null;
+let bulkMutationReconcileWorker: Awaited<
+  ReturnType<typeof startBulkMutationReconcileWorker>
+> | null = null;
 
 try {
   await server.listen({ port: env.port, host: '0.0.0.0' });
@@ -83,6 +88,15 @@ try {
   emitQueueStreamEvent({
     type: 'worker.online',
     workerId: 'bulk-poller-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  bulkMutationReconcileWorker = startBulkMutationReconcileWorker(logger);
+  setBulkMutationReconcileWorkerHandle(bulkMutationReconcileWorker);
+  logger.info({}, 'bulk mutation reconcile worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'bulk-mutation-reconcile-worker',
     timestamp: new Date().toISOString(),
   });
 } catch (error) {
@@ -148,6 +162,18 @@ const shutdown = async (signal: string): Promise<void> => {
       emitQueueStreamEvent({
         type: 'worker.offline',
         workerId: 'bulk-poller-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (bulkMutationReconcileWorker) {
+      await bulkMutationReconcileWorker.close();
+      bulkMutationReconcileWorker = null;
+      setBulkMutationReconcileWorkerHandle(null);
+      logger.info({ signal }, 'bulk mutation reconcile worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'bulk-mutation-reconcile-worker',
         timestamp: new Date().toISOString(),
       });
     }

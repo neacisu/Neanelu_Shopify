@@ -36,6 +36,10 @@ export const DEFAULT_QUEUE_TIMEOUTS_MS: QueueTimeoutsMs = {
   'sync-queue': 5 * 60_000,
   // Bulk orchestration can be long-running (but still bounded).
   'bulk-queue': 30 * 60_000,
+  // Poller jobs are short, but can be delayed/retried frequently.
+  'bulk-poller-queue': 5 * 60_000,
+  // Reconcile can involve downloading and parsing large JSONL files.
+  'bulk-mutation-reconcile-queue': 30 * 60_000,
   // AI batch work tends to be longer.
   'ai-batch-queue': 10 * 60_000,
 } as const;
