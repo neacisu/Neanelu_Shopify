@@ -37,7 +37,6 @@
     "stream-json": "^1.9.1"
   },
   "devDependencies": {
-    "@types/form-data": "^2.5.2",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }

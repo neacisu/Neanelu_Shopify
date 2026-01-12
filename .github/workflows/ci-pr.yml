@@ -27,7 +27,7 @@ permissions:
 
 env:
   NODE_VERSION: '24'
-  PNPM_VERSION: '10.27.0'
+  PNPM_VERSION: '10.28.0'
 
 jobs:
   # ============================================
