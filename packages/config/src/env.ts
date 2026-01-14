@@ -16,6 +16,17 @@ export type AppEnv = Readonly<{
   maxGlobalConcurrency: number;
   starvationTimeoutMs: number;
 
+  // ============================================
+  // CONCURRENCY KNOBS (Plan F5.2.8)
+  // ============================================
+
+  /** Max concurrent downloads per worker process (best-effort). */
+  maxConcurrentDownloads: number;
+  /** Max concurrent COPY/ingest jobs per shop (mapped onto maxActivePerShop). */
+  maxConcurrentCopies: number;
+  /** Max concurrent ingestion jobs per worker process (best-effort). */
+  maxGlobalIngestion: number;
+
   shopifyApiKey: string;
   shopifyApiSecret: string;
   scopes: readonly string[];
@@ -25,6 +36,21 @@ export type AppEnv = Readonly<{
 
   otelExporterOtlpEndpoint: string;
   otelServiceName: string;
+
+  // ============================================
+  // BULK INGESTION (PR-042 / F5.2.5-F5.2.8)
+  // ============================================
+
+  /** Max rows per committed COPY batch into staging tables. */
+  bulkCopyBatchRows: number;
+  /** Max bytes per committed COPY batch into staging tables. */
+  bulkCopyBatchBytes: number;
+  /** Max buffered bytes in the HTTP download stream. */
+  bulkDownloadHighWaterMarkBytes: number;
+  /** Whether the merge stage should run ANALYZE after upserts. */
+  bulkMergeAnalyze: boolean;
+  /** Whether the merge stage is allowed to apply deletes for full snapshots only. */
+  bulkMergeAllowDeletes: boolean;
 }>;
 
 type EnvSource = Record<string, string | undefined>;
@@ -88,6 +114,21 @@ function parsePositiveIntWithDefault(env: EnvSource, key: string, defaultValue: 
     throw new Error(`Invalid ${key}: expected positive integer, got ${raw}`);
   }
   return value;
+}
+
+function parsePositiveBytesWithDefault(env: EnvSource, key: string, defaultValue: number): number {
+  const value = parsePositiveIntWithDefault(env, key, defaultValue);
+  // Guardrail: avoid absurdly small buffers.
+  return Math.max(1024, value);
+}
+
+function parseBooleanWithDefault(env: EnvSource, key: string, defaultValue: boolean): boolean {
+  const raw = env[key];
+  if (raw == null || raw.trim() === '') return defaultValue;
+  const v = raw.trim().toLowerCase();
+  if (v === '1' || v === 'true' || v === 'yes' || v === 'y' || v === 'on') return true;
+  if (v === '0' || v === 'false' || v === 'no' || v === 'n' || v === 'off') return false;
+  throw new Error(`Invalid ${key}: expected boolean, got ${raw}`);
 }
 
 function parseUrl(env: EnvSource, key: string): URL {
@@ -178,9 +219,20 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
 
   // PR-022 (F4.2.3) defaults: keep aligned with Plan_de_implementare.
   // These are controls for BullMQ Pro Groups fairness.
-  const maxActivePerShop = parsePositiveIntWithDefault(env, 'MAX_ACTIVE_PER_SHOP', 2);
+  // Plan F5.2.8 introduces explicit ingest naming; treat MAX_CONCURRENT_COPIES as an override.
+  const maxConcurrentCopies = parsePositiveIntWithDefault(env, 'MAX_CONCURRENT_COPIES', 2);
+  const maxActivePerShop = parsePositiveIntWithDefault(
+    env,
+    'MAX_ACTIVE_PER_SHOP',
+    maxConcurrentCopies
+  );
+
   const maxGlobalConcurrency = parsePositiveIntWithDefault(env, 'MAX_GLOBAL_CONCURRENCY', 50);
   const starvationTimeoutMs = parsePositiveIntWithDefault(env, 'STARVATION_TIMEOUT_MS', 60_000);
+
+  // Plan F5.2.8: per-worker concurrency knobs (best-effort at runtime).
+  const maxConcurrentDownloads = parsePositiveIntWithDefault(env, 'MAX_CONCURRENT_DOWNLOADS', 2);
+  const maxGlobalIngestion = parsePositiveIntWithDefault(env, 'MAX_GLOBAL_INGESTION', 10);
 
   const shopifyApiKey = requiredString(env, 'SHOPIFY_API_KEY');
   const shopifyApiSecret = requiredString(env, 'SHOPIFY_API_SECRET');
@@ -191,6 +243,21 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
 
   const otelExporterOtlpEndpoint = parseOtelEndpoint(env);
   const otelServiceName = requiredString(env, 'OTEL_SERVICE_NAME');
+
+  // PR-042 (F5.2.5-F5.2.8): streaming ingestion knobs.
+  const bulkCopyBatchRows = parsePositiveIntWithDefault(env, 'BULK_COPY_BATCH_ROWS', 25_000);
+  const bulkCopyBatchBytes = parsePositiveBytesWithDefault(
+    env,
+    'BULK_COPY_BATCH_BYTES',
+    32 * 1024 * 1024
+  );
+  const bulkDownloadHighWaterMarkBytes = parsePositiveBytesWithDefault(
+    env,
+    'BULK_DOWNLOAD_HIGH_WATERMARK_BYTES',
+    1024 * 1024
+  );
+  const bulkMergeAnalyze = parseBooleanWithDefault(env, 'BULK_MERGE_ANALYZE', true);
+  const bulkMergeAllowDeletes = parseBooleanWithDefault(env, 'BULK_MERGE_ALLOW_DELETES', false);
 
   return {
     nodeEnv,
@@ -203,6 +270,10 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     maxActivePerShop,
     maxGlobalConcurrency,
     starvationTimeoutMs,
+
+    maxConcurrentDownloads,
+    maxConcurrentCopies,
+    maxGlobalIngestion,
     shopifyApiKey,
     shopifyApiSecret,
     scopes,
@@ -210,6 +281,12 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     encryptionKeyHex,
     otelExporterOtlpEndpoint,
     otelServiceName,
+
+    bulkCopyBatchRows,
+    bulkCopyBatchBytes,
+    bulkDownloadHighWaterMarkBytes,
+    bulkMergeAnalyze,
+    bulkMergeAllowDeletes,
   };
 }
 

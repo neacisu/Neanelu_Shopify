@@ -79,6 +79,8 @@ await (async () => {
         BULK_POLLER_QUEUE_NAME: 'bulk-poller-queue',
         // Required by ../failure-handler.js (imported by poller.worker).
         enqueueBulkOrchestratorJob: () => Promise.resolve(undefined),
+        // Required by poller.worker.js (PR-042 ingest boundary).
+        enqueueBulkIngestJob: () => Promise.resolve(undefined),
         enqueueDlqEntry: () => Promise.resolve(undefined),
         createWorker: (
           _qmOptions: unknown,

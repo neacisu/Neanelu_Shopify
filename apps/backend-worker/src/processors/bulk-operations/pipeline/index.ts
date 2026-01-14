@@ -23,6 +23,10 @@ import type { Logger } from '@app/logger';
 
 export type RunBulkStreamingPipelineParams = Readonly<{
   url: string;
+  /** Best-effort resume offset (bytes). Used as Range start for identity streams. */
+  resumeFromBytes?: number;
+  /** Optional download stream buffer sizing. */
+  downloadHighWaterMarkBytes?: number;
   /**
    * When true, emits parse issues (invalid lines) via callback instead of throwing.
    * Defaults to true (tolerant mode).
@@ -45,6 +49,12 @@ export type RunBulkStreamingPipelineWithStitchingParams = Readonly<{
   artifactsDir: string;
   logger: Logger;
   url: string;
+  /** Best-effort resume offset (bytes). Used as Range start for identity streams. */
+  resumeFromBytes?: number;
+  /** Optional counters object to be mutated by the parse stage (useful for progress/checkpointing). */
+  counters?: PipelineCounters;
+  /** Optional download stream buffer sizing. */
+  downloadHighWaterMarkBytes?: number;
   tolerateInvalidLines?: boolean;
   parseEngine?: 'stream-json' | 'json-parse';
   onRecord: (record: StitchedRecord) => Promise<void> | void;
@@ -76,6 +86,10 @@ export async function runBulkStreamingPipeline(
 
   const download = await createDownloadStream({
     url: params.url,
+    ...(params.resumeFromBytes !== undefined ? { resumeFromBytes: params.resumeFromBytes } : {}),
+    ...(params.downloadHighWaterMarkBytes !== undefined
+      ? { highWaterMarkBytes: params.downloadHighWaterMarkBytes }
+      : {}),
   });
 
   const parseParams: Parameters<typeof createJsonlParseStream>[0] = {
@@ -109,7 +123,7 @@ export async function runBulkStreamingPipeline(
 export async function runBulkStreamingPipelineWithStitching(
   params: RunBulkStreamingPipelineWithStitchingParams
 ): Promise<RunBulkStreamingPipelineWithStitchingResult> {
-  const counters: PipelineCounters = {
+  const counters: PipelineCounters = params.counters ?? {
     bytesProcessed: 0,
     totalLines: 0,
     validLines: 0,
@@ -131,7 +145,12 @@ export async function runBulkStreamingPipelineWithStitching(
   });
   await remapper.init();
 
-  const download = await createDownloadStream({ url: params.url });
+  const download = await createDownloadStream({
+    url: params.url,
+    ...(params.downloadHighWaterMarkBytes !== undefined
+      ? { highWaterMarkBytes: params.downloadHighWaterMarkBytes }
+      : {}),
+  });
   const parse = createJsonlParseStream({
     counters,
     tolerateInvalidLines: params.tolerateInvalidLines ?? true,

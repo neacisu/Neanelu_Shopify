@@ -20,6 +20,8 @@ export function createDownloadStream(params: {
   readTimeoutMs?: number;
   totalTimeoutMs?: number;
   highWaterMarkBytes?: number;
+  /** Best-effort Range resume offset (bytes). Only supported for identity encoding. */
+  resumeFromBytes?: number;
 }): Promise<DownloadStreamResult> {
   const maxRetries = params.maxRetries ?? 3;
   const connectTimeoutMs = params.connectTimeoutMs ?? 30_000;
@@ -35,7 +37,7 @@ export function createDownloadStream(params: {
     contentEncoding: 'identity',
   };
 
-  let offsetBytes = 0;
+  let offsetBytes = Math.max(0, Math.trunc(params.resumeFromBytes ?? 0));
   let emittedAny = false;
 
   const startedAt = Date.now();

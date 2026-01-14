@@ -18,6 +18,7 @@ let tokenHealthWorker: WorkerLike | null = null;
 let bulkOrchestratorWorker: WorkerLike | null = null;
 let bulkPollerWorker: WorkerLike | null = null;
 let bulkMutationReconcileWorker: WorkerLike | null = null;
+let bulkIngestWorker: WorkerLike | null = null;
 
 const currentJobByWorkerId = new Map<string, WorkerCurrentJob>();
 
@@ -39,6 +40,10 @@ export function setBulkPollerWorkerHandle(handle: WorkerHandleLike | null): void
 
 export function setBulkMutationReconcileWorkerHandle(handle: WorkerHandleLike | null): void {
   bulkMutationReconcileWorker = handle?.worker ?? null;
+}
+
+export function setBulkIngestWorkerHandle(handle: WorkerHandleLike | null): void {
+  bulkIngestWorker = handle?.worker ?? null;
 }
 
 export function setWorkerCurrentJob(workerId: string, job: WorkerCurrentJob): void {
@@ -78,6 +83,7 @@ export function getWorkerReadiness(): Readonly<{
   bulkOrchestratorWorkerOk: boolean | null;
   bulkPollerWorkerOk: boolean | null;
   bulkMutationReconcileWorkerOk: boolean | null;
+  bulkIngestWorkerOk: boolean | null;
 }> {
   return {
     webhookWorkerOk: isWorkerRunning(webhookWorker),
@@ -89,5 +95,6 @@ export function getWorkerReadiness(): Readonly<{
     bulkMutationReconcileWorkerOk: bulkMutationReconcileWorker
       ? isWorkerRunning(bulkMutationReconcileWorker)
       : null,
+    bulkIngestWorkerOk: bulkIngestWorker ? isWorkerRunning(bulkIngestWorker) : null,
   };
 }
