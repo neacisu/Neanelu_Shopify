@@ -51,6 +51,34 @@ export type AppEnv = Readonly<{
   bulkMergeAnalyze: boolean;
   /** Whether the merge stage is allowed to apply deletes for full snapshots only. */
   bulkMergeAllowDeletes: boolean;
+
+  // ============================================
+  // AI / EMBEDDINGS (PR-043 / F5.2.9)
+  // ============================================
+
+  /** Optional. When missing, semantic dedup will auto-disable (safe fallback). */
+  openAiApiKey?: string;
+  /** Optional override; defaults to https://api.openai.com */
+  openAiBaseUrl?: string;
+  /** Embeddings model name; defaults to text-embedding-3-small */
+  openAiEmbeddingsModel: string;
+  /** Embeddings request timeout; defaults to 30s */
+  openAiTimeoutMs: number;
+
+  // ============================================
+  // BULK DEDUP + CONSENSUS + PIM SYNC (PR-043 / F5.2.9-F5.2.10)
+  // ============================================
+
+  /** Global kill-switches (still gated per shop via feature flags/settings). */
+  bulkPimSyncEnabled: boolean;
+  bulkSemanticDedupEnabled: boolean;
+  bulkConsensusEnabled: boolean;
+
+  /** Similarity thresholds; can be overridden per shop via settings. */
+  bulkDedupeHighThreshold: number;
+  bulkDedupeNeedsReviewThreshold: number;
+  bulkDedupeMaxResults: number;
+  bulkDedupeSuspiciousThreshold: number;
 }>;
 
 type EnvSource = Record<string, string | undefined>;
@@ -129,6 +157,25 @@ function parseBooleanWithDefault(env: EnvSource, key: string, defaultValue: bool
   if (v === '1' || v === 'true' || v === 'yes' || v === 'y' || v === 'on') return true;
   if (v === '0' || v === 'false' || v === 'no' || v === 'n' || v === 'off') return false;
   throw new Error(`Invalid ${key}: expected boolean, got ${raw}`);
+}
+
+function parseFloatWithDefault(env: EnvSource, key: string, defaultValue: number): number {
+  const raw = env[key];
+  if (raw == null || raw.trim() === '') return defaultValue;
+  const value = Number(raw.trim());
+  if (!Number.isFinite(value)) {
+    throw new Error(`Invalid ${key}: expected number, got ${raw}`);
+  }
+  return value;
+}
+
+function parseSimilarityThreshold(env: EnvSource, key: string, defaultValue: number): number {
+  const value = parseFloatWithDefault(env, key, defaultValue);
+  // Guardrails: keep meaningful and safe.
+  if (value < 0.5 || value > 0.99) {
+    throw new Error(`Invalid ${key}: expected [0.5, 0.99], got ${String(value)}`);
+  }
+  return value;
 }
 
 function parseUrl(env: EnvSource, key: string): URL {
@@ -259,6 +306,50 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
   const bulkMergeAnalyze = parseBooleanWithDefault(env, 'BULK_MERGE_ANALYZE', true);
   const bulkMergeAllowDeletes = parseBooleanWithDefault(env, 'BULK_MERGE_ALLOW_DELETES', false);
 
+  // PR-043 (F5.2.9-F5.2.10): embeddings + dedup/consensus controls.
+  const openAiApiKey = optionalString(env, 'OPENAI_API_KEY');
+  const openAiBaseUrl = optionalString(env, 'OPENAI_BASE_URL');
+  const openAiEmbeddingsModel =
+    optionalString(env, 'OPENAI_EMBEDDINGS_MODEL') ?? 'text-embedding-3-small';
+  const openAiTimeoutMs = parsePositiveIntWithDefault(env, 'OPENAI_TIMEOUT_MS', 30_000);
+
+  const bulkPimSyncEnabled = parseBooleanWithDefault(env, 'BULK_PIM_SYNC_ENABLED', false);
+  const bulkSemanticDedupEnabled = parseBooleanWithDefault(
+    env,
+    'BULK_SEMANTIC_DEDUP_ENABLED',
+    false
+  );
+  const bulkConsensusEnabled = parseBooleanWithDefault(env, 'BULK_CONSENSUS_ENABLED', false);
+
+  const bulkDedupeHighThreshold = parseSimilarityThreshold(env, 'BULK_DEDUPE_HIGH_THRESHOLD', 0.95);
+  const bulkDedupeSuspiciousThreshold = parseSimilarityThreshold(
+    env,
+    'BULK_DEDUPE_SUSPICIOUS_THRESHOLD',
+    0.85
+  );
+  const bulkDedupeNeedsReviewThreshold = parseSimilarityThreshold(
+    env,
+    'BULK_DEDUPE_NEEDS_REVIEW_THRESHOLD',
+    0.9
+  );
+  const bulkDedupeMaxResults = parsePositiveIntWithDefault(env, 'BULK_DEDUPE_MAX_RESULTS', 10);
+
+  // Plan F5.2.9 guardrails.
+  if (bulkDedupeSuspiciousThreshold < 0.85) {
+    throw new Error(
+      `Invalid BULK_DEDUPE_SUSPICIOUS_THRESHOLD: expected >= 0.85 (plan requirement), got ${String(
+        bulkDedupeSuspiciousThreshold
+      )}`
+    );
+  }
+  if (bulkDedupeHighThreshold < bulkDedupeSuspiciousThreshold) {
+    throw new Error(
+      `Invalid BULK_DEDUPE_HIGH_THRESHOLD: expected >= BULK_DEDUPE_SUSPICIOUS_THRESHOLD (${String(
+        bulkDedupeSuspiciousThreshold
+      )}), got ${String(bulkDedupeHighThreshold)}`
+    );
+  }
+
   return {
     nodeEnv,
     logLevel,
@@ -287,6 +378,19 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     bulkDownloadHighWaterMarkBytes,
     bulkMergeAnalyze,
     bulkMergeAllowDeletes,
+
+    ...(openAiApiKey ? { openAiApiKey } : {}),
+    ...(openAiBaseUrl ? { openAiBaseUrl } : {}),
+    openAiEmbeddingsModel,
+    openAiTimeoutMs,
+
+    bulkPimSyncEnabled,
+    bulkSemanticDedupEnabled,
+    bulkConsensusEnabled,
+    bulkDedupeHighThreshold,
+    bulkDedupeSuspiciousThreshold,
+    bulkDedupeNeedsReviewThreshold,
+    bulkDedupeMaxResults,
   };
 }
 

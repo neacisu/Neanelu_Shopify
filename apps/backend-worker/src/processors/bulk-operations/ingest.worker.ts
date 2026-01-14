@@ -26,6 +26,7 @@ import { StagingCopyWriter } from './pipeline/stages/copy-writer.js';
 import { readIngestCheckpoint, persistIngestCheckpoint } from './pipeline/checkpoint.js';
 import { runMergeFromStaging } from './pipeline/stages/merge.js';
 import type { PipelineCounters } from './pipeline/types.js';
+import { runPimSyncFromBulkRun } from './pim/sync.js';
 
 const env = loadEnv();
 
@@ -303,6 +304,26 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
             shopId: payload.shopId,
             bulkRunId: payload.bulkRunId,
             stepName: 'ingest.merge.completed',
+            status: 'completed',
+          });
+
+          await insertBulkStep({
+            shopId: payload.shopId,
+            bulkRunId: payload.bulkRunId,
+            stepName: 'ingest.pim_sync.start',
+            status: 'running',
+          });
+
+          await runPimSyncFromBulkRun({
+            shopId: payload.shopId,
+            bulkRunId: payload.bulkRunId,
+            logger,
+          });
+
+          await insertBulkStep({
+            shopId: payload.shopId,
+            bulkRunId: payload.bulkRunId,
+            stepName: 'ingest.pim_sync.completed',
             status: 'completed',
           });
 
