@@ -86,6 +86,19 @@ export interface BulkMutationReconcileJobPayload {
   requestedAt: number;
 }
 
+// ============================================
+// PR-042: Bulk Ingest (COPY+merge) Job
+// ============================================
+
+export interface BulkIngestJobPayload {
+  shopId: string;
+  bulkRunId: string;
+  /** URL to the Shopify bulk result JSONL (or partialDataUrl when salvaged). */
+  resultUrl: string;
+  triggeredBy: BulkJobTriggeredBy;
+  requestedAt: number;
+}
+
 function isCanonicalUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
 }
@@ -184,6 +197,27 @@ export function validateBulkMutationReconcileJobPayload(
 ): data is BulkMutationReconcileJobPayload {
   if (!data || typeof data !== 'object') return false;
   const job = data as Partial<BulkMutationReconcileJobPayload>;
+
+  if (typeof job.shopId !== 'string' || !isCanonicalUuid(job.shopId)) return false;
+  if (typeof job.bulkRunId !== 'string' || !isCanonicalUuid(job.bulkRunId)) return false;
+  if (typeof job.resultUrl !== 'string' || !job.resultUrl.trim()) return false;
+
+  if (
+    job.triggeredBy !== 'manual' &&
+    job.triggeredBy !== 'scheduler' &&
+    job.triggeredBy !== 'webhook' &&
+    job.triggeredBy !== 'system'
+  ) {
+    return false;
+  }
+
+  if (typeof job.requestedAt !== 'number' || !Number.isFinite(job.requestedAt)) return false;
+  return true;
+}
+
+export function validateBulkIngestJobPayload(data: unknown): data is BulkIngestJobPayload {
+  if (!data || typeof data !== 'object') return false;
+  const job = data as Partial<BulkIngestJobPayload>;
 
   if (typeof job.shopId !== 'string' || !isCanonicalUuid(job.shopId)) return false;
   if (typeof job.bulkRunId !== 'string' || !isCanonicalUuid(job.bulkRunId)) return false;

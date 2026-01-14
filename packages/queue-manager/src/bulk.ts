@@ -1,5 +1,6 @@
 import { loadEnv } from '@app/config';
 import type {
+  BulkIngestJobPayload,
   BulkMutationReconcileJobPayload,
   BulkOrchestratorJobPayload,
   BulkPollerJobPayload,
@@ -54,9 +55,13 @@ export const BULK_POLLER_QUEUE_NAME = 'bulk-poller-queue';
 
 export const BULK_MUTATION_RECONCILE_QUEUE_NAME = 'bulk-mutation-reconcile-queue';
 
+// PR-042: ingestion (COPY+merge) runs in a dedicated queue.
+export const BULK_INGEST_QUEUE_NAME = 'bulk-ingest-queue';
+
 export const BULK_ORCHESTRATOR_JOB_NAME = 'bulk.orchestrator.start';
 export const BULK_POLLER_JOB_NAME = 'bulk.poller';
 export const BULK_MUTATION_RECONCILE_JOB_NAME = 'bulk.mutation.reconcile';
+export const BULK_INGEST_JOB_NAME = 'bulk.ingest';
 
 export type EnqueueBulkJobOptions = Readonly<{
   /** Delay the job by N milliseconds (BullMQ `delay`). */
@@ -67,6 +72,7 @@ let cachedConfig: QueueManagerConfig | null = null;
 let bulkOrchestratorQueue: ReturnType<typeof createQueue> | undefined;
 let bulkPollerQueue: ReturnType<typeof createQueue> | undefined;
 let bulkMutationReconcileQueue: ReturnType<typeof createQueue> | undefined;
+let bulkIngestQueue: ReturnType<typeof createQueue> | undefined;
 
 function getConfig(): QueueManagerConfig {
   if (cachedConfig) return cachedConfig;
@@ -105,6 +111,16 @@ function getMutationReconcileQueue(): ReturnType<typeof createQueue> {
     }
   );
   return bulkMutationReconcileQueue;
+}
+
+function getIngestQueue(): ReturnType<typeof createQueue> {
+  bulkIngestQueue ??= createQueue(
+    { config: getConfig() },
+    {
+      name: BULK_INGEST_QUEUE_NAME,
+    }
+  );
+  return bulkIngestQueue;
 }
 
 function deriveIdempotencyKey(input: {
@@ -422,6 +438,69 @@ export async function enqueueBulkMutationReconcileJob(
   }
 }
 
+export async function enqueueBulkIngestJob(payload: BulkIngestJobPayload): Promise<void>;
+export async function enqueueBulkIngestJob(
+  payload: BulkIngestJobPayload,
+  logger: BulkQueueLoggerLike
+): Promise<void>;
+export async function enqueueBulkIngestJob(
+  payload: BulkIngestJobPayload,
+  logger?: BulkQueueLoggerLike
+): Promise<void> {
+  const queue = getIngestQueue();
+  const log = logger ?? fallbackLogger;
+  const telemetry = buildJobTelemetryFromActiveContext();
+
+  const normalizedShopId = normalizeShopIdToGroupId(payload.shopId);
+  if (!normalizedShopId) {
+    const err = new Error('invalid_shop_id');
+    log.error({ err, shopId: payload.shopId }, 'Refusing to enqueue bulk ingest job');
+    throw err;
+  }
+
+  const tracer = trace.getTracer('neanelu-shopify');
+  const span = tracer.startSpan('queue.enqueue', {
+    attributes: {
+      'queue.name': BULK_INGEST_QUEUE_NAME,
+      'queue.job.name': BULK_INGEST_JOB_NAME,
+      'queue.group.id': normalizedShopId,
+      'shop.id': normalizedShopId,
+      'bulk.run_id': payload.bulkRunId,
+    },
+  });
+
+  try {
+    await otelContext.with(trace.setSpan(otelContext.active(), span), async () => {
+      await queue.add(
+        BULK_INGEST_JOB_NAME,
+        { ...payload, shopId: normalizedShopId },
+        {
+          jobId: `bulk-ingest__${payload.bulkRunId}`,
+          group: { id: normalizedShopId, priority: 10 },
+          ...(telemetry ? { telemetry } : {}),
+        }
+      );
+    });
+
+    span.setStatus({ code: SpanStatusCode.OK });
+    log.info(
+      { shopId: normalizedShopId, bulkRunId: payload.bulkRunId },
+      'Bulk ingest job enqueued'
+    );
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error('unknown_error');
+    span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+    span.recordException(error);
+    log.error(
+      { err: error, shopId: normalizedShopId, bulkRunId: payload.bulkRunId },
+      'Failed to enqueue bulk ingest job'
+    );
+    throw error;
+  } finally {
+    span.end();
+  }
+}
+
 export async function closeBulkQueue(): Promise<void> {
   if (bulkOrchestratorQueue) {
     await bulkOrchestratorQueue.close();
@@ -434,5 +513,9 @@ export async function closeBulkQueue(): Promise<void> {
   if (bulkMutationReconcileQueue) {
     await bulkMutationReconcileQueue.close();
     bulkMutationReconcileQueue = undefined;
+  }
+  if (bulkIngestQueue) {
+    await bulkIngestQueue.close();
+    bulkIngestQueue = undefined;
   }
 }

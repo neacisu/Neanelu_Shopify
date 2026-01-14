@@ -50,5 +50,11 @@ export type { ShopifyTokenExchangeResult } from './auth/shopify-oauth.js';
 // Re-export pg types pentru consumers care au nevoie
 export type { Pool, PoolClient, QueryResult } from 'pg';
 
+// ============================================
+// STREAMING EXPORTS (COPY)
+// ============================================
+
+export { PgCopyStreamsManager } from './streaming/pg-copy-streams.manager.js';
+
 // Drizzle types vor fi exportate când avem schema
 // export * from './schema/index.js';

@@ -4,6 +4,7 @@ import {
   withJobTelemetryContext,
   configFromEnv,
   enqueueBulkMutationReconcileJob,
+  enqueueBulkIngestJob,
   type DlqEntry,
   type DlqQueueLike,
 } from '@app/queue-manager';
@@ -507,6 +508,22 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
                   shopId: payload.shopId,
                   bulkRunId: payload.bulkRunId,
                   step: 'poller.reconcile_enqueued',
+                  details: { resultUrl: chosenUrl },
+                });
+              } else {
+                // PR-042: for query runs, enqueue the ingestion boundary (COPY+merge).
+                await enqueueBulkIngestJob({
+                  shopId: payload.shopId,
+                  bulkRunId: payload.bulkRunId,
+                  resultUrl: chosenUrl,
+                  triggeredBy: payload.triggeredBy,
+                  requestedAt: Date.now(),
+                });
+
+                await insertStep({
+                  shopId: payload.shopId,
+                  bulkRunId: payload.bulkRunId,
+                  step: 'poller.ingest_enqueued',
                   details: { resultUrl: chosenUrl },
                 });
               }
