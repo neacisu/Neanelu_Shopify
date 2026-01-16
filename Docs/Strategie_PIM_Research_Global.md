@@ -93,7 +93,7 @@ Pentru produse critice, aplicăm **Trei Sesiuni de Validare**:
 ### Etapa 1 & 2: Taxonomii (Layer 1 - Governance)
 
 | Tabel | Descriere |
-|-------|-----------|
+| ------- | ----------- |
 | `prod_taxonomy` | Ierarhie categorii din Shopify Standard Taxonomy |
 | `prod_attr_definitions` | Registru atribute canonice (display_size, weight_kg) |
 | `prod_attr_synonyms` | Mapping sinonime pentru normalizare automată |
@@ -101,7 +101,7 @@ Pentru produse critice, aplicăm **Trei Sesiuni de Validare**:
 ### Etapa 3: Bronze/Silver Records (Layer 2-3)
 
 | Tabel | Descriere |
-|-------|-----------|
+| ------- | ----------- |
 | `prod_raw_harvest` | Materie primă (HTML/JSON) de la crawlere |
 | `prod_extraction_sessions` | Rezultate brute ale agenților AI |
 | `prod_master.data_quality_level` | **NOU v2.6** - Tracking nivel calitate: bronze/silver/golden |
@@ -109,7 +109,7 @@ Pentru produse critice, aplicăm **Trei Sesiuni de Validare**:
 ### Etapa 4: Broad Search & Similarity Matching
 
 | Tabel | Descriere |
-|-------|-----------|
+| ------- | ----------- |
 | `prod_similarity_matches` | **NOU v2.6** - Matches externe (95-100% similarity) |
 | `prod_sources` | Configurare surse externe (Google, eMag, suppliers) |
 | `api_usage_log` | **NOU v2.6** - Tracking costuri API (Google, xAI) |
@@ -119,32 +119,34 @@ Pentru produse critice, aplicăm **Trei Sesiuni de Validare**:
 ### Etapa 5: Consensus & Compilation
 
 | Tabel | Descriere |
-|-------|-----------|
+| ------- | ----------- |
 | `prod_proposals` | Date consolidate în așteptarea votului final |
 | `prod_specs_normalized` | Specificații tehnice normalizate cu provenance |
 
 **Algoritm Consensus:**
-- Multi-source voting (min 2 surse pentru accept)
-- Weight by trust_score × similarity_score
-- Conflict resolution cu flags pentru human review
+
+> Multi-source voting (min 2 surse pentru accept)
+> Weight by trust_score × similarity_score
+> Conflict resolution cu flags pentru human review
 
 ### Etapa 6: Golden Record & Events
 
 | Tabel | Descriere |
-|-------|-----------|
+| ------- | ----------- |
 | `prod_master` | Golden Records cu `data_quality_level = 'golden'` |
 | `prod_quality_events` | **NOU v2.6** - Audit trail pentru promovări/demotări |
 
 **Threshold Promovare:**
-- Bronze → Silver: quality_score ≥ 0.6, min 2 surse, brand + category
-- Silver → Golden: quality_score ≥ 0.85, min 3 surse, GTIN + brand + MPN + category, min 5 specs
+
+> Bronze → Silver: quality_score ≥ 0.6, min 2 surse, brand + category
+> Silver → Golden: quality_score ≥ 0.85, min 3 surse, GTIN + brand + MPN + category, min 5 specs
 
 ---
 
 ## 7. Materialized Views pentru Monitoring
 
 | MV | Purpose | Refresh |
-|----|---------|---------|
+| ------- | --------- | --------- |
 | `mv_pim_quality_progress` | Distribuție bronze/silver/golden | Hourly |
 | `mv_pim_enrichment_status` | Status enrichment per level | Hourly |
 | `mv_pim_source_performance` | Performanță per sursă externă | Daily |
@@ -154,7 +156,7 @@ Pentru produse critice, aplicăm **Trei Sesiuni de Validare**:
 ## 8. Referințe Documentație
 
 | Document | Conținut |
-|----------|----------|
+| --------- | --------- |
 | `Database_Schema_Complete.md` v2.6 | Schema completă 66 tabele + 7 MVs |
 | `External_Product_APIs_Integration.md` v1.0 | Google APIs, xAI Grok, rate limiting |
 | `Plan_de_implementare.md` F8.4 | 10 task-uri Golden Record (PR-057 → PR-066) |
@@ -168,7 +170,7 @@ Pentru produse critice, aplicăm **Trei Sesiuni de Validare**:
 > **IMPORTANT:** Acest sprint trebuie completat ÎNAINTE de Sprint 9 (Production)!
 
 | PR | Tasks | Focus |
-|----|-------|-------|
+| ------- | --------- | --------- |
 | PR-045 | F8.4.1 | Google Custom Search API |
 | PR-046 | F8.4.2 | prod_similarity_matches CRUD |
 | PR-047 | F8.4.3 | xAI Grok structured extraction |

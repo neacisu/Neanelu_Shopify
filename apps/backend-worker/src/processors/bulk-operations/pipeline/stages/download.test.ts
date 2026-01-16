@@ -154,4 +154,70 @@ void describe('pipeline: download stage', () => {
     const buf = await collect(dl.stream);
     assert.equal(buf.toString('utf8'), body);
   });
+
+  void it('fails when Content-Length does not match actual bytes', async () => {
+    const server = http.createServer((req, res) => {
+      if (!req.url) throw new Error('missing_url');
+      if (req.url !== '/bad-length') {
+        res.statusCode = 404;
+        res.end('not found');
+        return;
+      }
+
+      const payload = Buffer.from('abc', 'utf8');
+      res.statusCode = 200;
+      res.setHeader('Content-Encoding', 'identity');
+      res.setHeader('Content-Length', '10');
+      res.end(payload);
+    });
+    servers.push(server);
+
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const addr = server.address();
+    assert.ok(addr && typeof addr === 'object');
+    const url = `http://127.0.0.1:${addr.port}/bad-length`;
+
+    await assert.rejects(async () => {
+      const dl = await createDownloadStream({
+        url,
+        maxRetries: 0,
+        connectTimeoutMs: 2_000,
+        readTimeoutMs: 2_000,
+      });
+      await collect(dl.stream);
+    }, /bulk_download_content_length_mismatch/);
+  });
+
+  void it('fails when ETag checksum does not match payload', async () => {
+    const server = http.createServer((req, res) => {
+      if (!req.url) throw new Error('missing_url');
+      if (req.url !== '/bad-etag') {
+        res.statusCode = 404;
+        res.end('not found');
+        return;
+      }
+
+      const payload = Buffer.from('etag-body', 'utf8');
+      res.statusCode = 200;
+      res.setHeader('Content-Encoding', 'identity');
+      res.setHeader('ETag', '"00000000000000000000000000000000"');
+      res.end(payload);
+    });
+    servers.push(server);
+
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const addr = server.address();
+    assert.ok(addr && typeof addr === 'object');
+    const url = `http://127.0.0.1:${addr.port}/bad-etag`;
+
+    await assert.rejects(async () => {
+      const dl = await createDownloadStream({
+        url,
+        maxRetries: 0,
+        connectTimeoutMs: 2_000,
+        readTimeoutMs: 2_000,
+      });
+      await collect(dl.stream);
+    }, /bulk_download_checksum_mismatch/);
+  });
 });

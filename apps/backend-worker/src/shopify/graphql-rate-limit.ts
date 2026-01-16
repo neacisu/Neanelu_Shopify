@@ -1,5 +1,5 @@
 import { checkAndConsumeCost } from '@app/queue-manager';
-import { ShopifyRateLimitedError } from '@app/shopify-client';
+import { ShopifyRateLimitedError, type ShopifyGraphqlThrottleStatus } from '@app/shopify-client';
 import type { Redis } from 'ioredis';
 
 export type ShopifyGraphqlRateLimitConfig = Readonly<{
@@ -71,4 +71,24 @@ export async function gateShopifyGraphqlRequest(params: {
       },
     });
   }
+}
+
+export async function syncShopifyGraphqlThrottleStatus(params: {
+  redis: Redis;
+  shopId: string;
+  throttleStatus: ShopifyGraphqlThrottleStatus;
+  config?: ShopifyGraphqlRateLimitConfig;
+}): Promise<void> {
+  const cfg = params.config ?? getShopifyGraphqlRateLimitConfig();
+  const bucketKey = `neanelu:ratelimit:graphql:${params.shopId}`;
+
+  const available = Math.max(0, Math.floor(params.throttleStatus.currentlyAvailable));
+  const tokens = Math.min(cfg.maxTokens, available);
+  const nowMs = Date.now();
+
+  await params.redis.hset(bucketKey, {
+    ts: String(nowMs),
+    tokens: String(tokens),
+  });
+  await params.redis.pexpire(bucketKey, cfg.ttlMs);
 }

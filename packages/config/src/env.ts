@@ -51,6 +51,8 @@ export type AppEnv = Readonly<{
   bulkMergeAnalyze: boolean;
   /** Whether the merge stage is allowed to apply deletes for full snapshots only. */
   bulkMergeAllowDeletes: boolean;
+  /** Whether the merge stage should REINDEX staging tables after merge. */
+  bulkStagingReindex: boolean;
 
   // ============================================
   // AI / EMBEDDINGS (PR-043 / F5.2.9)
@@ -305,6 +307,7 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
   );
   const bulkMergeAnalyze = parseBooleanWithDefault(env, 'BULK_MERGE_ANALYZE', true);
   const bulkMergeAllowDeletes = parseBooleanWithDefault(env, 'BULK_MERGE_ALLOW_DELETES', false);
+  const bulkStagingReindex = parseBooleanWithDefault(env, 'BULK_STAGING_REINDEX', true);
 
   // PR-043 (F5.2.9-F5.2.10): embeddings + dedup/consensus controls.
   const openAiApiKey = optionalString(env, 'OPENAI_API_KEY');
@@ -378,6 +381,7 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     bulkDownloadHighWaterMarkBytes,
     bulkMergeAnalyze,
     bulkMergeAllowDeletes,
+    bulkStagingReindex,
 
     ...(openAiApiKey ? { openAiApiKey } : {}),
     ...(openAiBaseUrl ? { openAiBaseUrl } : {}),

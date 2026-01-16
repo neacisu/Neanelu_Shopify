@@ -8,6 +8,7 @@ import {
 } from '@app/queue-manager';
 import { loadEnv } from '@app/config';
 import { OTEL_ATTR, type Logger } from '@app/logger';
+import { recordBulkIngestProgress } from '../../otel/metrics.js';
 import {
   validateBulkIngestJobPayload,
   type BulkIngestJobPayload,
@@ -181,6 +182,27 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
             invalidLines: 0,
           };
 
+          let lastMetricsAt = Date.now();
+          let lastLines = 0;
+          let lastBytes = 0;
+
+          const emitIngestMetrics = (): void => {
+            const now = Date.now();
+            const elapsedSeconds = Math.max(0.001, (now - lastMetricsAt) / 1000);
+            const linesDelta = pipelineCounters.totalLines - lastLines;
+            const bytesDelta = pipelineCounters.bytesProcessed - lastBytes;
+
+            recordBulkIngestProgress({
+              rowsDelta: linesDelta,
+              bytesDelta,
+              rowsPerSecond: linesDelta / elapsedSeconds,
+            });
+
+            lastMetricsAt = now;
+            lastLines = pipelineCounters.totalLines;
+            lastBytes = pipelineCounters.bytesProcessed;
+          };
+
           const pipelineResult = await runBulkStreamingPipelineWithStitching({
             shopId: payload.shopId,
             artifactsDir,
@@ -256,11 +278,14 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
                     isFullSnapshot,
                   },
                 });
+
+                emitIngestMetrics();
               }
             },
           });
 
           await copyWriter.flush();
+          emitIngestMetrics();
           const counters = copyWriter.getCounters();
           productsCommitted = counters.productsCopied;
           variantsCommitted = counters.variantsCopied;
@@ -298,6 +323,7 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
             analyze: cfg.mergeAnalyze,
             allowDeletes: cfg.mergeAllowDeletes,
             isFullSnapshot,
+            reindexStaging: cfg.stagingReindex,
           });
 
           await insertBulkStep({
