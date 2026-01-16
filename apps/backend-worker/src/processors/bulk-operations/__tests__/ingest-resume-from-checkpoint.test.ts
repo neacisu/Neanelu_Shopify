@@ -69,6 +69,7 @@ async function installBaseMocks(params: {
           bulkDownloadHighWaterMarkBytes: 64 * 1024,
           bulkMergeAnalyze: false,
           bulkMergeAllowDeletes: false,
+          bulkStagingReindex: false,
         }),
       },
     })
@@ -153,7 +154,7 @@ async function installBaseMocks(params: {
   await Promise.resolve(
     mock.module(mergePath, {
       namedExports: {
-        runMergeFromStaging: () => Promise.resolve(undefined),
+        runMergeFromStaging: (_params?: { reindexStaging?: boolean }) => Promise.resolve(undefined),
       },
     })
   );

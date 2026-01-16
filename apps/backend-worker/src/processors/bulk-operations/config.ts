@@ -6,6 +6,7 @@ export type BulkIngestConfig = Readonly<{
   downloadHighWaterMarkBytes: number;
   mergeAnalyze: boolean;
   mergeAllowDeletes: boolean;
+  stagingReindex: boolean;
 }>;
 
 export function getBulkIngestConfig(): BulkIngestConfig {
@@ -16,5 +17,6 @@ export function getBulkIngestConfig(): BulkIngestConfig {
     downloadHighWaterMarkBytes: env.bulkDownloadHighWaterMarkBytes,
     mergeAnalyze: env.bulkMergeAnalyze,
     mergeAllowDeletes: env.bulkMergeAllowDeletes,
+    stagingReindex: env.bulkStagingReindex,
   };
 }

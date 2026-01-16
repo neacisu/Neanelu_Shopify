@@ -15,6 +15,7 @@ export async function runMergeFromStaging(params: {
   analyze: boolean;
   allowDeletes: boolean;
   isFullSnapshot: boolean;
+  reindexStaging: boolean;
 }): Promise<void> {
   const started = Date.now();
   try {
@@ -246,6 +247,16 @@ export async function runMergeFromStaging(params: {
         await client.query('ANALYZE shopify_products');
         await client.query('ANALYZE shopify_variants');
       }
+
+      if (params.reindexStaging) {
+        // REINDEX staging tables post-merge (best-effort, may be heavy on large runs).
+        try {
+          await client.query('REINDEX TABLE staging_products');
+          await client.query('REINDEX TABLE staging_variants');
+        } catch {
+          // Best-effort only; do not fail the merge for reindex errors.
+        }
+      }
     });
   } finally {
     // Merge is a mix of inserts/updates/deletes; track under 'update' to fit metrics cardinality.
@@ -257,6 +268,7 @@ export async function runMergeFromStaging(params: {
         allowDeletes: params.allowDeletes,
         isFullSnapshot: params.isFullSnapshot,
         analyze: params.analyze,
+        reindexStaging: params.reindexStaging,
       },
       'Staging merge completed'
     );

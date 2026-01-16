@@ -12,6 +12,7 @@
     "test": "node --experimental-test-module-mocks --import tsx --test src/**/*.test.ts"
   },
   "dependencies": {
+    "@app/ai-engine": "workspace:*",
     "@app/config": "workspace:*",
     "@app/database": "workspace:*",
     "@app/logger": "workspace:*",

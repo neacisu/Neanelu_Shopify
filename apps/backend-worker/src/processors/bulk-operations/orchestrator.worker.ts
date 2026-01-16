@@ -37,6 +37,7 @@ import { shopifyApi } from '../../shopify/client.js';
 import {
   gateShopifyGraphqlRequest,
   getShopifyGraphqlRateLimitConfig,
+  syncShopifyGraphqlThrottleStatus,
 } from '../../shopify/graphql-rate-limit.js';
 import { withTokenRetry } from '../../auth/token-lifecycle.js';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
@@ -169,6 +170,36 @@ function classifyPermanentBulkStartErrorType(
   }
   if (m.includes('not installed')) return 'AUTH_FAILED';
   return 'UNKNOWN';
+}
+
+async function syncThrottleStatusIfPresent(params: {
+  res: { extensions?: { cost?: { throttleStatus?: unknown } } } | null | undefined;
+  redis: RedisClient;
+  shopId: string;
+  config: ReturnType<typeof getShopifyGraphqlRateLimitConfig>;
+}): Promise<void> {
+  const throttle = params.res?.extensions?.cost?.throttleStatus as
+    | { maximumAvailable?: unknown; currentlyAvailable?: unknown; restoreRate?: unknown }
+    | undefined;
+  if (
+    !throttle ||
+    typeof throttle.currentlyAvailable !== 'number' ||
+    typeof throttle.restoreRate !== 'number'
+  ) {
+    return;
+  }
+
+  await syncShopifyGraphqlThrottleStatus({
+    redis: params.redis,
+    shopId: params.shopId,
+    throttleStatus: {
+      maximumAvailable:
+        typeof throttle.maximumAvailable === 'number' ? throttle.maximumAvailable : 0,
+      currentlyAvailable: throttle.currentlyAvailable,
+      restoreRate: throttle.restoreRate,
+    },
+    config: params.config,
+  }).catch(() => undefined);
 }
 
 export function startBulkOrchestratorWorker(logger: Logger): BulkOrchestratorWorkerHandle {
@@ -376,6 +407,13 @@ export function startBulkOrchestratorWorker(logger: Logger): BulkOrchestratorWor
                     };
                   }>(mutation, variables);
 
+                  await syncThrottleStatusIfPresent({
+                    res,
+                    redis,
+                    shopId: payload.shopId,
+                    config: graphqlLimiterCfg,
+                  });
+
                   const userErrors = res.data?.bulkOperationRunQuery?.userErrors ?? [];
                   if (userErrors.length) {
                     const message = userErrors
@@ -438,6 +476,13 @@ export function startBulkOrchestratorWorker(logger: Logger): BulkOrchestratorWor
                     userErrors?: { field?: string[] | null; message?: string | null }[] | null;
                   };
                 }>(stagedMutation, { input: [stagedInput] });
+
+                await syncThrottleStatusIfPresent({
+                  res: stagedRes,
+                  redis,
+                  shopId: payload.shopId,
+                  config: graphqlLimiterCfg,
+                });
 
                 const stagedErrors = stagedRes.data?.stagedUploadsCreate?.userErrors ?? [];
                 if (stagedErrors.length) {
@@ -506,6 +551,13 @@ export function startBulkOrchestratorWorker(logger: Logger): BulkOrchestratorWor
                 }>(runMutation, {
                   mutation: mutationPayload!.graphqlMutation,
                   stagedUploadPath: target.resourceUrl,
+                });
+
+                await syncThrottleStatusIfPresent({
+                  res: runRes,
+                  redis,
+                  shopId: payload.shopId,
+                  config: graphqlLimiterCfg,
                 });
 
                 const userErrors = runRes.data?.bulkOperationRunMutation?.userErrors ?? [];

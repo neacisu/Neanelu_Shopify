@@ -33,6 +33,13 @@ if [ "${SKIP_PREPUSH:-}" = "1" ]; then
   exit 0
 fi
 
+# Prefer a dedicated test database URL so local .env values (often prod-like)
+# don't break schema tests.
+# Can be overridden by exporting DATABASE_URL_TEST or defining it in .env.
+if [ -z "${DATABASE_URL_TEST:-}" ]; then
+  export DATABASE_URL_TEST='postgresql://shopify:shopify_dev_password@localhost:65010/neanelu_shopify'
+fi
+
 echo '🧪 Running tests before push...'
 pnpm test || {
   echo '❌ Tests failed! Push aborted.'
