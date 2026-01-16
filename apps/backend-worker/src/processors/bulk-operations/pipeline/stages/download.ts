@@ -1,11 +1,17 @@
 import { PassThrough, Readable, Transform } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createGunzip, createInflate } from 'node:zlib';
+import { createHash } from 'node:crypto';
 
 export interface DownloadStats {
   attempts: number;
   resumedFromBytes: number;
   contentEncoding: string;
+  contentLengthExpected?: number | null;
+  contentLengthActual?: number | null;
+  checksumExpected?: string | null;
+  checksumActual?: string | null;
+  checksumAlgorithm?: 'md5' | 'sha256' | null;
 }
 
 export type DownloadStreamResult = Readonly<{
@@ -35,6 +41,11 @@ export function createDownloadStream(params: {
     attempts: 0,
     resumedFromBytes: 0,
     contentEncoding: 'identity',
+    contentLengthExpected: null,
+    contentLengthActual: null,
+    checksumExpected: null,
+    checksumActual: null,
+    checksumAlgorithm: null,
   };
 
   let offsetBytes = Math.max(0, Math.trunc(params.resumeFromBytes ?? 0));
@@ -93,6 +104,16 @@ export function createDownloadStream(params: {
         throw new Error('bulk_download_empty_body');
       }
 
+      const contentLengthExpected = parseContentLength(res.headers.get('content-length'));
+      const checksumExpected = parseExpectedChecksum(res.headers);
+      if (contentLengthExpected != null) {
+        stats.contentLengthExpected = contentLengthExpected;
+      }
+      if (checksumExpected) {
+        stats.checksumExpected = checksumExpected.value;
+        stats.checksumAlgorithm = checksumExpected.algorithm;
+      }
+
       // Resume policy: best-effort only for identity encoding.
       const enc = (res.headers.get('content-encoding') ?? 'identity').toLowerCase();
       const acceptRanges = (res.headers.get('accept-ranges') ?? '').toLowerCase();
@@ -119,6 +140,14 @@ export function createDownloadStream(params: {
 
       const raw = Readable.fromWeb(res.body as unknown as globalThis.ReadableStream<Uint8Array>);
       const decoded = new MaybeDecompressTransform(enc);
+      let rawBytesRead = 0;
+      const checksum = checksumExpected ? createHash(checksumExpected.algorithm) : null;
+
+      raw.on('data', (chunk: Buffer | Uint8Array) => {
+        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        rawBytesRead += buf.length;
+        if (checksum) checksum.update(buf);
+      });
       raw.on('error', (e) => decoded.destroy(e));
       raw.pipe(decoded);
 
@@ -152,12 +181,45 @@ export function createDownloadStream(params: {
           decoded.on('error', reject);
         });
 
+        if (
+          contentLengthExpected != null &&
+          enc === 'identity' &&
+          rawBytesRead !== contentLengthExpected
+        ) {
+          stats.contentLengthActual = rawBytesRead;
+          throw new Error(
+            `bulk_download_content_length_mismatch:${contentLengthExpected}:${rawBytesRead}`
+          );
+        }
+
+        if (checksumExpected && checksum) {
+          const actual = checksum.digest(checksumExpected.encoding);
+          stats.checksumActual = actual;
+          if (actual !== checksumExpected.value) {
+            throw new Error('bulk_download_checksum_mismatch');
+          }
+        }
+
         if (readTimer) clearTimeout(readTimer);
         out.end();
         return;
       } catch (err) {
         if (readTimer) clearTimeout(readTimer);
         decoded.destroy();
+
+        if (
+          err instanceof Error &&
+          err.name === 'AbortError' &&
+          contentLengthExpected != null &&
+          enc === 'identity' &&
+          rawBytesRead > 0 &&
+          rawBytesRead < contentLengthExpected
+        ) {
+          stats.contentLengthActual = rawBytesRead;
+          throw new Error(
+            `bulk_download_content_length_mismatch:${contentLengthExpected}:${rawBytesRead}`
+          );
+        }
 
         if (stats.attempts >= maxRetries) {
           throw err instanceof Error ? err : new Error('bulk_download_stream_error');
@@ -199,6 +261,39 @@ function parseRetryAfterMs(value: string | null): number | null {
   const date = Date.parse(value);
   if (!Number.isFinite(date)) return null;
   return Math.max(0, date - Date.now());
+}
+
+function parseContentLength(value: string | null): number | null {
+  if (!value) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.floor(n);
+}
+
+function parseExpectedChecksum(
+  headers: Headers
+): { algorithm: 'md5' | 'sha256'; value: string; encoding: 'hex' | 'base64' } | null {
+  const contentMd5 = headers.get('content-md5');
+  if (contentMd5) {
+    return { algorithm: 'md5', value: contentMd5.trim(), encoding: 'base64' };
+  }
+
+  const sha256Header = headers.get('x-checksum-sha256') ?? headers.get('x-amz-checksum-sha256');
+  if (sha256Header) {
+    return { algorithm: 'sha256', value: sha256Header.trim(), encoding: 'base64' };
+  }
+
+  const etagRaw = headers.get('etag');
+  if (!etagRaw) return null;
+  const cleaned = etagRaw.replace(/^W\//, '').trim();
+  const etag = cleaned.replace(/^"|"$/g, '');
+  if (/^[a-f0-9]{32}$/i.test(etag)) {
+    return { algorithm: 'md5', value: etag.toLowerCase(), encoding: 'hex' };
+  }
+  if (/^[a-f0-9]{64}$/i.test(etag)) {
+    return { algorithm: 'sha256', value: etag.toLowerCase(), encoding: 'hex' };
+  }
+  return null;
 }
 
 class MaybeDecompressTransform extends Transform {

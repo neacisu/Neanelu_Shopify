@@ -53,6 +53,9 @@ importers:
 
   apps/backend-worker:
     dependencies:
+      '@app/ai-engine':
+        specifier: workspace:*
+        version: link:../../packages/ai-engine
       '@app/config':
         specifier: workspace:*
         version: link:../../packages/config

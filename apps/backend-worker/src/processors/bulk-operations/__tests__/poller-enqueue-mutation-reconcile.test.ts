@@ -116,6 +116,7 @@ await (async () => {
           defaultBulkPollCost: 10,
         }),
         gateShopifyGraphqlRequest: () => Promise.resolve(undefined),
+        syncShopifyGraphqlThrottleStatus: () => Promise.resolve(undefined),
       },
     })
   );

@@ -25,7 +25,7 @@ const { Pool } = pg;
  * DATABASE_URL format: postgresql://user:password@host:port/database
  */
 const poolConfig: pg.PoolConfig = {
-  connectionString: process.env['DATABASE_URL'],
+  connectionString: process.env['DATABASE_URL_TEST'] ?? process.env['DATABASE_URL'],
   max: Number(process.env['DB_POOL_SIZE'] ?? 10),
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
