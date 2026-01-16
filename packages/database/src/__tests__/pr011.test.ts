@@ -18,11 +18,11 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
 import pg from 'pg';
 
-const DATABASE_URL = process.env['DATABASE_URL'];
+const DATABASE_URL = process.env['DATABASE_URL_TEST'] ?? process.env['DATABASE_URL'];
 const SKIP_DB_TESTS = !DATABASE_URL;
 
 if (SKIP_DB_TESTS) {
-  console.info('⚠️  DATABASE_URL not set - skipping PR-011 schema tests');
+  console.info('⚠️  DATABASE_URL_TEST / DATABASE_URL not set - skipping PR-011 schema tests');
 }
 
 void describe('PR-011 Schema Completions', { skip: SKIP_DB_TESTS }, () => {
