@@ -12,7 +12,7 @@
  */
 
 import { metrics } from '@opentelemetry/api';
-import type { Counter, Histogram, UpDownCounter } from '@opentelemetry/api';
+import type { Counter, Histogram, UpDownCounter, ObservableGauge } from '@opentelemetry/api';
 
 const meter = metrics.getMeter('neanelu-shopify', '0.1.0');
 
@@ -228,6 +228,39 @@ export const dbPoolConnectionsIdle: UpDownCounter = meter.createUpDownCounter(
 );
 
 // ============================================
+// BULK INGEST METRICS (F5.2.8)
+// ============================================
+
+/** Total rows processed by bulk ingestion pipeline */
+export const bulkRowsProcessedTotal: Counter = meter.createCounter('bulk_rows_processed_total', {
+  description: 'Total number of rows processed by bulk ingestion pipeline',
+});
+
+/** Total bytes processed by bulk ingestion pipeline */
+export const bulkBytesProcessedTotal: Counter = meter.createCounter('bulk_bytes_processed_total', {
+  description: 'Total bytes processed by bulk ingestion pipeline',
+  unit: 'By',
+});
+
+/** Ingestion throughput (rows per second) */
+export const ingestionRowsPerSecond: ObservableGauge = meter.createObservableGauge(
+  'ingestion_rows_per_second',
+  {
+    description: 'Estimated ingestion throughput in rows per second',
+    unit: '1',
+  }
+);
+
+const ingestionRowsPerSecondState = { value: 0 };
+
+meter.addBatchObservableCallback(
+  (observableResult) => {
+    observableResult.observe(ingestionRowsPerSecond, ingestionRowsPerSecondState.value);
+  },
+  [ingestionRowsPerSecond]
+);
+
+// ============================================
 // REDIS METRICS
 // ============================================
 
@@ -376,6 +409,24 @@ export function recordDbQuery(
   durationSeconds: number
 ): void {
   dbQueryDuration.record(durationSeconds, { operation });
+}
+
+/**
+ * Record bulk ingestion throughput counters and gauge.
+ */
+export function recordBulkIngestProgress(params: {
+  rowsDelta: number;
+  bytesDelta: number;
+  rowsPerSecond?: number;
+}): void {
+  const rows = Math.max(0, Math.floor(params.rowsDelta));
+  const bytes = Math.max(0, Math.floor(params.bytesDelta));
+  if (rows > 0) bulkRowsProcessedTotal.add(rows, { pipeline: 'bulk_ingest' });
+  if (bytes > 0) bulkBytesProcessedTotal.add(bytes, { pipeline: 'bulk_ingest' });
+
+  if (typeof params.rowsPerSecond === 'number' && Number.isFinite(params.rowsPerSecond)) {
+    ingestionRowsPerSecondState.value = Math.max(0, params.rowsPerSecond);
+  }
 }
 
 /**

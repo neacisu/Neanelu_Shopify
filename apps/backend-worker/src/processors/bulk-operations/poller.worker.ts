@@ -17,7 +17,9 @@ import { shopifyApi } from '../../shopify/client.js';
 import {
   gateShopifyGraphqlRequest,
   getShopifyGraphqlRateLimitConfig,
+  syncShopifyGraphqlThrottleStatus,
 } from '../../shopify/graphql-rate-limit.js';
+import { computeGraphqlDelayMs } from '@app/shopify-client';
 import { Redis as IORedis, type Redis } from 'ioredis';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
 import {
@@ -400,9 +402,30 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
             }
           );
 
+          let throttleDelayMs = 0;
+          const throttleStatus = res?.extensions?.cost?.throttleStatus;
+          if (
+            throttleStatus &&
+            typeof throttleStatus.currentlyAvailable === 'number' &&
+            typeof throttleStatus.restoreRate === 'number'
+          ) {
+            throttleDelayMs = computeGraphqlDelayMs({
+              costNeeded: cfg.defaultPollCost,
+              currentlyAvailable: throttleStatus.currentlyAvailable,
+              restoreRate: throttleStatus.restoreRate,
+            });
+
+            await syncShopifyGraphqlThrottleStatus({
+              redis,
+              shopId: payload.shopId,
+              throttleStatus,
+              config: cfg,
+            }).catch(() => undefined);
+          }
+
           const node = res?.data?.node;
           if (!isBulkOperationNode(node)) {
-            const delayMs = nextBackoffMs(pollAttempt);
+            const delayMs = Math.max(nextBackoffMs(pollAttempt), throttleDelayMs);
             await updateJobDataSafe(job as JobWithUpdateData<BulkPollerJobPayload>, {
               ...payload,
               pollAttempt: pollAttempt + 1,
@@ -652,7 +675,7 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
             return { outcome: retryOutcome === 'dlq' ? ('dlq' as const) : ('failed' as const) };
           }
 
-          const delayMs = nextBackoffMs(pollAttempt);
+          const delayMs = Math.max(nextBackoffMs(pollAttempt), throttleDelayMs);
           await updateJobDataSafe(job as JobWithUpdateData<BulkPollerJobPayload>, {
             ...payload,
             pollAttempt: pollAttempt + 1,

@@ -71,8 +71,8 @@ export const bulkRuns = pgTable(
     // Cost estimate (Shopify query cost points)
     costEstimate: integer('cost_estimate'),
 
-    // Idempotency
-    idempotencyKey: varchar('idempotency_key', { length: 100 }).unique(),
+    // Idempotency (active-only uniqueness enforced via partial index)
+    idempotencyKey: varchar('idempotency_key', { length: 100 }),
 
     // Cursor state for pagination
     cursorState: jsonb('cursor_state'),
@@ -97,10 +97,16 @@ export const bulkRuns = pgTable(
   (table) => [
     index('idx_bulk_runs_shop_status').on(table.shopId, table.status),
     index('idx_bulk_runs_shopify_op').on(table.shopifyOperationId),
-    uniqueIndex('idx_bulk_runs_idempotency').on(table.idempotencyKey),
+    index('idx_bulk_runs_idempotency')
+      .on(table.idempotencyKey)
+      .where(sql`${table.idempotencyKey} is not null`),
     // CRITICAL: Prevent multiple concurrent active runs per shop.
     uniqueIndex('idx_bulk_runs_active_shop')
       .on(table.shopId)
+      .where(sql`${table.status} in ('pending', 'running')`),
+    // Prevent duplicate active runs with same idempotency key per shop.
+    uniqueIndex('idx_bulk_runs_active_idempotency')
+      .on(table.shopId, table.idempotencyKey)
       .where(sql`${table.status} in ('pending', 'running')`),
     index('idx_bulk_runs_query_hash')
       .on(table.graphqlQueryHash)

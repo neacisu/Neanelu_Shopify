@@ -11,7 +11,8 @@
       "@app/config": ["../../packages/config/dist/index.d.ts"],
       "@app/types": ["../../packages/types/dist/index.d.ts"],
       "@app/logger": ["../../packages/logger/dist/index.d.ts"],
-      "@app/validation": ["../../packages/validation/dist/index.d.ts"]
+      "@app/validation": ["../../packages/validation/dist/index.d.ts"],
+      "@app/ai-engine": ["../../packages/ai-engine/dist/index.d.ts"]
     }
   },
   "include": ["src/**/*"],
