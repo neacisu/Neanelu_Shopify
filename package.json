@@ -40,6 +40,10 @@
     "db:test:schema": "pnpm --filter @app/database run test:schema",
     "db:test:precommit": "pnpm --filter @app/database run test:precommit",
     "db:test:all": "pnpm --filter @app/database run test:all",
+    "test:env:up": "docker compose -f docker-compose.test.yml up -d",
+    "test:env:down": "docker compose -f docker-compose.test.yml down",
+    "test:env:logs": "docker compose -f docker-compose.test.yml logs -f",
+    "test:env:clean": "docker compose -f docker-compose.test.yml down -v",
     "oauth:server": "tsx oauth-callback-server.ts"
   },
   "lint-staged": {

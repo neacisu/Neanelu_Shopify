@@ -20,9 +20,33 @@ export async function runMergeFromStaging(params: {
   const started = Date.now();
   try {
     await withTenantContext(params.shopId, async (client) => {
-      // Products upsert
+      // Products upsert (dedupe staging rows to avoid ON CONFLICT self-collision)
       await client.query(
-        `INSERT INTO shopify_products (
+        `WITH src AS (
+           SELECT DISTINCT ON (sp.shop_id, sp.shopify_gid)
+             sp.shop_id,
+             sp.shopify_gid,
+             sp.legacy_resource_id,
+             sp.title,
+             sp.handle,
+             sp.vendor,
+             sp.product_type,
+             sp.status,
+             sp.tags,
+             sp.raw_data,
+             sp.imported_at
+           FROM staging_products sp
+           WHERE sp.bulk_run_id = $1
+             AND sp.shop_id = $2
+             AND sp.validation_status = 'valid'
+             AND sp.merge_status = 'pending'
+             AND sp.shopify_gid IS NOT NULL
+             AND sp.legacy_resource_id IS NOT NULL
+             AND sp.title IS NOT NULL
+             AND sp.handle IS NOT NULL
+           ORDER BY sp.shop_id, sp.shopify_gid, sp.imported_at DESC
+         )
+         INSERT INTO shopify_products (
            shop_id,
            shopify_gid,
            legacy_resource_id,
@@ -39,29 +63,21 @@ export async function runMergeFromStaging(params: {
            updated_at
          )
          SELECT
-           sp.shop_id,
-           sp.shopify_gid,
-           sp.legacy_resource_id,
-           sp.title,
-           sp.handle,
-           sp.vendor,
-           sp.product_type,
-           COALESCE(sp.status, 'ACTIVE'),
-           COALESCE(sp.tags, '{}'::text[]),
-           ${normalizeNullTimestampExpr("sp.raw_data->>'createdAt'")},
-           ${normalizeNullTimestampExpr("sp.raw_data->>'updatedAt'")},
+           src.shop_id,
+           src.shopify_gid,
+           src.legacy_resource_id,
+           src.title,
+           src.handle,
+           src.vendor,
+           src.product_type,
+           COALESCE(src.status, 'ACTIVE'),
+           COALESCE(src.tags, '{}'::text[]),
+           ${normalizeNullTimestampExpr("src.raw_data->>'createdAt'")},
+           ${normalizeNullTimestampExpr("src.raw_data->>'updatedAt'")},
            now(),
            now(),
            now()
-         FROM staging_products sp
-         WHERE sp.bulk_run_id = $1
-           AND sp.shop_id = $2
-           AND sp.validation_status = 'valid'
-           AND sp.merge_status = 'pending'
-           AND sp.shopify_gid IS NOT NULL
-           AND sp.legacy_resource_id IS NOT NULL
-           AND sp.title IS NOT NULL
-           AND sp.handle IS NOT NULL
+         FROM src
          ON CONFLICT (shop_id, shopify_gid)
          DO UPDATE SET
            legacy_resource_id = EXCLUDED.legacy_resource_id,
@@ -97,7 +113,7 @@ export async function runMergeFromStaging(params: {
       // Variants upsert (requires product resolution)
       await client.query(
         `WITH src AS (
-           SELECT
+           SELECT DISTINCT ON (sv.shop_id, sv.shopify_gid)
              sv.shop_id,
              sv.shopify_gid,
              sv.legacy_resource_id,
@@ -110,6 +126,7 @@ export async function runMergeFromStaging(params: {
              sv.inventory_item_id,
              COALESCE(sv.selected_options, '[]'::jsonb) AS selected_options,
              sv.raw_data,
+             sv.imported_at,
              p.id AS product_id,
              ${normalizeNullTimestampExpr("sv.raw_data->>'createdAt'")} AS created_at_shopify,
              ${normalizeNullTimestampExpr("sv.raw_data->>'updatedAt'")} AS updated_at_shopify
@@ -128,6 +145,7 @@ export async function runMergeFromStaging(params: {
              AND sv.legacy_resource_id IS NOT NULL
              AND sv.title IS NOT NULL
              AND sv.price IS NOT NULL
+           ORDER BY sv.shop_id, sv.shopify_gid, sv.imported_at DESC
          )
          INSERT INTO shopify_variants (
            shop_id,

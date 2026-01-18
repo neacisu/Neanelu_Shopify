@@ -1,0 +1,6 @@
+{"__typename":"Product","id":"gid://shopify/Product/1","title":"Hammer","handle":"hammer","vendor":"ACME","productType":"Tools","status":"ACTIVE","tags":["hardware","tools"],"createdAt":"2025-01-01T00:00:00Z","updatedAt":"2025-01-02T00:00:00Z"}
+{"__typename":"ProductVariant","id":"gid://shopify/ProductVariant/11","__parentId":"gid://shopify/Product/1","title":"Hammer 16oz","sku":"HAM-16","price":"9.99","compareAtPrice":"10.99","inventoryQuantity":5,"inventoryItem":{"id":"gid://shopify/InventoryItem/111"}}
+{"__typename":"Metafield","id":"gid://shopify/Metafield/901","namespace":"custom","key":"color","jsonValue":"\"red\"","owner":{"__typename":"Product","id":"gid://shopify/Product/1"}}
+not-json-line
+{"__typename":"Product","id":"gid://shopify/Product/2","title":"Screwdriver","handle":"screwdriver","vendor":"ACME","productType":"Tools","status":"ACTIVE","tags":["hardware"],"createdAt":"2025-01-03T00:00:00Z","updatedAt":"2025-01-04T00:00:00Z"}
+{"__typename":"ProductVariant","id":"gid://shopify/ProductVariant/22","product":{"id":"gid://shopify/Product/2"},"title":"Screwdriver PH2","sku":"SCR-PH2","price":"4.99","compareAtPrice":"5.99","inventoryQuantity":12,"inventoryItem":{"id":"gid://shopify/InventoryItem/222"}}
