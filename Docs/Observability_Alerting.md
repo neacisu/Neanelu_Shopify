@@ -165,22 +165,22 @@ groups:
     rules:
       - alert: BulkOperationStuck
         expr: |
-          bulk_operation_duration_seconds{status="running"} > 3600
+          bulk_operation_running_age_seconds > 3600
         labels:
           severity: critical
         annotations:
           summary: "Bulk operation stuck >1h"
-          description: "Operation {{ $labels.operation_id }} running for {{ $value }}s"
+          description: "Bulk operation running for {{ $value }}s"
           runbook_url: "Docs/runbooks/bulk-operation-stuck.md"
 
       - alert: BulkOperationFailedConsecutive
         expr: |
-          sum(increase(bulk_operation_failed_total[1h])) by (shop_id) >= 3
+          sum(increase(bulk_operation_failed_total[1h])) by (operation_type) >= 3
         labels:
           severity: critical
         annotations:
-          summary: "3+ bulk failures for shop"
-          description: "Shop {{ $labels.shop_id }} failing repeatedly"
+          summary: "3+ bulk failures per operation type"
+          description: "Operation type {{ $labels.operation_type }} failing repeatedly"
 ```
 
 ---

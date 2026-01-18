@@ -21,6 +21,7 @@ import * as path from 'node:path';
 
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
 import { enqueueDlqDirect } from './failure-handler.js';
+import { recordBulkDlqEvent } from './otel/events.js';
 import {
   insertBulkError,
   insertBulkStep,
@@ -85,6 +86,17 @@ function safeJsonObject(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+function extractBulkIdentifiers(data: unknown): { shopId?: string; bulkRunId?: string } {
+  if (!data || typeof data !== 'object') return {};
+  const obj = data as Record<string, unknown>;
+  const shopId = typeof obj['shopId'] === 'string' ? obj['shopId'] : undefined;
+  const bulkRunId = typeof obj['bulkRunId'] === 'string' ? obj['bulkRunId'] : undefined;
+  const out: { shopId?: string; bulkRunId?: string } = {};
+  if (shopId) out.shopId = shopId;
+  if (bulkRunId) out.bulkRunId = bulkRunId;
+  return out;
+}
+
 function extractUserErrors(lineObj: Record<string, unknown>, mutationType: string): unknown[] {
   const data = safeJsonObject(lineObj['data']);
   const root = data ? safeJsonObject(data[mutationType]) : null;
@@ -113,6 +125,16 @@ export function startBulkMutationReconcileWorker(
     name: BULK_MUTATION_RECONCILE_QUEUE_NAME,
     enableDelayHandling: false,
     enableDlq: true,
+    onDlqEntry: (entry) => {
+      const { shopId, bulkRunId } = extractBulkIdentifiers(entry.data);
+      recordBulkDlqEvent({
+        shopId: shopId ?? null,
+        bulkRunId: bulkRunId ?? null,
+        queueName: entry.originalQueue,
+        jobName: entry.originalJobName,
+        jobId: entry.originalJobId,
+      });
+    },
     processor: async (job) => {
       return await withJobTelemetryContext(job, async () => {
         const jobId = String(job.id ?? job.name);
@@ -478,6 +500,13 @@ export function startBulkMutationReconcileWorker(
               },
               occurredAt: new Date().toISOString(),
             };
+            recordBulkDlqEvent({
+              shopId: payload.shopId,
+              bulkRunId: payload.bulkRunId,
+              queueName: entry.originalQueue,
+              jobName: entry.originalJobName,
+              jobId: entry.originalJobId,
+            });
             await enqueueDlqDirect({ dlqQueue: dlqQueueRef, entry });
           } catch {
             // best-effort

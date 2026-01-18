@@ -9,7 +9,7 @@
 import { withTenantContext } from '@app/database';
 import { createHash } from 'node:crypto';
 
-import { recordDbQuery } from '../../otel/metrics.js';
+import { recordBulkError, recordDbQuery } from '../../otel/metrics.js';
 
 export type BulkRunRow = Readonly<{
   id: string;
@@ -29,6 +29,7 @@ export type BulkRunContextRow = Readonly<{
   max_retries: number | null;
   records_processed: number | null;
   bytes_processed: number | null;
+  result_size_bytes: number | null;
   cursor_state: unknown;
   result_url: string | null;
   partial_data_url: string | null;
@@ -51,6 +52,7 @@ export async function loadBulkRunContext(params: {
                 max_retries,
                 records_processed,
                 bytes_processed,
+          result_size_bytes,
                 cursor_state,
                 result_url,
                 partial_data_url
@@ -268,6 +270,8 @@ export async function insertBulkError(params: {
       ]
     );
   });
+
+  recordBulkError({ errorType: params.errorType });
 
   // Plan F5.1.7: abort when row-level error rate exceeds threshold.
   // Only consider errors that have an associated line_number (i.e., per-row processing errors).

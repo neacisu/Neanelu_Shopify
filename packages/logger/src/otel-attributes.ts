@@ -15,6 +15,13 @@ export const OTEL_ATTR = {
 
   WEBHOOK_TOPIC: 'webhook.topic',
   WEBHOOK_ID: 'webhook.id',
+
+  BULK_RUN_ID: 'bulk.run_id',
+  BULK_OPERATION_TYPE: 'bulk.operation_type',
+  BULK_QUERY_TYPE: 'bulk.query_type',
+  BULK_MUTATION_TYPE: 'bulk.mutation_type',
+  BULK_STATUS: 'bulk.status',
+  BULK_STEP: 'bulk.step',
 } as const;
 
 export type OtelAttrKey = (typeof OTEL_ATTR)[keyof typeof OTEL_ATTR];

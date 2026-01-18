@@ -8,7 +8,14 @@ import {
 } from '@app/queue-manager';
 import { loadEnv } from '@app/config';
 import { OTEL_ATTR, type Logger } from '@app/logger';
-import { recordBulkIngestProgress } from '../../otel/metrics.js';
+import { recordBulkIngestProgress, setBulkBacklogBytes } from '../../otel/metrics.js';
+import {
+  recordBulkCopyAbortedEvent,
+  recordBulkDlqEvent,
+  recordBulkDownloadRetryEvent,
+  recordBulkRowsQuarantinedEvent,
+} from './otel/events.js';
+import { withBulkSpan } from './otel/spans.js';
 import {
   validateBulkIngestJobPayload,
   type BulkIngestJobPayload,
@@ -48,6 +55,17 @@ async function ensureBulkIngestArtifactsDir(params: {
   return dir;
 }
 
+function extractBulkIdentifiers(data: unknown): { shopId?: string; bulkRunId?: string } {
+  if (!data || typeof data !== 'object') return {};
+  const obj = data as Record<string, unknown>;
+  const shopId = typeof obj['shopId'] === 'string' ? obj['shopId'] : undefined;
+  const bulkRunId = typeof obj['bulkRunId'] === 'string' ? obj['bulkRunId'] : undefined;
+  const out: { shopId?: string; bulkRunId?: string } = {};
+  if (shopId) out.shopId = shopId;
+  if (bulkRunId) out.bulkRunId = bulkRunId;
+  return out;
+}
+
 export interface BulkIngestWorkerHandle {
   worker: { close: () => Promise<void>; isRunning?: () => boolean };
   close: () => Promise<void>;
@@ -63,6 +81,16 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
     name: BULK_INGEST_QUEUE_NAME,
     enableDelayHandling: false,
     enableDlq: true,
+    onDlqEntry: (entry) => {
+      const { shopId, bulkRunId } = extractBulkIdentifiers(entry.data);
+      recordBulkDlqEvent({
+        shopId: shopId ?? null,
+        bulkRunId: bulkRunId ?? null,
+        queueName: entry.originalQueue,
+        jobName: entry.originalJobName,
+        jobId: entry.originalJobId,
+      });
+    },
     workerOptions: {
       concurrency: Math.max(
         1,
@@ -90,6 +118,8 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
           startedAtIso: new Date().toISOString(),
           progressPct: null,
         });
+
+        let copyWriter: StagingCopyWriter | null = null;
 
         try {
           await insertBulkStep({
@@ -134,6 +164,10 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
 
           // Determine full snapshot boundary (for deletes): core products export only.
           const isFullSnapshot = run.query_type === 'core';
+          const resultSizeBytes =
+            typeof run.result_size_bytes === 'number' && Number.isFinite(run.result_size_bytes)
+              ? Math.max(0, Math.trunc(run.result_size_bytes))
+              : null;
 
           const cursor = safeJsonObject(run.cursor_state);
           const prevCheckpoint = readIngestCheckpoint(cursor);
@@ -161,7 +195,7 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
             });
           }
 
-          const copyWriter = new StagingCopyWriter({
+          copyWriter = new StagingCopyWriter({
             shopId: payload.shopId,
             bulkRunId: payload.bulkRunId,
             batchMaxRows: cfg.copyBatchRows,
@@ -174,6 +208,7 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
           let committedBytesSeen = committedBytes;
           let committedLinesSeen = committedLines;
           let lastIdSeen: string | null = lastSuccessfulId;
+          const quarantineSampleIds = new Set<string>();
 
           const pipelineCounters: PipelineCounters = {
             bytesProcessed: 0,
@@ -198,95 +233,137 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
               rowsPerSecond: linesDelta / elapsedSeconds,
             });
 
+            if (resultSizeBytes != null) {
+              const backlog = Math.max(0, resultSizeBytes - pipelineCounters.bytesProcessed);
+              setBulkBacklogBytes(op, backlog);
+            }
+
             lastMetricsAt = now;
             lastLines = pipelineCounters.totalLines;
             lastBytes = pipelineCounters.bytesProcessed;
           };
 
-          const pipelineResult = await runBulkStreamingPipelineWithStitching({
-            shopId: payload.shopId,
-            artifactsDir,
-            logger,
-            url: payload.resultUrl,
-            ...(committedBytes > 0 ? { resumeFromBytes: committedBytes } : {}),
-            counters: pipelineCounters,
-            tolerateInvalidLines: true,
-            parseEngine: 'stream-json',
-            downloadHighWaterMarkBytes: cfg.downloadHighWaterMarkBytes,
-            onParseIssue: (issue) => {
-              void insertBulkError({
+          const pipelineResult = await withBulkSpan(
+            'bulk.copy',
+            {
+              shopId: payload.shopId,
+              bulkRunId: payload.bulkRunId,
+              operationType: op,
+              queryType: run.query_type ?? null,
+              step: 'copy',
+            },
+            async () =>
+              await runBulkStreamingPipelineWithStitching({
                 shopId: payload.shopId,
                 bulkRunId: payload.bulkRunId,
-                lineNumber: issue.lineNumber,
-                errorType: 'ingest_parse_issue',
-                errorCode: issue.kind,
-                errorMessage: issue.message,
-              }).catch(() => undefined);
-            },
-            onRecord: async (record) => {
-              stitchedRecordsSeen += 1;
+                operationType: op,
+                artifactsDir,
+                logger,
+                url: payload.resultUrl,
+                ...(committedBytes > 0 ? { resumeFromBytes: committedBytes } : {}),
+                counters: pipelineCounters,
+                tolerateInvalidLines: true,
+                parseEngine: 'stream-json',
+                downloadHighWaterMarkBytes: cfg.downloadHighWaterMarkBytes,
+                onDownloadRetry: (retry) => {
+                  recordBulkDownloadRetryEvent({
+                    shopId: payload.shopId,
+                    bulkRunId: payload.bulkRunId,
+                    attempt: retry.attempt,
+                    reason: retry.reason,
+                    delayMs: retry.delayMs,
+                  });
+                },
+                onParseIssue: (issue) => {
+                  void insertBulkError({
+                    shopId: payload.shopId,
+                    bulkRunId: payload.bulkRunId,
+                    lineNumber: issue.lineNumber,
+                    errorType: 'ingest_parse_issue',
+                    errorCode: issue.kind,
+                    errorMessage: issue.message,
+                  }).catch(() => undefined);
+                },
+                onRecord: async (record) => {
+                  if (
+                    record.kind.startsWith('quarantine_') &&
+                    'id' in record &&
+                    typeof record.id === 'string' &&
+                    quarantineSampleIds.size < 5
+                  ) {
+                    quarantineSampleIds.add(record.id);
+                  }
+                  if (!copyWriter) {
+                    throw new Error('copy_writer_uninitialized');
+                  }
+                  stitchedRecordsSeen += 1;
 
-              // Best-effort last successful identifier (plan requirement).
-              if (
-                record.kind === 'product' ||
-                record.kind === 'variant' ||
-                record.kind === 'inventory_item' ||
-                record.kind === 'inventory_level'
-              ) {
-                lastIdSeen = record.id;
-              } else if (
-                record.kind === 'product_metafields_patch' ||
-                record.kind === 'variant_metafields_patch'
-              ) {
-                lastIdSeen = record.ownerId;
-              } else {
-                // quarantine_* and other records still have an id
-                if ('id' in record && typeof (record as { id?: unknown }).id === 'string') {
-                  lastIdSeen = (record as { id: string }).id;
-                }
-              }
+                  // Best-effort last successful identifier (plan requirement).
+                  if (
+                    record.kind === 'product' ||
+                    record.kind === 'variant' ||
+                    record.kind === 'inventory_item' ||
+                    record.kind === 'inventory_level'
+                  ) {
+                    lastIdSeen = record.id;
+                  } else if (
+                    record.kind === 'product_metafields_patch' ||
+                    record.kind === 'variant_metafields_patch'
+                  ) {
+                    lastIdSeen = record.ownerId;
+                  } else {
+                    // quarantine_* and other records still have an id
+                    if ('id' in record && typeof (record as { id?: unknown }).id === 'string') {
+                      lastIdSeen = (record as { id: string }).id;
+                    }
+                  }
 
-              if (stitchedRecordsSeen <= committedRecords) {
-                // Resume: skip already committed stitched records.
-                return;
-              }
+                  if (stitchedRecordsSeen <= committedRecords) {
+                    // Resume: skip already committed stitched records.
+                    return;
+                  }
 
-              const { flushed } = await copyWriter.handleRecord(record);
+                  const { flushed } = await copyWriter.handleRecord(record);
 
-              if (flushed) {
-                const counters = copyWriter.getCounters();
-                productsCommitted = counters.productsCopied;
-                variantsCommitted = counters.variantsCopied;
+                  if (flushed) {
+                    const counters = copyWriter.getCounters();
+                    productsCommitted = counters.productsCopied;
+                    variantsCommitted = counters.variantsCopied;
 
-                committedBytesSeen = pipelineCounters.bytesProcessed;
-                committedLinesSeen = pipelineCounters.totalLines;
+                    committedBytesSeen = pipelineCounters.bytesProcessed;
+                    committedLinesSeen = pipelineCounters.totalLines;
 
-                await persistIngestCheckpoint({
-                  shopId: payload.shopId,
-                  bulkRunId: payload.bulkRunId,
-                  recordsProcessed: stitchedRecordsSeen,
-                  bytesProcessed: pipelineCounters.bytesProcessed,
-                  checkpoint: {
-                    version: 2,
-                    committedRecords: stitchedRecordsSeen,
-                    committedProducts: productsCommitted,
-                    committedVariants: variantsCommitted,
-                    committedBytes: committedBytesSeen,
-                    committedLines: committedLinesSeen,
-                    lastSuccessfulId: lastIdSeen,
-                    lastCommitAtIso: new Date().toISOString(),
-                    isFullSnapshot,
-                  },
-                });
+                    await persistIngestCheckpoint({
+                      shopId: payload.shopId,
+                      bulkRunId: payload.bulkRunId,
+                      recordsProcessed: stitchedRecordsSeen,
+                      bytesProcessed: pipelineCounters.bytesProcessed,
+                      checkpoint: {
+                        version: 2,
+                        committedRecords: stitchedRecordsSeen,
+                        committedProducts: productsCommitted,
+                        committedVariants: variantsCommitted,
+                        committedBytes: committedBytesSeen,
+                        committedLines: committedLinesSeen,
+                        lastSuccessfulId: lastIdSeen,
+                        lastCommitAtIso: new Date().toISOString(),
+                        isFullSnapshot,
+                      },
+                    });
 
-                emitIngestMetrics();
-              }
-            },
-          });
+                    emitIngestMetrics();
+                  }
+                },
+              })
+          );
 
-          await copyWriter.flush();
+          const writer = copyWriter;
+          if (!writer) {
+            throw new Error('copy_writer_uninitialized');
+          }
+          await writer.flush();
           emitIngestMetrics();
-          const counters = copyWriter.getCounters();
+          const counters = writer.getCounters();
           productsCommitted = counters.productsCopied;
           variantsCommitted = counters.variantsCopied;
 
@@ -316,15 +393,26 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
             errorMessage: null,
           });
 
-          await runMergeFromStaging({
-            shopId: payload.shopId,
-            bulkRunId: payload.bulkRunId,
-            logger,
-            analyze: cfg.mergeAnalyze,
-            allowDeletes: cfg.mergeAllowDeletes,
-            isFullSnapshot,
-            reindexStaging: cfg.stagingReindex,
-          });
+          await withBulkSpan(
+            'bulk.merge',
+            {
+              shopId: payload.shopId,
+              bulkRunId: payload.bulkRunId,
+              operationType: op,
+              queryType: run.query_type ?? null,
+              step: 'merge',
+            },
+            async () =>
+              await runMergeFromStaging({
+                shopId: payload.shopId,
+                bulkRunId: payload.bulkRunId,
+                logger,
+                analyze: cfg.mergeAnalyze,
+                allowDeletes: cfg.mergeAllowDeletes,
+                isFullSnapshot,
+                reindexStaging: cfg.stagingReindex,
+              })
+          );
 
           await insertBulkStep({
             shopId: payload.shopId,
@@ -371,6 +459,19 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
             'Bulk ingest completed'
           );
 
+          const quarantinedCount =
+            pipelineResult.stitching.variantsQuarantined +
+            pipelineResult.stitching.metafieldsQuarantined +
+            pipelineResult.stitching.inventoryLevelsQuarantined;
+          if (quarantinedCount > 0) {
+            recordBulkRowsQuarantinedEvent({
+              shopId: payload.shopId,
+              bulkRunId: payload.bulkRunId,
+              count: quarantinedCount,
+              sampleIds: quarantineSampleIds.size > 0 ? Array.from(quarantineSampleIds) : null,
+            });
+          }
+
           return {
             outcome: 'completed' as const,
             counters: pipelineResult.counters,
@@ -379,6 +480,22 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
           };
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
+
+          const counters = copyWriter?.getCounters() ?? {
+            recordsSeen: 0,
+            recordsSkipped: 0,
+            productsBuffered: 0,
+            variantsBuffered: 0,
+            productsCopied: 0,
+            variantsCopied: 0,
+          };
+          const rowsCommitted = counters.productsCopied + counters.variantsCopied;
+          recordBulkCopyAbortedEvent({
+            shopId: payload.shopId,
+            bulkRunId: payload.bulkRunId,
+            reason: message,
+            rowsCommitted,
+          });
 
           await insertBulkError({
             shopId:
@@ -411,6 +528,13 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
               },
               occurredAt: new Date().toISOString(),
             };
+            recordBulkDlqEvent({
+              shopId: payload.shopId,
+              bulkRunId: payload.bulkRunId,
+              queueName: entry.originalQueue,
+              jobName: entry.originalJobName,
+              jobId: entry.originalJobId,
+            });
             await enqueueDlqDirect({ dlqQueue: dlqQueueRef, entry });
           } catch {
             // best-effort

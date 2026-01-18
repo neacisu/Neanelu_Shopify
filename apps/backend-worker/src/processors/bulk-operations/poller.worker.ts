@@ -28,13 +28,48 @@ import {
   markBulkRunFailed,
   patchBulkRunCursorState,
 } from './state-machine.js';
-import { enqueueDlqDirect, enqueueRetryOrDlq } from './failure-handler.js';
+import {
+  classifyBulkTerminalFailure,
+  enqueueDlqDirect,
+  enqueueRetryOrDlq,
+} from './failure-handler.js';
+import {
+  decrementBulkActiveOperations,
+  recordBulkOperationDuration,
+  recordBulkOperationFailure,
+  setBulkOperationRunningAgeSeconds,
+} from '../../otel/metrics.js';
+import {
+  recordBulkCompletedEvent,
+  recordBulkDlqEvent,
+  recordBulkFailedEvent,
+} from './otel/events.js';
+import { withBulkSpan } from './otel/spans.js';
 
 const env = loadEnv();
 
 const POLL_BACKOFF_MS = [5_000, 10_000, 20_000, 30_000] as const;
 const TIMEOUT_MS = 4 * 60 * 60 * 1000;
 const SHOPIFY_BULK_URL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function computeDurationSeconds(
+  createdAt?: string | null,
+  completedAt?: string | null,
+  fallbackStartMs?: number | null
+): number | null {
+  const createdMs = createdAt ? Date.parse(createdAt) : NaN;
+  const completedMs = completedAt ? Date.parse(completedAt) : NaN;
+  if (Number.isFinite(createdMs) && Number.isFinite(completedMs)) {
+    return Math.max(0, (completedMs - createdMs) / 1000);
+  }
+  if (Number.isFinite(createdMs)) {
+    return Math.max(0, (Date.now() - createdMs) / 1000);
+  }
+  if (typeof fallbackStartMs === 'number' && Number.isFinite(fallbackStartMs)) {
+    return Math.max(0, (Date.now() - fallbackStartMs) / 1000);
+  }
+  return null;
+}
 
 interface JobWithUpdateData<T> {
   id?: string | number | null;
@@ -111,6 +146,17 @@ function safeIntFromString(value: string | null | undefined): number | null {
   const n = Number(value);
   if (!Number.isFinite(n)) return null;
   return Math.trunc(n);
+}
+
+function extractBulkIdentifiers(data: unknown): { shopId?: string; bulkRunId?: string } {
+  if (!data || typeof data !== 'object') return {};
+  const obj = data as Record<string, unknown>;
+  const shopId = typeof obj['shopId'] === 'string' ? obj['shopId'] : undefined;
+  const bulkRunId = typeof obj['bulkRunId'] === 'string' ? obj['bulkRunId'] : undefined;
+  const out: { shopId?: string; bulkRunId?: string } = {};
+  if (shopId) out.shopId = shopId;
+  if (bulkRunId) out.bulkRunId = bulkRunId;
+  return out;
 }
 
 async function insertStep(params: {
@@ -323,6 +369,16 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
     name: BULK_POLLER_QUEUE_NAME,
     enableDelayHandling: true,
     enableDlq: true,
+    onDlqEntry: (entry) => {
+      const { shopId, bulkRunId } = extractBulkIdentifiers(entry.data);
+      recordBulkDlqEvent({
+        shopId: shopId ?? null,
+        bulkRunId: bulkRunId ?? null,
+        queueName: entry.originalQueue,
+        jobName: entry.originalJobName,
+        jobId: entry.originalJobId,
+      });
+    },
     processor: async (job) => {
       return await withJobTelemetryContext(job, async () => {
         const jobId = String(job.id ?? job.name);
@@ -336,6 +392,12 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
         }
 
         const payload = payloadUnknown;
+        const ctx = await loadBulkRunContext({
+          shopId: payload.shopId,
+          bulkRunId: payload.bulkRunId,
+        });
+        const operationType = ctx?.operation_type ?? 'unknown';
+        const queryType = ctx?.query_type ?? null;
 
         setWorkerCurrentJob('bulk-poller-worker', {
           jobId,
@@ -345,342 +407,433 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
         });
 
         try {
-          const pollAttempt =
-            typeof payload.pollAttempt === 'number' && Number.isFinite(payload.pollAttempt)
-              ? Math.max(0, Math.trunc(payload.pollAttempt))
-              : 0;
-
-          const ageMs = Date.now() - new Date(payload.requestedAt).getTime();
-          if (ageMs > TIMEOUT_MS) {
-            await insertStep({
-              shopId: payload.shopId,
-              bulkRunId: payload.bulkRunId,
-              step: 'poller.timeout',
-              status: 'failed',
-              details: { ageMs },
-            });
-            await markBulkRunFailed({
-              shopId: payload.shopId,
-              bulkRunId: payload.bulkRunId,
-              errorType: 'poller_timeout',
-              errorCode: 'timeout',
-              errorMessage: `Poll timeout after ${Math.round(ageMs / 1000)}s`,
-            });
-            return { outcome: 'timeout' as const };
-          }
-
-          await insertStep({
-            shopId: payload.shopId,
-            bulkRunId: payload.bulkRunId,
-            step: 'poller.tick',
-            details: { pollAttempt },
-          });
-
-          await gateShopifyGraphqlRequest({
-            redis,
-            shopId: payload.shopId,
-            costToConsume: cfg.defaultPollCost,
-            config: cfg,
-          });
-
-          const encryptionKey = Buffer.from(env.encryptionKeyHex, 'hex');
-
-          const res = await withTokenRetry(
-            payload.shopId,
-            encryptionKey,
-            logger,
-            async (accessToken, shopDomain) => {
-              const client = shopifyApi.createClient({
-                shopDomain,
-                accessToken,
-                apiVersion: SHOPIFY_API_VERSION,
-              });
-
-              return await client.request<{
-                node: ShopifyBulkOperationNode | { __typename: string } | null;
-              }>(BULK_OPERATION_NODE_QUERY, { id: payload.shopifyOperationId });
-            }
-          );
-
-          let throttleDelayMs = 0;
-          const throttleStatus = res?.extensions?.cost?.throttleStatus;
-          if (
-            throttleStatus &&
-            typeof throttleStatus.currentlyAvailable === 'number' &&
-            typeof throttleStatus.restoreRate === 'number'
-          ) {
-            throttleDelayMs = computeGraphqlDelayMs({
-              costNeeded: cfg.defaultPollCost,
-              currentlyAvailable: throttleStatus.currentlyAvailable,
-              restoreRate: throttleStatus.restoreRate,
-            });
-
-            await syncShopifyGraphqlThrottleStatus({
-              redis,
-              shopId: payload.shopId,
-              throttleStatus,
-              config: cfg,
-            }).catch(() => undefined);
-          }
-
-          const node = res?.data?.node;
-          if (!isBulkOperationNode(node)) {
-            const delayMs = Math.max(nextBackoffMs(pollAttempt), throttleDelayMs);
-            await updateJobDataSafe(job as JobWithUpdateData<BulkPollerJobPayload>, {
-              ...payload,
-              pollAttempt: pollAttempt + 1,
-            });
-            throw new PollerDelayError('bulk_operation_not_found_yet', delayMs);
-          }
-
-          const bulk = node;
-          logger.info(
+          return await withBulkSpan(
+            'bulk.poll',
             {
-              [OTEL_ATTR.SHOP_ID]: payload.shopId,
-              jobId,
+              shopId: payload.shopId,
               bulkRunId: payload.bulkRunId,
-              status: bulk.status,
+              operationType,
+              queryType,
+              step: 'poll',
             },
-            'Polled bulk operation status'
-          );
+            async () => {
+              const pollAttempt =
+                typeof payload.pollAttempt === 'number' && Number.isFinite(payload.pollAttempt)
+                  ? Math.max(0, Math.trunc(payload.pollAttempt))
+                  : 0;
 
-          if (bulk.partialDataUrl) {
-            await recordPartialDataUrlForResume({
-              shopId: payload.shopId,
-              bulkRunId: payload.bulkRunId,
-              partialDataUrl: bulk.partialDataUrl,
-            });
-            const expiresAt = new Date(Date.now() + SHOPIFY_BULK_URL_TTL_MS);
-            await ensureUrlArtifact({
-              shopId: payload.shopId,
-              bulkRunId: payload.bulkRunId,
-              artifactType: 'shopify_bulk_partial_url',
-              filePath: `shopify://bulk/${payload.bulkRunId}/partial`,
-              url: bulk.partialDataUrl,
-              bytesSize: safeIntFromString(bulk.fileSize),
-              expiresAt,
-            });
-          }
+              const ageMs = Date.now() - new Date(payload.requestedAt).getTime();
+              if (ageMs > TIMEOUT_MS) {
+                await insertStep({
+                  shopId: payload.shopId,
+                  bulkRunId: payload.bulkRunId,
+                  step: 'poller.timeout',
+                  status: 'failed',
+                  details: { ageMs },
+                });
+                await markBulkRunFailed({
+                  shopId: payload.shopId,
+                  bulkRunId: payload.bulkRunId,
+                  errorType: 'poller_timeout',
+                  errorCode: 'timeout',
+                  errorMessage: `Poll timeout after ${Math.round(ageMs / 1000)}s`,
+                });
+                recordBulkFailedEvent({
+                  shopId: payload.shopId,
+                  bulkRunId: payload.bulkRunId,
+                  operationType,
+                  errorType: 'poller_timeout',
+                  retryable: false,
+                });
+                return { outcome: 'timeout' as const };
+              }
 
-          if (bulk.status === 'COMPLETED') {
-            const resultUrl = bulk.url ?? null;
-            const fallbackUrl = bulk.partialDataUrl ?? null;
-            const chosenUrl = resultUrl ?? fallbackUrl;
-            if (!chosenUrl) {
               await insertStep({
                 shopId: payload.shopId,
                 bulkRunId: payload.bulkRunId,
-                step: 'poller.completed_missing_url',
-                status: 'failed',
-                details: { status: bulk.status, errorCode: bulk.errorCode },
+                step: 'poller.tick',
+                details: { pollAttempt },
               });
-              await markBulkRunFailed({
+
+              await gateShopifyGraphqlRequest({
+                redis,
                 shopId: payload.shopId,
-                bulkRunId: payload.bulkRunId,
-                errorType: 'poller_completed_missing_url',
-                errorCode: 'completed_missing_url',
-                errorMessage: 'Bulk operation completed but no URL was provided by Shopify',
+                costToConsume: cfg.defaultPollCost,
+                config: cfg,
               });
-              return { outcome: 'failed' as const };
-            }
 
-            await insertStep({
-              shopId: payload.shopId,
-              bulkRunId: payload.bulkRunId,
-              step: 'poller.completed',
-              details: {
-                objectCount: safeIntFromString(bulk.objectCount),
-                fileSize: safeIntFromString(bulk.fileSize),
-              },
-            });
+              const encryptionKey = Buffer.from(env.encryptionKeyHex, 'hex');
 
-            const completedAt = bulk.completedAt ? new Date(bulk.completedAt) : null;
-            await markRunCompleted({
-              shopId: payload.shopId,
-              bulkRunId: payload.bulkRunId,
-              resultUrl: chosenUrl,
-              partialDataUrl: bulk.partialDataUrl ?? null,
-              objectCount: safeIntFromString(bulk.objectCount),
-              resultSizeBytes: safeIntFromString(bulk.fileSize),
-              shopifyCompletedAt: completedAt,
-            });
+              const res = await withTokenRetry(
+                payload.shopId,
+                encryptionKey,
+                logger,
+                async (accessToken, shopDomain) => {
+                  const client = shopifyApi.createClient({
+                    shopDomain,
+                    accessToken,
+                    apiVersion: SHOPIFY_API_VERSION,
+                  });
 
-            // PR-039: if this run is a bulk mutation, enqueue reconcile.
-            try {
-              const ctx = await loadBulkRunContext({
-                shopId: payload.shopId,
-                bulkRunId: payload.bulkRunId,
-              });
-              const cursor = ctx?.cursor_state;
-              const isMutationRun =
-                !!cursor &&
-                typeof cursor === 'object' &&
-                cursor !== null &&
-                'bulkMutationContract' in (cursor as Record<string, unknown>);
+                  return await client.request<{
+                    node: ShopifyBulkOperationNode | { __typename: string } | null;
+                  }>(BULK_OPERATION_NODE_QUERY, { id: payload.shopifyOperationId });
+                }
+              );
 
-              if (isMutationRun) {
-                await enqueueBulkMutationReconcileJob({
-                  shopId: payload.shopId,
-                  bulkRunId: payload.bulkRunId,
-                  resultUrl: chosenUrl,
-                  triggeredBy: payload.triggeredBy,
-                  requestedAt: Date.now(),
+              let throttleDelayMs = 0;
+              const throttleStatus = res?.extensions?.cost?.throttleStatus;
+              if (
+                throttleStatus &&
+                typeof throttleStatus.currentlyAvailable === 'number' &&
+                typeof throttleStatus.restoreRate === 'number'
+              ) {
+                throttleDelayMs = computeGraphqlDelayMs({
+                  costNeeded: cfg.defaultPollCost,
+                  currentlyAvailable: throttleStatus.currentlyAvailable,
+                  restoreRate: throttleStatus.restoreRate,
                 });
 
-                await insertStep({
+                await syncShopifyGraphqlThrottleStatus({
+                  redis,
                   shopId: payload.shopId,
-                  bulkRunId: payload.bulkRunId,
-                  step: 'poller.reconcile_enqueued',
-                  details: { resultUrl: chosenUrl },
-                });
-              } else {
-                // PR-042: for query runs, enqueue the ingestion boundary (COPY+merge).
-                await enqueueBulkIngestJob({
-                  shopId: payload.shopId,
-                  bulkRunId: payload.bulkRunId,
-                  resultUrl: chosenUrl,
-                  triggeredBy: payload.triggeredBy,
-                  requestedAt: Date.now(),
-                });
+                  throttleStatus,
+                  config: cfg,
+                }).catch(() => undefined);
+              }
 
-                await insertStep({
+              const node = res?.data?.node;
+              if (!isBulkOperationNode(node)) {
+                const delayMs = Math.max(nextBackoffMs(pollAttempt), throttleDelayMs);
+                await updateJobDataSafe(job as JobWithUpdateData<BulkPollerJobPayload>, {
+                  ...payload,
+                  pollAttempt: pollAttempt + 1,
+                });
+                throw new PollerDelayError('bulk_operation_not_found_yet', delayMs);
+              }
+
+              const bulk = node;
+              logger.info(
+                {
+                  [OTEL_ATTR.SHOP_ID]: payload.shopId,
+                  jobId,
+                  bulkRunId: payload.bulkRunId,
+                  status: bulk.status,
+                },
+                'Polled bulk operation status'
+              );
+
+              if (bulk.partialDataUrl) {
+                await recordPartialDataUrlForResume({
                   shopId: payload.shopId,
                   bulkRunId: payload.bulkRunId,
-                  step: 'poller.ingest_enqueued',
-                  details: { resultUrl: chosenUrl },
+                  partialDataUrl: bulk.partialDataUrl,
+                });
+                const expiresAt = new Date(Date.now() + SHOPIFY_BULK_URL_TTL_MS);
+                await ensureUrlArtifact({
+                  shopId: payload.shopId,
+                  bulkRunId: payload.bulkRunId,
+                  artifactType: 'shopify_bulk_partial_url',
+                  filePath: `shopify://bulk/${payload.bulkRunId}/partial`,
+                  url: bulk.partialDataUrl,
+                  bytesSize: safeIntFromString(bulk.fileSize),
+                  expiresAt,
                 });
               }
-            } catch {
-              // Best-effort: poller should not fail due to reconcile enqueue.
-            }
 
-            return { outcome: 'completed' as const, resultUrl: chosenUrl };
-          }
-
-          if (bulk.status === 'FAILED' || bulk.status === 'CANCELED' || bulk.status === 'EXPIRED') {
-            if (bulk.partialDataUrl) {
-              await recordPartialDataUrlForResume({
-                shopId: payload.shopId,
-                bulkRunId: payload.bulkRunId,
-                partialDataUrl: bulk.partialDataUrl,
-              });
-            }
-
-            // Always record the terminal failure for audit/debugging.
-            await insertBulkError({
-              shopId: payload.shopId,
-              bulkRunId: payload.bulkRunId,
-              errorType: 'poller_terminal',
-              errorCode: bulk.errorCode ?? bulk.status,
-              errorMessage: `Bulk operation terminal status: ${bulk.status}`,
-              payload: { status: bulk.status, errorCode: bulk.errorCode ?? null },
-            });
-
-            const dlqContext = {
-              originalQueue: BULK_POLLER_QUEUE_NAME,
-              originalJobId: job?.id != null ? String(job.id) : null,
-              originalJobName: String(job?.name ?? 'bulk.poller'),
-            };
-
-            const dlqEnqueue = async (entry: DlqEntry): Promise<void> => {
-              await enqueueDlqDirect({
-                dlqQueue: dlqQueueRef,
-                entry,
-              });
-            };
-
-            const retryOutcome = await enqueueRetryOrDlq({
-              logger,
-              shopId: payload.shopId,
-              bulkRunId: payload.bulkRunId,
-              triggeredBy: payload.triggeredBy,
-              originalJob: {
-                queue: BULK_POLLER_QUEUE_NAME,
-                id: job?.id != null ? String(job.id) : null,
-                name: String(job?.name ?? 'bulk.poller'),
-                data: job?.data,
-              },
-              dlqEnqueue,
-              dlqContext,
-              terminalStatus: bulk.status,
-              shopifyErrorCode: bulk.errorCode ?? null,
-            });
-
-            if (retryOutcome === 'retry_enqueued') {
-              await insertStep({
-                shopId: payload.shopId,
-                bulkRunId: payload.bulkRunId,
-                step: 'poller.retry_enqueued',
-                details: { status: bulk.status, errorCode: bulk.errorCode },
-              });
-              return { outcome: 'retry_enqueued' as const };
-            }
-
-            if (retryOutcome === 'salvaged_partial') {
-              // PR-039: if this run is a bulk mutation, enqueue reconcile against partialDataUrl.
-              try {
-                const ctx = await loadBulkRunContext({
-                  shopId: payload.shopId,
-                  bulkRunId: payload.bulkRunId,
-                });
-                const cursor = ctx?.cursor_state;
-                const isMutationRun =
-                  !!cursor &&
-                  typeof cursor === 'object' &&
-                  cursor !== null &&
-                  'bulkMutationContract' in (cursor as Record<string, unknown>);
-
-                if (isMutationRun && bulk.partialDataUrl) {
-                  await enqueueBulkMutationReconcileJob({
-                    shopId: payload.shopId,
-                    bulkRunId: payload.bulkRunId,
-                    resultUrl: bulk.partialDataUrl,
-                    triggeredBy: payload.triggeredBy,
-                    requestedAt: Date.now(),
-                  });
+              if (bulk.status === 'COMPLETED') {
+                const resultUrl = bulk.url ?? null;
+                const fallbackUrl = bulk.partialDataUrl ?? null;
+                const chosenUrl = resultUrl ?? fallbackUrl;
+                if (!chosenUrl) {
                   await insertStep({
                     shopId: payload.shopId,
                     bulkRunId: payload.bulkRunId,
-                    step: 'poller.reconcile_enqueued',
-                    details: { resultUrl: bulk.partialDataUrl, salvaged: true },
+                    step: 'poller.completed_missing_url',
+                    status: 'failed',
+                    details: { status: bulk.status, errorCode: bulk.errorCode },
+                  });
+                  await markBulkRunFailed({
+                    shopId: payload.shopId,
+                    bulkRunId: payload.bulkRunId,
+                    errorType: 'poller_completed_missing_url',
+                    errorCode: 'completed_missing_url',
+                    errorMessage: 'Bulk operation completed but no URL was provided by Shopify',
+                  });
+                  return { outcome: 'failed' as const };
+                }
+
+                await insertStep({
+                  shopId: payload.shopId,
+                  bulkRunId: payload.bulkRunId,
+                  step: 'poller.completed',
+                  details: {
+                    objectCount: safeIntFromString(bulk.objectCount),
+                    fileSize: safeIntFromString(bulk.fileSize),
+                  },
+                });
+
+                const completedAt = bulk.completedAt ? new Date(bulk.completedAt) : null;
+                await markRunCompleted({
+                  shopId: payload.shopId,
+                  bulkRunId: payload.bulkRunId,
+                  resultUrl: chosenUrl,
+                  partialDataUrl: bulk.partialDataUrl ?? null,
+                  objectCount: safeIntFromString(bulk.objectCount),
+                  resultSizeBytes: safeIntFromString(bulk.fileSize),
+                  shopifyCompletedAt: completedAt,
+                });
+
+                const durationSeconds = computeDurationSeconds(
+                  bulk.createdAt ?? null,
+                  bulk.completedAt ?? null,
+                  payload.requestedAt ?? null
+                );
+                if (durationSeconds != null) {
+                  recordBulkOperationDuration({
+                    operationType,
+                    status: 'completed',
+                    durationSeconds,
                   });
                 }
-              } catch {
-                // ignore
+                decrementBulkActiveOperations(operationType);
+                recordBulkCompletedEvent({
+                  shopId: payload.shopId,
+                  bulkRunId: payload.bulkRunId,
+                  operationType,
+                  rowsProcessed: safeIntFromString(bulk.objectCount),
+                  durationSeconds: durationSeconds ?? null,
+                });
+
+                // PR-039: if this run is a bulk mutation, enqueue reconcile.
+                try {
+                  const cursor = ctx?.cursor_state;
+                  const isMutationRun =
+                    !!cursor &&
+                    typeof cursor === 'object' &&
+                    cursor !== null &&
+                    'bulkMutationContract' in (cursor as Record<string, unknown>);
+
+                  if (isMutationRun) {
+                    await enqueueBulkMutationReconcileJob({
+                      shopId: payload.shopId,
+                      bulkRunId: payload.bulkRunId,
+                      resultUrl: chosenUrl,
+                      triggeredBy: payload.triggeredBy,
+                      requestedAt: Date.now(),
+                    });
+
+                    await insertStep({
+                      shopId: payload.shopId,
+                      bulkRunId: payload.bulkRunId,
+                      step: 'poller.reconcile_enqueued',
+                      details: { resultUrl: chosenUrl },
+                    });
+                  } else {
+                    // PR-042: for query runs, enqueue the ingestion boundary (COPY+merge).
+                    await enqueueBulkIngestJob({
+                      shopId: payload.shopId,
+                      bulkRunId: payload.bulkRunId,
+                      resultUrl: chosenUrl,
+                      triggeredBy: payload.triggeredBy,
+                      requestedAt: Date.now(),
+                    });
+
+                    await insertStep({
+                      shopId: payload.shopId,
+                      bulkRunId: payload.bulkRunId,
+                      step: 'poller.ingest_enqueued',
+                      details: { resultUrl: chosenUrl },
+                    });
+                  }
+                } catch {
+                  // Best-effort: poller should not fail due to reconcile enqueue.
+                }
+
+                return { outcome: 'completed' as const, resultUrl: chosenUrl };
               }
 
-              await insertStep({
-                shopId: payload.shopId,
-                bulkRunId: payload.bulkRunId,
-                step: 'poller.salvaged_partial',
-                details: { status: bulk.status, errorCode: bulk.errorCode },
+              if (
+                bulk.status === 'FAILED' ||
+                bulk.status === 'CANCELED' ||
+                bulk.status === 'EXPIRED'
+              ) {
+                const decision = classifyBulkTerminalFailure({
+                  status: bulk.status,
+                  shopifyErrorCode: bulk.errorCode ?? null,
+                });
+                recordBulkFailedEvent({
+                  shopId: payload.shopId,
+                  bulkRunId: payload.bulkRunId,
+                  operationType,
+                  errorType: decision.errorType,
+                  retryable: decision.shouldRetry,
+                });
+                if (bulk.partialDataUrl) {
+                  await recordPartialDataUrlForResume({
+                    shopId: payload.shopId,
+                    bulkRunId: payload.bulkRunId,
+                    partialDataUrl: bulk.partialDataUrl,
+                  });
+                }
+
+                // Always record the terminal failure for audit/debugging.
+                await insertBulkError({
+                  shopId: payload.shopId,
+                  bulkRunId: payload.bulkRunId,
+                  errorType: 'poller_terminal',
+                  errorCode: bulk.errorCode ?? bulk.status,
+                  errorMessage: `Bulk operation terminal status: ${bulk.status}`,
+                  payload: { status: bulk.status, errorCode: bulk.errorCode ?? null },
+                });
+
+                const dlqContext = {
+                  originalQueue: BULK_POLLER_QUEUE_NAME,
+                  originalJobId: job?.id != null ? String(job.id) : null,
+                  originalJobName: String(job?.name ?? 'bulk.poller'),
+                };
+
+                const dlqEnqueue = async (entry: DlqEntry): Promise<void> => {
+                  recordBulkDlqEvent({
+                    shopId: payload.shopId,
+                    bulkRunId: payload.bulkRunId,
+                    queueName: entry.originalQueue,
+                    jobName: entry.originalJobName,
+                    jobId: entry.originalJobId,
+                  });
+                  await enqueueDlqDirect({
+                    dlqQueue: dlqQueueRef,
+                    entry,
+                  });
+                };
+
+                const retryOutcome = await enqueueRetryOrDlq({
+                  logger,
+                  shopId: payload.shopId,
+                  bulkRunId: payload.bulkRunId,
+                  triggeredBy: payload.triggeredBy,
+                  originalJob: {
+                    queue: BULK_POLLER_QUEUE_NAME,
+                    id: job?.id != null ? String(job.id) : null,
+                    name: String(job?.name ?? 'bulk.poller'),
+                    data: job?.data,
+                  },
+                  dlqEnqueue,
+                  dlqContext,
+                  terminalStatus: bulk.status,
+                  shopifyErrorCode: bulk.errorCode ?? null,
+                });
+
+                if (retryOutcome === 'retry_enqueued') {
+                  await insertStep({
+                    shopId: payload.shopId,
+                    bulkRunId: payload.bulkRunId,
+                    step: 'poller.retry_enqueued',
+                    details: { status: bulk.status, errorCode: bulk.errorCode },
+                  });
+                  return { outcome: 'retry_enqueued' as const };
+                }
+
+                if (retryOutcome === 'salvaged_partial') {
+                  // PR-039: if this run is a bulk mutation, enqueue reconcile against partialDataUrl.
+                  try {
+                    const ctx = await loadBulkRunContext({
+                      shopId: payload.shopId,
+                      bulkRunId: payload.bulkRunId,
+                    });
+                    const cursor = ctx?.cursor_state;
+                    const isMutationRun =
+                      !!cursor &&
+                      typeof cursor === 'object' &&
+                      cursor !== null &&
+                      'bulkMutationContract' in (cursor as Record<string, unknown>);
+
+                    if (isMutationRun && bulk.partialDataUrl) {
+                      await enqueueBulkMutationReconcileJob({
+                        shopId: payload.shopId,
+                        bulkRunId: payload.bulkRunId,
+                        resultUrl: bulk.partialDataUrl,
+                        triggeredBy: payload.triggeredBy,
+                        requestedAt: Date.now(),
+                      });
+                      await insertStep({
+                        shopId: payload.shopId,
+                        bulkRunId: payload.bulkRunId,
+                        step: 'poller.reconcile_enqueued',
+                        details: { resultUrl: bulk.partialDataUrl, salvaged: true },
+                      });
+                    }
+                  } catch {
+                    // ignore
+                  }
+
+                  await insertStep({
+                    shopId: payload.shopId,
+                    bulkRunId: payload.bulkRunId,
+                    step: 'poller.salvaged_partial',
+                    details: { status: bulk.status, errorCode: bulk.errorCode },
+                  });
+                  return { outcome: 'completed_partial' as const, resultUrl: bulk.partialDataUrl };
+                }
+
+                await insertStep({
+                  shopId: payload.shopId,
+                  bulkRunId: payload.bulkRunId,
+                  step: 'poller.failed',
+                  status: 'failed',
+                  details: { status: bulk.status, errorCode: bulk.errorCode },
+                });
+                await markBulkRunFailed({
+                  shopId: payload.shopId,
+                  bulkRunId: payload.bulkRunId,
+                  errorType: 'poller_failed',
+                  errorCode: bulk.errorCode ?? bulk.status,
+                  errorMessage: `Bulk operation terminal status: ${bulk.status}`,
+                });
+                const durationSeconds = computeDurationSeconds(
+                  bulk.createdAt ?? null,
+                  bulk.completedAt ?? null,
+                  payload.requestedAt ?? null
+                );
+                if (durationSeconds != null) {
+                  recordBulkOperationDuration({
+                    operationType,
+                    status:
+                      bulk.status === 'CANCELED'
+                        ? 'canceled'
+                        : bulk.status === 'EXPIRED'
+                          ? 'expired'
+                          : 'failed',
+                    durationSeconds,
+                  });
+                }
+                recordBulkOperationFailure({
+                  operationType,
+                  errorType: decision.errorType,
+                });
+                decrementBulkActiveOperations(operationType);
+                return { outcome: retryOutcome === 'dlq' ? ('dlq' as const) : ('failed' as const) };
+              }
+
+              if (bulk.status === 'RUNNING' || bulk.status === 'CREATED') {
+                const ageSeconds = computeDurationSeconds(
+                  bulk.createdAt ?? null,
+                  null,
+                  payload.requestedAt ?? null
+                );
+                if (ageSeconds != null) {
+                  setBulkOperationRunningAgeSeconds(operationType, ageSeconds);
+                }
+              }
+
+              const delayMs = Math.max(nextBackoffMs(pollAttempt), throttleDelayMs);
+              await updateJobDataSafe(job as JobWithUpdateData<BulkPollerJobPayload>, {
+                ...payload,
+                pollAttempt: pollAttempt + 1,
               });
-              return { outcome: 'completed_partial' as const, resultUrl: bulk.partialDataUrl };
+              throw new PollerDelayError('bulk_operation_not_ready', delayMs);
             }
-
-            await insertStep({
-              shopId: payload.shopId,
-              bulkRunId: payload.bulkRunId,
-              step: 'poller.failed',
-              status: 'failed',
-              details: { status: bulk.status, errorCode: bulk.errorCode },
-            });
-            await markBulkRunFailed({
-              shopId: payload.shopId,
-              bulkRunId: payload.bulkRunId,
-              errorType: 'poller_failed',
-              errorCode: bulk.errorCode ?? bulk.status,
-              errorMessage: `Bulk operation terminal status: ${bulk.status}`,
-            });
-            return { outcome: retryOutcome === 'dlq' ? ('dlq' as const) : ('failed' as const) };
-          }
-
-          const delayMs = Math.max(nextBackoffMs(pollAttempt), throttleDelayMs);
-          await updateJobDataSafe(job as JobWithUpdateData<BulkPollerJobPayload>, {
-            ...payload,
-            pollAttempt: pollAttempt + 1,
-          });
-          throw new PollerDelayError('bulk_operation_not_ready', delayMs);
+          );
         } finally {
           clearWorkerCurrentJob('bulk-poller-worker', jobId);
         }

@@ -20,6 +20,8 @@ import {
   type StitchedRecord,
 } from './stages/transformation/stitching/parent-child-remapper.js';
 import type { Logger } from '@app/logger';
+import { trace } from '@opentelemetry/api';
+import { buildBulkSpanAttributes } from '../otel/spans.js';
 
 export type RunBulkStreamingPipelineParams = Readonly<{
   url: string;
@@ -46,6 +48,8 @@ export type RunBulkStreamingPipelineResult = Readonly<{
 
 export type RunBulkStreamingPipelineWithStitchingParams = Readonly<{
   shopId: string;
+  bulkRunId?: string | null;
+  operationType?: string | null;
   artifactsDir: string;
   logger: Logger;
   url: string;
@@ -59,6 +63,8 @@ export type RunBulkStreamingPipelineWithStitchingParams = Readonly<{
   parseEngine?: 'stream-json' | 'json-parse';
   onRecord: (record: StitchedRecord) => Promise<void> | void;
   onParseIssue?: (issue: ParseIssue) => void;
+  onDownloadRetry?: (params: { attempt: number; reason: string; delayMs: number }) => void;
+  onDownloadChunk?: (params: { bytes: number; chunkIndex: number }) => void;
   bucketCount?: number;
   maxInMemoryParents?: number;
   maxInMemoryOrphans?: number;
@@ -145,17 +151,65 @@ export async function runBulkStreamingPipelineWithStitching(
   });
   await remapper.init();
 
+  const tracer = trace.getTracer('neanelu-shopify');
+  const baseAttrs = {
+    shopId: params.shopId,
+    bulkRunId: params.bulkRunId ?? null,
+    operationType: params.operationType ?? null,
+  } as const;
+  const downloadAttrs = buildBulkSpanAttributes({ ...baseAttrs, step: 'download' });
+  const parseAttrs = buildBulkSpanAttributes({ ...baseAttrs, step: 'parse' });
+  const transformAttrs = buildBulkSpanAttributes({ ...baseAttrs, step: 'transform' });
+
+  const transformSpan = tracer.startSpan('bulk.transform', { attributes: transformAttrs });
+
+  let chunkIndex = 0;
+  let chunkBytesSinceLastSpan = 0;
+  const DOWNLOAD_CHUNK_SPAN_BYTES = 25 * 1024 * 1024;
+
   const download = await createDownloadStream({
     url: params.url,
     ...(params.downloadHighWaterMarkBytes !== undefined
       ? { highWaterMarkBytes: params.downloadHighWaterMarkBytes }
       : {}),
+    ...(params.onDownloadRetry ? { onRetry: params.onDownloadRetry } : {}),
+    onChunk: ({ bytes }) => {
+      if (bytes <= 0) return;
+      const prev = chunkBytesSinceLastSpan;
+      const next = prev + bytes;
+      chunkBytesSinceLastSpan = next;
+      if (next < DOWNLOAD_CHUNK_SPAN_BYTES) return;
+      chunkBytesSinceLastSpan = 0;
+      chunkIndex += 1;
+      params.onDownloadChunk?.({ bytes: next, chunkIndex });
+      const span = tracer.startSpan('bulk.download.chunk', {
+        attributes: {
+          ...downloadAttrs,
+          'bulk.chunk_index': chunkIndex,
+          'bulk.chunk_bytes': next,
+        },
+      });
+      span.end();
+    },
   });
+  const downloadSpan = tracer.startSpan('bulk.download', { attributes: downloadAttrs });
+  download.stream.once('end', () => downloadSpan.end());
+  download.stream.once('error', (err) => {
+    if (err instanceof Error) downloadSpan.recordException(err);
+    downloadSpan.end();
+  });
+
   const parse = createJsonlParseStream({
     counters,
     tolerateInvalidLines: params.tolerateInvalidLines ?? true,
     engine: params.parseEngine ?? 'stream-json',
     ...(params.onParseIssue ? { onParseIssue: params.onParseIssue } : {}),
+  });
+  const parseSpan = tracer.startSpan('bulk.parse', { attributes: parseAttrs });
+  parse.once('end', () => parseSpan.end());
+  parse.once('error', (err) => {
+    if (err instanceof Error) parseSpan.recordException(err);
+    parseSpan.end();
   });
 
   const sink = new Writable({
@@ -167,8 +221,12 @@ export async function runBulkStreamingPipelineWithStitching(
     },
   });
 
-  await pipeline(download.stream, parse, sink);
-  await remapper.finalize();
+  try {
+    await pipeline(download.stream, parse, sink);
+    await remapper.finalize();
+  } finally {
+    transformSpan.end();
+  }
 
   return { counters, stitching: remapper.getCounters() };
 }

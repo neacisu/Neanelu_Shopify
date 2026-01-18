@@ -231,13 +231,61 @@ export const dbPoolConnectionsIdle: UpDownCounter = meter.createUpDownCounter(
 // BULK INGEST METRICS (F5.2.8)
 // ============================================
 
+/** Bulk operation duration in seconds (labels: operation_type, status) */
+export const bulkOperationDurationSeconds: Histogram = meter.createHistogram(
+  'bulk.duration_seconds',
+  {
+    description: 'Bulk operation duration in seconds (full lifecycle)',
+    unit: 's',
+    advice: {
+      explicitBucketBoundaries: [1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600, 7200],
+    },
+  }
+);
+
+/** Bulk operation failures (terminal) (labels: operation_type, error_type) */
+export const bulkOperationFailedTotal: Counter = meter.createCounter(
+  'bulk_operation_failed_total',
+  {
+    description: 'Total number of terminal bulk operation failures',
+  }
+);
+
+/** Bulk errors (row-level or stage errors) (labels: error_type) */
+export const bulkErrorsTotal: Counter = meter.createCounter('bulk.errors_total', {
+  description: 'Total number of bulk errors (row-level or stage errors)',
+});
+
+/** Bulk active operations (labels: operation_type) */
+export const bulkActiveOperations: UpDownCounter = meter.createUpDownCounter(
+  'bulk.active_operations',
+  {
+    description: 'Number of active bulk operations (best-effort)',
+  }
+);
+
+/** Bulk backlog bytes (labels: operation_type) */
+export const bulkBacklogBytes: ObservableGauge = meter.createObservableGauge('bulk.backlog_bytes', {
+  description: 'Estimated backlog bytes for bulk operations (best-effort)',
+  unit: 'By',
+});
+
+/** Oldest running bulk operation age (seconds) (labels: operation_type) */
+export const bulkOperationRunningAgeSeconds: ObservableGauge = meter.createObservableGauge(
+  'bulk_operation_running_age_seconds',
+  {
+    description: 'Age in seconds of the oldest running bulk operation (best-effort)',
+    unit: 's',
+  }
+);
+
 /** Total rows processed by bulk ingestion pipeline */
-export const bulkRowsProcessedTotal: Counter = meter.createCounter('bulk_rows_processed_total', {
+export const bulkRowsProcessedTotal: Counter = meter.createCounter('bulk.rows_processed_total', {
   description: 'Total number of rows processed by bulk ingestion pipeline',
 });
 
 /** Total bytes processed by bulk ingestion pipeline */
-export const bulkBytesProcessedTotal: Counter = meter.createCounter('bulk_bytes_processed_total', {
+export const bulkBytesProcessedTotal: Counter = meter.createCounter('bulk.bytes_processed_total', {
   description: 'Total bytes processed by bulk ingestion pipeline',
   unit: 'By',
 });
@@ -252,12 +300,38 @@ export const ingestionRowsPerSecond: ObservableGauge = meter.createObservableGau
 );
 
 const ingestionRowsPerSecondState = { value: 0 };
+const bulkBacklogBytesState = new Map<string, number>();
+const bulkRunningAgeState = new Map<string, number>();
 
 meter.addBatchObservableCallback(
   (observableResult) => {
     observableResult.observe(ingestionRowsPerSecond, ingestionRowsPerSecondState.value);
   },
   [ingestionRowsPerSecond]
+);
+
+meter.addBatchObservableCallback(
+  (observableResult) => {
+    if (bulkBacklogBytesState.size === 0) return;
+    for (const [operationType, value] of bulkBacklogBytesState.entries()) {
+      observableResult.observe(bulkBacklogBytes, Math.max(0, value), {
+        operation_type: operationType,
+      });
+    }
+  },
+  [bulkBacklogBytes]
+);
+
+meter.addBatchObservableCallback(
+  (observableResult) => {
+    if (bulkRunningAgeState.size === 0) return;
+    for (const [operationType, value] of bulkRunningAgeState.entries()) {
+      observableResult.observe(bulkOperationRunningAgeSeconds, Math.max(0, value), {
+        operation_type: operationType,
+      });
+    }
+  },
+  [bulkOperationRunningAgeSeconds]
 );
 
 // ============================================
@@ -427,6 +501,57 @@ export function recordBulkIngestProgress(params: {
   if (typeof params.rowsPerSecond === 'number' && Number.isFinite(params.rowsPerSecond)) {
     ingestionRowsPerSecondState.value = Math.max(0, params.rowsPerSecond);
   }
+}
+
+/** Record bulk operation duration (full lifecycle). */
+export function recordBulkOperationDuration(params: {
+  operationType: string;
+  status: 'completed' | 'failed' | 'canceled' | 'expired' | 'unknown';
+  durationSeconds: number;
+}): void {
+  const duration = Math.max(0, params.durationSeconds);
+  bulkOperationDurationSeconds.record(duration, {
+    operation_type: params.operationType,
+    status: params.status,
+  });
+}
+
+/** Record terminal bulk operation failure. */
+export function recordBulkOperationFailure(params: {
+  operationType: string;
+  errorType: string;
+}): void {
+  bulkOperationFailedTotal.add(1, {
+    operation_type: params.operationType,
+    error_type: params.errorType,
+  });
+}
+
+/** Record bulk error (row-level or stage). */
+export function recordBulkError(params: { errorType: string }): void {
+  bulkErrorsTotal.add(1, { error_type: params.errorType });
+}
+
+/** Increment bulk active operations (best-effort). */
+export function incrementBulkActiveOperations(operationType: string): void {
+  bulkActiveOperations.add(1, { operation_type: operationType });
+}
+
+/** Decrement bulk active operations (best-effort). */
+export function decrementBulkActiveOperations(operationType: string): void {
+  bulkActiveOperations.add(-1, { operation_type: operationType });
+}
+
+/** Update backlog bytes for a bulk operation type (best-effort). */
+export function setBulkBacklogBytes(operationType: string, backlogBytes: number): void {
+  if (!operationType) return;
+  bulkBacklogBytesState.set(operationType, Math.max(0, Math.floor(backlogBytes)));
+}
+
+/** Update oldest running age for a bulk operation type (best-effort). */
+export function setBulkOperationRunningAgeSeconds(operationType: string, ageSeconds: number): void {
+  if (!operationType) return;
+  bulkRunningAgeState.set(operationType, Math.max(0, ageSeconds));
 }
 
 /**

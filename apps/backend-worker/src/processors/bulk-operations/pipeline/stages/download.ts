@@ -28,6 +28,8 @@ export function createDownloadStream(params: {
   highWaterMarkBytes?: number;
   /** Best-effort Range resume offset (bytes). Only supported for identity encoding. */
   resumeFromBytes?: number;
+  onRetry?: (params: { attempt: number; reason: string; delayMs: number }) => void;
+  onChunk?: (params: { bytes: number }) => void;
 }): Promise<DownloadStreamResult> {
   const maxRetries = params.maxRetries ?? 3;
   const connectTimeoutMs = params.connectTimeoutMs ?? 30_000;
@@ -81,7 +83,13 @@ export function createDownloadStream(params: {
       } catch (err) {
         clearTimeout(connectTimer);
         if (stats.attempts <= maxRetries) {
-          await delay(withJitterMs(backoffMs(stats.attempts)));
+          const delayMs = withJitterMs(backoffMs(stats.attempts));
+          params.onRetry?.({
+            attempt: stats.attempts,
+            reason: err instanceof Error ? err.message : 'bulk_download_fetch_failed',
+            delayMs,
+          });
+          await delay(delayMs);
           continue;
         }
         throw err instanceof Error ? err : new Error('bulk_download_fetch_failed');
@@ -94,7 +102,13 @@ export function createDownloadStream(params: {
         res.status === 408 || res.status === 429 || (res.status >= 500 && res.status <= 599);
       if (!res.ok) {
         if (isRetryableStatus && stats.attempts <= maxRetries) {
-          await delay(withJitterMs(retryAfterMs ?? backoffMs(stats.attempts)));
+          const delayMs = withJitterMs(retryAfterMs ?? backoffMs(stats.attempts));
+          params.onRetry?.({
+            attempt: stats.attempts,
+            reason: `bulk_download_http_${res.status}`,
+            delayMs,
+          });
+          await delay(delayMs);
           continue;
         }
         throw new Error(`bulk_download_http_${res.status}`);
@@ -169,6 +183,10 @@ export function createDownloadStream(params: {
               offsetBytes += chunk.length;
             }
 
+            if (typeof chunk !== 'string') {
+              params.onChunk?.({ bytes: chunk.length });
+            }
+
             const ok = out.write(chunk);
             if (!ok) {
               decoded.pause();
@@ -230,7 +248,13 @@ export function createDownloadStream(params: {
           throw err instanceof Error ? err : new Error('bulk_download_stream_error');
         }
 
-        await delay(withJitterMs(backoffMs(stats.attempts)));
+        const delayMs = withJitterMs(backoffMs(stats.attempts));
+        params.onRetry?.({
+          attempt: stats.attempts,
+          reason: err instanceof Error ? err.message : 'bulk_download_stream_error',
+          delayMs,
+        });
+        await delay(delayMs);
         continue;
       }
     }

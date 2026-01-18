@@ -9,6 +9,7 @@ import {
   toStagingProductRowShape,
   toStagingVariantRowShape,
 } from './transformation/stitching/parent-child-remapper.js';
+import { withBulkSpan } from '../../otel/spans.js';
 
 function extractLegacyResourceId(gid: string): number | null {
   // Shopify GID format: gid://shopify/Product/123456
@@ -169,122 +170,150 @@ export class StagingCopyWriter {
   }
 
   private async copyProducts(rows: readonly StagingProductRowShape[]): Promise<void> {
-    const cmd = {
-      sql: `COPY staging_products (
-              bulk_run_id,
-              shop_id,
-              shopify_gid,
-              legacy_resource_id,
-              title,
-              handle,
-              vendor,
-              product_type,
-              status,
-              tags,
-              raw_data,
-              validation_status,
-              merge_status
-            ) FROM STDIN WITH (FORMAT text)`,
-    };
-
-    await this.copyManager.withCopyFrom({
-      shopId: this.shopId,
-      command: cmd,
-      write: async (stream) => {
-        for (const row of rows) {
-          const legacy = extractLegacyResourceId(row.shopify_gid);
-          const title = row.title;
-          const handle = row.handle;
-          const status = row.status;
-
-          // If required fields are missing, stage as invalid for later inspection.
-          const isValid = Boolean(legacy && title && handle && status);
-
-          const line = [
-            this.bulkRunId,
-            this.shopId,
-            row.shopify_gid,
-            legacy != null ? String(legacy) : '\\N',
-            encodeCopyNullable(title),
-            encodeCopyNullable(handle),
-            encodeCopyNullable(row.vendor),
-            encodeCopyNullable(row.product_type),
-            encodeCopyNullable(status),
-            row.tags.length > 0 ? encodeCopyText(encodeTextArray(row.tags)) : encodeCopyText('{}'),
-            encodeCopyNullableJson(row.raw_data),
-            isValid ? 'valid' : 'invalid',
-            'pending',
-          ].join('\t');
-
-          if (!stream.write(`${line}\n`)) {
-            await new Promise<void>((resolve) => stream.once('drain', () => resolve()));
-          }
-        }
-
-        stream.end();
+    await withBulkSpan(
+      'bulk.copy.batch',
+      {
+        shopId: this.shopId,
+        bulkRunId: this.bulkRunId,
+        step: 'copy',
       },
-    });
+      async (span) => {
+        span.setAttribute('bulk.copy_kind', 'products');
+        span.setAttribute('bulk.batch_rows', rows.length);
+
+        const cmd = {
+          sql: `COPY staging_products (
+                  bulk_run_id,
+                  shop_id,
+                  shopify_gid,
+                  legacy_resource_id,
+                  title,
+                  handle,
+                  vendor,
+                  product_type,
+                  status,
+                  tags,
+                  raw_data,
+                  validation_status,
+                  merge_status
+                ) FROM STDIN WITH (FORMAT text)`,
+        };
+
+        await this.copyManager.withCopyFrom({
+          shopId: this.shopId,
+          command: cmd,
+          write: async (stream) => {
+            for (const row of rows) {
+              const legacy = extractLegacyResourceId(row.shopify_gid);
+              const title = row.title;
+              const handle = row.handle;
+              const status = row.status;
+
+              // If required fields are missing, stage as invalid for later inspection.
+              const isValid = Boolean(legacy && title && handle && status);
+
+              const line = [
+                this.bulkRunId,
+                this.shopId,
+                row.shopify_gid,
+                legacy != null ? String(legacy) : '\\N',
+                encodeCopyNullable(title),
+                encodeCopyNullable(handle),
+                encodeCopyNullable(row.vendor),
+                encodeCopyNullable(row.product_type),
+                encodeCopyNullable(status),
+                row.tags.length > 0
+                  ? encodeCopyText(encodeTextArray(row.tags))
+                  : encodeCopyText('{}'),
+                encodeCopyNullableJson(row.raw_data),
+                isValid ? 'valid' : 'invalid',
+                'pending',
+              ].join('\t');
+
+              if (!stream.write(`${line}\n`)) {
+                await new Promise<void>((resolve) => stream.once('drain', () => resolve()));
+              }
+            }
+
+            stream.end();
+          },
+        });
+      }
+    );
   }
 
   private async copyVariants(rows: readonly StagingVariantRowShape[]): Promise<void> {
-    const cmd = {
-      sql: `COPY staging_variants (
-              bulk_run_id,
-              shop_id,
-              shopify_gid,
-              legacy_resource_id,
-              title,
-              sku,
-              barcode,
-              price,
-              compare_at_price,
-              inventory_quantity,
-              inventory_item_id,
-              selected_options,
-              raw_data,
-              validation_status,
-              merge_status
-            ) FROM STDIN WITH (FORMAT text)`,
-    };
-
-    await this.copyManager.withCopyFrom({
-      shopId: this.shopId,
-      command: cmd,
-      write: async (stream) => {
-        for (const row of rows) {
-          const legacy = extractLegacyResourceId(row.shopify_gid);
-          const title = row.title;
-          const price = row.price;
-
-          const compareAt = row.compare_at_price ?? row.price;
-          const isValid = Boolean(legacy && title && price);
-
-          const line = [
-            this.bulkRunId,
-            this.shopId,
-            row.shopify_gid,
-            legacy != null ? String(legacy) : '\\N',
-            encodeCopyNullable(title),
-            encodeCopyNullable(row.sku),
-            encodeCopyNullable(row.barcode),
-            encodeCopyNullable(price),
-            encodeCopyNullable(compareAt),
-            row.inventory_quantity != null ? String(row.inventory_quantity) : '\\N',
-            encodeCopyNullable(row.inventory_item_id),
-            encodeCopyNullableJson(row.selected_options),
-            encodeCopyNullableJson(row.raw_data),
-            isValid ? 'valid' : 'invalid',
-            'pending',
-          ].join('\t');
-
-          if (!stream.write(`${line}\n`)) {
-            await new Promise<void>((resolve) => stream.once('drain', () => resolve()));
-          }
-        }
-
-        stream.end();
+    await withBulkSpan(
+      'bulk.copy.batch',
+      {
+        shopId: this.shopId,
+        bulkRunId: this.bulkRunId,
+        step: 'copy',
       },
-    });
+      async (span) => {
+        span.setAttribute('bulk.copy_kind', 'variants');
+        span.setAttribute('bulk.batch_rows', rows.length);
+
+        const cmd = {
+          sql: `COPY staging_variants (
+                  bulk_run_id,
+                  shop_id,
+                  shopify_gid,
+                  legacy_resource_id,
+                  title,
+                  sku,
+                  barcode,
+                  price,
+                  compare_at_price,
+                  inventory_quantity,
+                  inventory_item_id,
+                  selected_options,
+                  raw_data,
+                  validation_status,
+                  merge_status
+                ) FROM STDIN WITH (FORMAT text)`,
+        };
+
+        await this.copyManager.withCopyFrom({
+          shopId: this.shopId,
+          command: cmd,
+          write: async (stream) => {
+            for (const row of rows) {
+              const legacy = extractLegacyResourceId(row.shopify_gid);
+              const title = row.title;
+              const price = row.price;
+
+              const compareAt = row.compare_at_price ?? row.price;
+              const isValid = Boolean(legacy && title && price);
+
+              const line = [
+                this.bulkRunId,
+                this.shopId,
+                row.shopify_gid,
+                legacy != null ? String(legacy) : '\\N',
+                encodeCopyNullable(title),
+                encodeCopyNullable(row.sku),
+                encodeCopyNullable(row.barcode),
+                encodeCopyNullable(price),
+                encodeCopyNullable(compareAt),
+                row.inventory_quantity != null ? String(row.inventory_quantity) : '\\N',
+                encodeCopyNullable(row.inventory_item_id),
+                encodeCopyNullableJson(row.selected_options),
+                encodeCopyNullableJson(row.raw_data),
+                isValid ? 'valid' : 'invalid',
+                'pending',
+              ].join('\t');
+
+              if (!stream.write(`${line}\n`)) {
+                await new Promise<void>((resolve) => stream.once('drain', () => resolve()));
+              }
+            }
+
+            stream.end();
+          },
+        });
+      }
+    );
   }
 }
 
