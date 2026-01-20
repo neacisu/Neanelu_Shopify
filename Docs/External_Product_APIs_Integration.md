@@ -484,7 +484,7 @@ GROUP BY DATE(created_at), api_provider;
 
 | Task ID | Descriere                                            | Sprint | PR     | Dependențe   |
 |---------|------------------------------------------------------|--------|--------|--------------|
-| F8.4.1  | Google Custom Search API integration                 | **S8** | PR-045 | F2.2.1, F6.1 |
+| F8.4.1  | Google Custom Search API integration                 | **S8** | PR-TBD | F2.2.1, F6.1 |
 | F8.4.2  | prod_similarity_matches CRUD & business logic.       | **S8** | PR-046 | F8.4.1       |
 | F8.4.3  | xAI Grok structured extraction service               | **S8** | PR-047 | F8.4.2       |
 | F8.4.4  | BullMQ enrichment queue with rate limiting           | **S8** | PR-048 | F8.4.3.      |

@@ -462,6 +462,12 @@ pnpm exec tsx fetch_shopify_products.ts \
 
 > **Note**: Jest is **NOT** used in this project.
 
+#### Performance Harness (F5.4.4)
+
+- Bulk ingest perf/soak (JSONL): run with `node --expose-gc` for stable heap measurements.
+- Example (1M rows + 10 soak): use the root scripts `test:perf:bulk:1m` or `test:perf:bulk:baseline`.
+- Optional profiling: `clinic flame -- node --expose-gc ...` or `0x -- node --expose-gc ...` to capture CPU traces.
+
 ### Docker Services
 
 | Service        | Port  | Purpose                      |
