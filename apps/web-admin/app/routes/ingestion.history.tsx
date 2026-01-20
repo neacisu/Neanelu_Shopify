@@ -27,6 +27,27 @@ function parseIntParam(value: string | null, fallback: number, min: number, max:
   return Math.max(min, Math.min(max, Math.floor(n)));
 }
 
+function formatCheckpointLabel(checkpoint: IngestionRunRow['checkpoint']): string | null {
+  if (!checkpoint) return null;
+  const parts: string[] = [];
+  if (typeof checkpoint.committedRecords === 'number') {
+    parts.push(`Committed ${checkpoint.committedRecords} records`);
+  } else if (typeof checkpoint.committedLines === 'number') {
+    parts.push(`Committed ${checkpoint.committedLines} lines`);
+  }
+
+  if (checkpoint.lastCommitAt) {
+    const date = new Date(checkpoint.lastCommitAt);
+    parts.push(
+      Number.isNaN(date.getTime())
+        ? `Last commit ${checkpoint.lastCommitAt}`
+        : `Last commit ${date.toLocaleString('en-GB')}`
+    );
+  }
+
+  return parts.length ? parts.join(' · ') : null;
+}
+
 type HistoryLoaderData = Readonly<{
   runs: IngestionRunRow[];
   total: number;
@@ -133,6 +154,14 @@ export default function IngestionHistoryPage() {
   const actionFetcher = useFetcher<RouteActionData>();
   const [retryRunId, setRetryRunId] = useState<string | null>(null);
   const [expandedErrors, setExpandedErrors] = useState<Record<string, boolean>>({});
+  const retryRun = useMemo(
+    () => (retryRunId ? (runs.find((run) => run.id === retryRunId) ?? null) : null),
+    [retryRunId, runs]
+  );
+  const retryCheckpointLabel = useMemo(
+    () => formatCheckpointLabel(retryRun?.checkpoint ?? null),
+    [retryRun]
+  );
 
   useEffect(() => {
     const result = actionFetcher.data;
@@ -257,6 +286,8 @@ export default function IngestionHistoryPage() {
       <RetryDialog
         open={Boolean(retryRunId)}
         runId={retryRunId}
+        checkpointLabel={retryCheckpointLabel}
+        recordsProcessed={retryRun?.recordsProcessed ?? null}
         onCancel={() => setRetryRunId(null)}
         onConfirm={(mode) => {
           if (!retryRunId) return;

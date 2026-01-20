@@ -14,6 +14,12 @@ export type IngestionRunRow = Readonly<{
   completedAt?: string | null;
   recordsProcessed?: number | null;
   errorCount?: number | null;
+  checkpoint?: {
+    committedRecords?: number | null;
+    committedBytes?: number | null;
+    committedLines?: number | null;
+    lastCommitAt?: string | null;
+  } | null;
 }>;
 
 export type IngestionHistoryTableProps = Readonly<{

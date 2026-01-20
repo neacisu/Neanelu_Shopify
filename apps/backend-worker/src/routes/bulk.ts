@@ -1,6 +1,6 @@
 import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
-import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
+import type { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import { withTenantContext } from '@app/database';
 import { randomUUID } from 'node:crypto';
 import { withTokenRetry } from '../auth/token-lifecycle.js';
@@ -8,6 +8,7 @@ import { shopifyApi } from '../shopify/client.js';
 import type { SessionConfig } from '../auth/session.js';
 import { requireSession, getSessionFromRequest } from '../auth/session.js';
 import { startBulkQueryFromContract } from '../processors/bulk-operations/orchestrator.js';
+import { readIngestCheckpoint } from '../processors/bulk-operations/pipeline/checkpoint.js';
 
 const DEFAULT_LIMIT = 20;
 
@@ -64,6 +65,7 @@ type BulkRunRow = Readonly<{
   records_processed: number | null;
   bytes_processed?: number | null;
   result_size_bytes?: number | null;
+  cursor_state?: Record<string, unknown> | null;
   query_type: string | null;
   shopify_operation_id?: string | null;
 }>;
@@ -116,6 +118,8 @@ function normalizeRun(row: BulkRunRow & { error_count?: number | null }, steps?:
   const currentStep = order.find((item) => stepStatuses.get(item.id) !== 'completed')?.id ?? 'save';
   const percentage = Math.min(100, Math.round((completedCount / order.length) * 100));
 
+  const checkpoint = readIngestCheckpoint(row.cursor_state ?? null);
+
   return {
     id: row.id,
     status: row.status,
@@ -125,11 +129,58 @@ function normalizeRun(row: BulkRunRow & { error_count?: number | null }, steps?:
     bytesProcessed: row.bytes_processed ?? null,
     resultSizeBytes: row.result_size_bytes ?? null,
     errorCount: row.error_count ?? 0,
+    checkpoint: checkpoint
+      ? {
+          committedRecords: checkpoint.committedRecords,
+          committedBytes: checkpoint.version === 2 ? checkpoint.committedBytes : null,
+          committedLines: checkpoint.version === 2 ? checkpoint.committedLines : null,
+          lastCommitAt: checkpoint.lastCommitAtIso,
+        }
+      : null,
     progress: {
       percentage,
       step: currentStep,
     },
   };
+}
+
+function sanitizePayload(
+  value: unknown,
+  depth = 0
+): Record<string, unknown> | null | string | number | boolean | unknown[] {
+  if (depth > 4) return '[truncated]';
+  if (value == null) return value as null;
+  if (typeof value === 'string') return value.length > 1000 ? `${value.slice(0, 1000)}…` : value;
+  if (typeof value === 'number' || typeof value === 'boolean') return value;
+  if (Array.isArray(value)) {
+    const limited = value.slice(0, 50);
+    return limited.map((item) => sanitizePayload(item, depth + 1));
+  }
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    const redactedKeys = new Set([
+      'token',
+      'access_token',
+      'refresh_token',
+      'secret',
+      'password',
+      'authorization',
+      'cookie',
+      'session',
+      'api_key',
+      'client_secret',
+    ]);
+    for (const [key, val] of Object.entries(obj)) {
+      if (redactedKeys.has(key.toLowerCase())) {
+        out[key] = '[REDACTED]';
+      } else {
+        out[key] = sanitizePayload(val, depth + 1);
+      }
+    }
+    return out;
+  }
+  return '[unsupported]';
 }
 
 function normalizeError(row: BulkErrorRow) {
@@ -139,7 +190,7 @@ function normalizeError(row: BulkErrorRow) {
     errorCode: row.error_code,
     errorMessage: row.error_message,
     lineNumber: row.line_number,
-    payload: row.payload,
+    payload: row.payload ? (sanitizePayload(row.payload) as Record<string, unknown>) : null,
   };
 }
 
@@ -174,6 +225,116 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
 ): Promise<void> => {
   const { sessionConfig, env, logger } = opts;
   const requireAdminSession = { preHandler: requireSession(sessionConfig) } as const;
+
+  const streamBulkLogs = (params: {
+    request: FastifyRequest;
+    reply: FastifyReply;
+    shopId: string;
+    runId: string;
+  }): void => {
+    const { request, reply, shopId, runId } = params;
+    const levelsRaw = (request.query as { levels?: unknown }).levels;
+    const levels =
+      typeof levelsRaw === 'string'
+        ? new Set(
+            levelsRaw
+              .split(',')
+              .map((v) => v.trim())
+              .filter((v) => v.length)
+          )
+        : null;
+
+    reply.raw.setHeader('Content-Type', 'text/event-stream');
+    reply.raw.setHeader('Cache-Control', 'no-cache');
+    reply.raw.setHeader('Connection', 'keep-alive');
+    reply.raw.flushHeaders();
+
+    let lastTs = new Date(0);
+    let windowStart = Math.floor(Date.now() / 1000);
+    let windowCount = 0;
+
+    const send = (payload: unknown) => {
+      reply.raw.write(`data: ${JSON.stringify(payload)}\n\n`);
+    };
+
+    const interval = setInterval(() => {
+      void (async () => {
+        const entries = await withTenantContext(shopId, async (client) => {
+          const steps = await client.query<{
+            step_name: string;
+            status: string;
+            error_message: string | null;
+            created_at: Date;
+          }>(
+            `SELECT step_name, status, error_message, created_at
+           FROM bulk_steps
+           WHERE bulk_run_id = $1
+             AND created_at > $2
+           ORDER BY created_at ASC
+           LIMIT 50`,
+            [runId, lastTs]
+          );
+
+          const errors = await client.query<{
+            error_message: string;
+            error_type: string;
+            created_at: Date;
+          }>(
+            `SELECT error_message, error_type, created_at
+           FROM bulk_errors
+           WHERE bulk_run_id = $1
+             AND created_at > $2
+           ORDER BY created_at ASC
+           LIMIT 50`,
+            [runId, lastTs]
+          );
+
+          const logs = [
+            ...steps.rows.map((row) => ({
+              timestamp: row.created_at.toISOString(),
+              level: row.status === 'failed' ? 'error' : 'info',
+              message: row.error_message ?? `Step ${row.step_name} ${row.status}`,
+              stepName: row.step_name,
+            })),
+            ...errors.rows.map((row) => ({
+              timestamp: row.created_at.toISOString(),
+              level: 'error',
+              message: `${row.error_type}: ${row.error_message}`,
+            })),
+          ]
+            .filter((entry) => (levels ? levels.has(entry.level) : true))
+            .sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0));
+
+          return logs;
+        });
+
+        if (entries.length) {
+          const nowSec = Math.floor(Date.now() / 1000);
+          if (nowSec !== windowStart) {
+            windowStart = nowSec;
+            windowCount = 0;
+          }
+          const remaining = Math.max(0, 50 - windowCount);
+          if (remaining <= 0) return;
+          const limited =
+            entries.length > remaining ? entries.slice(entries.length - remaining) : entries;
+
+          const last = limited[limited.length - 1];
+          if (last?.timestamp) {
+            lastTs = new Date(last.timestamp);
+          }
+          windowCount += limited.length;
+          send({ logs: limited });
+        } else {
+          reply.raw.write(': heartbeat\n\n');
+        }
+      })();
+    }, 2000);
+
+    request.raw.on('close', () => {
+      clearInterval(interval);
+    });
+  };
 
   server.get('/bulk', requireAdminSession, async (request, reply) => {
     const session = getSessionFromRequest(request, sessionConfig);
@@ -242,6 +403,7 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
           br.records_processed,
           br.bytes_processed,
           br.result_size_bytes,
+          br.cursor_state,
           br.query_type,
           COALESCE(err.error_count, 0) as error_count
          FROM bulk_runs br
@@ -276,7 +438,7 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
 
     const run = await withTenantContext(session.shopId, async (client) => {
       const res = await client.query<BulkRunRow>(
-        `SELECT id, status, created_at, started_at, completed_at, records_processed, bytes_processed, result_size_bytes
+        `SELECT id, status, created_at, started_at, completed_at, records_processed, bytes_processed, result_size_bytes, cursor_state
          FROM bulk_runs
          WHERE status IN ('pending', 'running')
          ORDER BY created_at DESC
@@ -447,6 +609,7 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
           br.records_processed,
           br.bytes_processed,
           br.result_size_bytes,
+          br.cursor_state,
           br.query_type,
           COALESCE(err.error_count, 0) as error_count
          FROM bulk_runs br
@@ -687,107 +850,25 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
       return;
     }
 
-    const levelsRaw = (request.query as { levels?: unknown }).levels;
-    const levels =
-      typeof levelsRaw === 'string'
-        ? new Set(
-            levelsRaw
-              .split(',')
-              .map((v) => v.trim())
-              .filter((v) => v.length)
-          )
-        : null;
+    streamBulkLogs({ request, reply, shopId: session.shopId, runId: id });
+  });
 
-    reply.raw.setHeader('Content-Type', 'text/event-stream');
-    reply.raw.setHeader('Cache-Control', 'no-cache');
-    reply.raw.setHeader('Connection', 'keep-alive');
-    reply.raw.flushHeaders();
+  server.get('/ingestion/:id/logs/stream', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      void reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+      return;
+    }
 
-    let lastTs = new Date(0);
-    let windowStart = Math.floor(Date.now() / 1000);
-    let windowCount = 0;
+    const id = (request.params as { id?: unknown }).id;
+    if (!isNonEmptyString(id)) {
+      void reply.status(400).send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing id'));
+      return;
+    }
 
-    const send = (payload: unknown) => {
-      reply.raw.write(`data: ${JSON.stringify(payload)}\n\n`);
-    };
-
-    const interval = setInterval(() => {
-      void (async () => {
-        const entries = await withTenantContext(session.shopId, async (client) => {
-          const steps = await client.query<{
-            step_name: string;
-            status: string;
-            error_message: string | null;
-            created_at: Date;
-          }>(
-            `SELECT step_name, status, error_message, created_at
-           FROM bulk_steps
-           WHERE bulk_run_id = $1
-             AND created_at > $2
-           ORDER BY created_at ASC
-           LIMIT 50`,
-            [id, lastTs]
-          );
-
-          const errors = await client.query<{
-            error_message: string;
-            error_type: string;
-            created_at: Date;
-          }>(
-            `SELECT error_message, error_type, created_at
-           FROM bulk_errors
-           WHERE bulk_run_id = $1
-             AND created_at > $2
-           ORDER BY created_at ASC
-           LIMIT 50`,
-            [id, lastTs]
-          );
-
-          const logs = [
-            ...steps.rows.map((row) => ({
-              timestamp: row.created_at.toISOString(),
-              level: row.status === 'failed' ? 'error' : 'info',
-              message: row.error_message ?? `Step ${row.step_name} ${row.status}`,
-              stepName: row.step_name,
-            })),
-            ...errors.rows.map((row) => ({
-              timestamp: row.created_at.toISOString(),
-              level: 'error',
-              message: `${row.error_type}: ${row.error_message}`,
-            })),
-          ]
-            .filter((entry) => (levels ? levels.has(entry.level) : true))
-            .sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0));
-
-          return logs;
-        });
-
-        if (entries.length) {
-          const nowSec = Math.floor(Date.now() / 1000);
-          if (nowSec !== windowStart) {
-            windowStart = nowSec;
-            windowCount = 0;
-          }
-          const remaining = Math.max(0, 50 - windowCount);
-          if (remaining <= 0) return;
-          const limited =
-            entries.length > remaining ? entries.slice(entries.length - remaining) : entries;
-
-          const last = limited[limited.length - 1];
-          if (last?.timestamp) {
-            lastTs = new Date(last.timestamp);
-          }
-          windowCount += limited.length;
-          send({ logs: limited });
-        } else {
-          reply.raw.write(': heartbeat\n\n');
-        }
-      })();
-    }, 2000);
-
-    request.raw.on('close', () => {
-      clearInterval(interval);
-    });
+    streamBulkLogs({ request, reply, shopId: session.shopId, runId: id });
   });
 
   server.get('/logs/stream', requireAdminSession, async (request, reply) => {
