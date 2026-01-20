@@ -23,6 +23,7 @@ import {
 } from '@app/types';
 import { withTenantContext } from '@app/database';
 import * as path from 'node:path';
+import * as os from 'node:os';
 import { mkdir, rm, stat, truncate } from 'node:fs/promises';
 
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
@@ -51,13 +52,30 @@ async function ensureBulkIngestArtifactsDir(params: {
   bulkRunId: string;
 }): Promise<string> {
   const configuredBase = process.env['BULK_INGEST_ARTIFACTS_DIR']?.trim();
-  const base =
+  const candidates =
     configuredBase && configuredBase.length > 0
-      ? configuredBase
-      : '/var/lib/neanelu/bulk-artifacts';
-  const dir = path.join(base, params.shopId, params.bulkRunId);
-  await mkdir(dir, { recursive: true });
-  return dir;
+      ? [configuredBase]
+      : ['/var/lib/neanelu/bulk-artifacts', path.join(os.tmpdir(), 'neanelu', 'bulk-artifacts')];
+
+  let lastError: unknown = null;
+  for (const base of candidates) {
+    const dir = path.join(base, params.shopId, params.bulkRunId);
+    try {
+      await mkdir(dir, { recursive: true });
+      return dir;
+    } catch (err) {
+      lastError = err;
+      if (err && typeof err === 'object' && 'code' in err && err.code === 'EACCES') {
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+  throw new Error('Failed to create bulk ingest artifacts directory');
 }
 
 async function preparePersistedJsonl(params: {
