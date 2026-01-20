@@ -31,6 +31,10 @@ function createApiStub(): ApiClient {
         return Promise.resolve(null as T);
       }
 
+      if (path === '/bulk/active-shopify') {
+        return Promise.resolve({ operation: null } as T);
+      }
+
       if (path.startsWith('/bulk?')) {
         return Promise.resolve({ runs: [] } as T);
       }
