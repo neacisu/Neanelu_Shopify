@@ -185,6 +185,27 @@ async function installBaseMocks(params: {
             },
           });
         },
+        runBulkStreamingPipelineWithStitchingFromFile: () =>
+          Promise.resolve({
+            counters: { bytesProcessed: 0, totalLines: 0, validLines: 0, invalidLines: 0 },
+            stitching: {
+              productsSeen: 0,
+              variantsSeen: 0,
+              variantsEmitted: 0,
+              variantsBufferedInMemory: 0,
+              variantsSpilledToDisk: 0,
+              variantsQuarantined: 0,
+              metafieldsSeen: 0,
+              metafieldsEmitted: 0,
+              metafieldsSpilledToDisk: 0,
+              metafieldsQuarantined: 0,
+              inventoryItemsSeen: 0,
+              inventoryLevelsSeen: 0,
+              inventoryLevelsEmitted: 0,
+              inventoryLevelsSpilledToDisk: 0,
+              inventoryLevelsQuarantined: 0,
+            },
+          }),
       },
     })
   );

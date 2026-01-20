@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 
 void mock.module('@app/database', {
   namedExports: {
+    decryptAesGcm: () => Buffer.from(''),
     checkDatabaseConnection: () => Promise.resolve(true),
     withTenantContext: async (
       _shopId: string,

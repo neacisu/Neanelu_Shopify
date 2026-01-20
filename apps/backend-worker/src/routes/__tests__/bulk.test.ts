@@ -62,6 +62,7 @@ const schedules = [{ id: 'sched-1', cron: '0 2 * * *', timezone: 'UTC', enabled:
 
 void mock.module('@app/database', {
   namedExports: {
+    decryptAesGcm: () => Buffer.from(''),
     withTenantContext: async (
       _shopId: string,
       cb: (client: { query: (sql: string) => Promise<{ rows: unknown[] }> }) => Promise<unknown>
