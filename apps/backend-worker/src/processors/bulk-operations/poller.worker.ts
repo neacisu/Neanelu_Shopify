@@ -414,11 +414,18 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
         });
 
         if (ctx) {
-          await markBulkRunInProgress({
-            shopId: payload.shopId,
-            bulkRunId: payload.bulkRunId,
-            status: 'polling',
-          });
+          try {
+            await markBulkRunInProgress({
+              shopId: payload.shopId,
+              bulkRunId: payload.bulkRunId,
+              status: 'polling',
+            });
+          } catch (err) {
+            logger.warn(
+              { err, shopId: payload.shopId, bulkRunId: payload.bulkRunId },
+              'Failed to mark bulk run as polling; continuing'
+            );
+          }
         }
 
         try {
