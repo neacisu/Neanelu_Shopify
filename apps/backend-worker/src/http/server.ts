@@ -16,6 +16,7 @@ import {
 import { webhookRoutes } from '../routes/webhooks.js';
 import { queueRoutes } from '../routes/queues.js';
 import { dashboardRoutes } from '../routes/dashboard.js';
+import { bulkRoutes } from '../routes/bulk.js';
 import { setRequestIdAttribute } from '@app/logger';
 import {
   httpActiveRequests,
@@ -246,12 +247,14 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   // Primary mounting under /api/*
   await server.register(queueRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(dashboardRoutes, { prefix: '/api', env, logger, sessionConfig });
+  await server.register(bulkRoutes, { prefix: '/api', env, logger, sessionConfig });
 
   // Compatibility mounting without /api prefix.
   // Some reverse proxies (or legacy deployments) may strip `/api` before forwarding.
   // All endpoints remain protected by `requireSession()` inside the plugin.
   await server.register(queueRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(dashboardRoutes, { prefix: '', env, logger, sessionConfig });
+  await server.register(bulkRoutes, { prefix: '', env, logger, sessionConfig });
 
   server.get('/api/health', (request, reply) => {
     void reply.status(200).send({

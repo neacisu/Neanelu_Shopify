@@ -4,7 +4,18 @@ import type { RouteObject } from 'react-router-dom';
 import DashboardIndex, { loader as dashboardLoader } from './routes/_index';
 import AuthCallbackPage from './routes/auth.callback';
 import AuthRequiredPage from './routes/auth.required';
-import IngestionPage from './routes/ingestion';
+import IngestionPage, {
+  loader as ingestionLoader,
+  action as ingestionAction,
+} from './routes/ingestion';
+import IngestionHistoryPage, {
+  loader as ingestionHistoryLoader,
+  action as ingestionHistoryAction,
+} from './routes/ingestion.history';
+import IngestionSchedulePage, {
+  loader as ingestionScheduleLoader,
+  action as ingestionScheduleAction,
+} from './routes/ingestion.schedule';
 import QueuesPage, { action as queuesAction, loader as queuesLoader } from './routes/queues';
 import Root, { ErrorBoundary, HydrateFallback } from './root';
 import SearchPage from './routes/search';
@@ -48,8 +59,26 @@ export const routes: RouteObject[] = [
       {
         id: 'ingestion',
         path: 'ingestion',
+        loader: ingestionLoader,
+        action: ingestionAction,
         handle: { title: 'Ingestion' },
         element: createElement(IngestionPage),
+      },
+      {
+        id: 'ingestion-history',
+        path: 'ingestion/history',
+        loader: ingestionHistoryLoader,
+        action: ingestionHistoryAction,
+        handle: { title: 'Ingestion History' },
+        element: createElement(IngestionHistoryPage),
+      },
+      {
+        id: 'ingestion-schedule',
+        path: 'ingestion/schedule',
+        loader: ingestionScheduleLoader,
+        action: ingestionScheduleAction,
+        handle: { title: 'Ingestion Schedule' },
+        element: createElement(IngestionSchedulePage),
       },
       {
         id: 'search',

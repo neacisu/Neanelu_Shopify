@@ -6,6 +6,16 @@ import type { FastifyInstance } from 'fastify';
 void mock.module('@app/database', {
   namedExports: {
     checkDatabaseConnection: () => Promise.resolve(true),
+    withTenantContext: async (
+      _shopId: string,
+      cb: (client: { query: (sql: string) => Promise<{ rows: unknown[] }> }) => Promise<unknown>
+    ) => {
+      const client = {
+        query: (_sql: string) => Promise.resolve({ rows: [] }) as Promise<{ rows: unknown[] }>,
+      };
+
+      return cb(client);
+    },
     pool: {
       query: (sql: string) => {
         if (sql.includes('SELECT active_shop_domain')) {
@@ -28,6 +38,7 @@ void mock.module('@app/queue-manager', {
       on: () => undefined,
       quit: () => Promise.resolve(undefined),
     }),
+    enqueueBulkOrchestratorJob: () => Promise.resolve(),
     WEBHOOK_QUEUE_NAME: 'webhooks',
   },
 });

@@ -414,6 +414,13 @@
       "when": 1768800000000,
       "tag": "0058_add_staging_merge_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1768886400000,
+      "tag": "0059_bulk_schedules",
+      "breakpoints": true
     }
   ]
 }

@@ -34,6 +34,7 @@ export * from './shopify-tokens.ts';
 // Module C: Bulk Operations
 // ============================================
 export * from './bulk-operations.ts';
+export * from './bulk-schedules.ts';
 
 // ============================================
 // Module D: Global PIM
