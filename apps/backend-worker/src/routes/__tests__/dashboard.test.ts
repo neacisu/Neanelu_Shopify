@@ -123,6 +123,7 @@ void mock.module('@app/queue-manager', {
       return queueStub;
     },
     createRedisConnection: (_opts: unknown) => redisMock,
+    enqueueBulkIngestJob: () => Promise.resolve(undefined),
   },
 });
 

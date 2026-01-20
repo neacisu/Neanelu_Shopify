@@ -48,6 +48,7 @@ const dedupePath = new URL('../webhooks.dedupe.js', import.meta.url).href;
 void mock.module('@app/queue-manager', {
   namedExports: {
     enqueueWebhookJob: enqueueMock,
+    enqueueBulkIngestJob: () => Promise.resolve(undefined),
   },
 });
 

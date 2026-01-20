@@ -190,6 +190,7 @@ await (async () => {
       namedExports: {
         assertValidBulkRunTransition: () => Promise.resolve(undefined),
         insertBulkError: () => Promise.resolve(undefined),
+        markBulkRunInProgress: () => Promise.resolve(undefined),
         markBulkRunFailed: () => Promise.resolve(undefined),
         patchBulkRunCursorState: () => Promise.resolve(undefined),
         // Critical: indicate this is a mutation run.

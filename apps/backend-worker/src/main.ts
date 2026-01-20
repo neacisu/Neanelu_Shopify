@@ -11,6 +11,7 @@ import { startBulkOrchestratorWorker } from './processors/bulk-operations/orches
 import { startBulkPollerWorker } from './processors/bulk-operations/poller.worker.js';
 import { startBulkMutationReconcileWorker } from './processors/bulk-operations/mutation-reconcile.worker.js';
 import { startBulkIngestWorker } from './processors/bulk-operations/ingest.worker.js';
+import { startBulkScheduleWorker } from './processors/bulk-operations/schedule.worker.js';
 import { scheduleTokenHealthJob, closeTokenHealthQueue } from './queue/token-health-queue.js';
 import {
   setBulkOrchestratorWorkerHandle,
@@ -43,6 +44,7 @@ let bulkMutationReconcileWorker: Awaited<
   ReturnType<typeof startBulkMutationReconcileWorker>
 > | null = null;
 let bulkIngestWorker: Awaited<ReturnType<typeof startBulkIngestWorker>> | null = null;
+let bulkScheduleWorker: Awaited<ReturnType<typeof startBulkScheduleWorker>> | null = null;
 
 try {
   await server.listen({ port: env.port, host: '0.0.0.0' });
@@ -109,6 +111,14 @@ try {
   emitQueueStreamEvent({
     type: 'worker.online',
     workerId: 'bulk-ingest-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  bulkScheduleWorker = startBulkScheduleWorker(logger);
+  logger.info({}, 'bulk schedule worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'bulk-schedule-worker',
     timestamp: new Date().toISOString(),
   });
 } catch (error) {
@@ -198,6 +208,17 @@ const shutdown = async (signal: string): Promise<void> => {
       emitQueueStreamEvent({
         type: 'worker.offline',
         workerId: 'bulk-ingest-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (bulkScheduleWorker) {
+      await bulkScheduleWorker.close();
+      bulkScheduleWorker = null;
+      logger.info({ signal }, 'bulk schedule worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'bulk-schedule-worker',
         timestamp: new Date().toISOString(),
       });
     }

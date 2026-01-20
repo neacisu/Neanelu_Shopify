@@ -1,8 +1,14 @@
 import { test, describe, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import FormData from 'form-data';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
+import fastifyMultipart from '@fastify/multipart';
+import { randomUUID } from 'node:crypto';
+import { rm } from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 const requireSessionMock = () => (_req: unknown, _reply: unknown) => Promise.resolve();
 
@@ -29,6 +35,12 @@ void mock.module(orchestratorPath, {
       startCalls.push({ shopId, querySet: payload.querySet });
       return Promise.resolve();
     },
+  },
+});
+
+void mock.module('@app/queue-manager', {
+  namedExports: {
+    enqueueBulkIngestJob: () => Promise.resolve(undefined),
   },
 });
 
@@ -104,7 +116,9 @@ void mock.module('@app/database', {
 
           if (
             lower.includes('from bulk_runs') &&
-            lower.includes("status in ('pending', 'running')")
+            lower.includes(
+              "status in ('pending', 'running', 'polling', 'downloading', 'processing')"
+            )
           ) {
             return resolve([]);
           }
@@ -165,6 +179,7 @@ void describe('Bulk Routes', () => {
     bulkRoutes = (module as { bulkRoutes: unknown }).bulkRoutes;
 
     app = Fastify();
+    await app.register(fastifyMultipart);
     await app.register(
       bulkRoutes as never,
       {
@@ -280,5 +295,33 @@ void describe('Bulk Routes', () => {
     });
 
     await app.close();
+  });
+
+  void test('POST /bulk/upload enqueues ingest from uploaded file', async () => {
+    const uploadDir = path.join(os.tmpdir(), 'neanelu-test-upload', randomUUID());
+    process.env['BULK_UPLOAD_DIR'] = uploadDir;
+
+    const form = new FormData();
+    form.append('file', Buffer.from('{"id":1}\n'), {
+      filename: 'upload.jsonl',
+      contentType: 'application/x-ndjson',
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/bulk/upload',
+      payload: form.getBuffer(),
+      headers: {
+        ...form.getHeaders(),
+        'content-length': String(form.getLengthSync()),
+      },
+    });
+
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body) as { success: boolean; data?: { run_id?: string } };
+    assert.equal(body.success, true);
+    assert.ok(body.data?.run_id);
+
+    await rm(uploadDir, { recursive: true, force: true });
   });
 });

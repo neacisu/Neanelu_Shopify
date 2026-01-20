@@ -93,6 +93,7 @@ void mock.module('@app/queue-manager', {
       queueCalls.push({ name: opts.name, method: 'createQueue' });
       return queueStub;
     },
+    enqueueBulkIngestJob: () => Promise.resolve(undefined),
   },
 });
 

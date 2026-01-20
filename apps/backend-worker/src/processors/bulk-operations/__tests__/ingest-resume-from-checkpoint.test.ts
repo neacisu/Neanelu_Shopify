@@ -101,6 +101,7 @@ async function installBaseMocks(params: {
       namedExports: {
         BULK_INGEST_QUEUE_NAME: 'bulk-ingest-queue',
         enqueueBulkOrchestratorJob: () => Promise.resolve(undefined),
+        enqueueBulkIngestJob: () => Promise.resolve(undefined),
         configFromEnv: (_env: unknown) => ({ connection: { url: 'redis://localhost:6379/0' } }),
         withJobTelemetryContext: async (_job: unknown, fn: () => Promise<unknown>) => fn(),
         enqueueDlqEntry: () => Promise.resolve(undefined),
@@ -215,6 +216,7 @@ async function installBaseMocks(params: {
       namedExports: {
         insertBulkStep: () => Promise.resolve(undefined),
         insertBulkError: () => Promise.resolve(undefined),
+        markBulkRunInProgress: () => Promise.resolve(undefined),
         loadBulkRunContext: () => {
           if (!loadBulkRunContextImpl) {
             return Promise.reject(new Error('loadBulkRunContextImpl not set'));

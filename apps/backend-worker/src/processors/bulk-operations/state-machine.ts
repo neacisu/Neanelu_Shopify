@@ -19,7 +19,15 @@ export type BulkRunRow = Readonly<{
   idempotency_key: string | null;
 }>;
 
-export type BulkRunStatus = 'pending' | 'running' | 'completed' | 'failed';
+export type BulkRunStatus =
+  | 'pending'
+  | 'running'
+  | 'polling'
+  | 'downloading'
+  | 'processing'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
 
 export type BulkRunContextRow = Readonly<{
   id: string;
@@ -38,14 +46,35 @@ export type BulkRunContextRow = Readonly<{
 }>;
 
 const BULK_RUN_STATUS_TRANSITIONS: Readonly<Record<BulkRunStatus, ReadonlySet<BulkRunStatus>>> = {
-  pending: new Set(['pending', 'running', 'failed']),
-  running: new Set(['running', 'completed', 'failed']),
+  pending: new Set(['pending', 'running', 'failed', 'cancelled']),
+  running: new Set([
+    'running',
+    'polling',
+    'downloading',
+    'processing',
+    'completed',
+    'failed',
+    'cancelled',
+  ]),
+  polling: new Set(['polling', 'downloading', 'processing', 'completed', 'failed', 'cancelled']),
+  downloading: new Set(['downloading', 'processing', 'completed', 'failed', 'cancelled']),
+  processing: new Set(['processing', 'completed', 'failed', 'cancelled']),
   completed: new Set(['completed']),
   failed: new Set(['failed']),
+  cancelled: new Set(['cancelled']),
 };
 
 function isBulkRunStatus(value: string | null | undefined): value is BulkRunStatus {
-  return value === 'pending' || value === 'running' || value === 'completed' || value === 'failed';
+  return (
+    value === 'pending' ||
+    value === 'running' ||
+    value === 'polling' ||
+    value === 'downloading' ||
+    value === 'processing' ||
+    value === 'completed' ||
+    value === 'failed' ||
+    value === 'cancelled'
+  );
 }
 
 export function isValidBulkRunTransition(from: string, to: string): boolean {
@@ -206,7 +235,7 @@ export async function insertOrLoadBulkRun(params: {
         `SELECT id, shop_id, status, shopify_operation_id, idempotency_key
          FROM bulk_runs
          WHERE shop_id = $1
-           AND status IN ('pending', 'running')
+           AND status IN ('pending', 'running', 'polling', 'downloading', 'processing')
          ORDER BY created_at DESC
          LIMIT 1`,
         [params.shopId]
@@ -429,6 +458,29 @@ export async function markBulkRunStarted(params: {
            updated_at = now()
        WHERE id = $4`,
       [params.shopifyOperationId, params.apiVersion, params.costEstimate, params.bulkRunId]
+    );
+  });
+  recordDbQuery('update', (Date.now() - started) / 1000);
+}
+
+export async function markBulkRunInProgress(params: {
+  shopId: string;
+  bulkRunId: string;
+  status: Exclude<BulkRunStatus, 'pending' | 'completed' | 'failed' | 'cancelled'>;
+}): Promise<void> {
+  const started = Date.now();
+  await assertValidBulkRunTransition({
+    shopId: params.shopId,
+    bulkRunId: params.bulkRunId,
+    nextStatus: params.status,
+  });
+  await withTenantContext(params.shopId, async (client) => {
+    await client.query(
+      `UPDATE bulk_runs
+       SET status = $1,
+           updated_at = now()
+       WHERE id = $2`,
+      [params.status, params.bulkRunId]
     );
   });
   recordDbQuery('update', (Date.now() - started) / 1000);

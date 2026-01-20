@@ -40,6 +40,7 @@ void mock.module('@app/queue-manager', {
       quit: () => Promise.resolve(undefined),
     }),
     enqueueBulkOrchestratorJob: () => Promise.resolve(),
+    enqueueBulkIngestJob: () => Promise.resolve(),
     WEBHOOK_QUEUE_NAME: 'webhooks',
   },
 });

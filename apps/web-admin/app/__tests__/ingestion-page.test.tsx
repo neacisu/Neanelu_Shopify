@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Outlet, RouterProvider, createMemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -50,6 +50,10 @@ function createApiStub(): ApiClient {
 
       if (path === '/bulk/start') {
         return Promise.resolve({ ok: true } as TResponse);
+      }
+
+      if (path === '/bulk/upload') {
+        return Promise.resolve({ run_id: 'run-upload', status: 'running' } as TResponse);
       }
 
       return Promise.reject(new Error(`unhandled_post:${path}`));
@@ -124,6 +128,42 @@ describe('Ingestion page', () => {
 
     await waitFor(() => {
       expect(apiCalls.some((c) => c.method === 'POST' && c.path === '/bulk/start')).toBe(true);
+    });
+  });
+
+  it('uploads a JSONL file and calls the upload endpoint', async () => {
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: <Outlet />,
+          children: [
+            {
+              path: 'ingestion',
+              element: <IngestionPage />,
+              loader: ingestionLoader,
+              action: ingestionAction,
+            },
+          ],
+        },
+      ],
+      { initialEntries: ['/ingestion'] }
+    );
+
+    render(<RouterProvider router={router} />);
+
+    const dropzone = await screen.findByRole('button', { name: /Manual JSONL upload/i });
+    const file = new File(['{"id":1}\n'], 'upload.jsonl', { type: 'application/x-ndjson' });
+
+    fireEvent.drop(dropzone, {
+      dataTransfer: {
+        files: [file],
+        types: ['Files'],
+      },
+    });
+
+    await waitFor(() => {
+      expect(apiCalls.some((c) => c.method === 'POST' && c.path === '/bulk/upload')).toBe(true);
     });
   });
 });

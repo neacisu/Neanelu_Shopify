@@ -25,6 +25,7 @@ import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker
 import {
   insertBulkError,
   loadBulkRunContext,
+  markBulkRunInProgress,
   markBulkRunFailed,
   patchBulkRunCursorState,
   assertValidBulkRunTransition,
@@ -411,6 +412,14 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
           startedAtIso: new Date().toISOString(),
           progressPct: null,
         });
+
+        if (ctx) {
+          await markBulkRunInProgress({
+            shopId: payload.shopId,
+            bulkRunId: payload.bulkRunId,
+            status: 'polling',
+          });
+        }
 
         try {
           return await withBulkSpan(

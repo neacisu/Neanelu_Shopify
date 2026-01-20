@@ -274,7 +274,7 @@ export default function IngestionPage() {
   }, [api, hasShopifyOperation, isActive]);
 
   const logStream = useLogStream({
-    endpoint: currentRun ? `/api/ingestion/${currentRun.id}/logs/stream` : '',
+    endpoint: currentRun ? `/api/bulk/${currentRun.id}/logs/stream` : '',
     enabled: Boolean(currentRun && isActive),
     maxEventsPerSecond: 50,
   });
@@ -299,6 +299,38 @@ export default function IngestionPage() {
     const formData = new FormData();
     formData.set('intent', 'bulk.start');
     void actionFetcher.submit(formData, { method: 'post' });
+  };
+
+  const uploadJsonl = async (
+    file: File,
+    apiUpload: {
+      setProgress: (progress: number) => void;
+      setError: (message: string) => void;
+      setDone: () => void;
+    }
+  ) => {
+    try {
+      apiUpload.setProgress(5);
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await api.postApi<{ run_id?: string | null; status?: string | null }, FormData>(
+        '/bulk/upload',
+        formData
+      );
+      apiUpload.setProgress(100);
+      apiUpload.setDone();
+      if (res?.run_id) {
+        setCurrentRun({
+          id: res.run_id,
+          status: (res.status ?? 'running') as BulkRunStatus,
+        });
+        void navigate(`/ingestion?runId=${encodeURIComponent(res.run_id)}`);
+      }
+      toast.success('Upload queued for ingestion');
+    } catch (err) {
+      apiUpload.setError(err instanceof Error ? err.message : 'Upload failed');
+      toast.error('Upload failed');
+    }
   };
 
   const abortIngestion = () => {
@@ -491,7 +523,7 @@ export default function IngestionPage() {
                 transport="sse"
                 maxEventsPerSecond={50}
                 bufferSize={1000}
-                {...(currentRun ? { endpoint: `/api/ingestion/${currentRun.id}/logs/stream` } : {})}
+                {...(currentRun ? { endpoint: `/api/bulk/${currentRun.id}/logs/stream` } : {})}
               />
             ) : (
               <div className="rounded-md border border-dashed p-4 text-caption text-muted">
@@ -540,7 +572,7 @@ export default function IngestionPage() {
               transport="sse"
               maxEventsPerSecond={50}
               bufferSize={1000}
-              {...(currentRun ? { endpoint: `/api/ingestion/${currentRun.id}/logs/stream` } : {})}
+              {...(currentRun ? { endpoint: `/api/bulk/${currentRun.id}/logs/stream` } : {})}
             />
           </div>
         </PolarisCard>
@@ -573,6 +605,7 @@ export default function IngestionPage() {
                 accept={{ 'application/jsonl': ['.jsonl'], 'application/json': ['.json'] }}
                 maxFiles={1}
                 maxSize={1024 * 1024 * 1024}
+                onUpload={uploadJsonl}
               />
             </div>
           </div>

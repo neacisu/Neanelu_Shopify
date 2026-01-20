@@ -18,7 +18,15 @@ export const BULK_OPERATION_TYPES = [
 
 export type BulkOperationType = (typeof BULK_OPERATION_TYPES)[number];
 
-export type BulkRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type BulkRunStatus =
+  | 'pending'
+  | 'running'
+  | 'polling'
+  | 'downloading'
+  | 'processing'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
 
 export type BulkJobTriggeredBy = 'manual' | 'scheduler' | 'webhook' | 'system';
 
@@ -94,7 +102,9 @@ export interface BulkIngestJobPayload {
   shopId: string;
   bulkRunId: string;
   /** URL to the Shopify bulk result JSONL (or partialDataUrl when salvaged). */
-  resultUrl: string;
+  resultUrl?: string;
+  /** Local JSONL file path for manual uploads. */
+  localFilePath?: string;
   triggeredBy: BulkJobTriggeredBy;
   requestedAt: number;
 }
@@ -221,7 +231,9 @@ export function validateBulkIngestJobPayload(data: unknown): data is BulkIngestJ
 
   if (typeof job.shopId !== 'string' || !isCanonicalUuid(job.shopId)) return false;
   if (typeof job.bulkRunId !== 'string' || !isCanonicalUuid(job.bulkRunId)) return false;
-  if (typeof job.resultUrl !== 'string' || !job.resultUrl.trim()) return false;
+  const hasResultUrl = typeof job.resultUrl === 'string' && job.resultUrl.trim().length > 0;
+  const hasLocalFile = typeof job.localFilePath === 'string' && job.localFilePath.trim().length > 0;
+  if (!hasResultUrl && !hasLocalFile) return false;
 
   if (
     job.triggeredBy !== 'manual' &&

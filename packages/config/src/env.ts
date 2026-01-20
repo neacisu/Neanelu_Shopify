@@ -316,13 +316,13 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     optionalString(env, 'OPENAI_EMBEDDINGS_MODEL') ?? 'text-embedding-3-small';
   const openAiTimeoutMs = parsePositiveIntWithDefault(env, 'OPENAI_TIMEOUT_MS', 30_000);
 
-  const bulkPimSyncEnabled = parseBooleanWithDefault(env, 'BULK_PIM_SYNC_ENABLED', false);
+  const bulkPimSyncEnabled = parseBooleanWithDefault(env, 'BULK_PIM_SYNC_ENABLED', true);
   const bulkSemanticDedupEnabled = parseBooleanWithDefault(
     env,
     'BULK_SEMANTIC_DEDUP_ENABLED',
-    false
+    true
   );
-  const bulkConsensusEnabled = parseBooleanWithDefault(env, 'BULK_CONSENSUS_ENABLED', false);
+  const bulkConsensusEnabled = parseBooleanWithDefault(env, 'BULK_CONSENSUS_ENABLED', true);
 
   const bulkDedupeHighThreshold = parseSimilarityThreshold(env, 'BULK_DEDUPE_HIGH_THRESHOLD', 0.95);
   const bulkDedupeSuspiciousThreshold = parseSimilarityThreshold(

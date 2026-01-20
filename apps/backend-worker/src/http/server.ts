@@ -3,6 +3,7 @@ import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
+import fastifyMultipart from '@fastify/multipart';
 import { createClient } from 'redis';
 import { randomUUID } from 'node:crypto';
 import { isShopifyApiConfigValid } from '@app/config';
@@ -79,6 +80,13 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
 
   // Register cookie plugin for OAuth state
   await server.register(fastifyCookie);
+
+  // Register multipart support for manual JSONL uploads
+  await server.register(fastifyMultipart, {
+    limits: {
+      fileSize: 200 * 1024 * 1024,
+    },
+  });
 
   // Register routes
   // OAuth routes are registered via registerAuthRoutes below

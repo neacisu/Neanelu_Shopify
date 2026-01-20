@@ -1,16 +1,50 @@
 import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
 import type { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
+import type { MultipartFile } from '@fastify/multipart';
 import { withTenantContext } from '@app/database';
 import { randomUUID } from 'node:crypto';
+import { pipeline } from 'node:stream/promises';
+import { createWriteStream } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { withTokenRetry } from '../auth/token-lifecycle.js';
 import { shopifyApi } from '../shopify/client.js';
 import type { SessionConfig } from '../auth/session.js';
 import { requireSession, getSessionFromRequest } from '../auth/session.js';
 import { startBulkQueryFromContract } from '../processors/bulk-operations/orchestrator.js';
 import { readIngestCheckpoint } from '../processors/bulk-operations/pipeline/checkpoint.js';
+import { enqueueBulkIngestJob } from '@app/queue-manager';
 
 const DEFAULT_LIMIT = 20;
+
+async function ensureBulkUploadDir(shopId: string, runId: string): Promise<string> {
+  const configured = process.env['BULK_UPLOAD_DIR']?.trim();
+  const baseCandidates = configured
+    ? [configured]
+    : ['/var/lib/neanelu/bulk-uploads', path.join(os.tmpdir(), 'neanelu', 'bulk-uploads')];
+
+  let lastError: unknown = null;
+  for (const base of baseCandidates) {
+    const dir = path.join(base, shopId, runId);
+    try {
+      await mkdir(dir, { recursive: true });
+      return dir;
+    } catch (err) {
+      lastError = err;
+      if (err && typeof err === 'object' && 'code' in err && err.code === 'EACCES') {
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+  throw new Error('bulk_upload_dir_unavailable');
+}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -440,7 +474,7 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
       const res = await client.query<BulkRunRow>(
         `SELECT id, status, created_at, started_at, completed_at, records_processed, bytes_processed, result_size_bytes, cursor_state
          FROM bulk_runs
-         WHERE status IN ('pending', 'running')
+        WHERE status IN ('pending', 'running', 'polling', 'downloading', 'processing')
          ORDER BY created_at DESC
          LIMIT 1`
       );
@@ -664,7 +698,7 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
       const res = await client.query<BulkRunRow>(
         `SELECT id, status, created_at, started_at, completed_at, records_processed
          FROM bulk_runs
-         WHERE status IN ('pending', 'running')
+         WHERE status IN ('pending', 'running', 'polling', 'downloading', 'processing')
          ORDER BY created_at DESC
          LIMIT 1`
       );
@@ -675,6 +709,78 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
       successEnvelope(request.id, {
         run_id: run?.id ?? null,
         status: run?.status ?? 'pending',
+      })
+    );
+  });
+
+  server.post('/bulk/upload', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      void reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+      return;
+    }
+
+    const file = await (
+      request as FastifyRequest & { file: () => Promise<MultipartFile | undefined> }
+    ).file();
+    if (!file) {
+      void reply
+        .status(400)
+        .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing upload file'));
+      return;
+    }
+
+    const allowed = new Set(['application/x-ndjson', 'application/json', 'text/plain']);
+    if (file.mimetype && !allowed.has(file.mimetype)) {
+      void reply
+        .status(400)
+        .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Invalid JSONL mime type'));
+      return;
+    }
+
+    const runId = randomUUID();
+    const uploadDir = await ensureBulkUploadDir(session.shopId, runId);
+    const filePath = path.join(uploadDir, 'bulk-upload.jsonl');
+
+    let bytesWritten = 0;
+    file.file.on('data', (chunk: Buffer) => {
+      bytesWritten += chunk.length;
+    });
+
+    await pipeline(file.file, createWriteStream(filePath));
+
+    await withTenantContext(session.shopId, async (client) => {
+      await client.query(
+        `INSERT INTO bulk_runs (
+           id,
+           shop_id,
+           operation_type,
+           query_type,
+           status,
+           started_at,
+           result_size_bytes,
+           created_at,
+           updated_at
+         )
+         VALUES ($1, $2, 'PRODUCTS_EXPORT', 'core', 'running', now(), $3, now(), now())`,
+        [runId, session.shopId, bytesWritten]
+      );
+    });
+
+    await enqueueBulkIngestJob({
+      shopId: session.shopId,
+      bulkRunId: runId,
+      localFilePath: filePath,
+      triggeredBy: 'manual',
+      requestedAt: Date.now(),
+    });
+
+    void reply.status(200).send(
+      successEnvelope(request.id, {
+        run_id: runId,
+        status: 'running',
       })
     );
   });
