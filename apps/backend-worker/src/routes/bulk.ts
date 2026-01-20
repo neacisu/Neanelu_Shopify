@@ -2,6 +2,9 @@ import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { withTenantContext } from '@app/database';
+import { randomUUID } from 'node:crypto';
+import { withTokenRetry } from '../auth/token-lifecycle.js';
+import { shopifyApi } from '../shopify/client.js';
 import type { SessionConfig } from '../auth/session.js';
 import { requireSession, getSessionFromRequest } from '../auth/session.js';
 import { startBulkQueryFromContract } from '../processors/bulk-operations/orchestrator.js';
@@ -59,7 +62,10 @@ type BulkRunRow = Readonly<{
   started_at: Date | null;
   completed_at: Date | null;
   records_processed: number | null;
+  bytes_processed?: number | null;
+  result_size_bytes?: number | null;
   query_type: string | null;
+  shopify_operation_id?: string | null;
 }>;
 
 type BulkStepRow = Readonly<{
@@ -78,6 +84,15 @@ type BulkErrorRow = Readonly<{
   created_at: Date | null;
 }>;
 
+type ShopifyBulkOperationStatus =
+  | 'CREATED'
+  | 'RUNNING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELED'
+  | 'CANCELING'
+  | 'EXPIRED';
+
 function normalizeRun(row: BulkRunRow & { error_count?: number | null }, steps?: BulkStepRow[]) {
   const order: { key: string; id: 'download' | 'parse' | 'transform' | 'save' }[] = [
     { key: 'download', id: 'download' },
@@ -89,6 +104,7 @@ function normalizeRun(row: BulkRunRow & { error_count?: number | null }, steps?:
   const stepStatuses = new Map<string, string>();
   steps?.forEach((step) => {
     const name = step.step_name.toLowerCase();
+    if (name.includes('progress')) return;
     for (const item of order) {
       if (name.includes(item.key)) {
         stepStatuses.set(item.id, step.status);
@@ -106,6 +122,8 @@ function normalizeRun(row: BulkRunRow & { error_count?: number | null }, steps?:
     startedAt: row.started_at?.toISOString() ?? null,
     completedAt: row.completed_at?.toISOString() ?? null,
     recordsProcessed: row.records_processed ?? null,
+    bytesProcessed: row.bytes_processed ?? null,
+    resultSizeBytes: row.result_size_bytes ?? null,
     errorCount: row.error_count ?? 0,
     progress: {
       percentage,
@@ -125,11 +143,36 @@ function normalizeError(row: BulkErrorRow) {
   };
 }
 
+function buildBulkOperationCancelMutation(): string {
+  return `mutation BulkOperationCancel($id: ID!) {
+  bulkOperationCancel(id: $id) {
+    bulkOperation { id status }
+    userErrors { field message }
+  }
+}`;
+}
+
+function buildCurrentBulkOperationQuery(): string {
+  return `query CurrentBulkOperation {
+  currentBulkOperation {
+    id
+    status
+    errorCode
+    createdAt
+    completedAt
+    objectCount
+    fileSize
+    url
+    partialDataUrl
+  }
+}`;
+}
+
 export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
   server: FastifyInstance,
   opts
 ): Promise<void> => {
-  const { sessionConfig } = opts;
+  const { sessionConfig, env, logger } = opts;
   const requireAdminSession = { preHandler: requireSession(sessionConfig) } as const;
 
   server.get('/bulk', requireAdminSession, async (request, reply) => {
@@ -192,13 +235,15 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
 
       const listRes = await client.query<BulkRunRow & { error_count: number }>(
         `SELECT br.id,
-                br.status,
-                br.created_at,
-                br.started_at,
-                br.completed_at,
-                br.records_processed,
-                br.query_type,
-                COALESCE(err.error_count, 0) as error_count
+          br.status,
+          br.created_at,
+          br.started_at,
+          br.completed_at,
+          br.records_processed,
+          br.bytes_processed,
+          br.result_size_bytes,
+          br.query_type,
+          COALESCE(err.error_count, 0) as error_count
          FROM bulk_runs br
          LEFT JOIN (
            SELECT bulk_run_id, COUNT(*)::int as error_count
@@ -231,7 +276,7 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
 
     const run = await withTenantContext(session.shopId, async (client) => {
       const res = await client.query<BulkRunRow>(
-        `SELECT id, status, created_at, started_at, completed_at, records_processed
+        `SELECT id, status, created_at, started_at, completed_at, records_processed, bytes_processed, result_size_bytes
          FROM bulk_runs
          WHERE status IN ('pending', 'running')
          ORDER BY created_at DESC
@@ -255,6 +300,128 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
       .send(successEnvelope(request.id, run ? normalizeRun(run.row, run.steps) : null));
   });
 
+  server.get('/bulk/active-shopify', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      void reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+      return;
+    }
+
+    try {
+      const encryptionKey = Buffer.from(env.encryptionKeyHex, 'hex');
+      const query = buildCurrentBulkOperationQuery();
+      const res = await withTokenRetry(
+        session.shopId,
+        encryptionKey,
+        logger,
+        async (accessToken, shopDomain) => {
+          const client = shopifyApi.createClient({ shopDomain, accessToken });
+          return await client.request<{
+            currentBulkOperation?: {
+              id?: string | null;
+              status?: ShopifyBulkOperationStatus | null;
+              errorCode?: string | null;
+              createdAt?: string | null;
+              completedAt?: string | null;
+              objectCount?: string | null;
+              fileSize?: string | null;
+              url?: string | null;
+              partialDataUrl?: string | null;
+            } | null;
+          }>(query);
+        }
+      );
+
+      const op = res.data?.currentBulkOperation ?? null;
+      void reply.status(200).send(successEnvelope(request.id, { operation: op }));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'active_bulk_lookup_failed';
+      logger.error(
+        { err, shopId: session.shopId },
+        'Failed to fetch current Shopify bulk operation'
+      );
+      void reply
+        .status(502)
+        .send(errorEnvelope(request.id, 502, 'BULK_ACTIVE_LOOKUP_FAILED', message));
+    }
+  });
+
+  server.post('/bulk/active-shopify/cancel', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      void reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+      return;
+    }
+
+    try {
+      const encryptionKey = Buffer.from(env.encryptionKeyHex, 'hex');
+      const query = buildCurrentBulkOperationQuery();
+      const mutation = buildBulkOperationCancelMutation();
+
+      const opRes = await withTokenRetry(
+        session.shopId,
+        encryptionKey,
+        logger,
+        async (accessToken, shopDomain) => {
+          const client = shopifyApi.createClient({ shopDomain, accessToken });
+          return await client.request<{ currentBulkOperation?: { id?: string | null } | null }>(
+            query
+          );
+        }
+      );
+
+      const opId = opRes.data?.currentBulkOperation?.id ?? null;
+      if (!opId) {
+        void reply
+          .status(404)
+          .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'No active Shopify bulk operation'));
+        return;
+      }
+
+      const cancelRes = await withTokenRetry(
+        session.shopId,
+        encryptionKey,
+        logger,
+        async (accessToken, shopDomain) => {
+          const client = shopifyApi.createClient({ shopDomain, accessToken });
+          return await client.request<{
+            bulkOperationCancel?: {
+              bulkOperation?: {
+                id?: string | null;
+                status?: ShopifyBulkOperationStatus | null;
+              } | null;
+              userErrors?: { field?: string[] | null; message?: string | null }[] | null;
+            };
+          }>(mutation, { id: opId });
+        }
+      );
+
+      const userErrors = cancelRes.data?.bulkOperationCancel?.userErrors ?? [];
+      if (userErrors.length) {
+        const message = userErrors
+          .map((e) => e?.message)
+          .filter((m): m is string => Boolean(m))
+          .join('; ');
+        throw new Error(message || 'bulk_cancel_user_errors');
+      }
+
+      void reply.status(200).send(
+        successEnvelope(request.id, {
+          cancelled: true,
+          operation: cancelRes.data?.bulkOperationCancel?.bulkOperation ?? null,
+        })
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'bulk_cancel_failed';
+      logger.error({ err, shopId: session.shopId }, 'Bulk cancel failed');
+      void reply.status(502).send(errorEnvelope(request.id, 502, 'BULK_CANCEL_FAILED', message));
+    }
+  });
+
   server.get('/bulk/:id', requireAdminSession, async (request, reply) => {
     const session = getSessionFromRequest(request, sessionConfig);
     if (!session) {
@@ -273,13 +440,15 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
     const run = await withTenantContext(session.shopId, async (client) => {
       const res = await client.query<BulkRunRow & { error_count: number }>(
         `SELECT br.id,
-                br.status,
-                br.created_at,
-                br.started_at,
-                br.completed_at,
-                br.records_processed,
-                br.query_type,
-                COALESCE(err.error_count, 0) as error_count
+          br.status,
+          br.created_at,
+          br.started_at,
+          br.completed_at,
+          br.records_processed,
+          br.bytes_processed,
+          br.result_size_bytes,
+          br.query_type,
+          COALESCE(err.error_count, 0) as error_count
          FROM bulk_runs br
          LEFT JOIN (
            SELECT bulk_run_id, COUNT(*)::int as error_count
@@ -325,6 +494,7 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
       querySet: 'core',
       version: 'v2',
       triggeredBy: 'manual',
+      idempotencyKey: `manual-${randomUUID()}`,
     });
 
     const run = await withTenantContext(session.shopId, async (client) => {
@@ -361,6 +531,61 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
       return;
     }
 
+    const run = await withTenantContext(session.shopId, async (client) => {
+      const res = await client.query<BulkRunRow>(
+        `SELECT id, shopify_operation_id
+         FROM bulk_runs
+         WHERE id = $1
+         LIMIT 1`,
+        [id]
+      );
+      return res.rows[0] ?? null;
+    });
+
+    if (!run) {
+      void reply.status(404).send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Run not found'));
+      return;
+    }
+
+    let shopifyCancelled = false;
+    if (run.shopify_operation_id) {
+      try {
+        const encryptionKey = Buffer.from(env.encryptionKeyHex, 'hex');
+        const mutation = buildBulkOperationCancelMutation();
+
+        const res = await withTokenRetry(
+          session.shopId,
+          encryptionKey,
+          logger,
+          async (accessToken, shopDomain) => {
+            const client = shopifyApi.createClient({ shopDomain, accessToken });
+            return await client.request<{
+              bulkOperationCancel?: {
+                bulkOperation?: { id?: string | null; status?: string | null } | null;
+                userErrors?: { field?: string[] | null; message?: string | null }[] | null;
+              };
+            }>(mutation, { id: run.shopify_operation_id });
+          }
+        );
+
+        const userErrors = res.data?.bulkOperationCancel?.userErrors ?? [];
+        if (userErrors.length) {
+          const message = userErrors
+            .map((e) => e?.message)
+            .filter((m): m is string => Boolean(m))
+            .join('; ');
+          throw new Error(message || 'bulk_cancel_user_errors');
+        }
+
+        shopifyCancelled = true;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'bulk_cancel_failed';
+        logger.error({ err, runId: id, shopId: session.shopId }, 'Bulk cancel failed');
+        void reply.status(502).send(errorEnvelope(request.id, 502, 'BULK_CANCEL_FAILED', message));
+        return;
+      }
+    }
+
     await withTenantContext(session.shopId, async (client) => {
       await client.query(
         `UPDATE bulk_runs
@@ -370,7 +595,7 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
       );
     });
 
-    void reply.status(200).send(successEnvelope(request.id, { cancelled: true }));
+    void reply.status(200).send(successEnvelope(request.id, { cancelled: true, shopifyCancelled }));
   });
 
   server.post('/bulk/:id/retry', requireAdminSession, async (request, reply) => {

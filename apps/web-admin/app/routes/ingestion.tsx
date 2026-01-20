@@ -24,7 +24,8 @@ type BulkRun = Readonly<{
   startedAt?: string;
   completedAt?: string;
   recordsProcessed?: number;
-  bytesProcessed?: number;
+  bytesProcessed?: number | null;
+  resultSizeBytes?: number | null;
   progress?: {
     percentage?: number;
     step?: IngestionStepId;
@@ -32,12 +33,35 @@ type BulkRun = Readonly<{
   stepName?: IngestionStepId;
 }>;
 
-type IngestionActionIntent = 'bulk.start' | 'bulk.abort';
+type ShopifyBulkOperationStatus =
+  | 'CREATED'
+  | 'RUNNING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELED'
+  | 'CANCELING'
+  | 'EXPIRED';
+
+type ShopifyBulkOperation = Readonly<{
+  id?: string | null;
+  status?: ShopifyBulkOperationStatus | null;
+  errorCode?: string | null;
+  createdAt?: string | null;
+  completedAt?: string | null;
+  objectCount?: string | null;
+  fileSize?: string | null;
+  url?: string | null;
+  partialDataUrl?: string | null;
+}>;
+
+type IngestionActionIntent = 'bulk.start' | 'bulk.abort' | 'bulk.cancel-shopify';
 
 type IngestionActionResult =
   | {
       ok: true;
       intent: IngestionActionIntent;
+      runId?: string | null;
+      status?: BulkRunStatus | null;
       toast?: { type: 'success' | 'error'; message: string };
     }
   | {
@@ -53,9 +77,17 @@ export const loader = apiLoader(async (args: LoaderFunctionArgs) => {
   const currentRun = runId
     ? await api.getApi<BulkRun | null>(`/bulk/${encodeURIComponent(runId)}`)
     : await api.getApi<BulkRun | null>('/bulk/current');
+  const activeShopifyOperation = await api.getApi<{ operation: ShopifyBulkOperation | null }>(
+    '/bulk/active-shopify'
+  );
   const recentRuns = await api.getApi<{ runs: BulkRun[] }>(`/bulk?limit=5`);
 
-  return { currentRun, runId, recentRuns: recentRuns.runs ?? [] };
+  return {
+    currentRun,
+    runId,
+    recentRuns: recentRuns.runs ?? [],
+    activeShopifyOperation: activeShopifyOperation.operation ?? null,
+  };
 });
 
 export const action = apiAction(async (args: ActionFunctionArgs) => {
@@ -63,7 +95,7 @@ export const action = apiAction(async (args: ActionFunctionArgs) => {
   const formData = await args.request.formData();
   const intent = formData.get('intent');
 
-  if (intent !== 'bulk.start' && intent !== 'bulk.abort') {
+  if (intent !== 'bulk.start' && intent !== 'bulk.abort' && intent !== 'bulk.cancel-shopify') {
     return data(
       { ok: false, error: { code: 'missing_intent', message: 'Missing intent' } },
       { status: 400 }
@@ -71,15 +103,36 @@ export const action = apiAction(async (args: ActionFunctionArgs) => {
   }
 
   if (intent === 'bulk.start') {
-    await api.postApi('/bulk/start', {
+    const startResult = await api.postApi<
+      { run_id?: string | null; status?: string | null },
+      Record<string, unknown>
+    >('/bulk/start', {
       type: 'export',
       resource: 'products',
     });
 
+    const runId = startResult.run_id ?? null;
+    const status = (startResult.status ?? null) as BulkRunStatus | null;
+
     return data({
       ok: true,
       intent,
+      runId,
+      status,
       toast: { type: 'success', message: 'Bulk ingestion started' },
+    } satisfies IngestionActionResult);
+  }
+
+  if (intent === 'bulk.cancel-shopify') {
+    await api.postApi<{ cancelled: boolean }, Record<string, never>>(
+      '/bulk/active-shopify/cancel',
+      {}
+    );
+
+    return data({
+      ok: true,
+      intent,
+      toast: { type: 'success', message: 'Shopify bulk operation cancel requested' },
     } satisfies IngestionActionResult);
   }
 
@@ -106,27 +159,79 @@ type RouteActionData = ActionData<typeof action>;
 export default function IngestionPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { currentRun: loaderRun, runId, recentRuns } = useLoaderData<RouteLoaderData>();
+  const {
+    currentRun: loaderRun,
+    runId,
+    recentRuns,
+    activeShopifyOperation,
+  } = useLoaderData<RouteLoaderData>();
   const actionFetcher = useFetcher<RouteActionData>();
   const api = useApiClient();
   const [currentRun, setCurrentRun] = useState<BulkRun | null>(loaderRun ?? null);
+  const [shopifyOperation, setShopifyOperation] = useState<ShopifyBulkOperation | null>(
+    activeShopifyOperation ?? null
+  );
+  const [showRawLogs, setShowRawLogs] = useState(false);
   const pollRef = useRef<number | null>(null);
+  const shopifyPollRef = useRef<number | null>(null);
 
   useEffect(() => {
     setCurrentRun(loaderRun ?? null);
   }, [loaderRun]);
 
   useEffect(() => {
+    setShowRawLogs(false);
+  }, [currentRun?.id]);
+
+  useEffect(() => {
+    setShopifyOperation(activeShopifyOperation ?? null);
+  }, [activeShopifyOperation]);
+
+  useEffect(() => {
     const result = actionFetcher.data;
     if (!result) return;
-    if (result.ok) {
-      if ('toast' in result && result.toast?.type === 'success') {
-        toast.success(result.toast.message);
-      }
-    } else {
-      toast.error(result.error.message);
+    if (result.ok !== true) {
+      const error = (result as { error?: { message?: string } }).error;
+      toast.error(error?.message ?? 'Request failed');
+      return;
     }
-  }, [actionFetcher.data]);
+
+    const okResult = result as Extract<IngestionActionResult, { ok: true }>;
+
+    if ('toast' in okResult && okResult.toast?.type === 'success') {
+      toast.success(okResult.toast.message);
+    }
+
+    if (okResult.intent === 'bulk.start') {
+      const selectRun = (run: BulkRun | null) => {
+        if (!run) return;
+        setCurrentRun(run);
+        void navigate(`/ingestion?runId=${encodeURIComponent(run.id)}`);
+      };
+
+      if (okResult.runId) {
+        selectRun({
+          id: okResult.runId,
+          status: okResult.status ?? 'pending',
+        });
+        return;
+      }
+
+      void api
+        .getApi<BulkRun | null>('/bulk/current')
+        .then((run) => {
+          if (run) {
+            selectRun(run);
+            return;
+          }
+          return api.getApi<{ runs: BulkRun[] }>('/bulk?limit=1').then((resp) => {
+            const fallbackRun = resp.runs?.[0] ?? null;
+            selectRun(fallbackRun ?? null);
+          });
+        })
+        .catch(() => undefined);
+    }
+  }, [actionFetcher.data, api, navigate]);
 
   const breadcrumbs = useMemo(
     () => [
@@ -146,10 +251,31 @@ export default function IngestionPage() {
   const isSelectedRun = Boolean(runId && currentRun);
   const currentStep = currentRun?.progress?.step ?? currentRun?.stepName ?? 'download';
   const progress = currentRun?.progress?.percentage ?? 0;
+  const shopifyStatus = shopifyOperation?.status ?? null;
+  const isShopifyRunning =
+    shopifyStatus === 'CREATED' || shopifyStatus === 'RUNNING' || shopifyStatus === 'CANCELING';
+  const hasShopifyOperation = Boolean(shopifyOperation?.id);
+  const showShopifyStatusCard = isActive || hasShopifyOperation;
+
+  useEffect(() => {
+    if (!isActive && !hasShopifyOperation) return;
+    if (shopifyPollRef.current) window.clearInterval(shopifyPollRef.current);
+    shopifyPollRef.current = window.setInterval(() => {
+      void api
+        .getApi<{ operation: ShopifyBulkOperation | null }>('/bulk/active-shopify')
+        .then((res) => setShopifyOperation(res.operation ?? null))
+        .catch(() => undefined);
+    }, 5000);
+
+    return () => {
+      if (shopifyPollRef.current) window.clearInterval(shopifyPollRef.current);
+      shopifyPollRef.current = null;
+    };
+  }, [api, hasShopifyOperation, isActive]);
 
   const logStream = useLogStream({
     endpoint: currentRun ? `/api/bulk/${currentRun.id}/logs/stream` : '',
-    enabled: Boolean(currentRun),
+    enabled: Boolean(currentRun && isActive),
     maxEventsPerSecond: 50,
   });
 
@@ -183,6 +309,53 @@ export default function IngestionPage() {
     void actionFetcher.submit(formData, { method: 'post' });
   };
 
+  const cancelShopifyOperation = () => {
+    const formData = new FormData();
+    formData.set('intent', 'bulk.cancel-shopify');
+    void actionFetcher.submit(formData, { method: 'post' });
+  };
+
+  const showLogConsole = !isActive || showRawLogs;
+
+  const formatCount = (value?: string | null) => {
+    const count = value ? Number(value) : Number.NaN;
+    if (!Number.isFinite(count)) return null;
+    return new Intl.NumberFormat('en-GB').format(count);
+  };
+
+  const formatMegabytes = (value?: string | null) => {
+    const bytes = value ? Number(value) : Number.NaN;
+    if (!Number.isFinite(bytes)) return null;
+    const mb = bytes / (1024 * 1024);
+    return `${mb.toFixed(mb >= 10 ? 0 : 1)} Mb`;
+  };
+
+  const formatBytesToMb = (value?: number | null) => {
+    const bytes = typeof value === 'number' ? value : Number.NaN;
+    if (!Number.isFinite(bytes)) return null;
+    const mb = bytes / (1024 * 1024);
+    return `${mb.toFixed(mb >= 10 ? 0 : 1)} Mb`;
+  };
+
+  const objectCountLabel = formatCount(shopifyOperation?.objectCount);
+  const fileSizeLabel = formatMegabytes(shopifyOperation?.fileSize);
+  const downloadBytesLabel = formatBytesToMb(currentRun?.bytesProcessed ?? null);
+  const downloadTotalLabel = formatBytesToMb(currentRun?.resultSizeBytes ?? null);
+  const downloadProgressPct =
+    typeof currentRun?.bytesProcessed === 'number' &&
+    typeof currentRun?.resultSizeBytes === 'number' &&
+    currentRun.resultSizeBytes > 0
+      ? Math.min(100, Math.round((currentRun.bytesProcessed / currentRun.resultSizeBytes) * 100))
+      : null;
+  const finalShopifyMessage =
+    !isShopifyRunning && shopifyStatus
+      ? shopifyOperation?.errorCode
+        ? `Shopify error: ${shopifyOperation.errorCode}`
+        : shopifyStatus === 'COMPLETED'
+          ? 'Shopify finished the bulk export.'
+          : `Shopify finished with status ${shopifyStatus}.`
+      : null;
+
   return (
     <div className="space-y-6">
       <Breadcrumbs items={breadcrumbs} />
@@ -201,6 +374,81 @@ export default function IngestionPage() {
         <p className="text-body text-muted">Monitor and manage data synchronization with Shopify</p>
       </header>
 
+      {showShopifyStatusCard && (
+        <PolarisCard className="p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-h3">
+                {isShopifyRunning || isActive
+                  ? 'Shopify sync in progress'
+                  : 'Shopify sync finished'}
+              </div>
+              <div className="text-caption text-muted">
+                Status: {shopifyStatus ?? 'waiting for Shopify response'}
+                {shopifyOperation?.id ? ` · ${shopifyOperation.id}` : ''}
+                {shopifyStatus === 'CANCELING' ? ' · Canceling…' : ''}
+              </div>
+              {Boolean(objectCountLabel ?? fileSizeLabel) && (
+                <div className="text-caption text-muted">
+                  {objectCountLabel ? `Objects: ${objectCountLabel}` : null}
+                  {objectCountLabel && fileSizeLabel ? ' · ' : null}
+                  {fileSizeLabel ? `File size: ${fileSizeLabel}` : null}
+                </div>
+              )}
+              {finalShopifyMessage ? (
+                <div className="text-caption text-muted">{finalShopifyMessage}</div>
+              ) : null}
+              {shopifyStatus === 'COMPLETED' && shopifyOperation?.url ? (
+                <div className="text-caption">
+                  <a
+                    className="text-blue-600 underline"
+                    href={shopifyOperation.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Download bulk file
+                  </a>
+                </div>
+              ) : null}
+              {shopifyStatus === 'COMPLETED' && shopifyOperation?.partialDataUrl ? (
+                <div className="text-caption">
+                  <a
+                    className="text-blue-600 underline"
+                    href={shopifyOperation.partialDataUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Download partial data
+                  </a>
+                </div>
+              ) : null}
+            </div>
+            {isShopifyRunning ? (
+              <Button
+                variant="destructive"
+                onClick={cancelShopifyOperation}
+                disabled={actionFetcher.state !== 'idle' || shopifyStatus === 'CANCELING'}
+              >
+                Cancel Shopify sync
+              </Button>
+            ) : null}
+          </div>
+          {(isShopifyRunning || isActive) && (
+            <div className="mt-4 flex items-center gap-3 text-caption text-muted">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              Shopify is still processing the bulk export. We will update automatically.
+              {Boolean(objectCountLabel ?? fileSizeLabel) && (
+                <span>
+                  {objectCountLabel ? `Processed ${objectCountLabel} products` : null}
+                  {objectCountLabel && fileSizeLabel ? ' · ' : null}
+                  {fileSizeLabel ? `File size ${fileSizeLabel}` : null}
+                </span>
+              )}
+            </div>
+          )}
+        </PolarisCard>
+      )}
+
       {isActive && currentRun ? (
         <PolarisCard className="p-4">
           <div className="space-y-6">
@@ -212,15 +460,40 @@ export default function IngestionPage() {
               abortDisabled={actionFetcher.state !== 'idle'}
             />
 
-            <LogConsole
-              logs={logStream.logs}
-              connected={logStream.connected}
-              error={logStream.error}
-              paused={logStream.paused}
-              onPause={logStream.pause}
-              onResume={logStream.resume}
-              onClear={logStream.clear}
-            />
+            {downloadBytesLabel && downloadTotalLabel ? (
+              <div className="text-caption text-muted">
+                Downloaded {downloadBytesLabel} of {downloadTotalLabel}
+                {typeof downloadProgressPct === 'number' ? ` · ${downloadProgressPct}%` : ''}
+              </div>
+            ) : null}
+
+            {isActive && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setShowRawLogs((prev) => !prev)}
+                >
+                  {showRawLogs ? 'Hide raw logs' : 'Show raw logs'}
+                </Button>
+              </div>
+            )}
+            {showLogConsole ? (
+              <LogConsole
+                logs={logStream.logs}
+                connected={logStream.connected}
+                error={logStream.error}
+                {...(isActive ? {} : { statusLabel: 'Historical', statusTone: 'warning' })}
+                paused={logStream.paused}
+                onPause={logStream.pause}
+                onResume={logStream.resume}
+                onClear={logStream.clear}
+              />
+            ) : (
+              <div className="rounded-md border border-dashed p-4 text-caption text-muted">
+                Raw logs are hidden while the sync is running to avoid noise.
+              </div>
+            )}
           </div>
         </PolarisCard>
       ) : isSelectedRun && currentRun ? (
@@ -231,19 +504,31 @@ export default function IngestionPage() {
                 <div className="text-h3">Run {currentRun.id}</div>
                 <div className="text-caption text-muted">Status: {currentRun.status}</div>
               </div>
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  void navigate('/ingestion');
-                }}
-              >
-                Clear selection
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                {(currentRun.status === 'pending' || currentRun.status === 'running') && (
+                  <Button
+                    variant="destructive"
+                    onClick={abortIngestion}
+                    disabled={actionFetcher.state !== 'idle'}
+                  >
+                    Cancel run
+                  </Button>
+                )}
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    void navigate('/ingestion');
+                  }}
+                >
+                  Clear selection
+                </Button>
+              </div>
             </div>
             <LogConsole
               logs={logStream.logs}
               connected={logStream.connected}
               error={logStream.error}
+              {...(isActive ? {} : { statusLabel: 'Historical', statusTone: 'warning' })}
               paused={logStream.paused}
               onPause={logStream.pause}
               onResume={logStream.resume}

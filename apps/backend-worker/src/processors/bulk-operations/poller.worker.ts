@@ -525,6 +525,8 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
                   jobId,
                   bulkRunId: payload.bulkRunId,
                   status: bulk.status,
+                  objectCount: safeIntFromString(bulk.objectCount),
+                  fileSizeBytes: safeIntFromString(bulk.fileSize),
                 },
                 'Polled bulk operation status'
               );

@@ -23,13 +23,16 @@ import {
 } from '@app/types';
 import { withTenantContext } from '@app/database';
 import * as path from 'node:path';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, rm, stat, truncate } from 'node:fs/promises';
 
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
 import { enqueueDlqDirect } from './failure-handler.js';
 import { insertBulkError, insertBulkStep, loadBulkRunContext } from './state-machine.js';
 import { getBulkIngestConfig } from './config.js';
-import { runBulkStreamingPipelineWithStitching } from './pipeline/index.js';
+import {
+  runBulkStreamingPipelineWithStitching,
+  runBulkStreamingPipelineWithStitchingFromFile,
+} from './pipeline/index.js';
 import { StagingCopyWriter } from './pipeline/stages/copy-writer.js';
 import { readIngestCheckpoint, persistIngestCheckpoint } from './pipeline/checkpoint.js';
 import { runMergeFromStaging } from './pipeline/stages/merge.js';
@@ -49,10 +52,112 @@ async function ensureBulkIngestArtifactsDir(params: {
 }): Promise<string> {
   const configuredBase = process.env['BULK_INGEST_ARTIFACTS_DIR']?.trim();
   const base =
-    configuredBase && configuredBase.length > 0 ? configuredBase : '/tmp/neanelu-bulk-ingest';
+    configuredBase && configuredBase.length > 0
+      ? configuredBase
+      : '/var/lib/neanelu/bulk-artifacts';
   const dir = path.join(base, params.shopId, params.bulkRunId);
   await mkdir(dir, { recursive: true });
   return dir;
+}
+
+async function preparePersistedJsonl(params: {
+  jsonlPath: string;
+  resumeFromBytes: number;
+}): Promise<{ path: string; append: boolean } | null> {
+  const resumeBytes = Math.max(0, Math.trunc(params.resumeFromBytes));
+  if (resumeBytes <= 0) {
+    return { path: params.jsonlPath, append: false };
+  }
+
+  const existing = await stat(params.jsonlPath).catch(() => null);
+  if (!existing?.isFile()) {
+    return null;
+  }
+
+  if (existing.size > resumeBytes) {
+    await truncate(params.jsonlPath, resumeBytes);
+  }
+
+  if (existing.size < resumeBytes) {
+    return null;
+  }
+
+  return { path: params.jsonlPath, append: true };
+}
+
+async function insertJsonlArtifact(params: {
+  shopId: string;
+  bulkRunId: string;
+  filePath: string;
+  bytesSize: number;
+  rowsCount?: number | null;
+}): Promise<void> {
+  await withTenantContext(params.shopId, async (client) => {
+    await client.query(
+      `INSERT INTO bulk_artifacts (
+         bulk_run_id,
+         shop_id,
+         artifact_type,
+         file_path,
+         url,
+         bytes_size,
+         rows_count,
+         created_at
+       )
+       VALUES ($1, $2, 'shopify_bulk_result_jsonl', $3, NULL, $4, $5, now())`,
+      [params.bulkRunId, params.shopId, params.filePath, params.bytesSize, params.rowsCount ?? null]
+    );
+  });
+}
+
+async function updateBulkRunBytesProcessed(params: {
+  shopId: string;
+  bulkRunId: string;
+  bytesProcessed: number;
+}): Promise<void> {
+  await withTenantContext(params.shopId, async (client) => {
+    await client.query(
+      `UPDATE bulk_runs
+       SET bytes_processed = GREATEST(bytes_processed, $1::bigint),
+           updated_at = now()
+       WHERE id = $2
+         AND shop_id = $3`,
+      [Math.max(0, Math.trunc(params.bytesProcessed)), params.bulkRunId, params.shopId]
+    );
+  });
+}
+
+async function pruneOldJsonlArtifacts(params: { shopId: string; keep: number }): Promise<void> {
+  await withTenantContext(params.shopId, async (client) => {
+    const { rows } = await client.query<{
+      bulk_run_id: string;
+      file_path: string | null;
+    }>(
+      `SELECT bulk_run_id, file_path
+       FROM bulk_artifacts
+       WHERE shop_id = $1
+         AND artifact_type = 'shopify_bulk_result_jsonl'
+       ORDER BY created_at DESC`,
+      [params.shopId]
+    );
+
+    const toDelete = rows.slice(Math.max(0, params.keep));
+    if (toDelete.length === 0) return;
+
+    const runIds = toDelete.map((row) => row.bulk_run_id);
+    await client.query(
+      `DELETE FROM bulk_artifacts
+       WHERE shop_id = $1
+         AND artifact_type = 'shopify_bulk_result_jsonl'
+         AND bulk_run_id = ANY($2::uuid[])`,
+      [params.shopId, runIds]
+    );
+
+    for (const row of toDelete) {
+      if (!row.file_path) continue;
+      await rm(row.file_path, { force: true }).catch(() => undefined);
+    }
+  });
 }
 
 function extractBulkIdentifiers(data: unknown): { shopId?: string; bulkRunId?: string } {
@@ -183,6 +288,23 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
           const lastSuccessfulId =
             prevCheckpoint?.version === 2 ? prevCheckpoint.lastSuccessfulId : null;
 
+          const jsonlPath = path.join(artifactsDir, 'bulk-result.jsonl');
+          const persistJsonl = await preparePersistedJsonl({
+            jsonlPath,
+            resumeFromBytes: committedBytes,
+          });
+          if (!persistJsonl && committedBytes > 0) {
+            logger.warn(
+              {
+                [OTEL_ATTR.SHOP_ID]: payload.shopId,
+                bulkRunId: payload.bulkRunId,
+                resumeFromBytes: committedBytes,
+                jsonlPath,
+              },
+              'Skipping JSONL persistence because resume file is missing or smaller than resume offset'
+            );
+          }
+
           // Clean staging for fresh ingest.
           if (!prevCheckpoint || committedRecords <= 0) {
             await withTenantContext(payload.shopId, async (client) => {
@@ -220,6 +342,7 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
           let lastMetricsAt = Date.now();
           let lastLines = 0;
           let lastBytes = 0;
+          let downloadBytes = committedBytes;
 
           const emitIngestMetrics = (): void => {
             const now = Date.now();
@@ -243,119 +366,250 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
             lastBytes = pipelineCounters.bytesProcessed;
           };
 
-          const pipelineResult = await withBulkSpan(
-            'bulk.copy',
-            {
-              shopId: payload.shopId,
-              bulkRunId: payload.bulkRunId,
-              operationType: op,
-              queryType: run.query_type ?? null,
-              step: 'copy',
-            },
-            async () =>
-              await runBulkStreamingPipelineWithStitching({
+          let pipelineResult: Awaited<ReturnType<typeof runBulkStreamingPipelineWithStitching>>;
+          try {
+            pipelineResult = await withBulkSpan(
+              'bulk.copy',
+              {
                 shopId: payload.shopId,
                 bulkRunId: payload.bulkRunId,
                 operationType: op,
-                artifactsDir,
-                logger,
-                url: payload.resultUrl,
-                ...(committedBytes > 0 ? { resumeFromBytes: committedBytes } : {}),
-                counters: pipelineCounters,
-                tolerateInvalidLines: true,
-                parseEngine: 'stream-json',
-                downloadHighWaterMarkBytes: cfg.downloadHighWaterMarkBytes,
-                onDownloadRetry: (retry) => {
-                  recordBulkDownloadRetryEvent({
-                    shopId: payload.shopId,
-                    bulkRunId: payload.bulkRunId,
-                    attempt: retry.attempt,
-                    reason: retry.reason,
-                    delayMs: retry.delayMs,
-                  });
-                },
-                onParseIssue: (issue) => {
-                  void insertBulkError({
-                    shopId: payload.shopId,
-                    bulkRunId: payload.bulkRunId,
-                    lineNumber: issue.lineNumber,
-                    errorType: 'ingest_parse_issue',
-                    errorCode: issue.kind,
-                    errorMessage: issue.message,
-                  }).catch(() => undefined);
-                },
-                onRecord: async (record) => {
-                  if (
-                    record.kind.startsWith('quarantine_') &&
-                    'id' in record &&
-                    typeof record.id === 'string' &&
-                    quarantineSampleIds.size < 5
-                  ) {
-                    quarantineSampleIds.add(record.id);
-                  }
-                  if (!copyWriter) {
-                    throw new Error('copy_writer_uninitialized');
-                  }
-                  stitchedRecordsSeen += 1;
-
-                  // Best-effort last successful identifier (plan requirement).
-                  if (
-                    record.kind === 'product' ||
-                    record.kind === 'variant' ||
-                    record.kind === 'inventory_item' ||
-                    record.kind === 'inventory_level'
-                  ) {
-                    lastIdSeen = record.id;
-                  } else if (
-                    record.kind === 'product_metafields_patch' ||
-                    record.kind === 'variant_metafields_patch'
-                  ) {
-                    lastIdSeen = record.ownerId;
-                  } else {
-                    // quarantine_* and other records still have an id
-                    if ('id' in record && typeof (record as { id?: unknown }).id === 'string') {
-                      lastIdSeen = (record as { id: string }).id;
-                    }
-                  }
-
-                  if (stitchedRecordsSeen <= committedRecords) {
-                    // Resume: skip already committed stitched records.
-                    return;
-                  }
-
-                  const { flushed } = await copyWriter.handleRecord(record);
-
-                  if (flushed) {
-                    const counters = copyWriter.getCounters();
-                    productsCommitted = counters.productsCopied;
-                    variantsCommitted = counters.variantsCopied;
-
-                    committedBytesSeen = pipelineCounters.bytesProcessed;
-                    committedLinesSeen = pipelineCounters.totalLines;
-
-                    await persistIngestCheckpoint({
+                queryType: run.query_type ?? null,
+                step: 'copy',
+              },
+              async () =>
+                await runBulkStreamingPipelineWithStitching({
+                  shopId: payload.shopId,
+                  bulkRunId: payload.bulkRunId,
+                  operationType: op,
+                  artifactsDir,
+                  logger,
+                  url: payload.resultUrl,
+                  persistJsonlPath: persistJsonl?.path ?? null,
+                  persistJsonlAppend: persistJsonl?.append ?? false,
+                  ...(committedBytes > 0 ? { resumeFromBytes: committedBytes } : {}),
+                  counters: pipelineCounters,
+                  tolerateInvalidLines: true,
+                  parseEngine: 'stream-json',
+                  downloadHighWaterMarkBytes: cfg.downloadHighWaterMarkBytes,
+                  onDownloadRetry: (retry) => {
+                    recordBulkDownloadRetryEvent({
                       shopId: payload.shopId,
                       bulkRunId: payload.bulkRunId,
-                      recordsProcessed: stitchedRecordsSeen,
-                      bytesProcessed: pipelineCounters.bytesProcessed,
-                      checkpoint: {
-                        version: 2,
-                        committedRecords: stitchedRecordsSeen,
-                        committedProducts: productsCommitted,
-                        committedVariants: variantsCommitted,
-                        committedBytes: committedBytesSeen,
-                        committedLines: committedLinesSeen,
-                        lastSuccessfulId: lastIdSeen,
-                        lastCommitAtIso: new Date().toISOString(),
-                        isFullSnapshot,
-                      },
+                      attempt: retry.attempt,
+                      reason: retry.reason,
+                      delayMs: retry.delayMs,
                     });
+                  },
+                  onDownloadChunk: (chunk) => {
+                    downloadBytes += chunk.bytes;
+                    void updateBulkRunBytesProcessed({
+                      shopId: payload.shopId,
+                      bulkRunId: payload.bulkRunId,
+                      bytesProcessed: downloadBytes,
+                    });
+                  },
+                  onParseIssue: (issue) => {
+                    void insertBulkError({
+                      shopId: payload.shopId,
+                      bulkRunId: payload.bulkRunId,
+                      lineNumber: issue.lineNumber,
+                      errorType: 'ingest_parse_issue',
+                      errorCode: issue.kind,
+                      errorMessage: issue.message,
+                    }).catch(() => undefined);
+                  },
+                  onRecord: async (record) => {
+                    if (
+                      record.kind.startsWith('quarantine_') &&
+                      'id' in record &&
+                      typeof record.id === 'string' &&
+                      quarantineSampleIds.size < 5
+                    ) {
+                      quarantineSampleIds.add(record.id);
+                    }
+                    if (!copyWriter) {
+                      throw new Error('copy_writer_uninitialized');
+                    }
+                    stitchedRecordsSeen += 1;
 
-                    emitIngestMetrics();
-                  }
-                },
-              })
-          );
+                    // Best-effort last successful identifier (plan requirement).
+                    if (
+                      record.kind === 'product' ||
+                      record.kind === 'variant' ||
+                      record.kind === 'inventory_item' ||
+                      record.kind === 'inventory_level'
+                    ) {
+                      lastIdSeen = record.id;
+                    } else if (
+                      record.kind === 'product_metafields_patch' ||
+                      record.kind === 'variant_metafields_patch'
+                    ) {
+                      lastIdSeen = record.ownerId;
+                    } else {
+                      // quarantine_* and other records still have an id
+                      if ('id' in record && typeof (record as { id?: unknown }).id === 'string') {
+                        lastIdSeen = (record as { id: string }).id;
+                      }
+                    }
+
+                    if (stitchedRecordsSeen <= committedRecords) {
+                      // Resume: skip already committed stitched records.
+                      return;
+                    }
+
+                    const { flushed } = await copyWriter.handleRecord(record);
+
+                    if (flushed) {
+                      const counters = copyWriter.getCounters();
+                      productsCommitted = counters.productsCopied;
+                      variantsCommitted = counters.variantsCopied;
+
+                      committedBytesSeen = pipelineCounters.bytesProcessed;
+                      committedLinesSeen = pipelineCounters.totalLines;
+
+                      await persistIngestCheckpoint({
+                        shopId: payload.shopId,
+                        bulkRunId: payload.bulkRunId,
+                        recordsProcessed: stitchedRecordsSeen,
+                        bytesProcessed: pipelineCounters.bytesProcessed,
+                        checkpoint: {
+                          version: 2,
+                          committedRecords: stitchedRecordsSeen,
+                          committedProducts: productsCommitted,
+                          committedVariants: variantsCommitted,
+                          committedBytes: committedBytesSeen,
+                          committedLines: committedLinesSeen,
+                          lastSuccessfulId: lastIdSeen,
+                          lastCommitAtIso: new Date().toISOString(),
+                          isFullSnapshot,
+                        },
+                      });
+
+                      emitIngestMetrics();
+                    }
+                  },
+                })
+            );
+          } catch (error) {
+            const fallbackPath = persistJsonl?.path ?? null;
+            const fallbackStat = fallbackPath ? await stat(fallbackPath).catch(() => null) : null;
+            if (!fallbackPath || !fallbackStat?.isFile() || fallbackStat.size <= 0) {
+              throw error;
+            }
+
+            logger.warn(
+              {
+                [OTEL_ATTR.SHOP_ID]: payload.shopId,
+                bulkRunId: payload.bulkRunId,
+                fallbackPath,
+                fallbackBytes: fallbackStat.size,
+              },
+              'Stream interrupted; falling back to local JSONL file'
+            );
+
+            pipelineResult = await withBulkSpan(
+              'bulk.copy.fallback_local',
+              {
+                shopId: payload.shopId,
+                bulkRunId: payload.bulkRunId,
+                operationType: op,
+                queryType: run.query_type ?? null,
+                step: 'copy',
+              },
+              async () =>
+                await runBulkStreamingPipelineWithStitchingFromFile({
+                  shopId: payload.shopId,
+                  bulkRunId: payload.bulkRunId,
+                  operationType: op,
+                  artifactsDir,
+                  logger,
+                  filePath: fallbackPath,
+                  ...(committedBytes > 0 ? { startOffsetBytes: committedBytes } : {}),
+                  counters: pipelineCounters,
+                  tolerateInvalidLines: true,
+                  parseEngine: 'stream-json',
+                  readHighWaterMarkBytes: cfg.downloadHighWaterMarkBytes,
+                  onParseIssue: (issue) => {
+                    void insertBulkError({
+                      shopId: payload.shopId,
+                      bulkRunId: payload.bulkRunId,
+                      lineNumber: issue.lineNumber,
+                      errorType: 'ingest_parse_issue',
+                      errorCode: issue.kind,
+                      errorMessage: issue.message,
+                    }).catch(() => undefined);
+                  },
+                  onRecord: async (record) => {
+                    if (
+                      record.kind.startsWith('quarantine_') &&
+                      'id' in record &&
+                      typeof record.id === 'string' &&
+                      quarantineSampleIds.size < 5
+                    ) {
+                      quarantineSampleIds.add(record.id);
+                    }
+                    if (!copyWriter) {
+                      throw new Error('copy_writer_uninitialized');
+                    }
+                    stitchedRecordsSeen += 1;
+
+                    if (
+                      record.kind === 'product' ||
+                      record.kind === 'variant' ||
+                      record.kind === 'inventory_item' ||
+                      record.kind === 'inventory_level'
+                    ) {
+                      lastIdSeen = record.id;
+                    } else if (
+                      record.kind === 'product_metafields_patch' ||
+                      record.kind === 'variant_metafields_patch'
+                    ) {
+                      lastIdSeen = record.ownerId;
+                    } else {
+                      if ('id' in record && typeof (record as { id?: unknown }).id === 'string') {
+                        lastIdSeen = (record as { id: string }).id;
+                      }
+                    }
+
+                    if (stitchedRecordsSeen <= committedRecords) {
+                      return;
+                    }
+
+                    const { flushed } = await copyWriter.handleRecord(record);
+
+                    if (flushed) {
+                      const counters = copyWriter.getCounters();
+                      productsCommitted = counters.productsCopied;
+                      variantsCommitted = counters.variantsCopied;
+
+                      committedBytesSeen = pipelineCounters.bytesProcessed;
+                      committedLinesSeen = pipelineCounters.totalLines;
+
+                      await persistIngestCheckpoint({
+                        shopId: payload.shopId,
+                        bulkRunId: payload.bulkRunId,
+                        recordsProcessed: stitchedRecordsSeen,
+                        bytesProcessed: pipelineCounters.bytesProcessed,
+                        checkpoint: {
+                          version: 2,
+                          committedRecords: stitchedRecordsSeen,
+                          committedProducts: productsCommitted,
+                          committedVariants: variantsCommitted,
+                          committedBytes: committedBytesSeen,
+                          committedLines: committedLinesSeen,
+                          lastSuccessfulId: lastIdSeen,
+                          lastCommitAtIso: new Date().toISOString(),
+                          isFullSnapshot,
+                        },
+                      });
+
+                      emitIngestMetrics();
+                    }
+                  },
+                })
+            );
+          }
 
           const writer = copyWriter;
           if (!writer) {
@@ -447,6 +701,20 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
             stepName: 'ingest.completed',
             status: 'completed',
           });
+
+          if (persistJsonl?.path) {
+            const fileInfo = await stat(persistJsonl.path).catch(() => null);
+            if (fileInfo?.isFile() && fileInfo.size > 0) {
+              await insertJsonlArtifact({
+                shopId: payload.shopId,
+                bulkRunId: payload.bulkRunId,
+                filePath: persistJsonl.path,
+                bytesSize: fileInfo.size,
+                rowsCount: persistJsonl.append ? null : pipelineCounters.totalLines,
+              });
+              await pruneOldJsonlArtifacts({ shopId: payload.shopId, keep: 2 });
+            }
+          }
 
           logger.info(
             {

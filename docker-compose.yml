@@ -189,9 +189,11 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT_DOCKER}
       OTEL_SAMPLING_RATIO: ${OTEL_SAMPLING_RATIO}
       OBS_DEBUG: ${OBS_DEBUG}
+      BULK_INGEST_ARTIFACTS_DIR: /var/lib/neanelu/bulk-artifacts
     volumes:
       - backend_worker_node_modules:/app/node_modules
       - backend_worker_pnpm_store:/pnpm/store
+      - bulk_artifacts:/var/lib/neanelu/bulk-artifacts
     depends_on:
       db:
         condition: service_healthy
@@ -243,6 +245,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: ${NODE_ENV}
+      DOCKER: 'true'
       FRONTEND_PORT: ${FRONTEND_PORT:-65001}
       APP_HOSTNAME: ${APP_HOSTNAME}
       NPM_TASKFORCESH_TOKEN: ${NPM_TASKFORCESH_TOKEN}
@@ -431,6 +434,8 @@ volumes:
     name: neanelu_backend_worker_node_modules
   backend_worker_pnpm_store:
     name: neanelu_backend_worker_pnpm_store
+  bulk_artifacts:
+    name: neanelu_bulk_artifacts
 
 # ============================================
 # NETWORKS

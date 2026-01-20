@@ -9,7 +9,10 @@
  */
 
 import { pipeline } from 'node:stream/promises';
-import { Writable } from 'node:stream';
+import { Writable, Transform } from 'node:stream';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
+import * as path from 'node:path';
 
 import { createDownloadStream } from './stages/download.js';
 import { createJsonlParseStream } from './stages/parse.js';
@@ -53,6 +56,10 @@ export type RunBulkStreamingPipelineWithStitchingParams = Readonly<{
   artifactsDir: string;
   logger: Logger;
   url: string;
+  /** Optional JSONL file persistence path. If set, the raw stream is saved to disk. */
+  persistJsonlPath?: string | null;
+  /** Append to the JSONL file (used when resuming). */
+  persistJsonlAppend?: boolean;
   /** Best-effort resume offset (bytes). Used as Range start for identity streams. */
   resumeFromBytes?: number;
   /** Optional counters object to be mutated by the parse stage (useful for progress/checkpointing). */
@@ -73,6 +80,28 @@ export type RunBulkStreamingPipelineWithStitchingParams = Readonly<{
 export type RunBulkStreamingPipelineWithStitchingResult = Readonly<{
   counters: PipelineCounters;
   stitching: StitchingCounters;
+}>;
+
+export type RunBulkStreamingPipelineWithStitchingFromFileParams = Readonly<{
+  shopId: string;
+  bulkRunId?: string | null;
+  operationType?: string | null;
+  artifactsDir: string;
+  logger: Logger;
+  filePath: string;
+  /** Optional read offset (bytes) for resume. */
+  startOffsetBytes?: number;
+  /** Optional counters object to be mutated by the parse stage (useful for progress/checkpointing). */
+  counters?: PipelineCounters;
+  /** Optional read stream buffer sizing. */
+  readHighWaterMarkBytes?: number;
+  tolerateInvalidLines?: boolean;
+  parseEngine?: 'stream-json' | 'json-parse';
+  onRecord: (record: StitchedRecord) => Promise<void> | void;
+  onParseIssue?: (issue: ParseIssue) => void;
+  bucketCount?: number;
+  maxInMemoryParents?: number;
+  maxInMemoryOrphans?: number;
 }>;
 
 /**
@@ -221,8 +250,126 @@ export async function runBulkStreamingPipelineWithStitching(
     },
   });
 
+  let persistStream: ReturnType<typeof createWriteStream> | null = null;
+  let persistTransform: Transform | null = null;
+  if (params.persistJsonlPath) {
+    await mkdir(path.dirname(params.persistJsonlPath), { recursive: true });
+    persistStream = createWriteStream(params.persistJsonlPath, {
+      flags: params.persistJsonlAppend ? 'a' : 'w',
+    });
+    persistTransform = new Transform({
+      transform: (chunk: Buffer | string, _enc, cb) => {
+        if (!persistStream) {
+          cb(new Error('persist_stream_missing'));
+          return;
+        }
+        const onError = (err: Error): void => {
+          persistStream?.removeListener('error', onError);
+          cb(err);
+        };
+        persistStream.once('error', onError);
+        persistStream.write(chunk, (err) => {
+          persistStream?.removeListener('error', onError);
+          if (err) {
+            cb(err);
+            return;
+          }
+          cb(null, chunk);
+        });
+      },
+    });
+  }
+
   try {
-    await pipeline(download.stream, parse, sink);
+    if (persistTransform) {
+      await pipeline(download.stream, persistTransform, parse, sink);
+    } else {
+      await pipeline(download.stream, parse, sink);
+    }
+    await remapper.finalize();
+  } finally {
+    if (persistStream) {
+      await new Promise<void>((resolve, reject) => {
+        persistStream.once('error', reject);
+        persistStream.end(() => resolve());
+      }).catch(() => undefined);
+    }
+    transformSpan.end();
+  }
+
+  return { counters, stitching: remapper.getCounters() };
+}
+
+/**
+ * Pipeline with stitching transform sourced from a local JSONL file.
+ * Used as a fallback if the remote stream is interrupted.
+ */
+export async function runBulkStreamingPipelineWithStitchingFromFile(
+  params: RunBulkStreamingPipelineWithStitchingFromFileParams
+): Promise<RunBulkStreamingPipelineWithStitchingResult> {
+  const counters: PipelineCounters = params.counters ?? {
+    bytesProcessed: 0,
+    totalLines: 0,
+    validLines: 0,
+    invalidLines: 0,
+  };
+
+  const remapper = new ParentChildRemapper({
+    shopId: params.shopId,
+    artifactsDir: params.artifactsDir,
+    logger: params.logger,
+    onRecord: params.onRecord,
+    ...(params.bucketCount !== undefined ? { bucketCount: params.bucketCount } : {}),
+    ...(params.maxInMemoryParents !== undefined
+      ? { maxInMemoryParents: params.maxInMemoryParents }
+      : {}),
+    ...(params.maxInMemoryOrphans !== undefined
+      ? { maxInMemoryOrphans: params.maxInMemoryOrphans }
+      : {}),
+  });
+  await remapper.init();
+
+  const tracer = trace.getTracer('neanelu-shopify');
+  const baseAttrs = {
+    shopId: params.shopId,
+    bulkRunId: params.bulkRunId ?? null,
+    operationType: params.operationType ?? null,
+  } as const;
+  const parseAttrs = buildBulkSpanAttributes({ ...baseAttrs, step: 'parse' });
+  const transformAttrs = buildBulkSpanAttributes({ ...baseAttrs, step: 'transform' });
+  const transformSpan = tracer.startSpan('bulk.transform', { attributes: transformAttrs });
+
+  const readStream = createReadStream(params.filePath, {
+    ...(params.readHighWaterMarkBytes ? { highWaterMark: params.readHighWaterMarkBytes } : {}),
+    ...(params.startOffsetBytes && params.startOffsetBytes > 0
+      ? { start: Math.max(0, Math.trunc(params.startOffsetBytes)) }
+      : {}),
+  });
+
+  const parse = createJsonlParseStream({
+    counters,
+    tolerateInvalidLines: params.tolerateInvalidLines ?? true,
+    engine: params.parseEngine ?? 'stream-json',
+    ...(params.onParseIssue ? { onParseIssue: params.onParseIssue } : {}),
+  });
+  const parseSpan = tracer.startSpan('bulk.parse', { attributes: parseAttrs });
+  parse.once('end', () => parseSpan.end());
+  parse.once('error', (err) => {
+    if (err instanceof Error) parseSpan.recordException(err);
+    parseSpan.end();
+  });
+
+  const sink = new Writable({
+    objectMode: true,
+    write: (obj: unknown, _enc, cb) => {
+      Promise.resolve(remapper.processLine(obj as MinimalBulkJsonlObject))
+        .then(() => cb())
+        .catch((err) => cb(err instanceof Error ? err : new Error('stitch_process_failed')));
+    },
+  });
+
+  try {
+    await pipeline(readStream, parse, sink);
     await remapper.finalize();
   } finally {
     transformSpan.end();

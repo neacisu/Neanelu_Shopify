@@ -52,6 +52,8 @@ export interface LogConsoleProps {
   shopId?: string;
   maxEventsPerSecond?: number;
   bufferSize?: number;
+  statusLabel?: string;
+  statusTone?: 'success' | 'warning' | 'critical' | 'info' | 'new';
 }
 
 export function LogConsole({
@@ -69,6 +71,8 @@ export function LogConsole({
   onTraceClick,
   jaegerBaseUrl,
   transport,
+  statusLabel,
+  statusTone,
 }: LogConsoleProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [showErrorsOnly, setShowErrorsOnly] = useState(false);
@@ -140,7 +144,9 @@ export function LogConsole({
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          {connected !== undefined ? (
+          {statusLabel ? (
+            <PolarisBadge tone={statusTone ?? 'warning'}>{statusLabel}</PolarisBadge>
+          ) : connected !== undefined ? (
             <PolarisBadge tone={connected ? 'success' : 'warning'}>
               {connected ? 'Live' : 'Offline'}
             </PolarisBadge>

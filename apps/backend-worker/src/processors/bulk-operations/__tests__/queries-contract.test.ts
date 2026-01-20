@@ -40,7 +40,7 @@ void describe('PR-038 bulk query contract', () => {
     assert.equal(inv.version, 'v2');
 
     // Core must include variant.product.id (logical stitching key per plan).
-    assert.ok(core.graphqlQuery.includes('product {\n            id\n          }'));
+    assert.ok(/product\s*{\s*id\s*}/.test(core.graphqlQuery));
 
     // Meta must include metafield.owner.id (logical stitching key per plan).
     assert.ok(meta.graphqlQuery.includes('owner'));
@@ -48,7 +48,7 @@ void describe('PR-038 bulk query contract', () => {
 
     // Inventory must include per-location inventoryLevels.
     assert.ok(inv.graphqlQuery.includes('inventoryLevels'));
-    assert.ok(inv.graphqlQuery.includes('inventoryLevels(first: 250) {\n              nodes'));
+    assert.ok(/inventoryLevels\(first: 250\)\s*{\s*edges/.test(inv.graphqlQuery));
     assert.ok(inv.graphqlQuery.includes('location'));
   });
 
