@@ -353,6 +353,14 @@ void describe('smoke: bulk orchestrator (enqueue → DB → poller scheduled)', 
         if (job) {
           const state = await job.getState();
           if (state === 'delayed') {
+            const delayMs = Number((job as { delay?: number }).delay ?? job.opts?.delay ?? 0);
+            if (delayMs > 0) {
+              assert.ok(delayMs >= 60_000, `expected delay >= 60000ms, got ${delayMs}`);
+            } else {
+              await sleep(500);
+              const stillDelayed = await job.getState();
+              assert.equal(stillDelayed, 'delayed');
+            }
             const persistedCount = await withTenantContext(contentionShopId, async (client) => {
               const res = await client.query<{ c: string }>(
                 `SELECT COUNT(*)::text AS c

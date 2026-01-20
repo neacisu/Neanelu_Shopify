@@ -10,7 +10,7 @@ import {
 } from '@app/queue-manager';
 
 import { getBulkQueryContract, type BulkQuerySet, type BulkQueryVersion } from './queries/index.js';
-import { patchBulkRunCursorState } from './state-machine.js';
+import { assertValidBulkRunTransition, patchBulkRunCursorState } from './state-machine.js';
 
 export type BulkTerminalStatus = 'FAILED' | 'CANCELED' | 'EXPIRED';
 
@@ -399,6 +399,11 @@ async function salvageBulkRunWithPartialDataUrl(params: {
   terminalStatus: BulkTerminalStatus;
   shopifyErrorCode?: string | null;
 }): Promise<void> {
+  await assertValidBulkRunTransition({
+    shopId: params.shopId,
+    bulkRunId: params.bulkRunId,
+    nextStatus: 'completed',
+  });
   await withTenantContext(params.shopId, async (client) => {
     await client.query(
       `UPDATE bulk_runs

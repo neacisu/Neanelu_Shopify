@@ -32,11 +32,13 @@
 | DB connections | ≤ 20 | ~10-15 | > 30 | Pool sizing |
 
 **Factori Critici:**
+
 - JSONL streaming elimină memory spikes
 - `COPY FROM STDIN` cu `pg-copy-streams` = bulk insert eficient
 - Batch size: 1000 produse per chunk
 
 **Riscuri Identificate:**
+
 - Variante cu multe atribute JSONB pot încetini parsing-ul
 - Index updates pe `shopify_products` după INSERT
 
@@ -53,11 +55,13 @@
 | Dropped webhooks | 0 | 0 | > 0 | Must not drop |
 
 **Factori Critici:**
+
 - BullMQ Pro cu Redis 8.4 = high throughput
 - HMAC validation înainte de queue = respinge rapid invalid
 - Worker concurrency: 10 per instanță
 
 **Riscuri Identificate:**
+
 - Webhook burst > 2000/min poate cauza backlog
 - Redis memory spike dacă backlog crește
 
@@ -73,7 +77,8 @@
 | Cost budget tracking | Accurate | ±5% variance | > 10% drift | Lua script atomic |
 
 **Algoritm Backoff:**
-```
+
+```text
 Base delay: 1s
 Max delay: 60s
 Jitter: ±20%
@@ -81,6 +86,7 @@ Formula: min(60, 1 * 2^attempt) + random_jitter
 ```
 
 **Riscuri Identificate:**
+
 - Shopify poate schimba rate limits fără avertizare
 - Bulk operations au limite separate (1 per shop)
 
@@ -96,11 +102,13 @@ Formula: min(60, 1 * 2^attempt) + random_jitter
 | Processing variance | < 20% between shops | ~10-15% | > 30% | Fair scheduling |
 
 **Test Setup:**
+
 - Shop A: 5000 produse (50% volume)
 - Shop B: 3000 produse (30% volume)
 - Shop C: 2000 produse (20% volume)
 
 **Verificare:**
+
 - Toate shop-urile finalizează în < 2x timp față de cota lor
 - Nu există shop blocat > 30s
 
@@ -117,12 +125,14 @@ Formula: min(60, 1 * 2^attempt) + random_jitter
 | GC pause p99 | < 100ms | ~50-80ms | > 200ms | UX impact |
 
 **Monitoring Points:**
+
 - RSS (Resident Set Size)
 - Heap Used vs Heap Total
 - External Memory (Buffers)
 - GC frequency și duration
 
 **Riscuri Identificate:**
+
 - Event listeners neatașate = memory leak
 - Large JSONB parsing fără streaming
 
@@ -139,6 +149,7 @@ Formula: min(60, 1 * 2^attempt) + random_jitter
 | Slow queries (>100ms) | 0 | < 5/hour | > 10/hour | Investigation |
 
 **Indexuri Critice Verificate:**
+
 - `idx_products_shop_id` - RLS lookup
 - `idx_products_shopify_id` - Sync upsert
 - `idx_bulk_ops_status` - Queue polling
@@ -156,6 +167,7 @@ Formula: min(60, 1 * 2^attempt) + random_jitter
 | Accuracy (recall@10) | > 95% | ~97% | < 90% | Quality check |
 
 **Configurare HNSW:**
+
 ```sql
 CREATE INDEX USING hnsw (embedding vector_cosine_ops)
 WITH (m = 16, ef_construction = 64);
@@ -304,12 +316,14 @@ scenarios:
 ## 6. Post-Test Actions
 
 ### 6.1 Data Collection
+
 - Export Prometheus metrics (tsdb snapshot)
 - Export Grafana dashboard snapshots
 - Collect worker logs cu traceIds
 - Dump slow query log
 
 ### 6.2 Analysis Checklist
+
 - [ ] All metrics within thresholds?
 - [ ] Any error spikes? Investigate root cause
 - [ ] Memory trend stable?
@@ -317,6 +331,7 @@ scenarios:
 - [ ] Any unexpected bottlenecks?
 
 ### 6.3 Sign-off Requirements
+
 | Role | Responsibility | Sign-off |
 | ---- | -------------- | -------- |
 | SRE Lead | Infrastructure metrics | [ ] |
@@ -337,6 +352,7 @@ scenarios:
 | Search latency | ~30ms | ~50ms | ~100ms | Medium |
 
 > **ATENȚIE:** Extrapolările sunt estimări. La 1M+ SKU:
+>
 > - Poate fi necesar sharding PostgreSQL
 > - pgvector poate necesita tuning HNSW (m, ef_construction)
 > - Consider partitioning pe shop_id pentru tabele mari
@@ -378,7 +394,7 @@ Tools:
 
 ## Appendix B: Test Scripts Location
 
-```
+```text
 tests/
 ├── load/
 │   ├── bulk-ingest.js          # k6 - Bulk ingest stress
@@ -395,4 +411,4 @@ tests/
 
 ---
 
-**Document completat conform AUDIT 2025-12-26 (P2-3.6)**
+> **Document completat conform AUDIT 2025-12-26 (P2-3.6)**

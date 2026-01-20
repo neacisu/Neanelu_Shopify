@@ -27,6 +27,7 @@ import {
   loadBulkRunContext,
   markBulkRunFailed,
   patchBulkRunCursorState,
+  assertValidBulkRunTransition,
 } from './state-machine.js';
 import {
   classifyBulkTerminalFailure,
@@ -205,6 +206,11 @@ async function markRunCompleted(params: {
   resultSizeBytes?: number | null;
   shopifyCompletedAt?: Date | null;
 }): Promise<void> {
+  await assertValidBulkRunTransition({
+    shopId: params.shopId,
+    bulkRunId: params.bulkRunId,
+    nextStatus: 'completed',
+  });
   await withTenantContext(params.shopId, async (client) => {
     await client.query(
       `UPDATE bulk_runs

@@ -16,13 +16,34 @@ export async function runMergeFromStaging(params: {
   allowDeletes: boolean;
   isFullSnapshot: boolean;
   reindexStaging: boolean;
+  statementTimeoutMs?: number;
+  logTimings?: boolean;
 }): Promise<void> {
   const started = Date.now();
   try {
     await withTenantContext(params.shopId, async (client) => {
+      if (typeof params.statementTimeoutMs === 'number') {
+        const timeoutMs = Math.max(0, Math.floor(params.statementTimeoutMs));
+        await client.query(`SET LOCAL statement_timeout = ${timeoutMs}`);
+      }
+
+      const timed = async (label: string, fn: () => Promise<void>) => {
+        const t0 = Date.now();
+        if (params.logTimings) {
+          params.logger.info({ event: 'merge.step.start', label }, 'merge step start');
+        }
+        await fn();
+        if (params.logTimings) {
+          params.logger.info(
+            { event: 'merge.step.end', label, durationMs: Date.now() - t0 },
+            'merge step end'
+          );
+        }
+      };
       // Products upsert (dedupe staging rows to avoid ON CONFLICT self-collision)
-      await client.query(
-        `WITH src AS (
+      await timed('products.upsert', async () => {
+        await client.query(
+          `WITH src AS (
            SELECT DISTINCT ON (sp.shop_id, sp.shopify_gid)
              sp.shop_id,
              sp.shopify_gid,
@@ -91,28 +112,53 @@ export async function runMergeFromStaging(params: {
            updated_at_shopify = COALESCE(EXCLUDED.updated_at_shopify, shopify_products.updated_at_shopify),
            synced_at = now(),
            updated_at = now()`,
-        [params.bulkRunId, params.shopId]
-      );
+          [params.bulkRunId, params.shopId]
+        );
+      });
 
-      // Mark staged products as merged
-      await client.query(
-        `UPDATE staging_products sp
-         SET merge_status = 'merged',
-             merged_at = now(),
-             target_product_id = p.id
-         FROM shopify_products p
-         WHERE sp.bulk_run_id = $1
-           AND sp.shop_id = $2
-           AND sp.validation_status = 'valid'
-           AND sp.shopify_gid IS NOT NULL
-           AND p.shop_id = sp.shop_id
-           AND p.shopify_gid = sp.shopify_gid`,
-        [params.bulkRunId, params.shopId]
-      );
+      // Update statistics after heavy insert to help planner choose optimal join strategy
+      await timed('products.analyze', async () => {
+        await client.query('ANALYZE shopify_products');
+        await client.query('ANALYZE staging_products');
+      });
+
+      // Mark staged products as merged using UPDATE FROM JOIN (most efficient for bulk)
+      await timed('products.mark-merged', async () => {
+        // Disable nested loop to force hash join - critical for 1M+ rows performance
+        // Nested loop would be O(n*m) while hash join is O(n+m)
+        await client.query('SET LOCAL enable_nestloop = off');
+
+        // UPDATE FROM with JOIN is significantly faster than correlated subqueries
+        // because PostgreSQL can use a single hash/merge join instead of per-row lookups
+        const res = await client.query(
+          `UPDATE staging_products sp
+           SET merge_status = 'merged',
+               merged_at = now(),
+               target_product_id = p.id
+           FROM shopify_products p
+           WHERE sp.bulk_run_id = $1
+             AND sp.shop_id = $2
+             AND sp.validation_status = 'valid'
+             AND sp.merge_status = 'pending'
+             AND sp.shopify_gid IS NOT NULL
+             AND p.shop_id = sp.shop_id
+             AND p.shopify_gid = sp.shopify_gid`,
+          [params.bulkRunId, params.shopId]
+        );
+
+        // Re-enable nested loop for subsequent queries
+        await client.query('SET LOCAL enable_nestloop = on');
+
+        params.logger.info(
+          { label: 'products.mark-merged', totalUpdated: res.rowCount ?? 0 },
+          'mark-merged complete'
+        );
+      });
 
       // Variants upsert (requires product resolution)
-      await client.query(
-        `WITH src AS (
+      await timed('variants.upsert', async () => {
+        await client.query(
+          `WITH src AS (
            SELECT DISTINCT ON (sv.shop_id, sv.shopify_gid)
              sv.shop_id,
              sv.shopify_gid,
@@ -201,29 +247,52 @@ export async function runMergeFromStaging(params: {
            updated_at_shopify = COALESCE(EXCLUDED.updated_at_shopify, shopify_variants.updated_at_shopify),
            synced_at = now(),
            updated_at = now()`,
-        [params.bulkRunId, params.shopId]
-      );
+          [params.bulkRunId, params.shopId]
+        );
+      });
 
-      await client.query(
-        `UPDATE staging_variants sv
-         SET merge_status = 'merged',
-             merged_at = now(),
-             target_variant_id = v.id
-         FROM shopify_variants v
-         WHERE sv.bulk_run_id = $1
-           AND sv.shop_id = $2
-           AND sv.validation_status = 'valid'
-           AND sv.shopify_gid IS NOT NULL
-           AND v.shop_id = sv.shop_id
-           AND v.shopify_gid = sv.shopify_gid`,
-        [params.bulkRunId, params.shopId]
-      );
+      // Update statistics after heavy insert to help planner choose optimal join strategy
+      await timed('variants.analyze', async () => {
+        await client.query('ANALYZE shopify_variants');
+        await client.query('ANALYZE staging_variants');
+      });
+
+      await timed('variants.mark-merged', async () => {
+        // Disable nested loop to force hash join - critical for 1M+ rows performance
+        await client.query('SET LOCAL enable_nestloop = off');
+
+        // UPDATE FROM with JOIN - same optimization as products.mark-merged
+        const res = await client.query(
+          `UPDATE staging_variants sv
+           SET merge_status = 'merged',
+               merged_at = now(),
+               target_variant_id = v.id
+           FROM shopify_variants v
+           WHERE sv.bulk_run_id = $1
+             AND sv.shop_id = $2
+             AND sv.validation_status = 'valid'
+             AND sv.merge_status = 'pending'
+             AND sv.shopify_gid IS NOT NULL
+             AND v.shop_id = sv.shop_id
+             AND v.shopify_gid = sv.shopify_gid`,
+          [params.bulkRunId, params.shopId]
+        );
+
+        // Re-enable nested loop for subsequent queries
+        await client.query('SET LOCAL enable_nestloop = on');
+
+        params.logger.info(
+          { label: 'variants.mark-merged', totalUpdated: res.rowCount ?? 0 },
+          'mark-merged complete'
+        );
+      });
 
       // Deletes (hard delete) are gated by a full snapshot boundary.
       if (params.allowDeletes && params.isFullSnapshot) {
         // Delete variants missing from the snapshot (for products that exist in snapshot).
-        await client.query(
-          `DELETE FROM shopify_variants v
+        await timed('variants.delete-missing', async () => {
+          await client.query(
+            `DELETE FROM shopify_variants v
            USING shopify_products p
            JOIN staging_products sp
              ON sp.bulk_run_id = $1
@@ -241,12 +310,14 @@ export async function runMergeFromStaging(params: {
                  AND sv.validation_status = 'valid'
                  AND sv.shopify_gid = v.shopify_gid
              )`,
-          [params.bulkRunId, params.shopId]
-        );
+            [params.bulkRunId, params.shopId]
+          );
+        });
 
         // Delete products missing from the snapshot (cascades to variants).
-        await client.query(
-          `DELETE FROM shopify_products p
+        await timed('products.delete-missing', async () => {
+          await client.query(
+            `DELETE FROM shopify_products p
            WHERE p.shop_id = $2
              AND NOT EXISTS (
                SELECT 1
@@ -256,21 +327,26 @@ export async function runMergeFromStaging(params: {
                  AND sp.validation_status = 'valid'
                  AND sp.shopify_gid = p.shopify_gid
              )`,
-          [params.bulkRunId, params.shopId]
-        );
+            [params.bulkRunId, params.shopId]
+          );
+        });
       }
 
       if (params.analyze) {
         // Keep it best-effort; ANALYZE improves planner stats after heavy upserts.
-        await client.query('ANALYZE shopify_products');
-        await client.query('ANALYZE shopify_variants');
+        await timed('tables.analyze', async () => {
+          await client.query('ANALYZE shopify_products');
+          await client.query('ANALYZE shopify_variants');
+        });
       }
 
       if (params.reindexStaging) {
         // REINDEX staging tables post-merge (best-effort, may be heavy on large runs).
         try {
-          await client.query('REINDEX TABLE staging_products');
-          await client.query('REINDEX TABLE staging_variants');
+          await timed('staging.reindex', async () => {
+            await client.query('REINDEX TABLE staging_products');
+            await client.query('REINDEX TABLE staging_variants');
+          });
         } catch {
           // Best-effort only; do not fail the merge for reindex errors.
         }

@@ -40,6 +40,8 @@
     "db:test:schema": "pnpm --filter @app/database run test:schema",
     "db:test:precommit": "pnpm --filter @app/database run test:precommit",
     "db:test:all": "pnpm --filter @app/database run test:all",
+    "test:perf:bulk:1m": "RUN_PERF_TESTS=1 PERF_ROWS=1000000 PERF_SOAK_RUNS=10 node --experimental-test-module-mocks --import tsx --test apps/backend-worker/src/processors/bulk-operations/__tests__/performance/bulk-ingest.performance.test.ts",
+    "test:perf:bulk:baseline": "RUN_PERF_TESTS=1 PERF_ROWS=1000000 PERF_SOAK_RUNS=10 PERF_WRITE_BASELINE=1 node --experimental-test-module-mocks --import tsx --test apps/backend-worker/src/processors/bulk-operations/__tests__/performance/bulk-ingest.performance.test.ts",
     "test:env:up": "docker compose -f docker-compose.test.yml up -d",
     "test:env:down": "docker compose -f docker-compose.test.yml down",
     "test:env:logs": "docker compose -f docker-compose.test.yml logs -f",

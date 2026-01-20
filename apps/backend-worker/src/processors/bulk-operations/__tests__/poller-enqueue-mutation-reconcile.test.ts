@@ -188,6 +188,7 @@ await (async () => {
   await Promise.resolve(
     mock.module(stateMachinePath, {
       namedExports: {
+        assertValidBulkRunTransition: () => Promise.resolve(undefined),
         insertBulkError: () => Promise.resolve(undefined),
         markBulkRunFailed: () => Promise.resolve(undefined),
         patchBulkRunCursorState: () => Promise.resolve(undefined),

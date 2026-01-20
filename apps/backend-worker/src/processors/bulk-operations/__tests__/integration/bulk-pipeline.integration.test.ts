@@ -6,7 +6,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import type { Logger } from '@app/logger';
-import { pool, closePool, withTenantContext } from '@app/database';
+import { pool, closePool, setTenantContext, withTenantContext } from '@app/database';
 
 import { StagingCopyWriter } from '../../pipeline/stages/copy-writer.js';
 import { runMergeFromStaging } from '../../pipeline/stages/merge.js';
@@ -187,12 +187,35 @@ void describe(
         assert.equal(productCount, 2);
         assert.equal(variantCount, 2);
 
-        // RLS enforcement is validated in database schema tests; here we validate tenant scoping.
-        const shopScoped = await pool.query<{ count: string }>(
-          `SELECT COUNT(*)::text AS count FROM shopify_products WHERE shop_id = $1`,
-          [shopId]
-        );
-        assert.equal(Number(shopScoped.rows[0]?.count ?? 0), 2);
+        // RLS enforcement: without tenant context, rows should be hidden; with context, visible.
+        const client = await pool.connect();
+        try {
+          await client.query(`DO $$
+            BEGIN
+              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'test_rls') THEN
+                CREATE ROLE test_rls;
+              END IF;
+            END $$;`);
+          await client.query('GRANT SELECT ON shopify_products, shopify_variants TO test_rls');
+
+          await client.query('BEGIN');
+          await client.query('SET LOCAL ROLE test_rls');
+
+          const withoutCtx = await client.query<{ count: string }>(
+            `SELECT COUNT(*)::text AS count FROM shopify_products`
+          );
+          assert.equal(Number(withoutCtx.rows[0]?.count ?? 0), 0);
+
+          await setTenantContext(client, shopId);
+          const withCtx = await client.query<{ count: string }>(
+            `SELECT COUNT(*)::text AS count FROM shopify_products`
+          );
+          assert.equal(Number(withCtx.rows[0]?.count ?? 0), 2);
+
+          await client.query('COMMIT');
+        } finally {
+          client.release();
+        }
       } finally {
         await server.close();
       }

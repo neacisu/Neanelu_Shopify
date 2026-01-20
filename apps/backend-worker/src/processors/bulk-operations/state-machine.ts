@@ -19,6 +19,8 @@ export type BulkRunRow = Readonly<{
   idempotency_key: string | null;
 }>;
 
+export type BulkRunStatus = 'pending' | 'running' | 'completed' | 'failed';
+
 export type BulkRunContextRow = Readonly<{
   id: string;
   shop_id: string;
@@ -34,6 +36,52 @@ export type BulkRunContextRow = Readonly<{
   result_url: string | null;
   partial_data_url: string | null;
 }>;
+
+const BULK_RUN_STATUS_TRANSITIONS: Readonly<Record<BulkRunStatus, ReadonlySet<BulkRunStatus>>> = {
+  pending: new Set(['pending', 'running', 'failed']),
+  running: new Set(['running', 'completed', 'failed']),
+  completed: new Set(['completed']),
+  failed: new Set(['failed']),
+};
+
+function isBulkRunStatus(value: string | null | undefined): value is BulkRunStatus {
+  return value === 'pending' || value === 'running' || value === 'completed' || value === 'failed';
+}
+
+export function isValidBulkRunTransition(from: string, to: string): boolean {
+  if (!isBulkRunStatus(from) || !isBulkRunStatus(to)) return false;
+  return BULK_RUN_STATUS_TRANSITIONS[from].has(to);
+}
+
+export async function getBulkRunStatus(params: {
+  shopId: string;
+  bulkRunId: string;
+}): Promise<BulkRunStatus | null> {
+  return await withTenantContext(params.shopId, async (client) => {
+    const res = await client.query<{ status: string }>(
+      `SELECT status
+       FROM bulk_runs
+       WHERE id = $1
+         AND shop_id = $2
+       LIMIT 1`,
+      [params.bulkRunId, params.shopId]
+    );
+    const status = res.rows[0]?.status ?? null;
+    return isBulkRunStatus(status) ? status : null;
+  });
+}
+
+export async function assertValidBulkRunTransition(params: {
+  shopId: string;
+  bulkRunId: string;
+  nextStatus: BulkRunStatus;
+}): Promise<void> {
+  const current = await getBulkRunStatus({ shopId: params.shopId, bulkRunId: params.bulkRunId });
+  if (!current) throw new Error('bulk_run_not_found');
+  if (!isValidBulkRunTransition(current, params.nextStatus)) {
+    throw new Error(`bulk_run_invalid_transition:${current}->${params.nextStatus}`);
+  }
+}
 
 export async function loadBulkRunContext(params: {
   shopId: string;
@@ -216,6 +264,11 @@ export async function markBulkRunFailed(params: {
   errorType: string;
   errorCode?: string | null;
 }): Promise<void> {
+  await assertValidBulkRunTransition({
+    shopId: params.shopId,
+    bulkRunId: params.bulkRunId,
+    nextStatus: 'failed',
+  });
   await withTenantContext(params.shopId, async (client) => {
     await client.query(
       `UPDATE bulk_runs
@@ -360,6 +413,11 @@ export async function markBulkRunStarted(params: {
   costEstimate: number | null;
 }): Promise<void> {
   const started = Date.now();
+  await assertValidBulkRunTransition({
+    shopId: params.shopId,
+    bulkRunId: params.bulkRunId,
+    nextStatus: 'running',
+  });
   await withTenantContext(params.shopId, async (client) => {
     await client.query(
       `UPDATE bulk_runs

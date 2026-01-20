@@ -407,6 +407,13 @@
       "when": 1768713600000,
       "tag": "0057_bulk_runs_idempotency_active_index",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1768800000000,
+      "tag": "0058_add_staging_merge_indexes",
+      "breakpoints": true
     }
   ]
 }
