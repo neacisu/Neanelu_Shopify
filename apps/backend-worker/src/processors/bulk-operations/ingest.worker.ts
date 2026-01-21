@@ -32,6 +32,7 @@ import {
   insertBulkError,
   insertBulkStep,
   loadBulkRunContext,
+  markBulkRunCompleted,
   markBulkRunInProgress,
 } from './state-machine.js';
 import { getBulkIngestConfig } from './config.js';
@@ -853,6 +854,11 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
             bulkRunId: payload.bulkRunId,
             stepName: 'ingest.completed',
             status: 'completed',
+          });
+
+          await markBulkRunCompleted({
+            shopId: payload.shopId,
+            bulkRunId: payload.bulkRunId,
           });
 
           if (persistJsonl?.path || localFilePath) {

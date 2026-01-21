@@ -28,7 +28,6 @@ import {
   markBulkRunInProgress,
   markBulkRunFailed,
   patchBulkRunCursorState,
-  assertValidBulkRunTransition,
 } from './state-machine.js';
 import {
   classifyBulkTerminalFailure,
@@ -198,33 +197,24 @@ async function insertStep(params: {
   });
 }
 
-async function markRunCompleted(params: {
+async function recordShopifyCompletion(params: {
   shopId: string;
   bulkRunId: string;
   resultUrl: string;
   partialDataUrl?: string | null;
   objectCount?: number | null;
   resultSizeBytes?: number | null;
-  shopifyCompletedAt?: Date | null;
 }): Promise<void> {
-  await assertValidBulkRunTransition({
-    shopId: params.shopId,
-    bulkRunId: params.bulkRunId,
-    nextStatus: 'completed',
-  });
   await withTenantContext(params.shopId, async (client) => {
     await client.query(
       `UPDATE bulk_runs
-       SET status = 'completed',
-           completed_at = COALESCE($1::timestamptz, completed_at, now()),
-           result_url = $2,
-           result_size_bytes = COALESCE($3::bigint, result_size_bytes),
-           partial_data_url = COALESCE($4::text, partial_data_url),
-           records_processed = COALESCE($5::int, records_processed),
+       SET result_url = $1,
+           result_size_bytes = COALESCE($2::bigint, result_size_bytes),
+           partial_data_url = COALESCE($3::text, partial_data_url),
+           records_processed = COALESCE($4::int, records_processed),
            updated_at = now()
-       WHERE id = $6`,
+       WHERE id = $5`,
       [
-        params.shopifyCompletedAt ? params.shopifyCompletedAt.toISOString() : null,
         params.resultUrl,
         params.resultSizeBytes ?? null,
         params.partialDataUrl ?? null,
@@ -597,15 +587,13 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
                   },
                 });
 
-                const completedAt = bulk.completedAt ? new Date(bulk.completedAt) : null;
-                await markRunCompleted({
+                await recordShopifyCompletion({
                   shopId: payload.shopId,
                   bulkRunId: payload.bulkRunId,
                   resultUrl: chosenUrl,
                   partialDataUrl: bulk.partialDataUrl ?? null,
                   objectCount: safeIntFromString(bulk.objectCount),
                   resultSizeBytes: safeIntFromString(bulk.fileSize),
-                  shopifyCompletedAt: completedAt,
                 });
 
                 const durationSeconds = computeDurationSeconds(

@@ -217,6 +217,7 @@ async function installBaseMocks(params: {
         insertBulkStep: () => Promise.resolve(undefined),
         insertBulkError: () => Promise.resolve(undefined),
         markBulkRunInProgress: () => Promise.resolve(undefined),
+        markBulkRunCompleted: () => Promise.resolve(undefined),
         loadBulkRunContext: () => {
           if (!loadBulkRunContextImpl) {
             return Promise.reject(new Error('loadBulkRunContextImpl not set'));

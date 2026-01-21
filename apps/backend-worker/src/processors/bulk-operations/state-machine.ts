@@ -486,6 +486,30 @@ export async function markBulkRunInProgress(params: {
   recordDbQuery('update', (Date.now() - started) / 1000);
 }
 
+export async function markBulkRunCompleted(params: {
+  shopId: string;
+  bulkRunId: string;
+  completedAt?: Date | null;
+}): Promise<void> {
+  const started = Date.now();
+  await assertValidBulkRunTransition({
+    shopId: params.shopId,
+    bulkRunId: params.bulkRunId,
+    nextStatus: 'completed',
+  });
+  await withTenantContext(params.shopId, async (client) => {
+    await client.query(
+      `UPDATE bulk_runs
+       SET status = 'completed',
+           completed_at = COALESCE($1::timestamptz, completed_at, now()),
+           updated_at = now()
+       WHERE id = $2`,
+      [params.completedAt ? params.completedAt.toISOString() : null, params.bulkRunId]
+    );
+  });
+  recordDbQuery('update', (Date.now() - started) / 1000);
+}
+
 export async function patchBulkRunCursorState(params: {
   shopId: string;
   bulkRunId: string;

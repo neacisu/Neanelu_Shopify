@@ -7,12 +7,23 @@ import { PolarisProgressBar } from '../../../components/polaris/index.js';
 
 export type IngestionStepId = 'download' | 'parse' | 'transform' | 'save';
 
+export interface IngestionStageMetric {
+  id: 'download' | 'parse' | 'ingest';
+  label: string;
+  progress?: number | null;
+  processedLabel?: string | null;
+  totalLabel?: string | null;
+  speedLabel?: string | null;
+  etaLabel?: string | null;
+}
+
 export interface IngestionProgressProps {
   currentStep: IngestionStepId;
   progress: number;
   status?: 'running' | 'failed' | 'completed';
   onAbort?: () => void;
   abortDisabled?: boolean;
+  stageDetails?: IngestionStageMetric[];
 }
 
 const stepLabels: Record<IngestionStepId, string> = {
@@ -28,6 +39,7 @@ export function IngestionProgress({
   status = 'running',
   onAbort,
   abortDisabled,
+  stageDetails,
 }: IngestionProgressProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const steps = useMemo<IngestionStepId[]>(() => ['download', 'parse', 'transform', 'save'], []);
@@ -99,6 +111,33 @@ export function IngestionProgress({
             <PolarisProgressBar progress={Math.min(Math.max(progress, 0), 100)} />
           </div>
         </div>
+
+        {stageDetails && stageDetails.length > 0 ? (
+          <div className="grid gap-3 md:grid-cols-3">
+            {stageDetails.map((stage) => {
+              const normalizedProgress = Math.min(Math.max(stage.progress ?? 0, 0), 100);
+
+              return (
+                <div key={stage.id} className="rounded-md border bg-muted/10 p-3">
+                  <div className="text-sm font-medium">{stage.label}</div>
+                  <div className="mt-2">
+                    <PolarisProgressBar progress={normalizedProgress} />
+                  </div>
+                  <div className="mt-2 space-y-1 text-xs text-muted">
+                    <div>
+                      {stage.processedLabel ?? '—'}
+                      {stage.totalLabel ? ` / ${stage.totalLabel}` : ''}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <span>Speed: {stage.speedLabel ?? '—'}</span>
+                      <span>ETA: {stage.etaLabel ?? '—'}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
       </div>
 
       <ConfirmDialog

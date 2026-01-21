@@ -14,9 +14,20 @@ import { useLogStream } from '../hooks/use-log-stream';
 import { useApiClient } from '../hooks/use-api';
 import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
 import { apiAction, type ActionData, createActionApiClient } from '../utils/actions';
-import type { IngestionStepId } from '../components/domain/ingestion-progress';
+import type {
+  IngestionStageMetric,
+  IngestionStepId,
+} from '../components/domain/ingestion-progress';
 
-type BulkRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+type BulkRunStatus =
+  | 'pending'
+  | 'running'
+  | 'polling'
+  | 'downloading'
+  | 'processing'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
 
 type BulkRun = Readonly<{
   id: string;
@@ -26,6 +37,12 @@ type BulkRun = Readonly<{
   recordsProcessed?: number;
   bytesProcessed?: number | null;
   resultSizeBytes?: number | null;
+  checkpoint?: {
+    committedLines?: number | null;
+    committedRecords?: number | null;
+    committedBytes?: number | null;
+    lastCommitAt?: string | null;
+  };
   progress?: {
     percentage?: number;
     step?: IngestionStepId;
@@ -172,8 +189,19 @@ export default function IngestionPage() {
     activeShopifyOperation ?? null
   );
   const [showRawLogs, setShowRawLogs] = useState(false);
+  const [rateMetrics, setRateMetrics] = useState<{
+    bytesPerSec?: number | null;
+    linesPerSec?: number | null;
+    recordsPerSec?: number | null;
+  }>({});
   const pollRef = useRef<number | null>(null);
   const shopifyPollRef = useRef<number | null>(null);
+  const rateSampleRef = useRef<{
+    at: number;
+    bytes?: number | null;
+    lines?: number | null;
+    records?: number | null;
+  } | null>(null);
 
   useEffect(() => {
     setCurrentRun(loaderRun ?? null);
@@ -186,6 +214,62 @@ export default function IngestionPage() {
   useEffect(() => {
     setShopifyOperation(activeShopifyOperation ?? null);
   }, [activeShopifyOperation]);
+
+  useEffect(() => {
+    rateSampleRef.current = null;
+    setRateMetrics({});
+  }, [currentRun?.id]);
+
+  useEffect(() => {
+    if (!currentRun) return;
+    const now = Date.now();
+    const bytes =
+      typeof currentRun.bytesProcessed === 'number'
+        ? currentRun.bytesProcessed
+        : typeof currentRun.checkpoint?.committedBytes === 'number'
+          ? currentRun.checkpoint.committedBytes
+          : null;
+    const lines =
+      typeof currentRun.checkpoint?.committedLines === 'number'
+        ? currentRun.checkpoint.committedLines
+        : null;
+    const records =
+      typeof currentRun.checkpoint?.committedRecords === 'number'
+        ? currentRun.checkpoint.committedRecords
+        : null;
+
+    const prev = rateSampleRef.current;
+    if (prev && now > prev.at) {
+      const deltaSeconds = (now - prev.at) / 1000;
+      const calcRate = (currentValue: number | null, prevValue: number | null) =>
+        currentValue !== null && prevValue !== null
+          ? (currentValue - prevValue) / deltaSeconds
+          : null;
+
+      const bytesRate = calcRate(bytes, prev.bytes ?? null);
+      const linesRate = calcRate(lines, prev.lines ?? null);
+      const recordsRate = calcRate(records, prev.records ?? null);
+
+      setRateMetrics({
+        bytesPerSec: bytesRate !== null && bytesRate > 0 ? bytesRate : null,
+        linesPerSec: linesRate !== null && linesRate > 0 ? linesRate : null,
+        recordsPerSec: recordsRate !== null && recordsRate > 0 ? recordsRate : null,
+      });
+    }
+
+    rateSampleRef.current = {
+      at: now,
+      bytes,
+      lines,
+      records,
+    };
+  }, [
+    currentRun?.bytesProcessed,
+    currentRun?.checkpoint?.committedBytes,
+    currentRun?.checkpoint?.committedLines,
+    currentRun?.checkpoint?.committedRecords,
+    currentRun?.id,
+  ]);
 
   useEffect(() => {
     const result = actionFetcher.data;
@@ -247,7 +331,12 @@ export default function IngestionPage() {
     { label: 'Schedule', value: 'schedule', to: '/ingestion/schedule' },
   ];
 
-  const isActive = currentRun?.status === 'pending' || currentRun?.status === 'running';
+  const isActive =
+    currentRun?.status === 'pending' ||
+    currentRun?.status === 'running' ||
+    currentRun?.status === 'polling' ||
+    currentRun?.status === 'downloading' ||
+    currentRun?.status === 'processing';
   const isSelectedRun = Boolean(runId && currentRun);
   const currentStep = currentRun?.progress?.step ?? currentRun?.stepName ?? 'download';
   const progress = currentRun?.progress?.percentage ?? 0;
@@ -355,6 +444,12 @@ export default function IngestionPage() {
     return new Intl.NumberFormat('en-GB').format(count);
   };
 
+  const formatNumber = (value?: number | null) => {
+    const count = typeof value === 'number' ? value : Number.NaN;
+    if (!Number.isFinite(count)) return null;
+    return new Intl.NumberFormat('en-GB').format(count);
+  };
+
   const formatMegabytes = (value?: string | null) => {
     const bytes = value ? Number(value) : Number.NaN;
     if (!Number.isFinite(bytes)) return null;
@@ -362,22 +457,108 @@ export default function IngestionPage() {
     return `${mb.toFixed(mb >= 10 ? 0 : 1)} Mb`;
   };
 
-  const formatBytesToMb = (value?: number | null) => {
+  const parseNumber = (value?: string | number | null) => {
+    const parsed = typeof value === 'number' ? value : value ? Number(value) : Number.NaN;
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const formatBytes = (value?: number | null) => {
     const bytes = typeof value === 'number' ? value : Number.NaN;
     if (!Number.isFinite(bytes)) return null;
-    const mb = bytes / (1024 * 1024);
-    return `${mb.toFixed(mb >= 10 ? 0 : 1)} Mb`;
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let normalized = bytes;
+    let unitIndex = 0;
+    while (normalized >= 1024 && unitIndex < units.length - 1) {
+      normalized /= 1024;
+      unitIndex += 1;
+    }
+    const digits = normalized >= 10 || unitIndex === 0 ? 0 : 1;
+    return `${normalized.toFixed(digits)} ${units[unitIndex]}`;
+  };
+
+  const formatBytesRate = (value?: number | null) => {
+    const formatted = formatBytes(value);
+    return formatted ? `${formatted}/s` : null;
+  };
+
+  const formatCountRate = (value?: number | null, unitLabel = 'records') => {
+    const rate = typeof value === 'number' ? value : Number.NaN;
+    if (!Number.isFinite(rate) || rate <= 0) return null;
+    const digits = rate >= 100 ? 0 : rate >= 10 ? 1 : 2;
+    return `${rate.toFixed(digits)} ${unitLabel}/s`;
+  };
+
+  const formatDuration = (seconds?: number | null) => {
+    const raw = typeof seconds === 'number' ? seconds : Number.NaN;
+    if (!Number.isFinite(raw)) return null;
+    const totalSeconds = Math.max(0, Math.round(raw));
+    if (totalSeconds < 60) return `${totalSeconds}s`;
+    const minutes = Math.floor(totalSeconds / 60);
+    const remainingSeconds = totalSeconds % 60;
+    if (minutes < 60) return `${minutes}m ${remainingSeconds}s`;
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    return `${hours}h ${remainingMinutes}m`;
+  };
+
+  const parseIsoDate = (value?: string | null) => {
+    if (!value) return null;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const computeWeightedRate = (
+    recentRate: number | null | undefined,
+    processed: number | null | undefined,
+    startedAtMs: number | null
+  ) => {
+    const safeProcessed = typeof processed === 'number' && processed > 0 ? processed : null;
+    const safeStartedAt = typeof startedAtMs === 'number' ? startedAtMs : null;
+    const elapsedSeconds =
+      safeStartedAt != null ? Math.max(1, (Date.now() - safeStartedAt) / 1000) : null;
+    const avgRate =
+      safeProcessed != null && elapsedSeconds != null ? safeProcessed / elapsedSeconds : null;
+
+    if (typeof recentRate === 'number' && recentRate > 0 && avgRate != null && avgRate > 0) {
+      return recentRate * 0.7 + avgRate * 0.3;
+    }
+
+    if (typeof recentRate === 'number' && recentRate > 0) return recentRate;
+    if (avgRate != null && avgRate > 0) return avgRate;
+    return null;
   };
 
   const objectCountLabel = formatCount(shopifyOperation?.objectCount);
   const fileSizeLabel = formatMegabytes(shopifyOperation?.fileSize);
-  const downloadBytesLabel = formatBytesToMb(currentRun?.bytesProcessed ?? null);
-  const downloadTotalLabel = formatBytesToMb(currentRun?.resultSizeBytes ?? null);
+  const bytesProcessed =
+    typeof currentRun?.bytesProcessed === 'number'
+      ? currentRun.bytesProcessed
+      : typeof currentRun?.checkpoint?.committedBytes === 'number'
+        ? currentRun.checkpoint.committedBytes
+        : null;
+  const totalBytes =
+    typeof currentRun?.resultSizeBytes === 'number'
+      ? currentRun.resultSizeBytes
+      : parseNumber(shopifyOperation?.fileSize ?? null);
+  const totalRecords =
+    typeof shopifyOperation?.objectCount === 'string' ? Number(shopifyOperation.objectCount) : null;
+  const linesProcessed =
+    typeof currentRun?.checkpoint?.committedLines === 'number'
+      ? currentRun.checkpoint.committedLines
+      : null;
+  const recordsProcessed =
+    typeof currentRun?.checkpoint?.committedRecords === 'number'
+      ? currentRun.checkpoint.committedRecords
+      : null;
+  const startedAtMs = parseIsoDate(currentRun?.startedAt ?? null);
+  const downloadRate = computeWeightedRate(rateMetrics.bytesPerSec, bytesProcessed, startedAtMs);
+  const parseRate = computeWeightedRate(rateMetrics.linesPerSec, linesProcessed, startedAtMs);
+  const ingestRate = computeWeightedRate(rateMetrics.recordsPerSec, recordsProcessed, startedAtMs);
+  const downloadBytesLabel = formatBytes(bytesProcessed);
+  const downloadTotalLabel = formatBytes(totalBytes);
   const downloadProgressPct =
-    typeof currentRun?.bytesProcessed === 'number' &&
-    typeof currentRun?.resultSizeBytes === 'number' &&
-    currentRun.resultSizeBytes > 0
-      ? Math.min(100, Math.round((currentRun.bytesProcessed / currentRun.resultSizeBytes) * 100))
+    typeof bytesProcessed === 'number' && typeof totalBytes === 'number' && totalBytes > 0
+      ? Math.min(100, Math.round((bytesProcessed / totalBytes) * 100))
       : null;
   const finalShopifyMessage =
     !isShopifyRunning && shopifyStatus
@@ -387,6 +568,71 @@ export default function IngestionPage() {
           ? 'Shopify finished the bulk export.'
           : `Shopify finished with status ${shopifyStatus}.`
       : null;
+
+  const downloadProgress =
+    typeof bytesProcessed === 'number' && typeof totalBytes === 'number' && totalBytes > 0
+      ? (bytesProcessed / totalBytes) * 100
+      : null;
+  const parseProgress =
+    typeof linesProcessed === 'number' && typeof totalRecords === 'number' && totalRecords > 0
+      ? (linesProcessed / totalRecords) * 100
+      : null;
+  const ingestProgress =
+    typeof recordsProcessed === 'number' && typeof totalRecords === 'number' && totalRecords > 0
+      ? (recordsProcessed / totalRecords) * 100
+      : null;
+
+  const downloadEta =
+    typeof downloadRate === 'number' &&
+    downloadRate > 0 &&
+    typeof totalBytes === 'number' &&
+    typeof bytesProcessed === 'number'
+      ? Math.max(0, (totalBytes - bytesProcessed) / downloadRate)
+      : null;
+  const parseEta =
+    typeof parseRate === 'number' &&
+    parseRate > 0 &&
+    typeof totalRecords === 'number' &&
+    typeof linesProcessed === 'number'
+      ? Math.max(0, (totalRecords - linesProcessed) / parseRate)
+      : null;
+  const ingestEta =
+    typeof ingestRate === 'number' &&
+    ingestRate > 0 &&
+    typeof totalRecords === 'number' &&
+    typeof recordsProcessed === 'number'
+      ? Math.max(0, (totalRecords - recordsProcessed) / ingestRate)
+      : null;
+
+  const stageDetails: IngestionStageMetric[] = [
+    {
+      id: 'download',
+      label: 'Download',
+      progress: downloadProgress,
+      processedLabel: formatBytes(bytesProcessed),
+      totalLabel: formatBytes(totalBytes),
+      speedLabel: formatBytesRate(downloadRate),
+      etaLabel: formatDuration(downloadEta),
+    },
+    {
+      id: 'parse',
+      label: 'Parse',
+      progress: parseProgress,
+      processedLabel: formatNumber(linesProcessed),
+      totalLabel: formatNumber(totalRecords),
+      speedLabel: formatCountRate(parseRate, 'lines'),
+      etaLabel: formatDuration(parseEta),
+    },
+    {
+      id: 'ingest',
+      label: 'Ingest',
+      progress: ingestProgress,
+      processedLabel: formatNumber(recordsProcessed),
+      totalLabel: formatNumber(totalRecords),
+      speedLabel: formatCountRate(ingestRate, 'records'),
+      etaLabel: formatDuration(ingestEta),
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -490,6 +736,7 @@ export default function IngestionPage() {
               status="running"
               onAbort={abortIngestion}
               abortDisabled={actionFetcher.state !== 'idle'}
+              stageDetails={stageDetails}
             />
 
             {downloadBytesLabel && downloadTotalLabel ? (
