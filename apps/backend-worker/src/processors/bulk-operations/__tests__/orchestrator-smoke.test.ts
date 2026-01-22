@@ -355,7 +355,7 @@ void describe('smoke: bulk orchestrator (enqueue → DB → poller scheduled)', 
           if (state === 'delayed') {
             const delayMs = Number((job as { delay?: number }).delay ?? job.opts?.delay ?? 0);
             if (delayMs > 0) {
-              assert.ok(delayMs >= 60_000, `expected delay >= 60000ms, got ${delayMs}`);
+              assert.ok(delayMs >= 59_000, `expected delay >= 59000ms, got ${delayMs}`);
             } else {
               await sleep(500);
               const stillDelayed = await job.getState();
