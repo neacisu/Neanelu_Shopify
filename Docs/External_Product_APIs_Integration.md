@@ -198,12 +198,12 @@ export async function searchSimilarProducts(imageUri: string) {
 
 ### Avantaje pentru Scraping Inteligent
 
-| Caracteristică         | Descriere                              |
-|------------------------|----------------------------------------|
-| **Structured Output**  | Native JSON schema enforcement         |
-| **Accuracy**           | 95%+ pe date factuale despre produse   |
-| **Hallucination Rate** | <2% pentru extracție de atribute       |
-| **Rate Limit**         | până la 480 RPM (modelele Grok Fast)   |
+| Caracteristică         | Descriere                                       |
+|------------------------|-------------------------------------------------|
+| **Structured Output**  | Native JSON schema enforcement                  |
+| **Accuracy**           | 95%+ pe date factuale despre produse            |
+| **Hallucination Rate** | <2% pentru extracție de atribute                |
+| **Rate Limit**         | până la 480 RPM (modelele Grok Fast)            |
 | **Cost**               | vezi tabelul oficial de pricing (per 1M tokens) |
 
 > **Notă (update 2026-01-21):** Pricing-ul xAI publicat în docs include modele Grok Fast cu **$0.20 / 1M input** și **$0.50 / 1M output** (ex. `grok-4-1-fast-*`), limite de **4M TPM** și **480 RPM**. Modelele standard (ex. `grok-3`) sunt mai scumpe. Sursa oficială: https://docs.x.ai/docs/models
@@ -303,7 +303,7 @@ ${html.slice(0, 50000)}` // Limitare tokens
 ### Strategii Anti-Hallucination
 
 | Strategie                  | Implementare                                      |
-|----------------------------|---------------------------------------------------|
+| -------------------------- | ------------------------------------------------- |
 | **Low Temperature**        | `temperature: 0.1` pentru răspunsuri deterministe |
 | **Explicit Instructions**  | "NU inventa valori" în system prompt              |
 | **Confidence Scoring**     | Model-ul raportează încrederea per câmp           |
@@ -312,8 +312,8 @@ ${html.slice(0, 50000)}` // Limitare tokens
 
 ### Cost Estimation pentru 1.77M Produse
 
-| Scenariu                                    | Input Tokens | Output Tokens | Cost Total |
-|---------------------------------------------|--------------|---------------|------------|
+| Scenariu                                    | Input Tokens | Output Tokens | Cost Total           |
+| ------------------------------------------- | ------------ | ------------- | -------------------- |
 | 1 request/produs (avg 5K input, 500 output) | 8.85B        | 885M          | **depinde de model** |
 | Cu caching (50% hit rate)                   | 4.43B        | 442M          | **depinde de model** |
 | Batch processing (model fast)               | 4.43B        | 442M          | **depinde de model** |
@@ -327,6 +327,7 @@ ${html.slice(0, 50000)}` // Limitare tokens
 Prețurile sunt per **1M tokens** și depind de model + tier (Standard/Flex/Priority). Tabel complet: https://platform.openai.com/docs/pricing
 
 **Exemple (Standard):**
+
 - `gpt-4o-mini`: $0.15 / 1M input, $0.60 / 1M output
 - `gpt-5.2`: $1.75 / 1M input, $14.00 / 1M output
 
@@ -337,6 +338,7 @@ Prețurile sunt per **1M tokens** și depind de model + tier (Standard/Flex/Prio
 ## DeepSeek API – Pricing (referință oficială)
 
 **deepseek-chat / deepseek-reasoner (V3.2):**
+
 - 1M input tokens (cache hit): **$0.028**
 - 1M input tokens (cache miss): **$0.28**
 - 1M output tokens: **$0.42**

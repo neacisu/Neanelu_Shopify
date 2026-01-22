@@ -2832,7 +2832,7 @@ Obiectiv: embeddings OpenAI Batch + index vectorial în Redis 8.4 + observabilit
     {
         "id_task": "F6.1.1",
         "denumire_task": "Schema DB pentru embeddings + batch-runs (RLS, idempotency)",
-        "descriere_task": "Adaugă tabele/migrații: product_embeddings (shop_id, product_id, model, dims, content_hash, embedding, generated_at, status, error), ai_batches (shop_id, provider_batch_id, status, created_at, completed_at, request_count, error_count), ai_batch_items (shop_id, batch_id, entity_id, content_hash, status, error). RLS obligatoriu pe shop_id, cu disciplina SET LOCAL din F2/F3.",
+        "descriere_task": "Auditeaza implementarea curenta. auditeaza efectiv DB in postgres cu comenzi terminal si compara cu migrarile existente. Daca este cazul, adaugă tabele/migrații: product_embeddings (shop_id, product_id, model, dims, content_hash, embedding, generated_at, status, error), ai_batches (shop_id, provider_batch_id, status, created_at, completed_at, request_count, error_count), ai_batch_items (shop_id, batch_id, entity_id, content_hash, status, error). RLS obligatoriu pe shop_id, cu disciplina SET LOCAL din F2/F3.",
         "cale_implementare": "packages/database/",
         "contextul_anterior": "F2 a stabilit Drizzle+migrații SQL + RLS. F5 a populat products.",
         "validare_task": "Migrațiile rulează; RLS returnează 0 rânduri fără context; idempotency pe (shop_id, product_id, content_hash, model).",
