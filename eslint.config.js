@@ -26,6 +26,7 @@ export default tseslint.config(
       '*.min.js',
       'Research Produse/**',
       'Research Categorii/**',
+      'Research Metafileds/**',
       'pnpm-lock.yaml',
     ],
   },

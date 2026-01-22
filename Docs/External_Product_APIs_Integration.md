@@ -203,8 +203,10 @@ export async function searchSimilarProducts(imageUri: string) {
 | **Structured Output**  | Native JSON schema enforcement         |
 | **Accuracy**           | 95%+ pe date factuale despre produse   |
 | **Hallucination Rate** | <2% pentru extracție de atribute       |
-| **Rate Limit**         | 60 RPM (tier plătit)                   |
-| **Cost**               | $5/M input tokens, $15/M output tokens |
+| **Rate Limit**         | până la 480 RPM (modelele Grok Fast)   |
+| **Cost**               | vezi tabelul oficial de pricing (per 1M tokens) |
+
+> **Notă (update 2026-01-21):** Pricing-ul xAI publicat în docs include modele Grok Fast cu **$0.20 / 1M input** și **$0.50 / 1M output** (ex. `grok-4-1-fast-*`), limite de **4M TPM** și **480 RPM**. Modelele standard (ex. `grok-3`) sunt mai scumpe. Sursa oficială: https://docs.x.ai/docs/models
 
 ### Configurare xAI
 
@@ -267,7 +269,7 @@ export async function extractProductFromHTML(
   sourceUrl: string
 ): Promise<ExtractedProduct> {
   const response = await xai.beta.chat.completions.parse({
-    model: 'grok-3',  // sau grok-2-1212 pentru cost mai mic
+    model: 'grok-4-1-fast-non-reasoning',  // cost redus, RPM/TPM mari
     messages: [
       {
         role: 'system',
@@ -312,11 +314,34 @@ ${html.slice(0, 50000)}` // Limitare tokens
 
 | Scenariu                                    | Input Tokens | Output Tokens | Cost Total |
 |---------------------------------------------|--------------|---------------|------------|
-| 1 request/produs (avg 5K input, 500 output) | 8.85B        | 885M          | ~$57,525   |
-| Cu caching (50% hit rate)                   | 4.43B        | 442M          | ~$28,763   |
-| Batch processing (grok-2-mini)              | 4.43B        | 442M          | ~$5,753    |
+| 1 request/produs (avg 5K input, 500 output) | 8.85B        | 885M          | **depinde de model** |
+| Cu caching (50% hit rate)                   | 4.43B        | 442M          | **depinde de model** |
+| Batch processing (model fast)               | 4.43B        | 442M          | **depinde de model** |
 
-> **Recomandare:** Folosiți `grok-2-mini` pentru extracții în masă, `grok-3` pentru validări critice.
+> **Recomandare:** Folosiți un model **fast** pentru extracții în masă și un model mai puternic pentru validări critice.
+
+---
+
+## OpenAI GPT API – Pricing (referință oficială)
+
+Prețurile sunt per **1M tokens** și depind de model + tier (Standard/Flex/Priority). Tabel complet: https://platform.openai.com/docs/pricing
+
+**Exemple (Standard):**
+- `gpt-4o-mini`: $0.15 / 1M input, $0.60 / 1M output
+- `gpt-5.2`: $1.75 / 1M input, $14.00 / 1M output
+
+**Observație:** pentru costuri predictibile la scară mare, folosiți Batch API / Flex tier când latența permite.
+
+---
+
+## DeepSeek API – Pricing (referință oficială)
+
+**deepseek-chat / deepseek-reasoner (V3.2):**
+- 1M input tokens (cache hit): **$0.028**
+- 1M input tokens (cache miss): **$0.28**
+- 1M output tokens: **$0.42**
+
+Sursa oficială: https://api-docs.deepseek.com/quick_start/pricing
 
 ---
 

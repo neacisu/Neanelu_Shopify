@@ -1,0 +1,527 @@
+{
+  "level": "golden",
+  "source": "shopify",
+  "extracted_at": "2026-01-21T22:31:18.925Z",
+  "identity": {
+    "shopify_id": "gid://shopify/Product/10817353384203",
+    "handle": "seminte-ridichi-johanna-10000-sem",
+    "sku": "seminte-ridichi-johanna-10-000-sem",
+    "barcode": null
+  },
+  "basic": {
+    "title": "seminte ridichi johanna - 10000 sem",
+    "vendor": "agrosel",
+    "product_type": "seminte_ridichi_johanna_-_10.000_sem",
+    "status": "ACTIVE",
+    "tags": []
+  },
+  "content": {
+    "description": "Soi de ridichi de lună cu rădăcini de formă rotundă (diametru de 3-4 cm), de culoare roșie, rezistente la lignificare și crăpare. Foliajul este de vigoare medie. Recomandat pentru culturi în câmp deschis sau spațiu protejat. Plantele nu sunt sensibile la lumina.",
+    "description_html": "<p>Soi de<strong> ridichi de lună</strong> cu rădăcini de<strong> formă rotundă</strong> (diametru de 3-4 cm), de culoare roșie, <strong>rezistente la lignificare și crăpare. </strong></p>\n<p>Foliajul este de vigoare medie.</p>\n<p>Recomandat pentru culturi<strong> în câmp deschis sau spațiu protejat</strong>.</p>\n<p><strong>Plantele nu sunt sensibile la lumina.</strong></p>"
+  },
+  "pricing": {
+    "price": 36.62,
+    "compare_at_price": null,
+    "currency": "RON"
+  },
+  "inventory": {
+    "total": 0,
+    "variant_quantity": 0
+  },
+  "specifications": {},
+  "urls": {
+    "wholesale_url": null
+  },
+  "raw_metafields": [
+    {
+      "id": "gid://shopify/Metafield/58243730309387",
+      "namespace": "sync_meta",
+      "key": "source_urls",
+      "type": "json",
+      "value": "[\"https://agrosel.ro/seminte-ridichi-johanna-10-000-sem\"]",
+      "jsonValue": ["https://agrosel.ro/seminte-ridichi-johanna-10-000-sem"],
+      "definition": null
+    },
+    {
+      "id": "gid://shopify/Metafield/58243730342155",
+      "namespace": "sync_meta",
+      "key": "source_ids",
+      "type": "json",
+      "value": "[2]",
+      "jsonValue": [2],
+      "definition": null
+    },
+    {
+      "id": "gid://shopify/Metafield/58243730374923",
+      "namespace": "sync_meta",
+      "key": "primary_source",
+      "type": "single_line_text_field",
+      "value": "2",
+      "jsonValue": "2",
+      "definition": null
+    },
+    {
+      "id": "gid://shopify/Metafield/58243730407691",
+      "namespace": "sync_meta",
+      "key": "last_sync_at",
+      "type": "date_time",
+      "value": "2025-11-20T02:58:01Z",
+      "jsonValue": "2025-11-20T02:58:01Z",
+      "definition": null
+    },
+    {
+      "id": "gid://shopify/Metafield/58243730440459",
+      "namespace": "sync_meta",
+      "key": "canonical_id",
+      "type": "single_line_text_field",
+      "value": "192",
+      "jsonValue": "192",
+      "definition": null
+    },
+    {
+      "id": "gid://shopify/Metafield/58243730473227",
+      "namespace": "sync_meta",
+      "key": "prices_by_source",
+      "type": "json",
+      "value": "{\"2\":\"36.62\"}",
+      "jsonValue": {
+        "2": "36.62"
+      },
+      "definition": null
+    },
+    {
+      "id": "gid://shopify/Metafield/58244046520587",
+      "namespace": "custom",
+      "key": "vendor",
+      "type": "list.single_line_text_field",
+      "value": "[\"Agrosel\"]",
+      "jsonValue": ["Agrosel"],
+      "definition": {
+        "id": "gid://shopify/MetafieldDefinition/236106842379",
+        "name": "Vendor"
+      }
+    }
+  ],
+  "vendor_data": null,
+  "search_provider": "xai",
+  "web_search_results": {
+    "sources_found": [
+      {
+        "url": "https://agrosel.ro/seminte-ridichi-johanna-4g",
+        "domain": "agrosel.ro",
+        "match_confidence": 98,
+        "specifications": [
+          {
+            "name": "Product Name",
+            "value": "Seminte Ridichi Johanna"
+          },
+          {
+            "name": "Quantity",
+            "value": "4g"
+          }
+        ]
+      },
+      {
+        "url": "https://www.verdon.ro/seminte-legume/seminte-ridichi-johanna-agrosel-6-g.html",
+        "domain": "verdon.ro",
+        "match_confidence": 98,
+        "specifications": [
+          {
+            "name": "Product Name",
+            "value": "Seminte ridichi JOHANNA Agrosel"
+          },
+          {
+            "name": "Quantity",
+            "value": "6g"
+          }
+        ]
+      },
+      {
+        "url": "https://shop.agrosel.ro/default/seminte-ridichi-johanna-6-g.html",
+        "domain": "shop.agrosel.ro",
+        "match_confidence": 98,
+        "specifications": [
+          {
+            "name": "Product Name",
+            "value": "Semințe ridichi Johanna"
+          },
+          {
+            "name": "Quantity",
+            "value": "6g"
+          }
+        ]
+      }
+    ],
+    "consolidated_specs": [
+      {
+        "name": "Product Name",
+        "value": "Seminte Ridichi Johanna",
+        "unit": null,
+        "confidence": 100
+      },
+      {
+        "name": "Brand",
+        "value": "Agrosel",
+        "unit": null,
+        "confidence": 100
+      },
+      {
+        "name": "Quantity",
+        "value": "4-6",
+        "unit": "g",
+        "confidence": 90
+      }
+    ],
+    "manufacturer_data": {
+      "name": "Agrosel",
+      "part_number": "seminte-ridichi-johanna-10-000-sem"
+    },
+    "search_summary": {
+      "total_sources": 3,
+      "high_confidence_matches": 3,
+      "new_specs_found": 0
+    }
+  },
+  "web_citations": [
+    "https://www.verdon.ro/seminte-legume/seminte-ridichi-johanna-agrosel-6-g.html",
+    "https://agrosel.ro/seminte-ridichi-johanna-4g",
+    "https://shop.agrosel.ro/default/seminte-ridichi-johanna-6-g.html",
+    "https://www.dedeman.ro/ro/seminte-legume-agrosel-ridichi-yulka/p/7058821",
+    "https://agrosel.ro/seminte-home-gardening/ridichi",
+    "https://www.semplus.ro/seminte-de-ridichi-yulka-10-grame-pg-3-agrosel",
+    "https://www.seminte1.eu/seminte-ridichi",
+    "https://seminteplante.ro/15_agrosel",
+    "https://www.semplus.ro/Seminte-drajate-de-ridichi-Cherry-Belle-230-seminte-Agrosel",
+    "https://mathaus.ro/p/seminte-de-ridichi-agrosel-husveti-rozsa/000000000011157413"
+  ],
+  "golden_analysis": {
+    "product_classification": {
+      "primary_category": "Agricultural Supplies",
+      "subcategory": "Seeds",
+      "product_type_standard": "Vegetable Seeds"
+    },
+    "suggested_attributes": [
+      {
+        "name": "product_name",
+        "importance": "critical",
+        "current_value": "seminte ridichi johanna - 10000 sem",
+        "suggested_source": "Manufacturer website (agrosel.ro)"
+      },
+      {
+        "name": "brand",
+        "importance": "critical",
+        "current_value": "agrosel",
+        "suggested_source": "Current data"
+      },
+      {
+        "name": "manufacturer_part_number",
+        "importance": "critical",
+        "current_value": "seminte-ridichi-johanna-10-000-sem",
+        "suggested_source": "Current data"
+      },
+      {
+        "name": "seed_type",
+        "importance": "critical",
+        "current_value": null,
+        "suggested_source": "Manufacturer specifications"
+      },
+      {
+        "name": "seed_variety",
+        "importance": "critical",
+        "current_value": "Johanna",
+        "suggested_source": "Product name analysis"
+      },
+      {
+        "name": "seed_quantity",
+        "importance": "critical",
+        "current_value": "10000 sem",
+        "suggested_source": "Current title"
+      },
+      {
+        "name": "seed_weight",
+        "importance": "important",
+        "current_value": "4-6 g",
+        "suggested_source": "Web search results"
+      },
+      {
+        "name": "plant_type",
+        "importance": "critical",
+        "current_value": "Radish",
+        "suggested_source": "Product name translation"
+      },
+      {
+        "name": "germination_rate",
+        "importance": "important",
+        "current_value": null,
+        "suggested_source": "Manufacturer specifications"
+      },
+      {
+        "name": "purity",
+        "importance": "important",
+        "current_value": null,
+        "suggested_source": "Manufacturer specifications"
+      },
+      {
+        "name": "sowing_period",
+        "importance": "important",
+        "current_value": null,
+        "suggested_source": "Manufacturer specifications"
+      },
+      {
+        "name": "harvest_period",
+        "importance": "important",
+        "current_value": null,
+        "suggested_source": "Manufacturer specifications"
+      },
+      {
+        "name": "root_shape",
+        "importance": "nice_to_have",
+        "current_value": null,
+        "suggested_source": "Manufacturer specifications"
+      },
+      {
+        "name": "root_color",
+        "importance": "nice_to_have",
+        "current_value": null,
+        "suggested_source": "Manufacturer specifications"
+      },
+      {
+        "name": "packaging_type",
+        "importance": "important",
+        "current_value": null,
+        "suggested_source": "Manufacturer specifications"
+      },
+      {
+        "name": "shelf_life",
+        "importance": "important",
+        "current_value": null,
+        "suggested_source": "Manufacturer specifications"
+      },
+      {
+        "name": "storage_conditions",
+        "importance": "important",
+        "current_value": null,
+        "suggested_source": "Manufacturer specifications"
+      }
+    ],
+    "unified_specifications": [
+      {
+        "name": "product_name",
+        "value": "Seminte Ridichi Johanna",
+        "unit": null,
+        "confidence": 100,
+        "sources": ["agrosel.ro", "verdon.ro", "shop.agrosel.ro"]
+      },
+      {
+        "name": "brand",
+        "value": "Agrosel",
+        "unit": null,
+        "confidence": 100,
+        "sources": ["agrosel.ro", "verdon.ro", "shop.agrosel.ro"]
+      },
+      {
+        "name": "seed_weight",
+        "value": "4-6",
+        "unit": "g",
+        "confidence": 90,
+        "sources": ["agrosel.ro", "verdon.ro", "shop.agrosel.ro"]
+      },
+      {
+        "name": "seed_quantity",
+        "value": "10000",
+        "unit": "seeds",
+        "confidence": 80,
+        "sources": ["Current product title"]
+      },
+      {
+        "name": "plant_type",
+        "value": "Radish",
+        "unit": null,
+        "confidence": 95,
+        "sources": ["Product name translation"]
+      },
+      {
+        "name": "seed_variety",
+        "value": "Johanna",
+        "unit": null,
+        "confidence": 95,
+        "sources": ["Product name analysis"]
+      }
+    ],
+    "data_completeness": {
+      "score": 35,
+      "missing_critical": ["seed_type", "germination_rate", "purity", "sowing_period"],
+      "missing_important": ["harvest_period", "packaging_type", "shelf_life", "storage_conditions"]
+    },
+    "seo_keywords": [
+      "radish seeds",
+      "johanna radish",
+      "agrosel seeds",
+      "vegetable seeds",
+      "garden seeds",
+      "radish seminte",
+      "ridichi johanna",
+      "agricultural seeds",
+      "horticultural seeds",
+      "radish cultivation"
+    ],
+    "related_products": [
+      "carrot seeds",
+      "lettuce seeds",
+      "spinach seeds",
+      "beetroot seeds",
+      "gardening tools",
+      "seed starting trays",
+      "organic fertilizer",
+      "garden soil",
+      "watering cans",
+      "plant labels"
+    ],
+    "technical_standards": [
+      "ISO 3168:2021 (Seed sampling)",
+      "ISTA Rules (International Seed Testing Association)",
+      "EU Seed Marketing Directives",
+      "National seed certification standards"
+    ],
+    "golden_record_assessment": {
+      "ready_for_golden": false,
+      "blocking_issues": [
+        "Missing critical seed specifications (germination rate, purity)",
+        "Conflicting quantity information (10,000 seeds vs 4-6g)",
+        "No official manufacturer specifications available",
+        "Missing packaging and storage information"
+      ],
+      "recommendations": [
+        "Contact Agrosel directly for official product specifications",
+        "Clarify the exact quantity (seeds count vs weight)",
+        "Obtain germination rate and purity percentage",
+        "Add sowing and harvest period information",
+        "Include packaging details and storage requirements",
+        "Verify the exact MPN with manufacturer"
+      ]
+    }
+  },
+  "golden_record": {
+    "identifiers": {
+      "shopify_id": "gid://shopify/Product/10817353384203",
+      "handle": "seminte-ridichi-johanna-10000-sem",
+      "sku": "seminte-ridichi-johanna-10-000-sem",
+      "mpn": "seminte-ridichi-johanna-10-000-sem",
+      "barcode": null
+    },
+    "classification": {
+      "primary_category": "Agricultural Supplies",
+      "subcategory": "Seeds",
+      "product_type": "Vegetable Seeds",
+      "vendor": "agrosel",
+      "manufacturer": "Agrosel"
+    },
+    "content": {
+      "title": "seminte ridichi johanna - 10000 sem",
+      "description": "Soi de ridichi de lună cu rădăcini de formă rotundă (diametru de 3-4 cm), de culoare roșie, rezistente la lignificare și crăpare. Foliajul este de vigoare medie. Recomandat pentru culturi în câmp deschis sau spațiu protejat. Plantele nu sunt sensibile la lumina.",
+      "seo_keywords": [
+        "radish seeds",
+        "johanna radish",
+        "agrosel seeds",
+        "vegetable seeds",
+        "garden seeds",
+        "radish seminte",
+        "ridichi johanna",
+        "agricultural seeds",
+        "horticultural seeds",
+        "radish cultivation"
+      ]
+    },
+    "specifications": [
+      {
+        "name": "product_name",
+        "value": "Seminte Ridichi Johanna",
+        "unit": null,
+        "confidence": 100,
+        "sources": ["agrosel.ro", "verdon.ro", "shop.agrosel.ro"]
+      },
+      {
+        "name": "brand",
+        "value": "Agrosel",
+        "unit": null,
+        "confidence": 100,
+        "sources": ["agrosel.ro", "verdon.ro", "shop.agrosel.ro"]
+      },
+      {
+        "name": "seed_weight",
+        "value": "4-6",
+        "unit": "g",
+        "confidence": 90,
+        "sources": ["agrosel.ro", "verdon.ro", "shop.agrosel.ro"]
+      },
+      {
+        "name": "seed_quantity",
+        "value": "10000",
+        "unit": "seeds",
+        "confidence": 80,
+        "sources": ["Current product title"]
+      },
+      {
+        "name": "plant_type",
+        "value": "Radish",
+        "unit": null,
+        "confidence": 95,
+        "sources": ["Product name translation"]
+      },
+      {
+        "name": "seed_variety",
+        "value": "Johanna",
+        "unit": null,
+        "confidence": 95,
+        "sources": ["Product name analysis"]
+      }
+    ],
+    "dimensions": null,
+    "materials": [],
+    "applications": [],
+    "technical_standards": [
+      "ISO 3168:2021 (Seed sampling)",
+      "ISTA Rules (International Seed Testing Association)",
+      "EU Seed Marketing Directives",
+      "National seed certification standards"
+    ],
+    "pricing": {
+      "price": 36.62,
+      "compare_at_price": null,
+      "currency": "RON"
+    },
+    "quality": {
+      "level": "golden",
+      "completeness_score": 35,
+      "sources": ["shopify", "web_search", "ai_analysis"],
+      "web_sources_count": 3,
+      "missing_critical": ["seed_type", "germination_rate", "purity", "sowing_period"],
+      "missing_important": ["harvest_period", "packaging_type", "shelf_life", "storage_conditions"],
+      "last_enriched": "2026-01-21T22:33:46.458Z"
+    },
+    "related_products": [
+      "carrot seeds",
+      "lettuce seeds",
+      "spinach seeds",
+      "beetroot seeds",
+      "gardening tools",
+      "seed starting trays",
+      "organic fertilizer",
+      "garden soil",
+      "watering cans",
+      "plant labels"
+    ],
+    "citations": [
+      "https://www.verdon.ro/seminte-legume/seminte-ridichi-johanna-agrosel-6-g.html",
+      "https://agrosel.ro/seminte-ridichi-johanna-4g",
+      "https://shop.agrosel.ro/default/seminte-ridichi-johanna-6-g.html",
+      "https://www.dedeman.ro/ro/seminte-legume-agrosel-ridichi-yulka/p/7058821",
+      "https://agrosel.ro/seminte-home-gardening/ridichi",
+      "https://www.semplus.ro/seminte-de-ridichi-yulka-10-grame-pg-3-agrosel",
+      "https://www.seminte1.eu/seminte-ridichi",
+      "https://seminteplante.ro/15_agrosel",
+      "https://www.semplus.ro/Seminte-drajate-de-ridichi-Cherry-Belle-230-seminte-Agrosel",
+      "https://mathaus.ro/p/seminte-de-ridichi-agrosel-husveti-rozsa/000000000011157413"
+    ]
+  }
+}

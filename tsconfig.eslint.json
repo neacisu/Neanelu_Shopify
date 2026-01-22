@@ -17,6 +17,7 @@
     "**/.next/**",
     "**/coverage/**",
     "Research Produse/**",
-    "Research Categorii/**"
+    "Research Categorii/**",
+    "Research Metafileds/**"
   ]
 }
