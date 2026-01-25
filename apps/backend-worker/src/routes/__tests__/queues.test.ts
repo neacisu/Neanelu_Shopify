@@ -17,7 +17,15 @@ void mock.module(sessionPath, {
 const workerRegistryPath = new URL('../../runtime/worker-registry.js', import.meta.url).href;
 void mock.module(workerRegistryPath, {
   namedExports: {
-    getWorkerReadiness: () => ({ webhookWorkerOk: true, tokenHealthWorkerOk: true }),
+    getWorkerReadiness: () => ({
+      webhookWorkerOk: true,
+      tokenHealthWorkerOk: true,
+      bulkOrchestratorWorkerOk: true,
+      bulkPollerWorkerOk: true,
+      bulkMutationReconcileWorkerOk: true,
+      bulkIngestWorkerOk: true,
+      aiBatchWorkerOk: true,
+    }),
     getWorkerCurrentJob: () => null,
   },
 });

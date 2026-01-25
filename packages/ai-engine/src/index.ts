@@ -160,3 +160,5 @@ export function createEmbeddingsProvider(params: {
     ...(typeof params.openAiTimeoutMs === 'number' ? { timeoutMs: params.openAiTimeoutMs } : {}),
   });
 }
+
+export * from './openai/batch-manager.js';
