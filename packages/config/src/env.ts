@@ -66,6 +66,14 @@ export type AppEnv = Readonly<{
   openAiEmbeddingsModel: string;
   /** Embeddings request timeout; defaults to 30s */
   openAiTimeoutMs: number;
+  /** Max items per OpenAI batch file; defaults to 1000 */
+  openAiBatchMaxItems: number;
+  /** Poll interval (seconds) for OpenAI batch status; defaults to 3600 */
+  openAiBatchPollSeconds: number;
+  /** Retention (days) for OpenAI files; defaults to 30 */
+  openAiBatchRetentionDays: number;
+  /** Scheduler tick (seconds) for AI batch orchestration */
+  openAiBatchScheduleTickSeconds: number;
 
   // ============================================
   // BULK DEDUP + CONSENSUS + PIM SYNC (PR-043 / F5.2.9-F5.2.10)
@@ -316,6 +324,22 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
   const openAiEmbeddingsModel =
     optionalString(env, 'OPENAI_EMBEDDINGS_MODEL') ?? 'text-embedding-3-large';
   const openAiTimeoutMs = parsePositiveIntWithDefault(env, 'OPENAI_TIMEOUT_MS', 30_000);
+  const openAiBatchMaxItems = parsePositiveIntWithDefault(env, 'OPENAI_BATCH_MAX_ITEMS', 1000);
+  const openAiBatchPollSeconds = parsePositiveIntWithDefault(
+    env,
+    'OPENAI_BATCH_POLL_SECONDS',
+    3600
+  );
+  const openAiBatchRetentionDays = parsePositiveIntWithDefault(
+    env,
+    'OPENAI_BATCH_RETENTION_DAYS',
+    30
+  );
+  const openAiBatchScheduleTickSeconds = parsePositiveIntWithDefault(
+    env,
+    'OPENAI_BATCH_SCHEDULE_TICK_SECONDS',
+    60
+  );
 
   const bulkPimSyncEnabled = parseBooleanWithDefault(env, 'BULK_PIM_SYNC_ENABLED', true);
   const bulkSemanticDedupEnabled = parseBooleanWithDefault(
@@ -388,6 +412,10 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     ...(openAiBaseUrl ? { openAiBaseUrl } : {}),
     openAiEmbeddingsModel,
     openAiTimeoutMs,
+    openAiBatchMaxItems,
+    openAiBatchPollSeconds,
+    openAiBatchRetentionDays,
+    openAiBatchScheduleTickSeconds,
 
     bulkPimSyncEnabled,
     bulkSemanticDedupEnabled,

@@ -12,12 +12,15 @@ import { startBulkPollerWorker } from './processors/bulk-operations/poller.worke
 import { startBulkMutationReconcileWorker } from './processors/bulk-operations/mutation-reconcile.worker.js';
 import { startBulkIngestWorker } from './processors/bulk-operations/ingest.worker.js';
 import { startBulkScheduleWorker } from './processors/bulk-operations/schedule.worker.js';
+import { startAiBatchWorker } from './processors/ai/worker.js';
+import { startAiBatchScheduleWorker } from './processors/ai/schedule.worker.js';
 import { scheduleTokenHealthJob, closeTokenHealthQueue } from './queue/token-health-queue.js';
 import {
   setBulkOrchestratorWorkerHandle,
   setBulkIngestWorkerHandle,
   setBulkMutationReconcileWorkerHandle,
   setBulkPollerWorkerHandle,
+  setAiBatchWorkerHandle,
   setTokenHealthWorkerHandle,
   setWebhookWorkerHandle,
 } from './runtime/worker-registry.js';
@@ -45,6 +48,8 @@ let bulkMutationReconcileWorker: Awaited<
 > | null = null;
 let bulkIngestWorker: Awaited<ReturnType<typeof startBulkIngestWorker>> | null = null;
 let bulkScheduleWorker: Awaited<ReturnType<typeof startBulkScheduleWorker>> | null = null;
+let aiBatchWorker: Awaited<ReturnType<typeof startAiBatchWorker>> | null = null;
+let aiBatchScheduleWorker: Awaited<ReturnType<typeof startAiBatchScheduleWorker>> | null = null;
 
 try {
   await server.listen({ port: env.port, host: '0.0.0.0' });
@@ -119,6 +124,23 @@ try {
   emitQueueStreamEvent({
     type: 'worker.online',
     workerId: 'bulk-schedule-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  aiBatchWorker = startAiBatchWorker(logger);
+  setAiBatchWorkerHandle(aiBatchWorker);
+  logger.info({}, 'ai batch worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'ai-batch-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  aiBatchScheduleWorker = startAiBatchScheduleWorker(logger);
+  logger.info({}, 'ai batch schedule worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'ai-batch-schedule-worker',
     timestamp: new Date().toISOString(),
   });
 } catch (error) {
@@ -219,6 +241,29 @@ const shutdown = async (signal: string): Promise<void> => {
       emitQueueStreamEvent({
         type: 'worker.offline',
         workerId: 'bulk-schedule-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (aiBatchWorker) {
+      await aiBatchWorker.close();
+      aiBatchWorker = null;
+      setAiBatchWorkerHandle(null);
+      logger.info({ signal }, 'ai batch worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'ai-batch-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (aiBatchScheduleWorker) {
+      await aiBatchScheduleWorker.close();
+      aiBatchScheduleWorker = null;
+      logger.info({ signal }, 'ai batch schedule worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'ai-batch-schedule-worker',
         timestamp: new Date().toISOString(),
       });
     }
