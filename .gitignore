@@ -129,6 +129,9 @@ Research Produse/TSOutputs/
 Research Produse/**/*.jsonl
 Research Produse/**/bulk-*.jsonl
 
+# Research Metafileds - contine date sensibile (API keys, credentials, etc)
+Research Metafileds/
+
 # Husky
 .husky/_
 
