@@ -3,11 +3,17 @@
  *
  * CONFORM: Database_Schema_Complete.md v2.6 - Module E
  * PR-010: F2.2.7 - pgvector Embeddings Schema
+ * PR-047: F6.1.1-F6.1.2 - Embeddings Schema v2 (3072 dims)
  *
  * DECIZIE ARHITECTURALĂ (2025):
  * - pgvector (Postgres) este SINGURA soluție de vector storage
  * - Redis NU se folosește pentru vectori (doar cache/queues)
  * - HNSW indexes pentru performanță (<10ms latency)
+ *
+ * PR-047 UPGRADE:
+ * - Migrated from vector(1536) to vector(3072) for text-embedding-3-large
+ * - Added variant_id, quality_level, source, lang columns
+ * - Added Romanian language support as default
  *
  * TABELE:
  * - prod_attr_definitions: Registry atribute canonice cu embeddings
@@ -32,14 +38,27 @@ import {
 import { sql } from 'drizzle-orm';
 
 import { shops } from './shops.js';
-import { shopifyProducts } from './shopify-products.js';
+import { shopifyProducts, shopifyVariants } from './shopify-products.js';
 import { prodMaster } from './pim.js';
+
+// ============================================
+// Constants
+// ============================================
+
+/** Current embedding model */
+export const EMBEDDING_MODEL_NAME = 'text-embedding-3-large';
+
+/** Embedding vector dimensions (upgraded from 1536) */
+export const EMBEDDING_DIMENSIONS = 3072;
+
+/** Default language for embeddings */
+export const EMBEDDING_DEFAULT_LANG = 'ro';
 
 // ============================================
 // Custom pgvector type pentru Drizzle
 // ============================================
 // Drizzle nu are suport nativ pentru vector, folosim customType
-// Dimensiunile (1536) sunt pentru OpenAI text-embedding-3-small
+// Dimensiunile (3072) sunt pentru OpenAI text-embedding-3-large
 // NOTĂ: Indexurile HNSW se definesc în migrația SQL
 
 // ============================================
@@ -71,7 +90,7 @@ export const prodAttrDefinitions = pgTable(
     displayOrder: integer('display_order').default(0),
 
     // Embedding pentru căutare semantică - operat ca text (vector definit în SQL)
-    // embedding: vector(1536) - definit în migrație cu HNSW index
+    // embedding: vector(3072) - definit în migrație cu HNSW index (PR-047: upgraded from 1536)
 
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
@@ -124,6 +143,7 @@ export type NewProdAttrSynonym = typeof prodAttrSynonyms.$inferInsert;
 // 3. prod_embeddings - Global PIM Product Embeddings
 // ============================================
 // NO RLS - Global PIM data
+// PR-047: Added variant_id, quality_level, source, lang columns
 
 export const prodEmbeddings = pgTable(
   'prod_embeddings',
@@ -136,20 +156,35 @@ export const prodEmbeddings = pgTable(
       .notNull()
       .references(() => prodMaster.id),
 
+    // PR-047: Added variant_id for variant-specific embeddings
+    variantId: uuid('variant_id').references(() => shopifyVariants.id, { onDelete: 'set null' }),
+
     embeddingType: varchar('embedding_type', { length: 50 }).notNull(), // title/description/specs/combined
 
-    // embedding: vector(1536) - definit în SQL cu HNSW index
+    // embedding: vector(3072) - definit în SQL cu HNSW index (PR-047: upgraded from 1536)
 
-    contentHash: varchar('content_hash', { length: 64 }).notNull(), // Source content hash
-    modelVersion: varchar('model_version', { length: 50 }).notNull(), // text-embedding-3-small
-    dimensions: integer('dimensions').default(1536),
+    contentHash: varchar('content_hash', { length: 64 }).notNull(), // Source content hash (SHA-256)
+    modelVersion: varchar('model_version', { length: 50 }).notNull(), // text-embedding-3-large
+    dimensions: integer('dimensions').default(3072), // PR-047: upgraded from 1536
+
+    // PR-047: New columns for quality-based embeddings
+    qualityLevel: varchar('quality_level', { length: 20 }).default('bronze'), // bronze/silver/golden/review_needed
+    source: varchar('source', { length: 50 }).default('shopify'), // shopify/vendor/ai/manual
+    lang: varchar('lang', { length: 10 }).notNull().default('ro'), // Default Romanian
 
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
   },
   (table) => [
     index('idx_embeddings_product').on(table.productId),
     index('idx_embeddings_type').on(table.productId, table.embeddingType),
+    // PR-047: New indexes
+    index('idx_embeddings_product_variant').on(table.productId, table.variantId),
+    index('idx_embeddings_quality_updated').on(table.qualityLevel, table.updatedAt),
+    index('idx_embeddings_lang').on(table.lang),
+    index('idx_embeddings_source').on(table.source),
     // HNSW vector index definit în SQL: idx_embeddings_vector
+    // Unique constraint: (product_id, variant_id, quality_level, embedding_type)
   ]
 );
 
@@ -160,6 +195,7 @@ export type NewProdEmbedding = typeof prodEmbeddings.$inferInsert;
 // 4. shop_product_embeddings - Per-Tenant Embeddings
 // ============================================
 // HAS RLS - Multi-tenant data
+// PR-047: Added quality_level, source, lang columns
 
 export const shopProductEmbeddings = pgTable(
   'shop_product_embeddings',
@@ -178,11 +214,16 @@ export const shopProductEmbeddings = pgTable(
 
     embeddingType: varchar('embedding_type', { length: 50 }).notNull(), // title/description/combined
 
-    // embedding: vector(1536) - definit în SQL cu HNSW index
+    // embedding: vector(3072) - definit în SQL cu HNSW index (PR-047: upgraded from 1536)
 
     contentHash: varchar('content_hash', { length: 64 }).notNull(), // For change detection
-    modelVersion: varchar('model_version', { length: 50 }).notNull(), // text-embedding-3-small
-    dimensions: integer('dimensions').default(1536),
+    modelVersion: varchar('model_version', { length: 50 }).notNull(), // text-embedding-3-large
+    dimensions: integer('dimensions').default(3072), // PR-047: upgraded from 1536
+
+    // PR-047: New columns
+    qualityLevel: varchar('quality_level', { length: 20 }).default('bronze'), // bronze/silver/golden/review_needed
+    source: varchar('source', { length: 50 }).default('shopify'), // shopify/vendor/ai/manual
+    lang: varchar('lang', { length: 10 }).notNull().default('ro'), // Default Romanian
 
     status: varchar('status', { length: 20 }).default('pending'), // pending/ready/failed
     errorMessage: text('error_message'),
@@ -200,6 +241,9 @@ export const shopProductEmbeddings = pgTable(
     ),
     index('idx_shop_embeddings_hash').on(table.shopId, table.contentHash),
     index('idx_shop_embeddings_pending').on(table.shopId, table.status),
+    // PR-047: New indexes
+    index('idx_shop_embeddings_quality').on(table.shopId, table.qualityLevel),
+    index('idx_shop_embeddings_lang').on(table.shopId, table.lang),
     // HNSW vector index definit în SQL: idx_shop_embeddings_vector
     // RLS policy definită în SQL
   ]
