@@ -4,13 +4,13 @@
  * PR-047: F6.1.1 - Schema tests for embeddings v2 (2000 dims for HNSW)
  *
  * Tests verify:
- * - Vector column exists with correct dimensions
- * - New columns (variant_id, quality_level, source, lang) exist
- * - HNSW indexes are configured correctly
- * - CHECK constraints are in place
+ * - Drizzle schema constants are correct
+ * - Schema structure matches expected columns
+ * - Default values are correct
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
 
 import {
   prodEmbeddings,
@@ -19,23 +19,23 @@ import {
   EMBEDDING_DIMENSIONS,
   EMBEDDING_MODEL_NAME,
   EMBEDDING_DEFAULT_LANG,
-} from '../../schema/vectors.js';
+} from '../../schema/vectors.ts';
 
 // ============================================
 // Schema Constants Tests
 // ============================================
 
-describe('Embeddings Schema Constants', () => {
-  it('should export correct embedding dimensions', () => {
-    expect(EMBEDDING_DIMENSIONS).toBe(2000);
+void describe('Embeddings Schema Constants', () => {
+  void it('should export correct embedding dimensions', () => {
+    assert.strictEqual(EMBEDDING_DIMENSIONS, 2000);
   });
 
-  it('should export correct model name', () => {
-    expect(EMBEDDING_MODEL_NAME).toBe('text-embedding-3-large');
+  void it('should export correct model name', () => {
+    assert.strictEqual(EMBEDDING_MODEL_NAME, 'text-embedding-3-large');
   });
 
-  it('should export correct default language', () => {
-    expect(EMBEDDING_DEFAULT_LANG).toBe('ro');
+  void it('should export correct default language', () => {
+    assert.strictEqual(EMBEDDING_DEFAULT_LANG, 'ro');
   });
 });
 
@@ -43,86 +43,86 @@ describe('Embeddings Schema Constants', () => {
 // prod_embeddings Schema Tests
 // ============================================
 
-describe('prod_embeddings Schema', () => {
-  it('should have id column as primary key', () => {
+void describe('prod_embeddings Schema', () => {
+  void it('should have id column as primary key', () => {
     const idColumn = prodEmbeddings.id;
-    expect(idColumn).toBeDefined();
-    expect(idColumn.name).toBe('id');
+    assert.ok(idColumn, 'id column should exist');
+    assert.strictEqual(idColumn.name, 'id');
   });
 
-  it('should have product_id column with foreign key', () => {
+  void it('should have product_id column with foreign key', () => {
     const productIdColumn = prodEmbeddings.productId;
-    expect(productIdColumn).toBeDefined();
-    expect(productIdColumn.name).toBe('product_id');
-    expect(productIdColumn.notNull).toBe(true);
+    assert.ok(productIdColumn, 'productId column should exist');
+    assert.strictEqual(productIdColumn.name, 'product_id');
+    assert.strictEqual(productIdColumn.notNull, true);
   });
 
-  it('should have variant_id column (nullable)', () => {
+  void it('should have variant_id column (nullable)', () => {
     const variantIdColumn = prodEmbeddings.variantId;
-    expect(variantIdColumn).toBeDefined();
-    expect(variantIdColumn.name).toBe('variant_id');
+    assert.ok(variantIdColumn, 'variantId column should exist');
+    assert.strictEqual(variantIdColumn.name, 'variant_id');
     // Nullable - no notNull constraint
-    expect(variantIdColumn.notNull).toBeFalsy();
+    assert.ok(!variantIdColumn.notNull, 'variantId should be nullable');
   });
 
-  it('should have embedding_type column', () => {
+  void it('should have embedding_type column', () => {
     const embeddingTypeColumn = prodEmbeddings.embeddingType;
-    expect(embeddingTypeColumn).toBeDefined();
-    expect(embeddingTypeColumn.name).toBe('embedding_type');
-    expect(embeddingTypeColumn.notNull).toBe(true);
+    assert.ok(embeddingTypeColumn, 'embeddingType column should exist');
+    assert.strictEqual(embeddingTypeColumn.name, 'embedding_type');
+    assert.strictEqual(embeddingTypeColumn.notNull, true);
   });
 
-  it('should have content_hash column', () => {
+  void it('should have content_hash column', () => {
     const contentHashColumn = prodEmbeddings.contentHash;
-    expect(contentHashColumn).toBeDefined();
-    expect(contentHashColumn.name).toBe('content_hash');
-    expect(contentHashColumn.notNull).toBe(true);
+    assert.ok(contentHashColumn, 'contentHash column should exist');
+    assert.strictEqual(contentHashColumn.name, 'content_hash');
+    assert.strictEqual(contentHashColumn.notNull, true);
   });
 
-  it('should have model_version column', () => {
+  void it('should have model_version column', () => {
     const modelVersionColumn = prodEmbeddings.modelVersion;
-    expect(modelVersionColumn).toBeDefined();
-    expect(modelVersionColumn.name).toBe('model_version');
-    expect(modelVersionColumn.notNull).toBe(true);
+    assert.ok(modelVersionColumn, 'modelVersion column should exist');
+    assert.strictEqual(modelVersionColumn.name, 'model_version');
+    assert.strictEqual(modelVersionColumn.notNull, true);
   });
 
-  it('should have dimensions column with default 2000', () => {
+  void it('should have dimensions column with default 2000', () => {
     const dimensionsColumn = prodEmbeddings.dimensions;
-    expect(dimensionsColumn).toBeDefined();
-    expect(dimensionsColumn.name).toBe('dimensions');
-    expect(dimensionsColumn.default).toBe(2000);
+    assert.ok(dimensionsColumn, 'dimensions column should exist');
+    assert.strictEqual(dimensionsColumn.name, 'dimensions');
+    assert.strictEqual(dimensionsColumn.default, 2000);
   });
 
-  it('should have quality_level column with default bronze', () => {
+  void it('should have quality_level column with default bronze', () => {
     const qualityLevelColumn = prodEmbeddings.qualityLevel;
-    expect(qualityLevelColumn).toBeDefined();
-    expect(qualityLevelColumn.name).toBe('quality_level');
-    expect(qualityLevelColumn.default).toBe('bronze');
+    assert.ok(qualityLevelColumn, 'qualityLevel column should exist');
+    assert.strictEqual(qualityLevelColumn.name, 'quality_level');
+    assert.strictEqual(qualityLevelColumn.default, 'bronze');
   });
 
-  it('should have source column with default shopify', () => {
+  void it('should have source column with default shopify', () => {
     const sourceColumn = prodEmbeddings.source;
-    expect(sourceColumn).toBeDefined();
-    expect(sourceColumn.name).toBe('source');
-    expect(sourceColumn.default).toBe('shopify');
+    assert.ok(sourceColumn, 'source column should exist');
+    assert.strictEqual(sourceColumn.name, 'source');
+    assert.strictEqual(sourceColumn.default, 'shopify');
   });
 
-  it('should have lang column with default ro', () => {
+  void it('should have lang column with default ro', () => {
     const langColumn = prodEmbeddings.lang;
-    expect(langColumn).toBeDefined();
-    expect(langColumn.name).toBe('lang');
-    expect(langColumn.default).toBe('ro');
-    expect(langColumn.notNull).toBe(true);
+    assert.ok(langColumn, 'lang column should exist');
+    assert.strictEqual(langColumn.name, 'lang');
+    assert.strictEqual(langColumn.default, 'ro');
+    assert.strictEqual(langColumn.notNull, true);
   });
 
-  it('should have created_at and updated_at columns', () => {
+  void it('should have created_at and updated_at columns', () => {
     const createdAtColumn = prodEmbeddings.createdAt;
     const updatedAtColumn = prodEmbeddings.updatedAt;
 
-    expect(createdAtColumn).toBeDefined();
-    expect(updatedAtColumn).toBeDefined();
-    expect(createdAtColumn.name).toBe('created_at');
-    expect(updatedAtColumn.name).toBe('updated_at');
+    assert.ok(createdAtColumn, 'createdAt column should exist');
+    assert.ok(updatedAtColumn, 'updatedAt column should exist');
+    assert.strictEqual(createdAtColumn.name, 'created_at');
+    assert.strictEqual(updatedAtColumn.name, 'updated_at');
   });
 });
 
@@ -130,53 +130,53 @@ describe('prod_embeddings Schema', () => {
 // shop_product_embeddings Schema Tests
 // ============================================
 
-describe('shop_product_embeddings Schema', () => {
-  it('should have shop_id column with foreign key', () => {
+void describe('shop_product_embeddings Schema', () => {
+  void it('should have shop_id column with foreign key', () => {
     const shopIdColumn = shopProductEmbeddings.shopId;
-    expect(shopIdColumn).toBeDefined();
-    expect(shopIdColumn.name).toBe('shop_id');
-    expect(shopIdColumn.notNull).toBe(true);
+    assert.ok(shopIdColumn, 'shopId column should exist');
+    assert.strictEqual(shopIdColumn.name, 'shop_id');
+    assert.strictEqual(shopIdColumn.notNull, true);
   });
 
-  it('should have product_id column with foreign key', () => {
+  void it('should have product_id column with foreign key', () => {
     const productIdColumn = shopProductEmbeddings.productId;
-    expect(productIdColumn).toBeDefined();
-    expect(productIdColumn.name).toBe('product_id');
-    expect(productIdColumn.notNull).toBe(true);
+    assert.ok(productIdColumn, 'productId column should exist');
+    assert.strictEqual(productIdColumn.name, 'product_id');
+    assert.strictEqual(productIdColumn.notNull, true);
   });
 
-  it('should have quality_level column', () => {
+  void it('should have quality_level column', () => {
     const qualityLevelColumn = shopProductEmbeddings.qualityLevel;
-    expect(qualityLevelColumn).toBeDefined();
-    expect(qualityLevelColumn.name).toBe('quality_level');
-    expect(qualityLevelColumn.default).toBe('bronze');
+    assert.ok(qualityLevelColumn, 'qualityLevel column should exist');
+    assert.strictEqual(qualityLevelColumn.name, 'quality_level');
+    assert.strictEqual(qualityLevelColumn.default, 'bronze');
   });
 
-  it('should have source column', () => {
+  void it('should have source column', () => {
     const sourceColumn = shopProductEmbeddings.source;
-    expect(sourceColumn).toBeDefined();
-    expect(sourceColumn.name).toBe('source');
-    expect(sourceColumn.default).toBe('shopify');
+    assert.ok(sourceColumn, 'source column should exist');
+    assert.strictEqual(sourceColumn.name, 'source');
+    assert.strictEqual(sourceColumn.default, 'shopify');
   });
 
-  it('should have lang column', () => {
+  void it('should have lang column', () => {
     const langColumn = shopProductEmbeddings.lang;
-    expect(langColumn).toBeDefined();
-    expect(langColumn.name).toBe('lang');
-    expect(langColumn.default).toBe('ro');
+    assert.ok(langColumn, 'lang column should exist');
+    assert.strictEqual(langColumn.name, 'lang');
+    assert.strictEqual(langColumn.default, 'ro');
   });
 
-  it('should have status column', () => {
+  void it('should have status column', () => {
     const statusColumn = shopProductEmbeddings.status;
-    expect(statusColumn).toBeDefined();
-    expect(statusColumn.name).toBe('status');
-    expect(statusColumn.default).toBe('pending');
+    assert.ok(statusColumn, 'status column should exist');
+    assert.strictEqual(statusColumn.name, 'status');
+    assert.strictEqual(statusColumn.default, 'pending');
   });
 
-  it('should have dimensions column with default 2000', () => {
+  void it('should have dimensions column with default 2000', () => {
     const dimensionsColumn = shopProductEmbeddings.dimensions;
-    expect(dimensionsColumn).toBeDefined();
-    expect(dimensionsColumn.default).toBe(2000);
+    assert.ok(dimensionsColumn, 'dimensions column should exist');
+    assert.strictEqual(dimensionsColumn.default, 2000);
   });
 });
 
@@ -184,26 +184,26 @@ describe('shop_product_embeddings Schema', () => {
 // prod_attr_definitions Schema Tests
 // ============================================
 
-describe('prod_attr_definitions Schema', () => {
-  it('should have code column with unique constraint', () => {
+void describe('prod_attr_definitions Schema', () => {
+  void it('should have code column with unique constraint', () => {
     const codeColumn = prodAttrDefinitions.code;
-    expect(codeColumn).toBeDefined();
-    expect(codeColumn.name).toBe('code');
-    expect(codeColumn.notNull).toBe(true);
+    assert.ok(codeColumn, 'code column should exist');
+    assert.strictEqual(codeColumn.name, 'code');
+    assert.strictEqual(codeColumn.notNull, true);
   });
 
-  it('should have data_type column', () => {
+  void it('should have data_type column', () => {
     const dataTypeColumn = prodAttrDefinitions.dataType;
-    expect(dataTypeColumn).toBeDefined();
-    expect(dataTypeColumn.name).toBe('data_type');
-    expect(dataTypeColumn.notNull).toBe(true);
+    assert.ok(dataTypeColumn, 'dataType column should exist');
+    assert.strictEqual(dataTypeColumn.name, 'data_type');
+    assert.strictEqual(dataTypeColumn.notNull, true);
   });
 
-  it('should have is_variant_level column', () => {
+  void it('should have is_variant_level column', () => {
     const isVariantLevelColumn = prodAttrDefinitions.isVariantLevel;
-    expect(isVariantLevelColumn).toBeDefined();
-    expect(isVariantLevelColumn.name).toBe('is_variant_level');
-    expect(isVariantLevelColumn.default).toBe(false);
+    assert.ok(isVariantLevelColumn, 'isVariantLevel column should exist');
+    assert.strictEqual(isVariantLevelColumn.name, 'is_variant_level');
+    assert.strictEqual(isVariantLevelColumn.default, false);
   });
 });
 
@@ -211,8 +211,8 @@ describe('prod_attr_definitions Schema', () => {
 // Schema Snapshot Tests
 // ============================================
 
-describe('Embeddings Schema Snapshot', () => {
-  it('should have expected column count for prod_embeddings', () => {
+void describe('Embeddings Schema Snapshot', () => {
+  void it('should have expected column count for prod_embeddings', () => {
     const columns = Object.keys(prodEmbeddings);
     // Filter to only actual column definitions
     const columnNames = columns.filter(
@@ -224,10 +224,10 @@ describe('Embeddings Schema Snapshot', () => {
 
     // Expected columns: id, productId, variantId, embeddingType, contentHash,
     // modelVersion, dimensions, qualityLevel, source, lang, createdAt, updatedAt
-    expect(columnNames.length).toBeGreaterThanOrEqual(12);
+    assert.ok(columnNames.length >= 12, `Expected at least 12 columns, got ${columnNames.length}`);
   });
 
-  it('should have expected column count for shop_product_embeddings', () => {
+  void it('should have expected column count for shop_product_embeddings', () => {
     const columns = Object.keys(shopProductEmbeddings);
     const columnNames = columns.filter(
       (key) =>
@@ -238,10 +238,10 @@ describe('Embeddings Schema Snapshot', () => {
 
     // Expected: id, shopId, productId, embeddingType, contentHash, modelVersion,
     // dimensions, qualityLevel, source, lang, status, errorMessage, generatedAt, createdAt, updatedAt
-    expect(columnNames.length).toBeGreaterThanOrEqual(15);
+    assert.ok(columnNames.length >= 15, `Expected at least 15 columns, got ${columnNames.length}`);
   });
 
-  it('should match expected prod_embeddings structure', () => {
+  void it('should match expected prod_embeddings structure', () => {
     const expectedColumns = [
       'id',
       'productId',
@@ -258,11 +258,11 @@ describe('Embeddings Schema Snapshot', () => {
     ];
 
     for (const col of expectedColumns) {
-      expect(prodEmbeddings).toHaveProperty(col);
+      assert.ok(col in prodEmbeddings, `prod_embeddings should have ${col} column`);
     }
   });
 
-  it('should match expected shop_product_embeddings structure', () => {
+  void it('should match expected shop_product_embeddings structure', () => {
     const expectedColumns = [
       'id',
       'shopId',
@@ -282,7 +282,7 @@ describe('Embeddings Schema Snapshot', () => {
     ];
 
     for (const col of expectedColumns) {
-      expect(shopProductEmbeddings).toHaveProperty(col);
+      assert.ok(col in shopProductEmbeddings, `shop_product_embeddings should have ${col} column`);
     }
   });
 });
@@ -291,54 +291,54 @@ describe('Embeddings Schema Snapshot', () => {
 // Migration Compatibility Notes
 // ============================================
 
-describe('Migration Compatibility', () => {
-  it('should document vector dimension upgrade', () => {
+void describe('Migration Compatibility', () => {
+  void it('should document vector dimension upgrade', () => {
     // This test documents the breaking change from 1536 to 2000 (HNSW max)
     const oldDimensions = 1536;
     const newDimensions = EMBEDDING_DIMENSIONS;
 
-    expect(newDimensions).toBe(2000);
-    expect(newDimensions).not.toBe(oldDimensions);
+    assert.strictEqual(newDimensions, 2000);
+    assert.notStrictEqual(newDimensions, oldDimensions);
 
     // Document the model change - still using large model with truncated dimensions
-    expect(EMBEDDING_MODEL_NAME).toBe('text-embedding-3-large');
-    expect(EMBEDDING_MODEL_NAME).not.toBe('text-embedding-3-small');
+    assert.strictEqual(EMBEDDING_MODEL_NAME, 'text-embedding-3-large');
+    assert.notStrictEqual(EMBEDDING_MODEL_NAME, 'text-embedding-3-small');
   });
 
-  it('should document new columns added in PR-047', () => {
+  void it('should document new columns added in PR-047', () => {
     // These columns were added in migration 0061
     const newColumns = ['variantId', 'qualityLevel', 'source', 'lang', 'updatedAt'];
 
     for (const col of newColumns) {
-      expect(prodEmbeddings).toHaveProperty(col);
+      assert.ok(col in prodEmbeddings, `prod_embeddings should have ${col} column`);
     }
   });
 
-  it('should document quality level enum values', () => {
+  void it('should document quality level enum values', () => {
     // CHECK constraint values: bronze, silver, golden, review_needed
     const validQualityLevels = ['bronze', 'silver', 'golden', 'review_needed'];
 
     // Default is bronze
-    expect(prodEmbeddings.qualityLevel.default).toBe('bronze');
+    assert.strictEqual(prodEmbeddings.qualityLevel.default, 'bronze');
 
     // Document valid values
-    expect(validQualityLevels).toContain('bronze');
-    expect(validQualityLevels).toContain('silver');
-    expect(validQualityLevels).toContain('golden');
-    expect(validQualityLevels).toContain('review_needed');
+    assert.ok(validQualityLevels.includes('bronze'));
+    assert.ok(validQualityLevels.includes('silver'));
+    assert.ok(validQualityLevels.includes('golden'));
+    assert.ok(validQualityLevels.includes('review_needed'));
   });
 
-  it('should document source enum values', () => {
+  void it('should document source enum values', () => {
     // CHECK constraint values: shopify, vendor, ai, manual
     const validSources = ['shopify', 'vendor', 'ai', 'manual'];
 
     // Default is shopify
-    expect(prodEmbeddings.source.default).toBe('shopify');
+    assert.strictEqual(prodEmbeddings.source.default, 'shopify');
 
     // Document valid values
-    expect(validSources).toContain('shopify');
-    expect(validSources).toContain('vendor');
-    expect(validSources).toContain('ai');
-    expect(validSources).toContain('manual');
+    assert.ok(validSources.includes('shopify'));
+    assert.ok(validSources.includes('vendor'));
+    assert.ok(validSources.includes('ai'));
+    assert.ok(validSources.includes('manual'));
   });
 });
