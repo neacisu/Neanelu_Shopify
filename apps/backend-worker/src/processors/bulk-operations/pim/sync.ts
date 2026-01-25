@@ -541,7 +541,7 @@ async function findSimilarProducts(params: {
   const vec = toPgVectorLiteral(params.queryEmbedding);
   const res = await params.client.query<SimilarProductRow>(
     `SELECT product_id, similarity, title, brand
-     FROM find_similar_products($1::vector(3072), $2::float, $3::int)`,
+     FROM find_similar_products($1::vector(2000), $2::float, $3::int)`,
     [vec, params.similarityThreshold, params.maxResults]
   );
   return res.rows;
@@ -664,7 +664,7 @@ async function upsertProdEmbedding(params: {
   modelVersion: string;
 }): Promise<void> {
   const vec = toPgVectorLiteral(params.embedding);
-  // PR-047: Updated to vector(3072) with new columns
+  // PR-047: Updated to vector(2000) with new columns
   await params.client.query(
     `INSERT INTO prod_embeddings (
        product_id,
@@ -680,7 +680,7 @@ async function upsertProdEmbedding(params: {
        created_at,
        updated_at
      )
-     VALUES ($1, NULL, $2, $3::vector(3072), $4, $5, 3072, 'bronze', 'shopify', 'ro', now(), now())
+     VALUES ($1, NULL, $2, $3::vector(2000), $4, $5, 2000, 'bronze', 'shopify', 'ro', now(), now())
      ON CONFLICT (product_id, variant_id, quality_level, embedding_type)
      DO UPDATE SET
        embedding = EXCLUDED.embedding,
@@ -700,7 +700,7 @@ async function upsertShopProductEmbedding(params: {
   modelVersion: string;
 }): Promise<void> {
   const vec = toPgVectorLiteral(params.embedding);
-  // PR-047: Updated to vector(3072) with new columns
+  // PR-047: Updated to vector(2000) with new columns
   await params.client.query(
     `INSERT INTO shop_product_embeddings (
        shop_id,
@@ -718,7 +718,7 @@ async function upsertShopProductEmbedding(params: {
        created_at,
        updated_at
      )
-     VALUES ($1, $2, 'combined', $3::vector(3072), $4, $5, 3072, 'bronze', 'shopify', 'ro', 'ready', now(), now(), now())
+     VALUES ($1, $2, 'combined', $3::vector(2000), $4, $5, 2000, 'bronze', 'shopify', 'ro', 'ready', now(), now(), now())
      ON CONFLICT (shop_id, product_id, embedding_type, model_version)
      DO UPDATE SET
        embedding = EXCLUDED.embedding,

@@ -3,7 +3,7 @@
  *
  * CONFORM: Database_Schema_Complete.md v2.6 - Module E
  * PR-010: F2.2.7 - pgvector Embeddings Schema
- * PR-047: F6.1.1-F6.1.2 - Embeddings Schema v2 (3072 dims)
+ * PR-047: F6.1.1-F6.1.2 - Embeddings Schema v2 (2000 dims for HNSW)
  *
  * DECIZIE ARHITECTURALĂ (2025):
  * - pgvector (Postgres) este SINGURA soluție de vector storage
@@ -11,7 +11,7 @@
  * - HNSW indexes pentru performanță (<10ms latency)
  *
  * PR-047 UPGRADE:
- * - Migrated from vector(1536) to vector(3072) for text-embedding-3-large
+ * - Migrated from vector(1536) to vector(2000) for text-embedding-3-large (HNSW limit)
  * - Added variant_id, quality_level, source, lang columns
  * - Added Romanian language support as default
  *
@@ -48,8 +48,8 @@ import { prodMaster } from './pim.js';
 /** Current embedding model */
 export const EMBEDDING_MODEL_NAME = 'text-embedding-3-large';
 
-/** Embedding vector dimensions (upgraded from 1536) */
-export const EMBEDDING_DIMENSIONS = 3072;
+/** Embedding vector dimensions (max 2000 for HNSW index) */
+export const EMBEDDING_DIMENSIONS = 2000;
 
 /** Default language for embeddings */
 export const EMBEDDING_DEFAULT_LANG = 'ro';
@@ -58,7 +58,7 @@ export const EMBEDDING_DEFAULT_LANG = 'ro';
 // Custom pgvector type pentru Drizzle
 // ============================================
 // Drizzle nu are suport nativ pentru vector, folosim customType
-// Dimensiunile (3072) sunt pentru OpenAI text-embedding-3-large
+// Dimensiunile (2000) sunt pentru OpenAI text-embedding-3-large (truncated for HNSW)
 // NOTĂ: Indexurile HNSW se definesc în migrația SQL
 
 // ============================================
@@ -90,7 +90,7 @@ export const prodAttrDefinitions = pgTable(
     displayOrder: integer('display_order').default(0),
 
     // Embedding pentru căutare semantică - operat ca text (vector definit în SQL)
-    // embedding: vector(3072) - definit în migrație cu HNSW index (PR-047: upgraded from 1536)
+    // embedding: vector(2000) - definit în migrație cu HNSW index (PR-047: upgraded from 1536)
 
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
@@ -161,11 +161,11 @@ export const prodEmbeddings = pgTable(
 
     embeddingType: varchar('embedding_type', { length: 50 }).notNull(), // title/description/specs/combined
 
-    // embedding: vector(3072) - definit în SQL cu HNSW index (PR-047: upgraded from 1536)
+    // embedding: vector(2000) - definit în SQL cu HNSW index (PR-047: upgraded from 1536)
 
     contentHash: varchar('content_hash', { length: 64 }).notNull(), // Source content hash (SHA-256)
     modelVersion: varchar('model_version', { length: 50 }).notNull(), // text-embedding-3-large
-    dimensions: integer('dimensions').default(3072), // PR-047: upgraded from 1536
+    dimensions: integer('dimensions').default(2000), // PR-047: upgraded from 1536
 
     // PR-047: New columns for quality-based embeddings
     qualityLevel: varchar('quality_level', { length: 20 }).default('bronze'), // bronze/silver/golden/review_needed
@@ -214,11 +214,11 @@ export const shopProductEmbeddings = pgTable(
 
     embeddingType: varchar('embedding_type', { length: 50 }).notNull(), // title/description/combined
 
-    // embedding: vector(3072) - definit în SQL cu HNSW index (PR-047: upgraded from 1536)
+    // embedding: vector(2000) - definit în SQL cu HNSW index (PR-047: upgraded from 1536)
 
     contentHash: varchar('content_hash', { length: 64 }).notNull(), // For change detection
     modelVersion: varchar('model_version', { length: 50 }).notNull(), // text-embedding-3-large
-    dimensions: integer('dimensions').default(3072), // PR-047: upgraded from 1536
+    dimensions: integer('dimensions').default(2000), // PR-047: upgraded from 1536
 
     // PR-047: New columns
     qualityLevel: varchar('quality_level', { length: 20 }).default('bronze'), // bronze/silver/golden/review_needed

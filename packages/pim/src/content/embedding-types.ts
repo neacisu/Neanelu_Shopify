@@ -350,7 +350,7 @@ export interface EmbeddingRecord {
   /** Variant ID (FK to shopify_variants, nullable) */
   readonly variantId: string | null;
 
-  /** The embedding vector (3072 dimensions) */
+  /** The embedding vector (2000 dimensions for HNSW compatibility) */
   readonly embedding: readonly number[];
 
   /** Quality level */

@@ -312,7 +312,7 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
   // PR-043 (F5.2.9-F5.2.10): embeddings + dedup/consensus controls.
   const openAiApiKey = optionalString(env, 'OPENAI_API_KEY');
   const openAiBaseUrl = optionalString(env, 'OPENAI_BASE_URL');
-  // PR-047: Upgraded default to text-embedding-3-large (3072 dims) from text-embedding-3-small (1536 dims)
+  // PR-047: Upgraded default to text-embedding-3-large (2000 dims for HNSW) from text-embedding-3-small (1536 dims)
   const openAiEmbeddingsModel =
     optionalString(env, 'OPENAI_EMBEDDINGS_MODEL') ?? 'text-embedding-3-large';
   const openAiTimeoutMs = parsePositiveIntWithDefault(env, 'OPENAI_TIMEOUT_MS', 30_000);

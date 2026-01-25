@@ -1,7 +1,7 @@
 /**
  * Embeddings Schema v2 Tests
  *
- * PR-047: F6.1.1 - Schema tests for embeddings v2 (3072 dims)
+ * PR-047: F6.1.1 - Schema tests for embeddings v2 (2000 dims for HNSW)
  *
  * Tests verify:
  * - Vector column exists with correct dimensions
@@ -27,7 +27,7 @@ import {
 
 describe('Embeddings Schema Constants', () => {
   it('should export correct embedding dimensions', () => {
-    expect(EMBEDDING_DIMENSIONS).toBe(3072);
+    expect(EMBEDDING_DIMENSIONS).toBe(2000);
   });
 
   it('should export correct model name', () => {
@@ -86,11 +86,11 @@ describe('prod_embeddings Schema', () => {
     expect(modelVersionColumn.notNull).toBe(true);
   });
 
-  it('should have dimensions column with default 3072', () => {
+  it('should have dimensions column with default 2000', () => {
     const dimensionsColumn = prodEmbeddings.dimensions;
     expect(dimensionsColumn).toBeDefined();
     expect(dimensionsColumn.name).toBe('dimensions');
-    expect(dimensionsColumn.default).toBe(3072);
+    expect(dimensionsColumn.default).toBe(2000);
   });
 
   it('should have quality_level column with default bronze', () => {
@@ -173,10 +173,10 @@ describe('shop_product_embeddings Schema', () => {
     expect(statusColumn.default).toBe('pending');
   });
 
-  it('should have dimensions column with default 3072', () => {
+  it('should have dimensions column with default 2000', () => {
     const dimensionsColumn = shopProductEmbeddings.dimensions;
     expect(dimensionsColumn).toBeDefined();
-    expect(dimensionsColumn.default).toBe(3072);
+    expect(dimensionsColumn.default).toBe(2000);
   });
 });
 
@@ -293,14 +293,14 @@ describe('Embeddings Schema Snapshot', () => {
 
 describe('Migration Compatibility', () => {
   it('should document vector dimension upgrade', () => {
-    // This test documents the breaking change from 1536 to 3072
+    // This test documents the breaking change from 1536 to 2000 (HNSW max)
     const oldDimensions = 1536;
     const newDimensions = EMBEDDING_DIMENSIONS;
 
-    expect(newDimensions).toBe(3072);
+    expect(newDimensions).toBe(2000);
     expect(newDimensions).not.toBe(oldDimensions);
 
-    // Document the model change
+    // Document the model change - still using large model with truncated dimensions
     expect(EMBEDDING_MODEL_NAME).toBe('text-embedding-3-large');
     expect(EMBEDDING_MODEL_NAME).not.toBe('text-embedding-3-small');
   });

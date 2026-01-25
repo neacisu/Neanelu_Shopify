@@ -89,6 +89,7 @@ class OpenAiEmbeddingsProvider implements EmbeddingsProvider {
         body: JSON.stringify({
           model: this.model.name,
           input: texts,
+          dimensions: this.model.dimensions, // Request truncated dimensions from OpenAI
         }),
         signal: controller.signal,
       });
@@ -122,9 +123,9 @@ export const DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-large';
 
 /**
  * Default embedding dimensions
- * PR-047: Upgraded from 1536 to 3072
+ * PR-047: Using 2000 dims (max for HNSW index) from text-embedding-3-large
  */
-export const DEFAULT_EMBEDDING_DIMENSIONS = 3072;
+export const DEFAULT_EMBEDDING_DIMENSIONS = 2000;
 
 export function createEmbeddingsProvider(params: {
   openAiApiKey?: string;
@@ -137,9 +138,9 @@ export function createEmbeddingsProvider(params: {
     modelNameTrimmed && modelNameTrimmed.length > 0 ? modelNameTrimmed : DEFAULT_EMBEDDING_MODEL;
 
   // Determine dimensions based on model
-  // text-embedding-3-large: 3072, text-embedding-3-small: 1536
+  // text-embedding-3-large: 2000 (truncated), text-embedding-3-small: 1536
   const dimensions = modelName.includes('large')
-    ? 3072
+    ? 2000
     : modelName.includes('small')
       ? 1536
       : DEFAULT_EMBEDDING_DIMENSIONS;

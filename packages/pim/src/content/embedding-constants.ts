@@ -4,7 +4,7 @@
  * PR-047: F6.1.1-F6.1.2 - Embeddings Schema & Content Builder
  *
  * Defines constants for embedding generation including:
- * - Model configuration (text-embedding-3-large, 3072 dims)
+ * - Model configuration (text-embedding-3-large, 2000 dims for HNSW)
  * - Romanian language settings
  * - Chapter names for structured content
  * - Taxonomy-based template ordering
@@ -17,8 +17,8 @@
 /** OpenAI embedding model name */
 export const EMBEDDING_MODEL = 'text-embedding-3-large';
 
-/** Embedding vector dimensions */
-export const EMBEDDING_DIM = 3072;
+/** Embedding vector dimensions (max 2000 for HNSW index) */
+export const EMBEDDING_DIM = 2000;
 
 /** Default language for embeddings */
 export const EMBEDDING_LANG = 'ro' as const;
