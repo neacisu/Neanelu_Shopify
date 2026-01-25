@@ -114,6 +114,18 @@ class OpenAiEmbeddingsProvider implements EmbeddingsProvider {
   }
 }
 
+/**
+ * Default embedding model name
+ * PR-047: Upgraded from text-embedding-3-small to text-embedding-3-large
+ */
+export const DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-large';
+
+/**
+ * Default embedding dimensions
+ * PR-047: Upgraded from 1536 to 3072
+ */
+export const DEFAULT_EMBEDDING_DIMENSIONS = 3072;
+
 export function createEmbeddingsProvider(params: {
   openAiApiKey?: string;
   openAiBaseUrl?: string;
@@ -121,10 +133,20 @@ export function createEmbeddingsProvider(params: {
   openAiTimeoutMs?: number;
 }): EmbeddingsProvider {
   const modelNameTrimmed = params.openAiEmbeddingsModel?.trim();
+  const modelName =
+    modelNameTrimmed && modelNameTrimmed.length > 0 ? modelNameTrimmed : DEFAULT_EMBEDDING_MODEL;
+
+  // Determine dimensions based on model
+  // text-embedding-3-large: 3072, text-embedding-3-small: 1536
+  const dimensions = modelName.includes('large')
+    ? 3072
+    : modelName.includes('small')
+      ? 1536
+      : DEFAULT_EMBEDDING_DIMENSIONS;
+
   const model: EmbeddingModel = {
-    name:
-      modelNameTrimmed && modelNameTrimmed.length > 0 ? modelNameTrimmed : 'text-embedding-3-small',
-    dimensions: 1536,
+    name: modelName,
+    dimensions,
   };
 
   const apiKey = params.openAiApiKey?.trim();

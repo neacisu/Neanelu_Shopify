@@ -66,7 +66,8 @@
       "@app/config": ["packages/config/src/index.ts"],
       "@app/types": ["packages/types/src/index.ts"],
       "@app/logger": ["packages/logger/src/index.ts"],
-      "@app/validation": ["packages/validation/src/index.ts"]
+      "@app/validation": ["packages/validation/src/index.ts"],
+      "@app/pim": ["packages/pim/src/index.ts"]
     },
 
     // ============================================

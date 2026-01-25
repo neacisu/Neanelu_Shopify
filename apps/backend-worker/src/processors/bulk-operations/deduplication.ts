@@ -228,7 +228,7 @@ async function findSimilarProducts(params: {
   const vec = toPgVectorLiteral(params.queryEmbedding);
   const res = await params.client.query<SimilarProductRow>(
     `SELECT product_id, similarity, title, brand
-     FROM find_similar_products($1::vector(1536), $2::float, $3::int)
+     FROM find_similar_products($1::vector(3072), $2::float, $3::int)
      ORDER BY similarity DESC`,
     [vec, params.similarityThreshold, params.maxResults]
   );
