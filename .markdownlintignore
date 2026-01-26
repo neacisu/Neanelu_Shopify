@@ -1,0 +1,8 @@
+# Cursor internal files
+/root/.cursor/
+
+# Node modules
+node_modules/
+
+# Build outputs
+dist/
