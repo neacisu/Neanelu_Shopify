@@ -41,6 +41,16 @@ export interface AiBatchCleanupJobPayload {
   retentionDays?: number;
 }
 
+export interface AiBatchBackfillJobPayload {
+  shopId: string;
+  requestedAt: number;
+  triggeredBy: AiBatchTriggeredBy;
+  chunkSize?: number;
+  offsetProductId?: string;
+  dailyBudgetRemaining?: number;
+  nightlyWindowOnly?: boolean;
+}
+
 function isCanonicalUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
 }
@@ -121,6 +131,51 @@ export function validateAiBatchCleanupJobPayload(data: unknown): data is AiBatch
   if (job.retentionDays !== undefined) {
     if (typeof job.retentionDays !== 'number' || !Number.isFinite(job.retentionDays)) return false;
     if (!Number.isInteger(job.retentionDays) || job.retentionDays <= 0) return false;
+  }
+
+  return true;
+}
+
+export function validateAiBatchBackfillJobPayload(
+  data: unknown
+): data is AiBatchBackfillJobPayload {
+  if (!data || typeof data !== 'object') return false;
+  const job = data as Partial<AiBatchBackfillJobPayload>;
+
+  if (typeof job.shopId !== 'string' || !isCanonicalUuid(job.shopId)) return false;
+  if (typeof job.requestedAt !== 'number' || !Number.isFinite(job.requestedAt)) return false;
+
+  if (
+    job.triggeredBy !== 'scheduler' &&
+    job.triggeredBy !== 'manual' &&
+    job.triggeredBy !== 'system'
+  ) {
+    return false;
+  }
+
+  if (job.chunkSize !== undefined) {
+    if (typeof job.chunkSize !== 'number' || !Number.isFinite(job.chunkSize)) return false;
+    if (!Number.isInteger(job.chunkSize) || job.chunkSize <= 0) return false;
+  }
+
+  if (job.offsetProductId !== undefined) {
+    if (typeof job.offsetProductId !== 'string' || !isCanonicalUuid(job.offsetProductId)) {
+      return false;
+    }
+  }
+
+  if (job.dailyBudgetRemaining !== undefined) {
+    if (
+      typeof job.dailyBudgetRemaining !== 'number' ||
+      !Number.isFinite(job.dailyBudgetRemaining)
+    ) {
+      return false;
+    }
+    if (!Number.isInteger(job.dailyBudgetRemaining) || job.dailyBudgetRemaining < 0) return false;
+  }
+
+  if (job.nightlyWindowOnly !== undefined) {
+    if (typeof job.nightlyWindowOnly !== 'boolean') return false;
   }
 
   return true;

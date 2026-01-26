@@ -1,11 +1,16 @@
 import type { Logger } from '@app/logger';
 import { loadEnv } from '@app/config';
-import { enqueueAiBatchCleanupJob, enqueueAiBatchOrchestratorJob } from '@app/queue-manager';
+import {
+  enqueueAiBatchBackfillJob,
+  enqueueAiBatchCleanupJob,
+  enqueueAiBatchOrchestratorJob,
+} from '@app/queue-manager';
 import { createEmbeddingsProvider } from '@app/ai-engine';
 
 import { listShops } from './batch.js';
 
 let lastCleanupAt: number | null = null;
+let lastBackfillAt: number | null = null;
 
 export interface AiBatchScheduleWorkerHandle {
   close: () => Promise<void>;
@@ -44,6 +49,20 @@ export async function runAiBatchScheduleTick(logger: Logger): Promise<void> {
         requestedAt: Date.now(),
         triggeredBy: 'scheduler',
         retentionDays: env.openAiBatchRetentionDays,
+      });
+    }
+  }
+
+  const backfillIntervalMs = 24 * 60 * 60 * 1000;
+  if (!lastBackfillAt || now - lastBackfillAt > backfillIntervalMs) {
+    lastBackfillAt = now;
+    for (const shopId of shops) {
+      await enqueueAiBatchBackfillJob({
+        shopId,
+        requestedAt: Date.now(),
+        triggeredBy: 'scheduler',
+        chunkSize: env.openAiBatchMaxItems,
+        nightlyWindowOnly: true,
       });
     }
   }

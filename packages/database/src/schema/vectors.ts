@@ -227,6 +227,7 @@ export const shopProductEmbeddings = pgTable(
 
     status: varchar('status', { length: 20 }).default('pending'), // pending/ready/failed
     errorMessage: text('error_message'),
+    retryCount: integer('retry_count').default(0),
 
     generatedAt: timestamp('generated_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),

@@ -1,8 +1,10 @@
 import { loadEnv } from '@app/config';
 import {
+  type AiBatchBackfillJobPayload,
   type AiBatchCleanupJobPayload,
   type AiBatchOrchestratorJobPayload,
   type AiBatchPollerJobPayload,
+  validateAiBatchBackfillJobPayload,
   validateAiBatchCleanupJobPayload,
   validateAiBatchOrchestratorJobPayload,
   validateAiBatchPollerJobPayload,
@@ -51,6 +53,7 @@ export const AI_BATCH_QUEUE_NAME = 'ai-batch-queue';
 export const AI_BATCH_ORCHESTRATOR_JOB_NAME = 'ai.batch.orchestrate';
 export const AI_BATCH_POLLER_JOB_NAME = 'ai.batch.poll';
 export const AI_BATCH_CLEANUP_JOB_NAME = 'ai.batch.cleanup';
+export const AI_BATCH_BACKFILL_JOB_NAME = 'ai.batch.backfill';
 
 export type EnqueueAiBatchJobOptions = Readonly<{
   /** Delay the job by N milliseconds (BullMQ `delay`). */
@@ -303,6 +306,73 @@ export async function enqueueAiBatchCleanupJob(
     span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
     span.recordException(error);
     log.error({ err: error, shopId: normalizedShopId }, 'Failed to enqueue AI batch cleanup job');
+    throw error;
+  } finally {
+    span.end();
+  }
+}
+
+export async function enqueueAiBatchBackfillJob(payload: AiBatchBackfillJobPayload): Promise<void>;
+export async function enqueueAiBatchBackfillJob(
+  payload: AiBatchBackfillJobPayload,
+  logger: AiBatchQueueLoggerLike
+): Promise<void>;
+export async function enqueueAiBatchBackfillJob(
+  payload: AiBatchBackfillJobPayload,
+  options: EnqueueAiBatchJobOptions
+): Promise<void>;
+export async function enqueueAiBatchBackfillJob(
+  payload: AiBatchBackfillJobPayload,
+  loggerOrOptions?: AiBatchQueueLoggerLike | EnqueueAiBatchJobOptions,
+  maybeOptions?: EnqueueAiBatchJobOptions
+): Promise<void> {
+  if (!validateAiBatchBackfillJobPayload(payload)) {
+    throw new Error('invalid_ai_batch_backfill_payload');
+  }
+
+  const queue = getAiBatchQueue();
+  const log =
+    loggerOrOptions && typeof loggerOrOptions === 'object' && 'info' in loggerOrOptions
+      ? loggerOrOptions
+      : fallbackLogger;
+  const options: EnqueueAiBatchJobOptions =
+    loggerOrOptions && typeof loggerOrOptions === 'object' && 'info' in loggerOrOptions
+      ? (maybeOptions ?? {})
+      : (loggerOrOptions ?? {});
+
+  const normalizedShopId = resolveGroupIdOrThrow(payload.shopId, log);
+  const telemetry = buildJobTelemetryFromActiveContext();
+
+  const tracer = trace.getTracer('neanelu-shopify');
+  const span = tracer.startSpan('queue.enqueue', {
+    attributes: {
+      'queue.name': AI_BATCH_QUEUE_NAME,
+      'queue.job.name': AI_BATCH_BACKFILL_JOB_NAME,
+      'queue.group.id': normalizedShopId,
+      'shop.id': normalizedShopId,
+      'ai.backfill.chunk_size': payload.chunkSize ?? 0,
+    },
+  });
+
+  try {
+    await otelContext.with(trace.setSpan(otelContext.active(), span), async () => {
+      await queue.add(AI_BATCH_BACKFILL_JOB_NAME, payload, {
+        jobId: `ai-batch-backfill__${normalizedShopId}`,
+        group: { id: normalizedShopId, priority: 5 },
+        ...(typeof options.delayMs === 'number' && Number.isFinite(options.delayMs)
+          ? { delay: Math.max(0, Math.floor(options.delayMs)) }
+          : {}),
+        ...(telemetry ? { telemetry } : {}),
+      });
+    });
+
+    span.setStatus({ code: SpanStatusCode.OK });
+    log.info({ shopId: normalizedShopId }, 'AI batch backfill job enqueued');
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error('unknown_error');
+    span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+    span.recordException(error);
+    log.error({ err: error, shopId: normalizedShopId }, 'Failed to enqueue AI backfill job');
     throw error;
   } finally {
     span.end();

@@ -78,6 +78,28 @@ export const webhookDuplicateTotal: Counter = meter.createCounter('webhook_dupli
   description: 'Total number of duplicate webhooks (deduplicated)',
 });
 
+// ============================================
+// AI / EMBEDDINGS METRICS
+// ============================================
+
+export const embeddingRetryTotal: Counter = meter.createCounter('embedding_retry_total', {
+  description: 'Total number of embedding retries',
+});
+
+export const embeddingDlqEntriesTotal: Counter = meter.createCounter(
+  'embedding_dlq_entries_total',
+  {
+    description: 'Total number of embedding DLQ entries',
+  }
+);
+
+export const embeddingFailedPermanentTotal: Counter = meter.createCounter(
+  'embedding_failed_permanent_total',
+  {
+    description: 'Total number of permanent embedding failures',
+  }
+);
+
 /** Webhook processing duration - total time from receive to enqueue */
 export const webhookProcessingDuration: Histogram = meter.createHistogram(
   'webhook_processing_duration_seconds',
@@ -530,6 +552,33 @@ export function recordBulkOperationFailure(params: {
 /** Record bulk error (row-level or stage). */
 export function recordBulkError(params: { errorType: string }): void {
   bulkErrorsTotal.add(1, { error_type: params.errorType });
+}
+
+export function recordEmbeddingRetry(params: { shopId?: string; embeddingType: string }): void {
+  const attributes: Record<string, string> = { embedding_type: params.embeddingType };
+  if (params.shopId) {
+    attributes['shop_id'] = params.shopId;
+  }
+  embeddingRetryTotal.add(1, attributes);
+}
+
+export function recordEmbeddingDlqEntry(params: { shopId?: string }): void {
+  const attributes: Record<string, string> = {};
+  if (params.shopId) {
+    attributes['shop_id'] = params.shopId;
+  }
+  embeddingDlqEntriesTotal.add(1, attributes);
+}
+
+export function recordEmbeddingPermanentFailure(params: {
+  shopId?: string;
+  errorType: string;
+}): void {
+  const attributes: Record<string, string> = { error_type: params.errorType };
+  if (params.shopId) {
+    attributes['shop_id'] = params.shopId;
+  }
+  embeddingFailedPermanentTotal.add(1, attributes);
 }
 
 /** Increment bulk active operations (best-effort). */

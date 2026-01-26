@@ -50,13 +50,23 @@ void describe('AI batch utils', () => {
       embeddingType: 'combined',
     }).contentHash;
     const existing = new Map([
-      ['prod-a', { productId: 'prod-a', contentHash: hashA, status: 'ready' }],
+      [
+        'prod-a',
+        {
+          productId: 'prod-a',
+          contentHash: hashA,
+          status: 'ready',
+          retryCount: 0,
+          errorMessage: null,
+        },
+      ],
     ]);
 
     const result = computeEmbeddingCandidates({
       products: [productA, productB],
       existing,
       embeddingType: 'combined',
+      maxRetries: 3,
     });
 
     assert.equal(result.unchanged, 1);
@@ -81,13 +91,23 @@ void describe('AI batch utils', () => {
     }).contentHash;
 
     const existing = new Map([
-      ['prod-fail', { productId: 'prod-fail', contentHash: hash, status: 'failed' }],
+      [
+        'prod-fail',
+        {
+          productId: 'prod-fail',
+          contentHash: hash,
+          status: 'failed',
+          retryCount: 0,
+          errorMessage: null,
+        },
+      ],
     ]);
 
     const result = computeEmbeddingCandidates({
       products: [product],
       existing,
       embeddingType: 'combined',
+      maxRetries: 3,
     });
 
     assert.equal(result.retryable, 1);

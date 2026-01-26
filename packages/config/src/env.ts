@@ -74,6 +74,12 @@ export type AppEnv = Readonly<{
   openAiBatchRetentionDays: number;
   /** Scheduler tick (seconds) for AI batch orchestration */
   openAiBatchScheduleTickSeconds: number;
+  /** Max retries per embedding item before DLQ; defaults to 3 */
+  openAiEmbeddingMaxRetries: number;
+  /** Global kill switch for embeddings backfill */
+  openAiEmbeddingBackfillEnabled: boolean;
+  /** Daily budget for embeddings items; defaults to 100000 */
+  openAiEmbeddingDailyBudget: number;
 
   // ============================================
   // BULK DEDUP + CONSENSUS + PIM SYNC (PR-043 / F5.2.9-F5.2.10)
@@ -340,6 +346,21 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     'OPENAI_BATCH_SCHEDULE_TICK_SECONDS',
     60
   );
+  const openAiEmbeddingMaxRetries = parsePositiveIntWithDefault(
+    env,
+    'OPENAI_EMBEDDING_MAX_RETRIES',
+    3
+  );
+  const openAiEmbeddingBackfillEnabled = parseBooleanWithDefault(
+    env,
+    'OPENAI_EMBEDDING_BACKFILL_ENABLED',
+    true
+  );
+  const openAiEmbeddingDailyBudget = parsePositiveIntWithDefault(
+    env,
+    'OPENAI_EMBEDDING_DAILY_BUDGET',
+    100000
+  );
 
   const bulkPimSyncEnabled = parseBooleanWithDefault(env, 'BULK_PIM_SYNC_ENABLED', true);
   const bulkSemanticDedupEnabled = parseBooleanWithDefault(
@@ -416,6 +437,9 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     openAiBatchPollSeconds,
     openAiBatchRetentionDays,
     openAiBatchScheduleTickSeconds,
+    openAiEmbeddingMaxRetries,
+    openAiEmbeddingBackfillEnabled,
+    openAiEmbeddingDailyBudget,
 
     bulkPimSyncEnabled,
     bulkSemanticDedupEnabled,

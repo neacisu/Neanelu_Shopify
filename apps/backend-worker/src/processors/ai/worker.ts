@@ -2,6 +2,7 @@ import type { Logger } from '@app/logger';
 import { loadEnv } from '@app/config';
 import {
   AI_BATCH_CLEANUP_JOB_NAME,
+  AI_BATCH_BACKFILL_JOB_NAME,
   AI_BATCH_ORCHESTRATOR_JOB_NAME,
   AI_BATCH_POLLER_JOB_NAME,
   AI_BATCH_QUEUE_NAME,
@@ -13,15 +14,18 @@ import {
 } from '@app/queue-manager';
 import {
   type AiBatchCleanupJobPayload,
+  type AiBatchBackfillJobPayload,
   type AiBatchOrchestratorJobPayload,
   type AiBatchPollerJobPayload,
   validateAiBatchCleanupJobPayload,
+  validateAiBatchBackfillJobPayload,
   validateAiBatchOrchestratorJobPayload,
   validateAiBatchPollerJobPayload,
 } from '@app/types';
 
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
 import { runAiBatchCleanup, runAiBatchOrchestrator, runAiBatchPoller } from './batch.js';
+import { runAiBatchBackfill } from './backfill.js';
 
 export interface AiBatchWorkerHandle {
   worker: { close: () => Promise<void>; isRunning?: () => boolean };
@@ -73,6 +77,15 @@ export function startAiBatchWorker(logger: Logger): AiBatchWorkerHandle {
               }
               const retentionDays = payload.retentionDays ?? env.openAiBatchRetentionDays;
               await runAiBatchCleanup({ shopId: payload.shopId, retentionDays, logger });
+              return;
+            }
+
+            if (job.name === AI_BATCH_BACKFILL_JOB_NAME) {
+              const payload = job.data as AiBatchBackfillJobPayload;
+              if (!validateAiBatchBackfillJobPayload(payload)) {
+                throw new Error('invalid_ai_batch_backfill_payload');
+              }
+              await runAiBatchBackfill({ payload, logger });
               return;
             }
 

@@ -10,6 +10,9 @@ import { enqueueAiBatchPollerJob } from '@app/queue-manager';
 import type { AiBatchOrchestratorJobPayload, AiBatchPollerJobPayload } from '@app/types';
 
 import { normalizeText, toPgVectorLiteral } from '../bulk-operations/pim/vector.js';
+import { classifyEmbeddingError } from './error-classifier.js';
+import { moveToEmbeddingDlq } from './dlq.js';
+import { recordEmbeddingPermanentFailure, recordEmbeddingRetry } from '../../otel/metrics.js';
 
 export type ShopifyEmbeddingSourceRow = Readonly<{
   id: string;
@@ -25,6 +28,8 @@ export type ExistingEmbeddingRow = Readonly<{
   productId: string;
   contentHash: string;
   status: string | null;
+  retryCount: number | null;
+  errorMessage: string | null;
 }>;
 
 export type EmbeddingCandidate = Readonly<{
@@ -38,6 +43,12 @@ export type CandidateSummary = Readonly<{
   unchanged: number;
   emptyContent: number;
   retryable: number;
+  dlqCandidates: readonly {
+    productId: string;
+    errorMessage: string;
+    retryCount: number;
+    errorType: string;
+  }[];
 }>;
 
 export type BatchOutputRecord = Readonly<{
@@ -140,11 +151,18 @@ export function computeEmbeddingCandidates(params: {
   products: readonly ShopifyEmbeddingSourceRow[];
   existing: ReadonlyMap<string, ExistingEmbeddingRow>;
   embeddingType: string;
+  maxRetries: number;
 }): CandidateSummary {
   const candidates: EmbeddingCandidate[] = [];
   let unchanged = 0;
   let emptyContent = 0;
   let retryable = 0;
+  const dlqCandidates: {
+    productId: string;
+    errorMessage: string;
+    retryCount: number;
+    errorType: string;
+  }[] = [];
 
   for (const product of params.products) {
     const { content, contentHash } = buildShopifyEmbeddingContent({
@@ -158,6 +176,20 @@ export function computeEmbeddingCandidates(params: {
 
     const existing = params.existing.get(product.id);
     if (existing?.status && existing.status !== 'ready') {
+      if (existing.status === 'failed') {
+        const retryCount =
+          typeof existing.retryCount === 'number' ? Math.max(0, existing.retryCount) : 0;
+        const decision = classifyEmbeddingError(existing.errorMessage ?? undefined);
+        if (!decision.shouldRetry || retryCount >= params.maxRetries) {
+          dlqCandidates.push({
+            productId: product.id,
+            errorMessage: existing.errorMessage ?? 'embedding_failed',
+            retryCount,
+            errorType: decision.shouldRetry ? 'MAX_RETRIES' : decision.errorType,
+          });
+          continue;
+        }
+      }
       retryable += 1;
       candidates.push({
         productId: product.id,
@@ -179,7 +211,7 @@ export function computeEmbeddingCandidates(params: {
     });
   }
 
-  return { candidates, unchanged, emptyContent, retryable };
+  return { candidates, unchanged, emptyContent, retryable, dlqCandidates };
 }
 
 export function buildCustomId(params: ParsedCustomId): string {
@@ -399,7 +431,9 @@ export async function runAiBatchOrchestrator(params: {
     const embeddingsRes = await client.query<ExistingEmbeddingRow>(
       `SELECT product_id as "productId",
               content_hash as "contentHash",
-              status
+              status,
+              retry_count as "retryCount",
+              error_message as "errorMessage"
          FROM shop_product_embeddings
         WHERE shop_id = $1
           AND model_version = $2
@@ -416,8 +450,29 @@ export async function runAiBatchOrchestrator(params: {
       products: productsRes.rows,
       existing: existingMap,
       embeddingType: payload.embeddingType,
+      maxRetries: env.openAiEmbeddingMaxRetries,
     });
   });
+
+  if (selection.dlqCandidates.length > 0) {
+    await moveToEmbeddingDlq({
+      logger,
+      entries: selection.dlqCandidates.map((candidate) => ({
+        shopId: payload.shopId,
+        productId: candidate.productId,
+        embeddingType: payload.embeddingType,
+        errorMessage: candidate.errorMessage,
+        retryCount: candidate.retryCount,
+        lastAttemptAt: new Date().toISOString(),
+      })),
+    });
+    for (const candidate of selection.dlqCandidates) {
+      recordEmbeddingPermanentFailure({
+        shopId: payload.shopId,
+        errorType: candidate.errorType,
+      });
+    }
+  }
 
   if (selection.candidates.length === 0) {
     logger.info(
@@ -426,6 +481,7 @@ export async function runAiBatchOrchestrator(params: {
         unchanged: selection.unchanged,
         emptyContent: selection.emptyContent,
         retryable: selection.retryable,
+        dlqCandidates: selection.dlqCandidates.length,
       },
       'No pending embeddings detected'
     );
@@ -679,6 +735,7 @@ export async function runAiBatchPoller(params: {
             `UPDATE shop_product_embeddings
                 SET status = 'failed',
                     error_message = $1,
+                    retry_count = retry_count + 1,
                     updated_at = now()
               WHERE shop_id = $2
                 AND product_id = $3
@@ -692,6 +749,10 @@ export async function runAiBatchPoller(params: {
               batchMetadata.model,
             ]
           );
+          recordEmbeddingRetry({
+            shopId: payload.shopId,
+            embeddingType: parsedCustom.embeddingType,
+          });
           failedItems += 1;
           continue;
         }
@@ -747,6 +808,7 @@ export async function runAiBatchPoller(params: {
           `UPDATE shop_product_embeddings
               SET status = 'failed',
                   error_message = $1,
+                  retry_count = retry_count + 1,
                   updated_at = now()
             WHERE shop_id = $2
               AND product_id = $3
@@ -760,6 +822,10 @@ export async function runAiBatchPoller(params: {
             batchMetadata.model,
           ]
         );
+        recordEmbeddingRetry({
+          shopId: payload.shopId,
+          embeddingType: parsedCustom.embeddingType,
+        });
         failedItems += 1;
       }
     }
@@ -772,6 +838,7 @@ export async function runAiBatchPoller(params: {
         `UPDATE shop_product_embeddings
             SET status = 'failed',
                 error_message = $1,
+                retry_count = retry_count + 1,
                 updated_at = now()
           WHERE shop_id = $2
             AND product_id = $3
@@ -785,6 +852,10 @@ export async function runAiBatchPoller(params: {
           batchMetadata.model,
         ]
       );
+      recordEmbeddingRetry({
+        shopId: payload.shopId,
+        embeddingType: parsedCustom.embeddingType,
+      });
       failedItems += 1;
     }
   });

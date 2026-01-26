@@ -213,17 +213,17 @@ void describe('bulk ingest performance (guarded)', { skip: !runPerf }, () => {
   after(async () => {
     if (!getDatabaseUrl()) return;
     try {
-      console.log('[perf] Starting cleanup...');
+      console.info('[perf] Starting cleanup...');
       if (shopId) await cleanupShopData(shopId);
-      console.log('[perf] Shop data cleaned.');
+      console.info('[perf] Shop data cleaned.');
       if (artifactsDir) await rm(artifactsDir, { recursive: true, force: true });
-      console.log('[perf] Artifacts cleaned.');
+      console.info('[perf] Artifacts cleaned.');
     } catch (err) {
       console.error('[perf] cleanup error:', err);
     } finally {
-      console.log('[perf] Closing pool...');
+      console.info('[perf] Closing pool...');
       await closePool();
-      console.log('[perf] Pool closed.');
+      console.info('[perf] Pool closed.');
       // Give pool time to fully drain
       await delay(100);
 
@@ -241,7 +241,7 @@ void describe('bulk ingest performance (guarded)', { skip: !runPerf }, () => {
       }
 
       // Force exit to ensure process terminates cleanly
-      console.log('[perf] Test complete, forcing exit...');
+      console.info('[perf] Test complete, forcing exit...');
       process.exit(0);
     }
   });
