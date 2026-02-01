@@ -162,3 +162,4 @@ export function createEmbeddingsProvider(params: {
 }
 
 export * from './openai/batch-manager.js';
+export * from './openai/rate-limiter.js';

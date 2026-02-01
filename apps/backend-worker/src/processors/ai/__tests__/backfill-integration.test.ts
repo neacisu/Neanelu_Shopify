@@ -53,6 +53,8 @@ await (async () => {
   await Promise.resolve(
     mock.module('@app/database', {
       namedExports: {
+        getOptimalEfSearch: () => 40,
+        setHnswEfSearch: () => Promise.resolve(),
         pool: {
           query: () => Promise.resolve({ rows: [] }),
         },

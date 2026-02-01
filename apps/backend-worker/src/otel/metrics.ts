@@ -100,6 +100,56 @@ export const embeddingFailedPermanentTotal: Counter = meter.createCounter(
   }
 );
 
+export const openaiEmbedRateLimitAllowed: Counter = meter.createCounter(
+  'openai_embed_ratelimit_allowed_total',
+  {
+    description: 'Total embedding requests allowed by OpenAI rate limiter',
+  }
+);
+
+export const openaiEmbedRateLimitDenied: Counter = meter.createCounter(
+  'openai_embed_ratelimit_denied_total',
+  {
+    description: 'Total embedding requests denied by OpenAI rate limiter',
+  }
+);
+
+export const openaiEmbedRateLimitDelaySeconds: Histogram = meter.createHistogram(
+  'openai_embed_ratelimit_delay_seconds',
+  {
+    description: 'Delay imposed by OpenAI embedding rate limiter',
+    unit: 's',
+    advice: {
+      explicitBucketBoundaries: [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60],
+    },
+  }
+);
+
+export const vectorSearchLatencySeconds: Histogram = meter.createHistogram(
+  'vector_search_latency_seconds',
+  {
+    description: 'Latency for vector search requests',
+    unit: 's',
+    advice: {
+      explicitBucketBoundaries: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2],
+    },
+  }
+);
+
+export const vectorSearchCacheHitTotal: Counter = meter.createCounter(
+  'vector_search_cache_hit_total',
+  {
+    description: 'Total vector search cache hits',
+  }
+);
+
+export const vectorSearchCacheMissTotal: Counter = meter.createCounter(
+  'vector_search_cache_miss_total',
+  {
+    description: 'Total vector search cache misses',
+  }
+);
+
 /** Webhook processing duration - total time from receive to enqueue */
 export const webhookProcessingDuration: Histogram = meter.createHistogram(
   'webhook_processing_duration_seconds',

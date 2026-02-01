@@ -39,6 +39,7 @@ import {
 import { handleAppUninstalled } from './handlers/app-uninstalled.handler.js';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
 import { incrementDashboardActivity } from '../../runtime/dashboard-activity.js';
+import { invalidateSearchCache } from '../ai/cache.js';
 
 const env = loadEnv();
 
@@ -145,6 +146,19 @@ async function loadPayloadFromRedis(
   }
 
   return JSON.parse(raw) as unknown;
+}
+
+async function invalidateSearchCacheBestEffort(
+  redis: RedisClient,
+  shopId: string,
+  logger: Logger
+): Promise<void> {
+  try {
+    const deleted = await invalidateSearchCache({ redis, shopId });
+    logger.info({ shopId, deleted }, 'Search cache invalidated after product change');
+  } catch (error) {
+    logger.warn({ shopId, error }, 'Failed to invalidate search cache');
+  }
 }
 
 export function startWebhookWorker(logger: Logger): WebhookWorkerHandle {
@@ -256,6 +270,11 @@ export function startWebhookWorker(logger: Logger): WebhookWorkerHandle {
           switch (payload.topic) {
             case 'app/uninstalled':
               await handleAppUninstalled({ shopId, shopDomain: payload.shopDomain }, logger);
+              break;
+            case 'products/create':
+            case 'products/update':
+            case 'products/delete':
+              await invalidateSearchCacheBestEffort(redis, shopId, logger);
               break;
             default:
               logger.info(

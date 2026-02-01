@@ -19,6 +19,8 @@ void mock.module('@app/config', {
 // Mock @app/database (used for shopId resolution in ingress)
 void mock.module('@app/database', {
   namedExports: {
+    getOptimalEfSearch: () => 40,
+    setHnswEfSearch: () => Promise.resolve(),
     pool: {
       query: () => Promise.resolve({ rows: [{ id: '00000000-0000-0000-0000-000000000001' }] }),
     },

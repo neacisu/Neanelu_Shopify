@@ -80,6 +80,19 @@
 
 ---
 
+## AI / Vector Search Metrics
+
+| Metric                               | Type      | Labels | Description                                  |
+|--------------------------------------|-----------|--------|----------------------------------------------|
+| `openai_embed_ratelimit_allowed_total` | Counter | -      | Embedding requests allowed by rate limiter   |
+| `openai_embed_ratelimit_denied_total`  | Counter | -      | Embedding requests denied by rate limiter    |
+| `openai_embed_ratelimit_delay_seconds` | Histogram | -    | Delay imposed by embedding rate limiter      |
+| `vector_search_latency_seconds`        | Histogram | -    | Vector search latency                        |
+| `vector_search_cache_hit_total`        | Counter   | -    | Vector search cache hits                     |
+| `vector_search_cache_miss_total`       | Counter   | -    | Vector search cache misses                   |
+
+---
+
 ## OAuth Metrics
 
 | Metric                      | Type    | Labels | Description       |

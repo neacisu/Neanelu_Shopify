@@ -86,6 +86,8 @@ async function installBaseMocks(params: {
   await Promise.resolve(
     mock.module('@app/database', {
       namedExports: {
+        getOptimalEfSearch: () => 40,
+        setHnswEfSearch: () => Promise.resolve(),
         withTenantContext: async (
           _shopId: string,
           fn: (client: { query: () => Promise<unknown> }) => Promise<unknown>
@@ -99,6 +101,8 @@ async function installBaseMocks(params: {
   await Promise.resolve(
     mock.module('@app/queue-manager', {
       namedExports: {
+        checkAndConsumeCost: () =>
+          Promise.resolve({ allowed: true, delayMs: 0, tokensRemaining: 1, tokensNow: 1 }),
         BULK_INGEST_QUEUE_NAME: 'bulk-ingest-queue',
         enqueueBulkOrchestratorJob: () => Promise.resolve(undefined),
         enqueueBulkIngestJob: () => Promise.resolve(undefined),

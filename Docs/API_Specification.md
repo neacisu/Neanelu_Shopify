@@ -319,11 +319,11 @@ Căutare vectorială semantică.
 
 **Query Parameters:**
 
-| Param     | Type   | Required | Description                       |
-| --------- | ------ | -------- | --------------------------------- |
-| q         | string | Yes      | Query text                        |
-| limit     | int    | No       | Results limit (default 20)        |
-| threshold | float  | No       | Similarity threshold (default 0.7)|
+| Param     | Type   | Required | Description                                   |
+| --------- | ------ | -------- | --------------------------------------------- |
+| q         | string | Yes      | Query text                                    |
+| limit     | int    | No       | Results limit (default 20, max 100)           |
+| threshold | float  | No       | Similarity threshold (default 0.7, 0.5-0.95)  |
 
 **Response:**
 
@@ -335,14 +335,24 @@ Căutare vectorială semantică.
       {
         "id": "uuid",
         "title": "Product Name",
-        "similarity": 0.92,
-        "highlights": ["matched text"]
+        "similarity": 0.92
       }
     ],
-    "vectorSearchTime": "45ms"
+    "vectorSearchTimeMs": 45,
+    "cached": false
   }
 }
 ```
+
+**Rate limiting:**
+
+- `429 TOO_MANY_REQUESTS` when embedding rate limit is exceeded.
+
+**Caching:**
+
+- Results may be served from Redis cache (`cached: true`).
+- Cache is invalidated on product create/update/delete events.
+- Default TTL: ~1h (configurable).
 
 ---
 

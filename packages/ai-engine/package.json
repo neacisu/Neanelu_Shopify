@@ -17,6 +17,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@app/queue-manager": "workspace:*"
+  },
   "devDependencies": {}
 }

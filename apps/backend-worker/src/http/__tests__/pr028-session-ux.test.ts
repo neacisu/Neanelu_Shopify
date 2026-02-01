@@ -7,6 +7,8 @@ void mock.module('@app/database', {
   namedExports: {
     decryptAesGcm: () => Buffer.from(''),
     checkDatabaseConnection: () => Promise.resolve(true),
+    getOptimalEfSearch: () => 40,
+    setHnswEfSearch: () => Promise.resolve(),
     withTenantContext: async (
       _shopId: string,
       cb: (client: { query: (sql: string) => Promise<{ rows: unknown[] }> }) => Promise<unknown>
@@ -30,6 +32,8 @@ void mock.module('@app/database', {
 
 void mock.module('@app/queue-manager', {
   namedExports: {
+    checkAndConsumeCost: () =>
+      Promise.resolve({ allowed: true, delayMs: 0, tokensRemaining: 1, tokensNow: 1 }),
     configFromEnv: () => ({}),
     createQueue: () => ({
       getJobCounts: () => Promise.resolve({ waiting: 0 }),

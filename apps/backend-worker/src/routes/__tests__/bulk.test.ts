@@ -75,6 +75,8 @@ const schedules = [{ id: 'sched-1', cron: '0 2 * * *', timezone: 'UTC', enabled:
 void mock.module('@app/database', {
   namedExports: {
     decryptAesGcm: () => Buffer.from(''),
+    getOptimalEfSearch: () => 40,
+    setHnswEfSearch: () => Promise.resolve(),
     pool: {
       query: () => Promise.resolve({ rows: [] }),
     },

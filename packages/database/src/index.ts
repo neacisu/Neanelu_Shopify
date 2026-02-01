@@ -58,3 +58,15 @@ export { PgCopyStreamsManager } from './streaming/pg-copy-streams.manager.js';
 
 // Drizzle types vor fi exportate când avem schema
 // export * from './schema/index.js';
+
+// ============================================
+// PGVECTOR TUNING EXPORTS
+// ============================================
+
+export {
+  getOptimalEfSearch,
+  setHnswEfSearch,
+  withOptimizedSearch,
+  HNSW_EF_CONSTRUCTION,
+  HNSW_M,
+} from './tuning/pgvector.js';

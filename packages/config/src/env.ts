@@ -80,6 +80,12 @@ export type AppEnv = Readonly<{
   openAiEmbeddingBackfillEnabled: boolean;
   /** Daily budget for embeddings items; defaults to 100000 */
   openAiEmbeddingDailyBudget: number;
+  /** OpenAI embeddings rate limit: tokens per minute */
+  openAiEmbedRateLimitTokensPerMinute: number;
+  /** OpenAI embeddings rate limit: requests per minute */
+  openAiEmbedRateLimitRequestsPerMinute: number;
+  /** OpenAI embeddings rate limit: bucket TTL in ms */
+  openAiEmbedRateLimitBucketTtlMs: number;
 
   // ============================================
   // BULK DEDUP + CONSENSUS + PIM SYNC (PR-043 / F5.2.9-F5.2.10)
@@ -361,6 +367,21 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     'OPENAI_EMBEDDING_DAILY_BUDGET',
     100000
   );
+  const openAiEmbedRateLimitTokensPerMinute = parsePositiveIntWithDefault(
+    env,
+    'OPENAI_EMBED_RATELIMIT_TOKENS_PER_MIN',
+    1_000_000
+  );
+  const openAiEmbedRateLimitRequestsPerMinute = parsePositiveIntWithDefault(
+    env,
+    'OPENAI_EMBED_RATELIMIT_REQUESTS_PER_MIN',
+    3_000
+  );
+  const openAiEmbedRateLimitBucketTtlMs = parsePositiveIntWithDefault(
+    env,
+    'OPENAI_EMBED_RATELIMIT_BUCKET_TTL_MS',
+    120_000
+  );
 
   const bulkPimSyncEnabled = parseBooleanWithDefault(env, 'BULK_PIM_SYNC_ENABLED', true);
   const bulkSemanticDedupEnabled = parseBooleanWithDefault(
@@ -440,6 +461,9 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     openAiEmbeddingMaxRetries,
     openAiEmbeddingBackfillEnabled,
     openAiEmbeddingDailyBudget,
+    openAiEmbedRateLimitTokensPerMinute,
+    openAiEmbedRateLimitRequestsPerMinute,
+    openAiEmbedRateLimitBucketTtlMs,
 
     bulkPimSyncEnabled,
     bulkSemanticDedupEnabled,
