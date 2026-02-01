@@ -2,6 +2,16 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
+vi.mock('../components/ui/TreeView', () => ({
+  TreeView: ({ nodes }: { nodes?: { id: string; label: string }[] }) => (
+    <div role="tree">
+      {nodes?.map((node) => (
+        <div key={node.id}>{node.label}</div>
+      ))}
+    </div>
+  ),
+}));
+
 import { SearchFilters } from '../components/domain/search-filters';
 
 describe('SearchFilters', () => {
