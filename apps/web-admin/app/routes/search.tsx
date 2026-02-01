@@ -225,6 +225,7 @@ export default function SearchPage() {
               placeholder="Search products..."
               loading={loading}
               debounceMs={0}
+              multiline
             />
             {recentOpen && query.trim().length === 0 ? (
               <RecentSearchesDropdown

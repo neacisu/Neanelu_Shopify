@@ -32,6 +32,9 @@ export type SearchInputProps = Readonly<{
   /** Debounce delay for `onSearch` calls when typing. */
   debounceMs?: number;
 
+  /** Use a multiline textarea instead of input. */
+  multiline?: boolean;
+
   /**
    * Max number of suggestions rendered.
    */
@@ -57,6 +60,7 @@ export function SearchInput(props: SearchInputProps) {
     recentSearches = [],
     onSelectSuggestion,
     debounceMs = 200,
+    multiline = false,
     maxSuggestions = 20,
     className,
   } = props;
@@ -70,6 +74,7 @@ export function SearchInput(props: SearchInputProps) {
   const [activeIndex, setActiveIndex] = useState<number>(-1);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const debounceRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -155,13 +160,17 @@ export function SearchInput(props: SearchInputProps) {
       onSelectSuggestion?.(nextValue);
       setOpen(false);
       setActiveIndex(-1);
-      inputRef.current?.focus();
+      if (multiline) {
+        textareaRef.current?.focus();
+      } else {
+        inputRef.current?.focus();
+      }
     },
-    [onChange, onSearch, onSelectSuggestion]
+    [multiline, onChange, onSearch, onSelectSuggestion]
   );
 
   const onKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
+    (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       if (e.key === 'ArrowDown') {
         if (!open) setOpen(true);
         if (!canOpen) return;
@@ -179,6 +188,7 @@ export function SearchInput(props: SearchInputProps) {
       }
 
       if (e.key === 'Enter') {
+        if (multiline && e.shiftKey) return;
         if (shouldShowMenu && activeIndex >= 0 && activeIndex < filtered.length) {
           e.preventDefault();
           select(filtered[activeIndex]?.value ?? draft);
@@ -200,8 +210,45 @@ export function SearchInput(props: SearchInputProps) {
         }
       }
     },
-    [activeIndex, canOpen, draft, filtered, open, select, shouldShowMenu]
+    [activeIndex, canOpen, draft, filtered, multiline, open, select, shouldShowMenu]
   );
+
+  const ariaAutocomplete = filtered.length ? 'list' : 'none';
+  const ariaHasPopup = 'listbox';
+  const commonProps = {
+    id: inputId,
+    value: draft,
+    disabled,
+    placeholder,
+    className:
+      'mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-60',
+    role: 'combobox',
+    'aria-controls': listboxId,
+    'aria-expanded': shouldShowMenu,
+    'aria-busy': loading ? true : undefined,
+    'aria-describedby': statusText ? statusId : undefined,
+    'aria-activedescendant':
+      shouldShowMenu && activeIndex >= 0 && activeIndex < filtered.length
+        ? `${listboxId}-opt-${activeIndex}`
+        : undefined,
+    onFocus: () => {
+      if (canOpen) setOpen(true);
+    },
+    onBlur: (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      const next = e.relatedTarget as HTMLElement | null;
+      if (next?.dataset?.['searchSuggestion'] === 'true') return;
+      setOpen(false);
+      setActiveIndex(-1);
+    },
+    onKeyDown,
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      setOpen(true);
+      setActiveIndex(-1);
+      setDraft(e.target.value);
+      onChange(e.target.value);
+      commitSearch(e.target.value);
+    },
+  };
 
   return (
     <div className={className}>
@@ -209,46 +256,23 @@ export function SearchInput(props: SearchInputProps) {
         {label}
       </label>
       <div className="relative">
-        <input
-          ref={inputRef}
-          id={inputId}
-          type="search"
-          value={draft}
-          disabled={disabled}
-          placeholder={placeholder}
-          className={
-            'mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-60'
-          }
-          role="combobox"
-          aria-haspopup="listbox"
-          aria-autocomplete={filtered.length ? 'list' : 'none'}
-          aria-controls={listboxId}
-          aria-expanded={shouldShowMenu}
-          aria-busy={loading ? true : undefined}
-          aria-describedby={statusText ? statusId : undefined}
-          aria-activedescendant={
-            shouldShowMenu && activeIndex >= 0 && activeIndex < filtered.length
-              ? `${listboxId}-opt-${activeIndex}`
-              : undefined
-          }
-          onFocus={() => {
-            if (canOpen) setOpen(true);
-          }}
-          onBlur={(e) => {
-            const next = e.relatedTarget as HTMLElement | null;
-            if (next?.dataset?.['searchSuggestion'] === 'true') return;
-            setOpen(false);
-            setActiveIndex(-1);
-          }}
-          onKeyDown={onKeyDown}
-          onChange={(e) => {
-            setOpen(true);
-            setActiveIndex(-1);
-            setDraft(e.target.value);
-            onChange(e.target.value);
-            commitSearch(e.target.value);
-          }}
-        />
+        {multiline ? (
+          <textarea
+            ref={textareaRef}
+            rows={3}
+            aria-haspopup={ariaHasPopup}
+            aria-autocomplete={ariaAutocomplete}
+            {...commonProps}
+          />
+        ) : (
+          <input
+            ref={inputRef}
+            type="search"
+            aria-haspopup={ariaHasPopup}
+            aria-autocomplete={ariaAutocomplete}
+            {...commonProps}
+          />
+        )}
         {loading ? (
           <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted">
             Loading…
