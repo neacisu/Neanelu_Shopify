@@ -1,7 +1,7 @@
 import { beforeEach, afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { runAiBatchBackfill } from '../backfill.js';
+import { mock } from 'node:test';
 
 const BASE_ENV = {
   NODE_ENV: 'test',
@@ -42,6 +42,20 @@ const logger = {
   fatal: () => undefined,
   child: () => logger,
 };
+
+const openAiConfigPath = new URL('../../../runtime/openai-config.js', import.meta.url).href;
+void mock.module(openAiConfigPath, {
+  namedExports: {
+    getShopOpenAiConfig: () =>
+      Promise.resolve({
+        enabled: false,
+        openAiEmbeddingsModel: 'text-embedding-3-large',
+        source: 'disabled',
+      }),
+  },
+});
+
+const { runAiBatchBackfill } = await import('../backfill.js');
 
 void describe('ai backfill', () => {
   const originalEnv = { ...process.env };
