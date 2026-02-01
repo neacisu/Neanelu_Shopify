@@ -225,11 +225,14 @@ jobs:
           NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
 
       - name: Run unit tests (@app/backend-worker)
+        shell: bash
         run: |
+          set -euo pipefail
+          TEST_FILES=$(git ls-files "apps/backend-worker/src/**/*.test.ts" \
+            ":!apps/backend-worker/src/processors/ai/__tests__/ai-pipeline.integration.test.ts")
           pnpm --filter @app/backend-worker exec node \
             --experimental-test-module-mocks --import tsx \
-            --test src/**/*.test.ts \
-            --test-name-pattern="^(?!AI Pipeline Integration).*"
+            --test $TEST_FILES
 
   # ============================================
   # Tests: backend-worker (integration)
