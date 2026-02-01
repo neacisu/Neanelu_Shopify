@@ -5,6 +5,10 @@ import { gzipSync } from 'node:zlib';
 
 import { createDownloadStream } from './download.js';
 
+function logStep(message: string): void {
+  console.info(`[download-stage] ${new Date().toISOString()} ${message}`);
+}
+
 async function collect(stream: NodeJS.ReadableStream): Promise<Buffer> {
   const chunks: Buffer[] = [];
   for await (const chunk of stream) {
@@ -17,13 +21,16 @@ void describe('pipeline: download stage', () => {
   const servers: http.Server[] = [];
 
   after(() => {
+    logStep('server:stop:all');
     for (const s of servers) s.close();
   });
 
   void it('retries on 503 and respects Retry-After', async () => {
+    logStep('test:retry-after:start');
     let calls = 0;
 
     const server = http.createServer((req, res) => {
+      logStep(`server:request ${req.method ?? ''} ${req.url ?? ''}`);
       if (!req.url) throw new Error('missing_url');
       if (req.url !== '/retry') {
         res.statusCode = 404;
@@ -43,27 +50,35 @@ void describe('pipeline: download stage', () => {
     });
     servers.push(server);
 
-    await new Promise<void>((resolve) => server.listen(0, resolve));
+    logStep('server:start /retry');
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const addr = server.address();
     assert.ok(addr && typeof addr === 'object');
     const url = `http://127.0.0.1:${addr.port}/retry`;
+    logStep(`server:ready ${url}`);
 
+    logStep('createDownloadStream:before');
     const dl = await createDownloadStream({
       url,
       maxRetries: 3,
       connectTimeoutMs: 2_000,
       readTimeoutMs: 2_000,
     });
+    logStep('createDownloadStream:after');
     const buf = await collect(dl.stream);
+    logStep('stream:consumed');
     assert.equal(buf.toString('utf8'), 'ok');
     assert.equal(calls, 2);
+    logStep('test:retry-after:done');
   });
 
   void it('supports best-effort Range resume for identity streams', async () => {
+    logStep('test:range-resume:start');
     const payload = Buffer.from('0123456789abcdefghijklmnopqrstuvwxyz', 'utf8');
     let firstRequest = true;
 
     const server = http.createServer((req, res) => {
+      logStep(`server:request ${req.method ?? ''} ${req.url ?? ''}`);
       if (!req.url) throw new Error('missing_url');
       if (req.url !== '/range') {
         res.statusCode = 404;
@@ -107,27 +122,35 @@ void describe('pipeline: download stage', () => {
     });
     servers.push(server);
 
-    await new Promise<void>((resolve) => server.listen(0, resolve));
+    logStep('server:start /range');
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const addr = server.address();
     assert.ok(addr && typeof addr === 'object');
     const url = `http://127.0.0.1:${addr.port}/range`;
+    logStep(`server:ready ${url}`);
 
+    logStep('createDownloadStream:before');
     const dl = await createDownloadStream({
       url,
       maxRetries: 3,
       connectTimeoutMs: 2_000,
       readTimeoutMs: 2_000,
     });
+    logStep('createDownloadStream:after');
     const buf = await collect(dl.stream);
+    logStep('stream:consumed');
     assert.equal(buf.toString('utf8'), payload.toString('utf8'));
     assert.ok(dl.stats.attempts >= 2);
+    logStep('test:range-resume:done');
   });
 
   void it('decompresses gzip responses', async () => {
+    logStep('test:gzip:start');
     const body = 'hello gzip';
     const gz = gzipSync(Buffer.from(body, 'utf8'));
 
     const server = http.createServer((req, res) => {
+      logStep(`server:request ${req.method ?? ''} ${req.url ?? ''}`);
       if (!req.url) throw new Error('missing_url');
       if (req.url !== '/gzip') {
         res.statusCode = 404;
@@ -140,23 +163,31 @@ void describe('pipeline: download stage', () => {
     });
     servers.push(server);
 
-    await new Promise<void>((resolve) => server.listen(0, resolve));
+    logStep('server:start /gzip');
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const addr = server.address();
     assert.ok(addr && typeof addr === 'object');
     const url = `http://127.0.0.1:${addr.port}/gzip`;
+    logStep(`server:ready ${url}`);
 
+    logStep('createDownloadStream:before');
     const dl = await createDownloadStream({
       url,
       maxRetries: 1,
       connectTimeoutMs: 2_000,
       readTimeoutMs: 2_000,
     });
+    logStep('createDownloadStream:after');
     const buf = await collect(dl.stream);
+    logStep('stream:consumed');
     assert.equal(buf.toString('utf8'), body);
+    logStep('test:gzip:done');
   });
 
   void it('fails when Content-Length does not match actual bytes', async () => {
+    logStep('test:bad-length:start');
     const server = http.createServer((req, res) => {
+      logStep(`server:request ${req.method ?? ''} ${req.url ?? ''}`);
       if (!req.url) throw new Error('missing_url');
       if (req.url !== '/bad-length') {
         res.statusCode = 404;
@@ -172,24 +203,31 @@ void describe('pipeline: download stage', () => {
     });
     servers.push(server);
 
-    await new Promise<void>((resolve) => server.listen(0, resolve));
+    logStep('server:start /bad-length');
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const addr = server.address();
     assert.ok(addr && typeof addr === 'object');
     const url = `http://127.0.0.1:${addr.port}/bad-length`;
+    logStep(`server:ready ${url}`);
 
     await assert.rejects(async () => {
+      logStep('createDownloadStream:before');
       const dl = await createDownloadStream({
         url,
         maxRetries: 0,
         connectTimeoutMs: 2_000,
         readTimeoutMs: 2_000,
       });
+      logStep('createDownloadStream:after');
       await collect(dl.stream);
     }, /bulk_download_content_length_mismatch/);
+    logStep('test:bad-length:done');
   });
 
   void it('fails when ETag checksum does not match payload', async () => {
+    logStep('test:bad-etag:start');
     const server = http.createServer((req, res) => {
+      logStep(`server:request ${req.method ?? ''} ${req.url ?? ''}`);
       if (!req.url) throw new Error('missing_url');
       if (req.url !== '/bad-etag') {
         res.statusCode = 404;
@@ -205,19 +243,24 @@ void describe('pipeline: download stage', () => {
     });
     servers.push(server);
 
-    await new Promise<void>((resolve) => server.listen(0, resolve));
+    logStep('server:start /bad-etag');
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const addr = server.address();
     assert.ok(addr && typeof addr === 'object');
     const url = `http://127.0.0.1:${addr.port}/bad-etag`;
+    logStep(`server:ready ${url}`);
 
     await assert.rejects(async () => {
+      logStep('createDownloadStream:before');
       const dl = await createDownloadStream({
         url,
         maxRetries: 0,
         connectTimeoutMs: 2_000,
         readTimeoutMs: 2_000,
       });
+      logStep('createDownloadStream:after');
       await collect(dl.stream);
     }, /bulk_download_checksum_mismatch/);
+    logStep('test:bad-etag:done');
   });
 });

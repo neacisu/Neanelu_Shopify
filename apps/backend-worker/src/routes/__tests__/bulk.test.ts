@@ -10,6 +10,10 @@ import { rm } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+function logStep(message: string): void {
+  console.info(`[bulk-routes] ${new Date().toISOString()} ${message}`);
+}
+
 const requireSessionMock = () => (_req: unknown, _reply: unknown) => Promise.resolve();
 
 const sessionPath = new URL('../../auth/session.js', import.meta.url).href;
@@ -177,6 +181,7 @@ void describe('Bulk Routes', () => {
   let bulkRoutes: unknown;
 
   beforeEach(async () => {
+    logStep('beforeEach:start');
     const module = await import('../bulk.js');
     bulkRoutes = (module as { bulkRoutes: unknown }).bulkRoutes;
 
@@ -192,16 +197,20 @@ void describe('Bulk Routes', () => {
     );
 
     startCalls.splice(0, startCalls.length);
+    logStep('beforeEach:done');
   });
 
   afterEach(async () => {
     if (app?.server.listening) {
+      logStep('afterEach:close-app');
       await app.close();
     }
   });
 
   void test('GET /bulk returns paginated list', async () => {
+    logStep('inject:GET /bulk:start');
     const res = await app.inject({ method: 'GET', url: '/bulk?page=0&limit=20' });
+    logStep(`inject:GET /bulk:done status=${res.statusCode}`);
     assert.equal(res.statusCode, 200);
 
     const body = JSON.parse(res.body) as {
@@ -214,7 +223,9 @@ void describe('Bulk Routes', () => {
   });
 
   void test('GET /bulk/:id returns run detail', async () => {
+    logStep('inject:GET /bulk/:id:start');
     const res = await app.inject({ method: 'GET', url: '/bulk/run-1' });
+    logStep(`inject:GET /bulk/:id:done status=${res.statusCode}`);
     assert.equal(res.statusCode, 200);
 
     const body = JSON.parse(res.body) as { success: boolean };
@@ -222,23 +233,29 @@ void describe('Bulk Routes', () => {
   });
 
   void test('POST /bulk/start enqueues run', async () => {
+    logStep('inject:POST /bulk/start:start');
     const res = await app.inject({ method: 'POST', url: '/bulk/start' });
+    logStep(`inject:POST /bulk/start:done status=${res.statusCode}`);
     assert.equal(res.statusCode, 200);
     assert.equal(startCalls.length, 1);
   });
 
   void test('POST /bulk/:id/retry triggers orchestrator', async () => {
+    logStep('inject:POST /bulk/:id/retry:start');
     const res = await app.inject({
       method: 'POST',
       url: '/bulk/run-1/retry',
       payload: { mode: 'restart' },
     });
+    logStep(`inject:POST /bulk/:id/retry:done status=${res.statusCode}`);
     assert.equal(res.statusCode, 200);
     assert.equal(startCalls.length, 1);
   });
 
   void test('GET /bulk/:id/errors returns errors', async () => {
+    logStep('inject:GET /bulk/:id/errors:start');
     const res = await app.inject({ method: 'GET', url: '/bulk/run-1/errors?limit=50' });
+    logStep(`inject:GET /bulk/:id/errors:done status=${res.statusCode}`);
     assert.equal(res.statusCode, 200);
 
     const body = JSON.parse(res.body) as { success: boolean; data: { errors: unknown[] } };
@@ -247,32 +264,43 @@ void describe('Bulk Routes', () => {
   });
 
   void test('schedule CRUD works', async () => {
+    logStep('inject:GET /bulk/schedules:start');
     const list = await app.inject({ method: 'GET', url: '/bulk/schedules' });
+    logStep(`inject:GET /bulk/schedules:done status=${list.statusCode}`);
     assert.equal(list.statusCode, 200);
 
+    logStep('inject:POST /bulk/schedules:start');
     const create = await app.inject({
       method: 'POST',
       url: '/bulk/schedules',
       payload: { cron: '0 2 * * *', timezone: 'UTC', enabled: true },
     });
+    logStep(`inject:POST /bulk/schedules:done status=${create.statusCode}`);
     assert.equal(create.statusCode, 200);
 
+    logStep('inject:PUT /bulk/schedules:start');
     const update = await app.inject({
       method: 'PUT',
       url: '/bulk/schedules/sched-1',
       payload: { cron: '0 3 * * *', timezone: 'UTC', enabled: false },
     });
+    logStep(`inject:PUT /bulk/schedules:done status=${update.statusCode}`);
     assert.equal(update.statusCode, 200);
 
+    logStep('inject:DELETE /bulk/schedules:start');
     const del = await app.inject({ method: 'DELETE', url: '/bulk/schedules/sched-1' });
+    logStep(`inject:DELETE /bulk/schedules:done status=${del.statusCode}`);
     assert.equal(del.statusCode, 200);
   });
 
   void test('GET /bulk/:id/logs/stream emits event stream', async () => {
+    logStep('listen:start');
     const address = await app.listen({ port: 0, host: '127.0.0.1' });
     const url = new URL('/bulk/run-1/logs/stream', address);
+    logStep(`listen:ready ${url.toString()}`);
 
     await new Promise<void>((resolve, reject) => {
+      logStep('http:request:start');
       const req = http.request(
         {
           method: 'GET',
@@ -282,10 +310,12 @@ void describe('Bulk Routes', () => {
           headers: { Accept: 'text/event-stream' },
         },
         (res) => {
+          logStep(`http:response status=${res.statusCode ?? 0}`);
           assert.equal(res.statusCode, 200);
           res.setEncoding('utf8');
           res.on('data', (chunk) => {
             if (typeof chunk === 'string' && chunk.length > 0) {
+              logStep('http:response:data');
               req.destroy();
               resolve();
             }
@@ -296,10 +326,12 @@ void describe('Bulk Routes', () => {
       req.end();
     });
 
+    logStep('listen:close');
     await app.close();
   });
 
   void test('POST /bulk/upload enqueues ingest from uploaded file', async () => {
+    logStep('inject:POST /bulk/upload:start');
     const uploadDir = path.join(os.tmpdir(), 'neanelu-test-upload', randomUUID());
     process.env['BULK_UPLOAD_DIR'] = uploadDir;
 
@@ -319,11 +351,13 @@ void describe('Bulk Routes', () => {
       },
     });
 
+    logStep(`inject:POST /bulk/upload:done status=${res.statusCode}`);
     assert.equal(res.statusCode, 200);
     const body = JSON.parse(res.body) as { success: boolean; data?: { run_id?: string } };
     assert.equal(body.success, true);
     assert.ok(body.data?.run_id);
 
+    logStep('cleanup:upload-dir');
     await rm(uploadDir, { recursive: true, force: true });
   });
 });

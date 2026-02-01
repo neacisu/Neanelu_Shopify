@@ -4,18 +4,25 @@ import http from 'node:http';
 
 import { createDownloadStream } from '../../pipeline/stages/download.js';
 
+function logStep(message: string): void {
+  console.info(`[download-truncated] ${new Date().toISOString()} ${message}`);
+}
+
 void describe('chaos: truncated download resume', () => {
   const servers: http.Server[] = [];
 
   after(() => {
+    logStep('server:stop:all');
     for (const s of servers) s.close();
   });
 
   void it('retries after mid-stream disconnect and resumes with Range', async () => {
+    logStep('test:start');
     const payload = Buffer.from('abcdefghijklmnopqrstuvwxyz0123456789', 'utf8');
     let first = true;
 
     const server = http.createServer((req, res) => {
+      logStep(`server:request ${req.method ?? ''} ${req.url ?? ''}`);
       if (!req.url || req.url !== '/payload') {
         res.statusCode = 404;
         res.end('not found');
@@ -53,13 +60,16 @@ void describe('chaos: truncated download resume', () => {
     });
     servers.push(server);
 
-    await new Promise<void>((resolve) => server.listen(0, resolve));
+    logStep('server:start');
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const addr = server.address();
     assert.ok(addr && typeof addr === 'object');
     const url = `http://127.0.0.1:${addr.port}/payload`;
+    logStep(`server:ready ${url}`);
 
     const retries: number[] = [];
 
+    logStep('createDownloadStream:before');
     const dl = await createDownloadStream({
       url,
       maxRetries: 2,
@@ -67,14 +77,17 @@ void describe('chaos: truncated download resume', () => {
       readTimeoutMs: 2_000,
       onRetry: ({ attempt }) => retries.push(attempt),
     });
+    logStep('createDownloadStream:after');
 
     const buf: Buffer[] = [];
     for await (const chunk of dl.stream) {
       buf.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
     }
+    logStep('stream:consumed');
 
     assert.equal(Buffer.concat(buf).toString('utf8'), payload.toString('utf8'));
     assert.ok(retries.length >= 1);
     assert.ok(dl.stats.attempts >= 2);
+    logStep('test:done');
   });
 });

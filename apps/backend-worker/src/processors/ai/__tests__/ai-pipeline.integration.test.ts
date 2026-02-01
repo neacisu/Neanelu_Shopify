@@ -15,6 +15,10 @@ import type { Logger } from '@app/logger';
 import { generateQueryEmbedding } from '../search.js';
 import { getCachedSearchResult, setCachedSearchResult } from '../cache.js';
 
+function logStep(message: string): void {
+  console.info(`[ai-pipeline] ${new Date().toISOString()} ${message}`);
+}
+
 const MIGRATIONS_DIR = join(
   process.cwd(),
   '..',
@@ -26,16 +30,20 @@ const MIGRATIONS_DIR = join(
 );
 
 async function runSqlFile(pool: Pool, fileName: string): Promise<void> {
+  logStep(`migration:start ${fileName}`);
   const sql = await readFile(join(MIGRATIONS_DIR, fileName), 'utf8');
   await pool.query(sql);
+  logStep(`migration:done ${fileName}`);
 }
 
 async function runAllMigrations(pool: Pool): Promise<void> {
   const fileNames = (await readdir(MIGRATIONS_DIR)).filter((name) => name.endsWith('.sql')).sort();
 
+  logStep(`migrations:count ${fileNames.length}`);
   for (const fileName of fileNames) {
     await runSqlFile(pool, fileName);
   }
+  logStep('migrations:done');
 }
 
 void describe('AI Pipeline Integration (Testcontainers)', { timeout: 120_000 }, () => {
@@ -57,12 +65,17 @@ void describe('AI Pipeline Integration (Testcontainers)', { timeout: 120_000 }, 
   let redis: RedisClient;
 
   before(async () => {
+    logStep('before:start');
     if (useExternalServices) {
+      logStep('using:external-services');
       pool = new Pool({ connectionString: process.env['DATABASE_URL'] });
       redis = new IORedis(process.env['REDIS_URL'] ?? '');
     } else {
+      logStep('starting:testcontainers');
       pgContainer = await new PostgreSqlContainer('pgvector/pgvector:0.8.1-pg18-trixie').start();
+      logStep('postgres:started');
       redisContainer = await new RedisContainer('redis:8.4-alpine').start();
+      logStep('redis:started');
 
       pool = new Pool({ connectionString: pgContainer.getConnectionUri() });
       await pool.query('CREATE EXTENSION IF NOT EXISTS vector');
@@ -78,6 +91,7 @@ void describe('AI Pipeline Integration (Testcontainers)', { timeout: 120_000 }, 
       redis = new IORedis(redisContainer.getConnectionUrl());
     }
 
+    logStep('db:grant-roles');
     await pool.query(`
       DO $$
       BEGIN
@@ -90,17 +104,21 @@ void describe('AI Pipeline Integration (Testcontainers)', { timeout: 120_000 }, 
     await pool.query(
       `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user`
     );
+    logStep('before:done');
   });
 
   after(async () => {
+    logStep('after:start');
     await redis?.quit().catch(() => undefined);
     await pool?.end().catch(() => undefined);
     await pgContainer?.stop().catch(() => undefined);
     await redisContainer?.stop().catch(() => undefined);
     nock.cleanAll();
+    logStep('after:done');
   });
 
   void it('enforces RLS isolation for shop_product_embeddings', async () => {
+    logStep('test:rls:start');
     const client = await pool.connect();
     const shop1Id = randomUUID();
     const shop2Id = randomUUID();
@@ -168,11 +186,14 @@ void describe('AI Pipeline Integration (Testcontainers)', { timeout: 120_000 }, 
       await client.query(`RESET ROLE`);
       assert.equal(result.rowCount, 0);
     } finally {
+      logStep('test:rls:release-client');
       client.release();
     }
+    logStep('test:rls:done');
   });
 
   void it('supports vector KNN search per shop', async () => {
+    logStep('test:knn:start');
     const client = await pool.connect();
     const shopId = randomUUID();
     const product1Id = randomUUID();
@@ -256,15 +277,19 @@ void describe('AI Pipeline Integration (Testcontainers)', { timeout: 120_000 }, 
       assert.ok(result.rowCount && result.rowCount > 0);
       assert.equal(result.rows[0]?.product_id, product1Id);
     } finally {
+      logStep('test:knn:release-client');
       client.release();
     }
+    logStep('test:knn:done');
   });
 
   void it('uses Redis cache for search results', async () => {
+    logStep('test:cache:start');
     const shopId = randomUUID();
     const queryText = 'test query';
     const results = [{ id: 'p1', title: 'Produs', similarity: 0.9 }];
 
+    logStep('cache:set:start');
     await setCachedSearchResult({
       redis,
       shopId,
@@ -272,31 +297,40 @@ void describe('AI Pipeline Integration (Testcontainers)', { timeout: 120_000 }, 
       result: results,
       vectorSearchTimeMs: 42,
     });
+    logStep('cache:set:done');
 
+    logStep('cache:get:start');
     const cached = await getCachedSearchResult({ redis, shopId, queryText });
+    logStep('cache:get:done');
     assert.ok(cached);
     assert.equal(cached?.results.length, 1);
     assert.equal(cached?.results[0]?.id, 'p1');
+    logStep('test:cache:done');
   });
 
   void it('mocks OpenAI embedding provider', async () => {
+    logStep('test:embedding:start');
     nock('https://api.openai.com')
       .post('/v1/embeddings')
       .reply(200, {
         data: [{ embedding: Array(2000).fill(0.123) }],
       });
 
+    logStep('embedding:provider:create');
     const provider = createEmbeddingsProvider({
       openAiApiKey: 'test-key',
       openAiEmbeddingsModel: 'text-embedding-3-large',
     });
 
+    logStep('embedding:generate:start');
     const embedding = await generateQueryEmbedding({
       text: 'test query',
       provider,
       logger: noopLogger,
     });
+    logStep('embedding:generate:done');
 
     assert.equal(embedding.length, 2000);
+    logStep('test:embedding:done');
   });
 });
