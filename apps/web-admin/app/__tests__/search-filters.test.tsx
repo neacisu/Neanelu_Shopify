@@ -33,7 +33,7 @@ describe('SearchFilters', () => {
     expect(screen.getByText('Vendors (1)')).toBeInTheDocument();
     expect(screen.getByText('Product types')).toBeInTheDocument();
     expect(screen.getByText('Category')).toBeInTheDocument();
-    expect(screen.getByText('Footwear')).toBeInTheDocument();
+    expect(screen.getByRole('tree')).toBeInTheDocument();
 
     await user.click(screen.getByText('Reset all'));
     expect(onReset).toHaveBeenCalled();
