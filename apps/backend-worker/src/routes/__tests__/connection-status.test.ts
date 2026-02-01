@@ -24,6 +24,17 @@ void mock.module('@app/database', {
     pool: {
       query: () => Promise.resolve({ rows: [{ scopes: ['read_products'] }] }),
     },
+    withTenantContext: async (
+      _shopId: string,
+      fn: (client: {
+        query: (sql: string, values?: unknown[]) => Promise<{ rows: unknown[] }>;
+      }) => Promise<unknown>
+    ) => {
+      const client = {
+        query: (_sql: string, _values?: unknown[]) => Promise.resolve({ rows: [] }),
+      };
+      return fn(client);
+    },
   },
 });
 
