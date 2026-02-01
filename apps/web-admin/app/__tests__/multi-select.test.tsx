@@ -102,7 +102,7 @@ describe('MultiSelect', () => {
     expect(screen.getByRole('button', { name: 'Remove NewTag' })).toBeInTheDocument();
   });
 
-  it('renders at most 50 options in the dropdown', async () => {
+  it('renders all options in the dropdown', async () => {
     const user = userEvent.setup();
 
     const bigOptions: MultiSelectOption[] = Array.from({ length: 80 }).map((_, i) => ({
@@ -121,6 +121,6 @@ describe('MultiSelect', () => {
 
     const listbox = screen.getByRole('listbox');
     expect(listbox).toHaveAttribute('aria-multiselectable', 'true');
-    expect(screen.getAllByRole('option').length).toBe(50);
+    expect(screen.getAllByRole('option').length).toBe(80);
   });
 });
