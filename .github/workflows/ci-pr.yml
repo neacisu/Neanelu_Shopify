@@ -229,7 +229,8 @@ jobs:
         run: |
           set -euo pipefail
           TEST_FILES=$(git ls-files "apps/backend-worker/src/**/*.test.ts" \
-            ":!apps/backend-worker/src/processors/ai/__tests__/ai-pipeline.integration.test.ts")
+            ":!apps/backend-worker/src/processors/ai/__tests__/ai-pipeline.integration.test.ts" \
+            | sed 's#^apps/backend-worker/##')
           pnpm --filter @app/backend-worker exec node \
             --experimental-test-module-mocks --import tsx \
             --test $TEST_FILES
