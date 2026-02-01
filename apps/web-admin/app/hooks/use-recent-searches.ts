@@ -5,10 +5,34 @@ export type RecentSearchesOptions = Readonly<{
   maxItems?: number;
 }>;
 
-type RecentSearchesState = readonly string[];
+export type RecentSearchEntry = Readonly<{
+  query: string;
+  timestamp: number;
+}>;
+
+type RecentSearchesState = readonly RecentSearchEntry[];
 
 function normalize(term: string): string {
   return term.trim();
+}
+
+function toEntry(raw: unknown): RecentSearchEntry | null {
+  if (typeof raw === 'string') {
+    const normalized = normalize(raw);
+    if (!normalized) return null;
+    return { query: normalized, timestamp: Date.now() };
+  }
+  if (raw && typeof raw === 'object') {
+    const record = raw as Record<string, unknown>;
+    const query = typeof record['query'] === 'string' ? normalize(record['query']) : '';
+    const timestamp =
+      typeof record['timestamp'] === 'number' && Number.isFinite(record['timestamp'])
+        ? record['timestamp']
+        : Date.now();
+    if (!query) return null;
+    return { query, timestamp };
+  }
+  return null;
 }
 
 function safeRead(storageKey: string): RecentSearchesState {
@@ -18,10 +42,7 @@ function safeRead(storageKey: string): RecentSearchesState {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((x): x is string => typeof x === 'string')
-      .map(normalize)
-      .filter(Boolean);
+    return parsed.map(toEntry).filter((x): x is RecentSearchEntry => Boolean(x));
   } catch {
     return [];
   }
@@ -37,12 +58,12 @@ function safeWrite(storageKey: string, items: RecentSearchesState) {
 }
 
 export function useRecentSearches(options: RecentSearchesOptions) {
-  const { storageKey, maxItems = 20 } = options;
+  const { storageKey, maxItems = 10 } = options;
 
-  const [items, setItems] = useState<RecentSearchesState>(() => safeRead(storageKey));
+  const [entries, setEntries] = useState<RecentSearchesState>(() => safeRead(storageKey));
 
   useEffect(() => {
-    setItems(safeRead(storageKey));
+    setEntries(safeRead(storageKey));
   }, [storageKey]);
 
   const add = useCallback(
@@ -50,8 +71,11 @@ export function useRecentSearches(options: RecentSearchesOptions) {
       const term = normalize(termRaw);
       if (!term) return;
 
-      setItems((prev) => {
-        const next = [term, ...prev.filter((x) => x !== term)].slice(0, maxItems);
+      setEntries((prev) => {
+        const next = [
+          { query: term, timestamp: Date.now() },
+          ...prev.filter((x) => x.query !== term),
+        ].slice(0, maxItems);
         safeWrite(storageKey, next);
         return next;
       });
@@ -60,17 +84,18 @@ export function useRecentSearches(options: RecentSearchesOptions) {
   );
 
   const clear = useCallback(() => {
-    setItems([]);
+    setEntries([]);
     safeWrite(storageKey, []);
   }, [storageKey]);
 
   const api = useMemo(
     () => ({
-      items,
+      items: entries.map((entry) => entry.query),
+      entries,
       add,
       clear,
     }),
-    [add, clear, items]
+    [add, clear, entries]
   );
 
   return api;

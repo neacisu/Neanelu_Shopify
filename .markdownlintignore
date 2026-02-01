@@ -1,5 +1,7 @@
 # Cursor internal files
 /root/.cursor/
+.cursor/plans/
+/root/.cursor/plans/
 
 # Node modules
 node_modules/

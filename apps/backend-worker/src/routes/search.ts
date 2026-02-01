@@ -2,6 +2,7 @@ import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { Redis as RedisClient } from 'ioredis';
+import { randomUUID } from 'node:crypto';
 import { createRedisConnection } from '@app/queue-manager';
 import { withTenantContext } from '@app/database';
 import {
@@ -36,6 +37,58 @@ type SearchRoutesOptions = Readonly<{
   logger: Logger;
   sessionConfig: SessionConfig;
 }>;
+
+type ExportJob = Readonly<{
+  jobId: string;
+  shopId: string;
+  status: 'queued' | 'processing' | 'completed' | 'failed';
+  progress?: number;
+  downloadUrl?: string;
+  format: 'csv' | 'json';
+  error?: string;
+  payload?: string;
+  contentType?: string;
+}>;
+
+const exportJobs = new Map<string, ExportJob>();
+
+type CategoryRow = Readonly<{
+  id: string;
+  parentId: string | null;
+  name: string;
+  shopifyTaxonomyId: string | null;
+}>;
+
+type CategoryNode = Readonly<{
+  id: string;
+  name: string;
+  children?: CategoryNode[];
+}>;
+
+function buildCategoryTree(rows: readonly CategoryRow[]): CategoryNode[] {
+  const byId = new Map<string, CategoryRow>();
+  for (const row of rows) {
+    byId.set(row.id, row);
+  }
+
+  const childrenByParent = new Map<string, CategoryRow[]>();
+  for (const row of rows) {
+    if (!row.parentId) continue;
+    const list = childrenByParent.get(row.parentId) ?? [];
+    list.push(row);
+    childrenByParent.set(row.parentId, list);
+  }
+
+  const toNode = (row: CategoryRow): CategoryNode => {
+    const childrenRows = childrenByParent.get(row.id) ?? [];
+    const children = childrenRows.map(toNode);
+    const id = row.shopifyTaxonomyId ?? row.id;
+    return children.length ? { id, name: row.name, children } : { id, name: row.name };
+  };
+
+  const roots = rows.filter((row) => !row.parentId || !byId.has(row.parentId));
+  return roots.map(toNode);
+}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -91,6 +144,34 @@ function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(normalized.length / 4));
 }
 
+function toExportRow(result: ProductSearchResult) {
+  return {
+    id: result.id,
+    title: result.title,
+    similarity: result.similarity,
+    vendor: result.vendor ?? '',
+    productType: result.productType ?? '',
+    priceMin: result.priceRange?.min ?? '',
+    priceMax: result.priceRange?.max ?? '',
+    priceCurrency: result.priceRange?.currency ?? '',
+  };
+}
+
+function toCsv(rows: ProductSearchResult[]): string {
+  const normalized = rows.map(toExportRow);
+  const header = Object.keys(normalized[0] ?? {}).join(',');
+  const csvRows = normalized.map((row) =>
+    Object.values(row)
+      .map((value) => `"${String(value).replace(/"/g, '""')}"`)
+      .join(',')
+  );
+  return [header, ...csvRows].join('\n');
+}
+
+function toJson(rows: ProductSearchResult[]): string {
+  return JSON.stringify(rows.map(toExportRow), null, 2);
+}
+
 export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
   server: FastifyInstance,
   opts
@@ -127,7 +208,16 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           return;
         }
 
-        const query = request.query as { q?: unknown; limit?: unknown; threshold?: unknown };
+        const query = request.query as {
+          q?: unknown;
+          limit?: unknown;
+          threshold?: unknown;
+          vendors?: unknown;
+          productTypes?: unknown;
+          priceMin?: unknown;
+          priceMax?: unknown;
+          categoryId?: unknown;
+        };
         const rawText = query.q;
         if (!isNonEmptyString(rawText)) {
           void reply
@@ -143,11 +233,39 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           MIN_THRESHOLD,
           MAX_THRESHOLD
         );
+        const vendors =
+          typeof query.vendors === 'string'
+            ? query.vendors
+                .split(',')
+                .map((v) => v.trim())
+                .filter(Boolean)
+            : [];
+        const productTypes =
+          typeof query.productTypes === 'string'
+            ? query.productTypes
+                .split(',')
+                .map((v) => v.trim())
+                .filter(Boolean)
+            : [];
+        const priceMin = parseFloatParam(query.priceMin, NaN, 0, Number.MAX_SAFE_INTEGER);
+        const priceMax = parseFloatParam(query.priceMax, NaN, 0, Number.MAX_SAFE_INTEGER);
+        const categoryId = typeof query.categoryId === 'string' ? query.categoryId.trim() : '';
+
+        const cacheKeyText = [
+          rawText,
+          `limit=${limit}`,
+          `threshold=${threshold}`,
+          `vendors=${vendors.join('|')}`,
+          `productTypes=${productTypes.join('|')}`,
+          `priceMin=${Number.isFinite(priceMin) ? priceMin : ''}`,
+          `priceMax=${Number.isFinite(priceMax) ? priceMax : ''}`,
+          `categoryId=${categoryId}`,
+        ].join(' ');
 
         const cached = await getCachedSearchResult({
           redis,
           shopId: session.shopId,
-          queryText: rawText,
+          queryText: cacheKeyText,
           config: { ttlSeconds: env.vectorSearchCacheTtlSeconds },
         });
 
@@ -223,6 +341,11 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
               embedding,
               limit,
               threshold,
+              vendors: vendors.length ? vendors : null,
+              productTypes: productTypes.length ? productTypes : null,
+              priceMin: Number.isFinite(priceMin) ? priceMin : null,
+              priceMax: Number.isFinite(priceMax) ? priceMax : null,
+              categoryId: categoryId || null,
               queryTimeoutMs: env.vectorSearchQueryTimeoutMs,
               logger,
             });
@@ -232,6 +355,10 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
             id: row.productId,
             title: row.title,
             similarity: row.similarity,
+            featuredImageUrl: row.featuredImageUrl,
+            vendor: row.vendor,
+            productType: row.productType,
+            priceRange: row.priceRange,
           }));
         } catch (error) {
           if (error instanceof EmbeddingsDisabledError) {
@@ -250,7 +377,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
         await setCachedSearchResult({
           redis,
           shopId: session.shopId,
-          queryText: rawText,
+          queryText: cacheKeyText,
           result: results,
           vectorSearchTimeMs: Math.round(durationMs),
           config: { ttlSeconds: env.vectorSearchCacheTtlSeconds },
@@ -267,6 +394,292 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
       }
     );
   });
+
+  server.get('/products/filters', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      void reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+      return;
+    }
+
+    const { vendors, productTypes, priceRange, categories } = await withTenantContext(
+      session.shopId,
+      async (client) => {
+        const vendorRows = await client.query<{ vendor: string }>(
+          `SELECT DISTINCT vendor
+             FROM shopify_products
+            WHERE shop_id = $1
+              AND vendor IS NOT NULL
+              AND vendor <> ''
+            ORDER BY vendor ASC`,
+          [session.shopId]
+        );
+
+        const productTypeRows = await client.query<{ productType: string }>(
+          `SELECT DISTINCT product_type as "productType"
+             FROM shopify_products
+            WHERE shop_id = $1
+              AND product_type IS NOT NULL
+              AND product_type <> ''
+            ORDER BY product_type ASC`,
+          [session.shopId]
+        );
+
+        const priceRow = await client.query<{ min: string | null; max: string | null }>(
+          `SELECT MIN((price_range->>'min')::numeric)::text as "min",
+                  MAX((price_range->>'max')::numeric)::text as "max"
+             FROM shopify_products
+            WHERE shop_id = $1
+              AND price_range IS NOT NULL`,
+          [session.shopId]
+        );
+
+        const categoryRows = await client.query<CategoryRow>(
+          `WITH RECURSIVE selected AS (
+              SELECT id,
+                     parent_id as "parentId",
+                     name,
+                     shopify_taxonomy_id as "shopifyTaxonomyId"
+                FROM prod_taxonomy
+               WHERE shopify_taxonomy_id IN (
+                     SELECT DISTINCT category_id
+                       FROM shopify_products
+                      WHERE shop_id = $1
+                        AND category_id IS NOT NULL
+                   )
+              UNION
+              SELECT pt.id,
+                     pt.parent_id as "parentId",
+                     pt.name,
+                     pt.shopify_taxonomy_id as "shopifyTaxonomyId"
+                FROM prod_taxonomy pt
+                JOIN selected s ON s.parentId = pt.id
+            )
+            SELECT DISTINCT id, "parentId", name, "shopifyTaxonomyId"
+              FROM selected`,
+          [session.shopId]
+        );
+
+        return {
+          vendors: vendorRows.rows.map((row) => row.vendor),
+          productTypes: productTypeRows.rows.map((row) => row.productType),
+          priceRange: {
+            min: priceRow.rows[0]?.min ? Number(priceRow.rows[0]?.min) : null,
+            max: priceRow.rows[0]?.max ? Number(priceRow.rows[0]?.max) : null,
+          },
+          categories: buildCategoryTree(categoryRows.rows),
+        };
+      }
+    );
+
+    void reply.status(200).send(
+      successEnvelope(request.id, {
+        vendors,
+        productTypes,
+        priceRange,
+        categories,
+      })
+    );
+  });
+
+  server.post('/products/search/export', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      void reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+      return;
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const rawText = body['q'];
+    const format = body['format'];
+    if (!isNonEmptyString(rawText)) {
+      void reply
+        .status(400)
+        .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing query text'));
+      return;
+    }
+    if (format !== 'csv' && format !== 'json') {
+      void reply.status(400).send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Invalid format'));
+      return;
+    }
+
+    const limit = parseIntParam(body['limit'], 2000, 1, 5000);
+    const threshold = parseFloatParam(
+      body['threshold'],
+      DEFAULT_THRESHOLD,
+      MIN_THRESHOLD,
+      MAX_THRESHOLD
+    );
+    const vendors =
+      typeof body['vendors'] === 'string'
+        ? body['vendors']
+            .split(',')
+            .map((v) => v.trim())
+            .filter(Boolean)
+        : Array.isArray(body['vendors'])
+          ? body['vendors'].filter((v) => typeof v === 'string')
+          : [];
+    const productTypes =
+      typeof body['productTypes'] === 'string'
+        ? body['productTypes']
+            .split(',')
+            .map((v) => v.trim())
+            .filter(Boolean)
+        : Array.isArray(body['productTypes'])
+          ? body['productTypes'].filter((v) => typeof v === 'string')
+          : [];
+    const priceMin = parseFloatParam(body['priceMin'], NaN, 0, Number.MAX_SAFE_INTEGER);
+    const priceMax = parseFloatParam(body['priceMax'], NaN, 0, Number.MAX_SAFE_INTEGER);
+    const categoryId = typeof body['categoryId'] === 'string' ? body['categoryId'].trim() : '';
+
+    const jobId = randomUUID();
+    const initial: ExportJob = {
+      jobId,
+      shopId: session.shopId,
+      status: 'queued',
+      progress: 0,
+      format,
+    };
+    exportJobs.set(jobId, initial);
+
+    void reply.status(202).send(
+      successEnvelope(request.id, {
+        jobId,
+        status: 'queued',
+        estimatedCount: limit,
+      })
+    );
+
+    void (async () => {
+      exportJobs.set(jobId, { ...initial, status: 'processing', progress: 10 });
+      try {
+        const provider = createEmbeddingsProvider({
+          ...(env.openAiApiKey ? { openAiApiKey: env.openAiApiKey } : {}),
+          ...(env.openAiBaseUrl ? { openAiBaseUrl: env.openAiBaseUrl } : {}),
+          ...(env.openAiEmbeddingsModel
+            ? { openAiEmbeddingsModel: env.openAiEmbeddingsModel }
+            : {}),
+          openAiTimeoutMs: env.openAiTimeoutMs,
+        });
+
+        const embedding = await generateQueryEmbedding({
+          text: rawText,
+          provider,
+          logger,
+        });
+
+        const searchRows = await withTenantContext(session.shopId, async (client) => {
+          return searchSimilarProducts({
+            client,
+            shopId: session.shopId,
+            embedding,
+            limit,
+            threshold,
+            vendors: vendors.length ? vendors : null,
+            productTypes: productTypes.length ? productTypes : null,
+            priceMin: Number.isFinite(priceMin) ? priceMin : null,
+            priceMax: Number.isFinite(priceMax) ? priceMax : null,
+            categoryId: categoryId || null,
+            queryTimeoutMs: env.vectorSearchQueryTimeoutMs,
+            logger,
+          });
+        });
+
+        exportJobs.set(jobId, { ...initial, status: 'processing', progress: 70 });
+
+        const results = searchRows.map((row) => ({
+          id: row.productId,
+          title: row.title,
+          similarity: row.similarity,
+          featuredImageUrl: row.featuredImageUrl,
+          vendor: row.vendor,
+          productType: row.productType,
+          priceRange: row.priceRange,
+        })) satisfies ProductSearchResult[];
+
+        const payload = format === 'csv' ? toCsv(results) : toJson(results);
+        const contentType = format === 'csv' ? 'text/csv' : 'application/json';
+        exportJobs.set(jobId, {
+          ...initial,
+          status: 'completed',
+          progress: 100,
+          payload,
+          contentType,
+          downloadUrl: `/api/products/search/export/${jobId}/download`,
+        });
+      } catch (error) {
+        exportJobs.set(jobId, {
+          ...initial,
+          status: 'failed',
+          progress: 100,
+          error: error instanceof Error ? error.message : 'Export failed',
+        });
+      }
+    })();
+  });
+
+  server.get('/products/search/export/:jobId', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      void reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+      return;
+    }
+
+    const jobId = (request.params as { jobId?: string }).jobId;
+    if (!jobId || !exportJobs.has(jobId)) {
+      void reply.status(404).send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Export not found'));
+      return;
+    }
+
+    const job = exportJobs.get(jobId);
+    if (job?.shopId !== session.shopId) {
+      void reply.status(404).send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Export not found'));
+      return;
+    }
+
+    void reply.status(200).send(
+      successEnvelope(request.id, {
+        jobId: job.jobId,
+        status: job.status,
+        progress: job.progress,
+        downloadUrl: job.downloadUrl,
+        error: job.error,
+      })
+    );
+  });
+
+  server.get(
+    '/products/search/export/:jobId/download',
+    requireAdminSession,
+    async (request, reply) => {
+      const session = getSessionFromRequest(request, sessionConfig);
+      if (!session) {
+        void reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+        return;
+      }
+
+      const jobId = (request.params as { jobId?: string }).jobId;
+      const job = jobId ? exportJobs.get(jobId) : null;
+      if (job?.shopId !== session.shopId || job?.status !== 'completed' || !job?.payload) {
+        void reply
+          .status(404)
+          .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Export not found'));
+        return;
+      }
+
+      reply.header('Content-Type', job.contentType ?? 'application/octet-stream');
+      reply.header('Content-Disposition', `attachment; filename="search-export.${job.format}"`);
+      void reply.status(200).send(job.payload);
+    }
+  );
 
   return Promise.resolve();
 };
