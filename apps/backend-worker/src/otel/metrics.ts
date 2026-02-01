@@ -82,6 +82,34 @@ export const webhookDuplicateTotal: Counter = meter.createCounter('webhook_dupli
 // AI / EMBEDDINGS METRICS
 // ============================================
 
+export const aiBacklogItems: ObservableGauge = meter.createObservableGauge('ai.backlog_items', {
+  description: 'Number of items waiting for AI embedding processing',
+});
+
+export const aiBatchAgeSeconds: ObservableGauge = meter.createObservableGauge(
+  'ai.batch_age_seconds',
+  {
+    description: 'Age in seconds of the oldest AI batch being processed',
+    unit: 's',
+  }
+);
+
+export const aiItemsProcessedTotal: Counter = meter.createCounter('ai.items_processed_total', {
+  description: 'Total number of AI embedding items processed successfully',
+});
+
+export const aiErrorsTotal: Counter = meter.createCounter('ai.errors_total', {
+  description: 'Total number of AI pipeline errors',
+});
+
+export const aiQueryLatencyMs: Histogram = meter.createHistogram('ai.query_latency_ms', {
+  description: 'AI vector search query latency in milliseconds',
+  unit: 'ms',
+  advice: {
+    explicitBucketBoundaries: [5, 10, 25, 50, 100, 200, 300, 500, 1000],
+  },
+});
+
 export const embeddingRetryTotal: Counter = meter.createCounter('embedding_retry_total', {
   description: 'Total number of embedding retries',
 });
@@ -149,6 +177,9 @@ export const vectorSearchCacheMissTotal: Counter = meter.createCounter(
     description: 'Total vector search cache misses',
   }
 );
+
+const aiBacklogItemsState = { value: 0 };
+const aiBatchAgeSecondsState = { value: 0 };
 
 /** Webhook processing duration - total time from receive to enqueue */
 export const webhookProcessingDuration: Histogram = meter.createHistogram(
@@ -406,6 +437,14 @@ meter.addBatchObservableCallback(
   [bulkOperationRunningAgeSeconds]
 );
 
+meter.addBatchObservableCallback(
+  (observableResult) => {
+    observableResult.observe(aiBacklogItems, Math.max(0, aiBacklogItemsState.value));
+    observableResult.observe(aiBatchAgeSeconds, Math.max(0, aiBatchAgeSecondsState.value));
+  },
+  [aiBacklogItems, aiBatchAgeSeconds]
+);
+
 // ============================================
 // REDIS METRICS
 // ============================================
@@ -602,6 +641,31 @@ export function recordBulkOperationFailure(params: {
 /** Record bulk error (row-level or stage). */
 export function recordBulkError(params: { errorType: string }): void {
   bulkErrorsTotal.add(1, { error_type: params.errorType });
+}
+
+export function setAiBacklogItems(value: number): void {
+  if (!Number.isFinite(value)) return;
+  aiBacklogItemsState.value = Math.max(0, Math.floor(value));
+}
+
+export function setAiBatchAgeSeconds(value: number): void {
+  if (!Number.isFinite(value)) return;
+  aiBatchAgeSecondsState.value = Math.max(0, value);
+}
+
+export function recordAiItemsProcessed(count: number): void {
+  if (!Number.isFinite(count) || count <= 0) return;
+  aiItemsProcessedTotal.add(Math.floor(count));
+}
+
+export function recordAiError(errorType: string): void {
+  const label = errorType?.trim() ? errorType.trim() : 'unknown';
+  aiErrorsTotal.add(1, { error_type: label });
+}
+
+export function recordAiQueryLatencyMs(latencyMs: number): void {
+  if (!Number.isFinite(latencyMs) || latencyMs < 0) return;
+  aiQueryLatencyMs.record(latencyMs);
 }
 
 export function recordEmbeddingRetry(params: { shopId?: string; embeddingType: string }): void {

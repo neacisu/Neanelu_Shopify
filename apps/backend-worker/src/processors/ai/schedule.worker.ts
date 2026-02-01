@@ -8,6 +8,8 @@ import {
 import { createEmbeddingsProvider } from '@app/ai-engine';
 
 import { listShops } from './batch.js';
+import { refreshAiObservabilityMetrics } from './otel/observable-callbacks.js';
+import { AI_SPAN_NAMES, withAiSpan } from './otel/spans.js';
 
 let lastCleanupAt: number | null = null;
 let lastBackfillAt: number | null = null;
@@ -18,6 +20,9 @@ export interface AiBatchScheduleWorkerHandle {
 
 export async function runAiBatchScheduleTick(logger: Logger): Promise<void> {
   const env = loadEnv();
+  await refreshAiObservabilityMetrics().catch((error) => {
+    logger.warn({ error }, 'Failed to refresh AI observability metrics');
+  });
   const shops = await listShops();
   const provider = createEmbeddingsProvider({
     ...(env.openAiApiKey ? { openAiApiKey: env.openAiApiKey } : {}),
@@ -27,16 +32,21 @@ export async function runAiBatchScheduleTick(logger: Logger): Promise<void> {
   });
 
   for (const shopId of shops) {
-    await enqueueAiBatchOrchestratorJob({
-      shopId,
-      batchType: 'combined',
-      embeddingType: 'combined',
-      model: provider.model.name,
-      dimensions: provider.model.dimensions,
-      requestedAt: Date.now(),
-      triggeredBy: 'scheduler',
-      maxItems: env.openAiBatchMaxItems,
-    });
+    await withAiSpan(
+      AI_SPAN_NAMES.ENQUEUE,
+      { 'ai.shop_id': shopId, 'ai.embedding_type': 'combined' },
+      async () =>
+        enqueueAiBatchOrchestratorJob({
+          shopId,
+          batchType: 'combined',
+          embeddingType: 'combined',
+          model: provider.model.name,
+          dimensions: provider.model.dimensions,
+          requestedAt: Date.now(),
+          triggeredBy: 'scheduler',
+          maxItems: env.openAiBatchMaxItems,
+        })
+    );
   }
 
   const now = Date.now();

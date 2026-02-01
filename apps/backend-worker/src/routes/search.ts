@@ -13,6 +13,7 @@ import type { ProductSearchResponse, ProductSearchResult } from '@app/types';
 import type { SessionConfig } from '../auth/session.js';
 import { getSessionFromRequest, requireSession } from '../auth/session.js';
 import {
+  recordAiQueryLatencyMs,
   openaiEmbedRateLimitAllowed,
   openaiEmbedRateLimitDenied,
   openaiEmbedRateLimitDelaySeconds,
@@ -22,6 +23,7 @@ import {
 } from '../otel/metrics.js';
 import { generateQueryEmbedding, searchSimilarProducts } from '../processors/ai/search.js';
 import { getCachedSearchResult, setCachedSearchResult } from '../processors/ai/cache.js';
+import { AI_SPAN_NAMES, withAiSpan } from '../processors/ai/otel/spans.js';
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -114,143 +116,155 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
 
   server.get('/products/search', requireAdminSession, async (request, reply) => {
     const session = getSessionFromRequest(request, sessionConfig);
-    if (!session) {
-      void reply
-        .status(401)
-        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
-      return;
-    }
+    return withAiSpan(
+      AI_SPAN_NAMES.SEARCH_QUERY,
+      { 'ai.shop_id': session?.shopId ?? 'unknown' },
+      async () => {
+        if (!session) {
+          void reply
+            .status(401)
+            .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+          return;
+        }
 
-    const query = request.query as { q?: unknown; limit?: unknown; threshold?: unknown };
-    const rawText = query.q;
-    if (!isNonEmptyString(rawText)) {
-      void reply
-        .status(400)
-        .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing query text'));
-      return;
-    }
+        const query = request.query as { q?: unknown; limit?: unknown; threshold?: unknown };
+        const rawText = query.q;
+        if (!isNonEmptyString(rawText)) {
+          void reply
+            .status(400)
+            .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing query text'));
+          return;
+        }
 
-    const limit = parseIntParam(query.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
-    const threshold = parseFloatParam(
-      query.threshold,
-      DEFAULT_THRESHOLD,
-      MIN_THRESHOLD,
-      MAX_THRESHOLD
-    );
-
-    const cached = await getCachedSearchResult({
-      redis,
-      shopId: session.shopId,
-      queryText: rawText,
-    });
-
-    if (cached) {
-      vectorSearchCacheHitTotal.add(1);
-      void reply.status(200).send(
-        successEnvelope(request.id, {
-          results: cached.results,
-          query: rawText,
-          vectorSearchTimeMs: cached.vectorSearchTimeMs,
-          cached: true,
-        } satisfies ProductSearchResponse)
-      );
-      return;
-    }
-
-    vectorSearchCacheMissTotal.add(1);
-
-    const provider = createEmbeddingsProvider({
-      ...(env.openAiApiKey ? { openAiApiKey: env.openAiApiKey } : {}),
-      ...(env.openAiBaseUrl ? { openAiBaseUrl: env.openAiBaseUrl } : {}),
-      ...(env.openAiEmbeddingsModel ? { openAiEmbeddingsModel: env.openAiEmbeddingsModel } : {}),
-      openAiTimeoutMs: env.openAiTimeoutMs,
-    });
-
-    const rateLimit = await gateOpenAiEmbeddingRequest({
-      redis,
-      shopId: session.shopId,
-      estimatedTokens: estimateTokens(rawText),
-      config: {
-        maxTokensPerMinute: env.openAiEmbedRateLimitTokensPerMinute,
-        maxRequestsPerMinute: env.openAiEmbedRateLimitRequestsPerMinute,
-        bucketTtlMs: env.openAiEmbedRateLimitBucketTtlMs,
-      },
-    });
-
-    if (!rateLimit.allowed) {
-      openaiEmbedRateLimitDenied.add(1);
-      if (rateLimit.delayMs > 0) {
-        openaiEmbedRateLimitDelaySeconds.record(rateLimit.delayMs / 1000);
-      }
-      void reply
-        .status(429)
-        .send(
-          errorEnvelope(
-            request.id,
-            429,
-            'TOO_MANY_REQUESTS',
-            'Embedding rate limit exceeded. Try again later.'
-          )
+        const limit = parseIntParam(query.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
+        const threshold = parseFloatParam(
+          query.threshold,
+          DEFAULT_THRESHOLD,
+          MIN_THRESHOLD,
+          MAX_THRESHOLD
         );
-      return;
-    }
 
-    openaiEmbedRateLimitAllowed.add(1);
-
-    const start = process.hrtime.bigint();
-    let results: ProductSearchResult[] = [];
-
-    try {
-      const embedding = await generateQueryEmbedding({
-        text: rawText,
-        provider,
-        logger,
-      });
-
-      const searchRows = await withTenantContext(session.shopId, async (client) => {
-        return searchSimilarProducts({
-          client,
+        const cached = await getCachedSearchResult({
+          redis,
           shopId: session.shopId,
-          embedding,
-          limit,
-          threshold,
-          logger,
+          queryText: rawText,
+          config: { ttlSeconds: env.vectorSearchCacheTtlSeconds },
         });
-      });
 
-      results = searchRows.map((row) => ({
-        id: row.productId,
-        title: row.title,
-        similarity: row.similarity,
-      }));
-    } catch (error) {
-      if (error instanceof EmbeddingsDisabledError) {
-        void reply
-          .status(503)
-          .send(errorEnvelope(request.id, 503, 'SERVICE_UNAVAILABLE', 'Embeddings disabled'));
-        return;
+        if (cached) {
+          vectorSearchCacheHitTotal.add(1);
+          void reply.status(200).send(
+            successEnvelope(request.id, {
+              results: cached.results,
+              query: rawText,
+              vectorSearchTimeMs: cached.vectorSearchTimeMs,
+              cached: true,
+            } satisfies ProductSearchResponse)
+          );
+          return;
+        }
+
+        vectorSearchCacheMissTotal.add(1);
+
+        const provider = createEmbeddingsProvider({
+          ...(env.openAiApiKey ? { openAiApiKey: env.openAiApiKey } : {}),
+          ...(env.openAiBaseUrl ? { openAiBaseUrl: env.openAiBaseUrl } : {}),
+          ...(env.openAiEmbeddingsModel
+            ? { openAiEmbeddingsModel: env.openAiEmbeddingsModel }
+            : {}),
+          openAiTimeoutMs: env.openAiTimeoutMs,
+        });
+
+        const rateLimit = await gateOpenAiEmbeddingRequest({
+          redis,
+          shopId: session.shopId,
+          estimatedTokens: estimateTokens(rawText),
+          config: {
+            maxTokensPerMinute: env.openAiEmbedRateLimitTokensPerMinute,
+            maxRequestsPerMinute: env.openAiEmbedRateLimitRequestsPerMinute,
+            bucketTtlMs: env.openAiEmbedRateLimitBucketTtlMs,
+          },
+        });
+
+        if (!rateLimit.allowed) {
+          openaiEmbedRateLimitDenied.add(1);
+          if (rateLimit.delayMs > 0) {
+            openaiEmbedRateLimitDelaySeconds.record(rateLimit.delayMs / 1000);
+          }
+          void reply
+            .status(429)
+            .send(
+              errorEnvelope(
+                request.id,
+                429,
+                'TOO_MANY_REQUESTS',
+                'Embedding rate limit exceeded. Try again later.'
+              )
+            );
+          return;
+        }
+
+        openaiEmbedRateLimitAllowed.add(1);
+
+        const start = process.hrtime.bigint();
+        let results: ProductSearchResult[] = [];
+
+        try {
+          const embedding = await generateQueryEmbedding({
+            text: rawText,
+            provider,
+            logger,
+          });
+
+          const searchRows = await withTenantContext(session.shopId, async (client) => {
+            return searchSimilarProducts({
+              client,
+              shopId: session.shopId,
+              embedding,
+              limit,
+              threshold,
+              queryTimeoutMs: env.vectorSearchQueryTimeoutMs,
+              logger,
+            });
+          });
+
+          results = searchRows.map((row) => ({
+            id: row.productId,
+            title: row.title,
+            similarity: row.similarity,
+          }));
+        } catch (error) {
+          if (error instanceof EmbeddingsDisabledError) {
+            void reply
+              .status(503)
+              .send(errorEnvelope(request.id, 503, 'SERVICE_UNAVAILABLE', 'Embeddings disabled'));
+            return;
+          }
+          throw error;
+        }
+
+        const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+        vectorSearchLatencySeconds.record(durationMs / 1000);
+        recordAiQueryLatencyMs(durationMs);
+
+        await setCachedSearchResult({
+          redis,
+          shopId: session.shopId,
+          queryText: rawText,
+          result: results,
+          vectorSearchTimeMs: Math.round(durationMs),
+          config: { ttlSeconds: env.vectorSearchCacheTtlSeconds },
+        });
+
+        void reply.status(200).send(
+          successEnvelope(request.id, {
+            results,
+            query: rawText,
+            vectorSearchTimeMs: Math.round(durationMs),
+            cached: false,
+          } satisfies ProductSearchResponse)
+        );
       }
-      throw error;
-    }
-
-    const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
-    vectorSearchLatencySeconds.record(durationMs / 1000);
-
-    await setCachedSearchResult({
-      redis,
-      shopId: session.shopId,
-      queryText: rawText,
-      result: results,
-      vectorSearchTimeMs: Math.round(durationMs),
-    });
-
-    void reply.status(200).send(
-      successEnvelope(request.id, {
-        results,
-        query: rawText,
-        vectorSearchTimeMs: Math.round(durationMs),
-        cached: false,
-      } satisfies ProductSearchResponse)
     );
   });
 

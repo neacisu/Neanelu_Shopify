@@ -82,14 +82,19 @@
 
 ## AI / Vector Search Metrics
 
-| Metric                               | Type      | Labels | Description                                  |
-|--------------------------------------|-----------|--------|----------------------------------------------|
-| `openai_embed_ratelimit_allowed_total` | Counter | -      | Embedding requests allowed by rate limiter   |
-| `openai_embed_ratelimit_denied_total`  | Counter | -      | Embedding requests denied by rate limiter    |
-| `openai_embed_ratelimit_delay_seconds` | Histogram | -    | Delay imposed by embedding rate limiter      |
-| `vector_search_latency_seconds`        | Histogram | -    | Vector search latency                        |
-| `vector_search_cache_hit_total`        | Counter   | -    | Vector search cache hits                     |
-| `vector_search_cache_miss_total`       | Counter   | -    | Vector search cache misses                   |
+| Metric                                 | Type      | Labels     | Description                                  |
+|----------------------------------------|-----------|------------|----------------------------------------------|
+| `openai_embed_ratelimit_allowed_total` | Counter   | -          | Embedding requests allowed by rate limiter   |
+| `openai_embed_ratelimit_denied_total`  | Counter   | -          | Embedding requests denied by rate limiter    |
+| `openai_embed_ratelimit_delay_seconds` | Histogram | -          | Delay imposed by embedding rate limiter      |
+| `vector_search_latency_seconds`        | Histogram | -          | Vector search latency                        |
+| `vector_search_cache_hit_total`        | Counter   | -          | Vector search cache hits                     |
+| `vector_search_cache_miss_total`       | Counter   | -          | Vector search cache misses                   |
+| `ai.backlog_items`                     | Gauge     | -          | Items waiting for AI processing              |
+| `ai.batch_age_seconds`                 | Gauge     | -          | Age of oldest batch in processing            |
+| `ai.items_processed_total`             | Counter   | -          | Processed items count                        |
+| `ai.errors_total`                      | Counter   | error_type | AI errors count                              |
+| `ai.query_latency_ms`                  | Histogram | -          | Semantic query latency in milliseconds       |
 
 ---
 
@@ -164,8 +169,8 @@ Pentru evitarea drift-ului între documentație și implementare, nu mai folosim
 - `ai.batch_age_seconds` - age of oldest batch
 - `ai.items_processed_total` - processed items count
 - `ai.errors_total` - AI errors count
-- `ai.query_latency_ms` - semantic query latency
-- `ai.redis_sync_lag` - Redis sync delay
+- `ai.query_latency_ms` - semantic query latency (ms)
+- `ai.redis_sync_lag` - **not applicable** (Redis is not used for vector storage)
 
 ---
 

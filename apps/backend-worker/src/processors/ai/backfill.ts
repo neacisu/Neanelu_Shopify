@@ -19,6 +19,7 @@ import {
 import { moveToEmbeddingDlq } from './dlq.js';
 import { checkBackfillThrottle } from './throttle.js';
 import { getDailyEmbeddingBudget, trackEmbeddingCost } from './cost-tracking.js';
+import { AI_SPAN_NAMES, withAiSpan } from './otel/spans.js';
 
 type BackfillRunRow = Readonly<{
   id: string;
@@ -92,92 +93,106 @@ export async function runAiBatchBackfill(params: {
   logger: Logger;
 }): Promise<void> {
   const { payload, logger } = params;
-  const env = loadEnv();
+  return withAiSpan(
+    AI_SPAN_NAMES.ORCHESTRATOR,
+    { 'ai.shop_id': payload.shopId, 'ai.embedding_type': 'combined' },
+    async () => {
+      const env = loadEnv();
 
-  if (!env.openAiApiKey) {
-    logger.warn({ shopId: payload.shopId }, 'OPENAI_API_KEY missing; skipping backfill');
-    return;
-  }
+      if (!env.openAiApiKey) {
+        logger.warn({ shopId: payload.shopId }, 'OPENAI_API_KEY missing; skipping backfill');
+        return;
+      }
 
-  if (!env.openAiEmbeddingBackfillEnabled) {
-    logger.info({ shopId: payload.shopId }, 'Backfill disabled via kill switch');
-    return;
-  }
+      if (!env.openAiEmbeddingBackfillEnabled) {
+        logger.info({ shopId: payload.shopId }, 'Backfill disabled via kill switch');
+        return;
+      }
 
-  const now = new Date();
-  if (payload.nightlyWindowOnly && !isWithinNightlyWindow(now)) {
-    const delayMs = msUntilNextNightlyWindow(now);
-    await enqueueAiBatchBackfillJob(
-      {
-        ...payload,
-        requestedAt: Date.now(),
-      },
-      { delayMs }
-    );
-    logger.info({ shopId: payload.shopId, delayMs }, 'Backfill outside nightly window; delaying');
-    return;
-  }
+      const now = new Date();
+      if (payload.nightlyWindowOnly && !isWithinNightlyWindow(now)) {
+        const delayMs = msUntilNextNightlyWindow(now);
+        await withAiSpan(AI_SPAN_NAMES.ENQUEUE, { 'ai.shop_id': payload.shopId }, async () =>
+          enqueueAiBatchBackfillJob(
+            {
+              ...payload,
+              requestedAt: Date.now(),
+            },
+            { delayMs }
+          )
+        );
+        logger.info(
+          { shopId: payload.shopId, delayMs },
+          'Backfill outside nightly window; delaying'
+        );
+        return;
+      }
 
-  const provider = createEmbeddingsProvider({
-    ...(env.openAiApiKey ? { openAiApiKey: env.openAiApiKey } : {}),
-    ...(env.openAiBaseUrl ? { openAiBaseUrl: env.openAiBaseUrl } : {}),
-    ...(env.openAiEmbeddingsModel ? { openAiEmbeddingsModel: env.openAiEmbeddingsModel } : {}),
-    openAiTimeoutMs: env.openAiTimeoutMs,
-  });
+      const provider = createEmbeddingsProvider({
+        ...(env.openAiApiKey ? { openAiApiKey: env.openAiApiKey } : {}),
+        ...(env.openAiBaseUrl ? { openAiBaseUrl: env.openAiBaseUrl } : {}),
+        ...(env.openAiEmbeddingsModel ? { openAiEmbeddingsModel: env.openAiEmbeddingsModel } : {}),
+        openAiTimeoutMs: env.openAiTimeoutMs,
+      });
+      const dimensions = env.openAiEmbeddingDimensions ?? provider.model.dimensions;
 
-  const chunkSize = payload.chunkSize ?? env.openAiBatchMaxItems;
-  const budget = await getDailyEmbeddingBudget({
-    shopId: payload.shopId,
-    dailyLimit: env.openAiEmbeddingDailyBudget,
-  });
+      const chunkSize = payload.chunkSize ?? env.openAiBatchMaxItems;
+      const budget = await getDailyEmbeddingBudget({
+        shopId: payload.shopId,
+        dailyLimit: env.openAiEmbeddingDailyBudget,
+      });
 
-  if (budget.remaining <= 0) {
-    const delayMs = msUntilNextDay(now);
-    logger.warn(
-      { shopId: payload.shopId, used: budget.used, limit: budget.limit },
-      'Daily embedding budget exhausted; delaying backfill'
-    );
-    await enqueueAiBatchBackfillJob(
-      {
-        ...payload,
-        requestedAt: Date.now(),
-      },
-      { delayMs }
-    );
-    return;
-  }
+      if (budget.remaining <= 0) {
+        const delayMs = msUntilNextDay(now);
+        logger.warn(
+          { shopId: payload.shopId, used: budget.used, limit: budget.limit },
+          'Daily embedding budget exhausted; delaying backfill'
+        );
+        await withAiSpan(AI_SPAN_NAMES.ENQUEUE, { 'ai.shop_id': payload.shopId }, async () =>
+          enqueueAiBatchBackfillJob(
+            {
+              ...payload,
+              requestedAt: Date.now(),
+            },
+            { delayMs }
+          )
+        );
+        return;
+      }
 
-  const throttle = await checkBackfillThrottle({
-    shopId: payload.shopId,
-    requestedItems: Math.min(chunkSize, budget.remaining),
-  });
+      const throttle = await checkBackfillThrottle({
+        shopId: payload.shopId,
+        requestedItems: Math.min(chunkSize, budget.remaining),
+      });
 
-  if (!throttle.allowed) {
-    logger.warn(
-      { shopId: payload.shopId, delayMs: throttle.delayMs, reason: throttle.reason },
-      'Backfill throttled'
-    );
-    await enqueueAiBatchBackfillJob(
-      {
-        ...payload,
-        requestedAt: Date.now(),
-      },
-      { delayMs: throttle.delayMs }
-    );
-    return;
-  }
+      if (!throttle.allowed) {
+        logger.warn(
+          { shopId: payload.shopId, delayMs: throttle.delayMs, reason: throttle.reason },
+          'Backfill throttled'
+        );
+        await withAiSpan(AI_SPAN_NAMES.ENQUEUE, { 'ai.shop_id': payload.shopId }, async () =>
+          enqueueAiBatchBackfillJob(
+            {
+              ...payload,
+              requestedAt: Date.now(),
+            },
+            { delayMs: throttle.delayMs }
+          )
+        );
+        return;
+      }
 
-  const run = await getOrCreateBackfillRun({ shopId: payload.shopId });
-  const offsetProductId = payload.offsetProductId ?? run.lastProductId;
+      const run = await getOrCreateBackfillRun({ shopId: payload.shopId });
+      const offsetProductId = payload.offsetProductId ?? run.lastProductId;
 
-  const selection: { products: ShopifyEmbeddingSourceRow[]; candidates: CandidateSummary } =
-    await withTenantContext(
-      payload.shopId,
-      async (
-        client
-      ): Promise<{ products: ShopifyEmbeddingSourceRow[]; candidates: CandidateSummary }> => {
-        const productsRes = await client.query<ShopifyEmbeddingSourceRow>(
-          `SELECT id,
+      const selection: { products: ShopifyEmbeddingSourceRow[]; candidates: CandidateSummary } =
+        await withTenantContext(
+          payload.shopId,
+          async (
+            client
+          ): Promise<{ products: ShopifyEmbeddingSourceRow[]; candidates: CandidateSummary }> => {
+            const productsRes = await client.query<ShopifyEmbeddingSourceRow>(
+              `SELECT id,
               title,
               description,
               description_html as "descriptionHtml",
@@ -198,13 +213,13 @@ export async function runAiBatchBackfill(params: {
           )
         ORDER BY id ASC
         LIMIT $5`,
-          [payload.shopId, offsetProductId, 'combined', provider.model.name, chunkSize]
-        );
+              [payload.shopId, offsetProductId, 'combined', provider.model.name, chunkSize]
+            );
 
-        const ids = productsRes.rows.map((row) => row.id);
-        const embeddingsRes = ids.length
-          ? await client.query<ExistingEmbeddingRow>(
-              `SELECT product_id as "productId",
+            const ids = productsRes.rows.map((row) => row.id);
+            const embeddingsRes = ids.length
+              ? await client.query<ExistingEmbeddingRow>(
+                  `SELECT product_id as "productId",
                   content_hash as "contentHash",
                   status,
                   retry_count as "retryCount",
@@ -214,114 +229,114 @@ export async function runAiBatchBackfill(params: {
               AND model_version = $2
               AND embedding_type = $3
               AND product_id = ANY($4::uuid[])`,
-              [payload.shopId, provider.model.name, 'combined', ids]
-            )
-          : { rows: [] as ExistingEmbeddingRow[] };
+                  [payload.shopId, provider.model.name, 'combined', ids]
+                )
+              : { rows: [] as ExistingEmbeddingRow[] };
 
-        const existingMap = new Map<string, ExistingEmbeddingRow>();
-        for (const row of embeddingsRes.rows) {
-          existingMap.set(row.productId, row);
-        }
+            const existingMap = new Map<string, ExistingEmbeddingRow>();
+            for (const row of embeddingsRes.rows) {
+              existingMap.set(row.productId, row);
+            }
 
-        return {
-          products: productsRes.rows,
-          candidates: computeEmbeddingCandidates({
-            products: productsRes.rows,
-            existing: existingMap,
+            return {
+              products: productsRes.rows,
+              candidates: computeEmbeddingCandidates({
+                products: productsRes.rows,
+                existing: existingMap,
+                embeddingType: 'combined',
+                maxRetries: env.openAiEmbeddingMaxRetries,
+              }),
+            };
+          }
+        );
+
+      const dlqCandidates = selection.candidates.dlqCandidates;
+      if (dlqCandidates.length > 0) {
+        await moveToEmbeddingDlq({
+          logger,
+          entries: dlqCandidates.map((candidate) => ({
+            shopId: payload.shopId,
+            productId: candidate.productId,
             embeddingType: 'combined',
-            maxRetries: env.openAiEmbeddingMaxRetries,
-          }),
-        };
+            errorMessage: candidate.errorMessage,
+            retryCount: candidate.retryCount,
+            lastAttemptAt: new Date().toISOString(),
+          })),
+        });
       }
-    );
 
-  const dlqCandidates = selection.candidates.dlqCandidates;
-  if (dlqCandidates.length > 0) {
-    await moveToEmbeddingDlq({
-      logger,
-      entries: dlqCandidates.map((candidate) => ({
-        shopId: payload.shopId,
-        productId: candidate.productId,
-        embeddingType: 'combined',
-        errorMessage: candidate.errorMessage,
-        retryCount: candidate.retryCount,
-        lastAttemptAt: new Date().toISOString(),
-      })),
-    });
-  }
-
-  if (selection.products.length === 0) {
-    await withTenantContext(payload.shopId, async (client) => {
-      await client.query(
-        `UPDATE embedding_backfill_runs
+      if (selection.products.length === 0) {
+        await withTenantContext(payload.shopId, async (client) => {
+          await client.query(
+            `UPDATE embedding_backfill_runs
             SET status = 'completed',
                 completed_at = now(),
                 updated_at = now()
           WHERE id = $1`,
-        [run.id]
-      );
-    });
-    logger.info({ shopId: payload.shopId }, 'Backfill completed (no more products)');
-    return;
-  }
+            [run.id]
+          );
+        });
+        logger.info({ shopId: payload.shopId }, 'Backfill completed (no more products)');
+        return;
+      }
 
-  const lastProductId = selection.products.at(-1)?.id ?? offsetProductId ?? null;
+      const lastProductId = selection.products.at(-1)?.id ?? offsetProductId ?? null;
 
-  if (selection.candidates.candidates.length === 0) {
-    await withTenantContext(payload.shopId, async (client) => {
-      await client.query(
-        `UPDATE embedding_backfill_runs
+      if (selection.candidates.candidates.length === 0) {
+        await withTenantContext(payload.shopId, async (client) => {
+          await client.query(
+            `UPDATE embedding_backfill_runs
             SET status = 'running',
                 last_product_id = $1,
                 processed_products = processed_products + $2,
                 updated_at = now()
           WHERE id = $3`,
-        [lastProductId, selection.products.length, run.id]
+            [lastProductId, selection.products.length, run.id]
+          );
+        });
+        await enqueueAiBatchBackfillJob(
+          lastProductId
+            ? { ...payload, offsetProductId: lastProductId, requestedAt: Date.now() }
+            : { ...payload, requestedAt: Date.now() }
+        );
+        return;
+      }
+
+      const candidates = selection.candidates.candidates.slice(
+        0,
+        Math.min(chunkSize, budget.remaining)
       );
-    });
-    await enqueueAiBatchBackfillJob(
-      lastProductId
-        ? { ...payload, offsetProductId: lastProductId, requestedAt: Date.now() }
-        : { ...payload, requestedAt: Date.now() }
-    );
-    return;
-  }
+      const lines = buildBatchJsonlLines({
+        candidates,
+        embeddingType: 'combined',
+        model: provider.model.name,
+        dimensions,
+      });
 
-  const candidates = selection.candidates.candidates.slice(
-    0,
-    Math.min(chunkSize, budget.remaining)
-  );
-  const lines = buildBatchJsonlLines({
-    candidates,
-    embeddingType: 'combined',
-    model: provider.model.name,
-    dimensions: provider.model.dimensions,
-  });
+      const filePath = await writeJsonlTempFile(lines);
+      const batchManager = new OpenAiBatchManager({
+        apiKey: env.openAiApiKey,
+        ...(env.openAiBaseUrl ? { baseUrl: env.openAiBaseUrl } : {}),
+        timeoutMs: env.openAiTimeoutMs,
+      });
 
-  const filePath = await writeJsonlTempFile(lines);
-  const batchManager = new OpenAiBatchManager({
-    apiKey: env.openAiApiKey,
-    ...(env.openAiBaseUrl ? { baseUrl: env.openAiBaseUrl } : {}),
-    timeoutMs: env.openAiTimeoutMs,
-  });
+      let inputFileId = '';
+      let batchId = '';
+      try {
+        const uploaded = await batchManager.uploadJsonlFile({ filePath });
+        inputFileId = uploaded.id;
+        const batch = await batchManager.createBatch({
+          inputFileId,
+          endpoint: '/v1/embeddings',
+          completionWindow: '24h',
+          metadata: { shopId: payload.shopId, batchType: 'combined' },
+        });
+        batchId = batch.id;
+        const expiresAt = batch.expires_at ? new Date(batch.expires_at * 1000) : null;
 
-  let inputFileId = '';
-  let batchId = '';
-  try {
-    const uploaded = await batchManager.uploadJsonlFile({ filePath });
-    inputFileId = uploaded.id;
-    const batch = await batchManager.createBatch({
-      inputFileId,
-      endpoint: '/v1/embeddings',
-      completionWindow: '24h',
-      metadata: { shopId: payload.shopId, batchType: 'combined' },
-    });
-    batchId = batch.id;
-    const expiresAt = batch.expires_at ? new Date(batch.expires_at * 1000) : null;
-
-    const embeddingBatchId = await withTenantContext(payload.shopId, async (client) => {
-      const insert = await client.query<{ id: string }>(
-        `INSERT INTO embedding_batches (
+        const embeddingBatchId = await withTenantContext(payload.shopId, async (client) => {
+          const insert = await client.query<{ id: string }>(
+            `INSERT INTO embedding_batches (
            shop_id,
            batch_type,
            status,
@@ -337,63 +352,72 @@ export async function runAiBatchBackfill(params: {
          )
          VALUES ($1, $2, 'submitted', $3, $4, $5, $6, $7, now(), $8, now(), now())
          RETURNING id`,
-        [
-          payload.shopId,
-          'combined',
-          batchId,
-          inputFileId,
-          provider.model.name,
-          provider.model.dimensions,
-          candidates.length,
-          expiresAt ? expiresAt.toISOString() : null,
-        ]
-      );
-      return insert.rows[0]?.id ?? '';
-    });
+            [
+              payload.shopId,
+              'combined',
+              batchId,
+              inputFileId,
+              provider.model.name,
+              dimensions,
+              candidates.length,
+              expiresAt ? expiresAt.toISOString() : null,
+            ]
+          );
+          return insert.rows[0]?.id ?? '';
+        });
 
-    if (!embeddingBatchId) {
-      throw new Error('embedding_batch_insert_failed');
-    }
+        if (!embeddingBatchId) {
+          throw new Error('embedding_batch_insert_failed');
+        }
 
-    await enqueueAiBatchPollerJob({
-      shopId: payload.shopId,
-      embeddingBatchId,
-      openAiBatchId: batchId,
-      requestedAt: Date.now(),
-      triggeredBy: payload.triggeredBy,
-      pollAttempt: 0,
-    });
+        await withAiSpan(
+          AI_SPAN_NAMES.ENQUEUE,
+          { 'ai.shop_id': payload.shopId, 'ai.batch_id': embeddingBatchId },
+          async () =>
+            enqueueAiBatchPollerJob({
+              shopId: payload.shopId,
+              embeddingBatchId,
+              openAiBatchId: batchId,
+              requestedAt: Date.now(),
+              triggeredBy: payload.triggeredBy,
+              pollAttempt: 0,
+            })
+        );
 
-    await withTenantContext(payload.shopId, async (client) => {
-      await client.query(
-        `UPDATE embedding_backfill_runs
+        await withTenantContext(payload.shopId, async (client) => {
+          await client.query(
+            `UPDATE embedding_backfill_runs
           SET status = 'running',
               last_product_id = $1,
               processed_products = processed_products + $2,
               updated_at = now()
         WHERE id = $3`,
-        [lastProductId, candidates.length, run.id]
-      );
-    });
+            [lastProductId, candidates.length, run.id]
+          );
+        });
 
-    await trackEmbeddingCost({
-      shopId: payload.shopId,
-      tokensUsed: 0,
-      itemCount: candidates.length,
-      model: provider.model.name,
-    });
+        await trackEmbeddingCost({
+          shopId: payload.shopId,
+          tokensUsed: 0,
+          itemCount: candidates.length,
+          model: provider.model.name,
+        });
 
-    await enqueueAiBatchBackfillJob(
-      lastProductId
-        ? { ...payload, offsetProductId: lastProductId, requestedAt: Date.now() }
-        : { ...payload, requestedAt: Date.now() }
-    );
+        await withAiSpan(AI_SPAN_NAMES.ENQUEUE, { 'ai.shop_id': payload.shopId }, async () =>
+          enqueueAiBatchBackfillJob(
+            lastProductId
+              ? { ...payload, offsetProductId: lastProductId, requestedAt: Date.now() }
+              : { ...payload, requestedAt: Date.now() }
+          )
+        );
 
-    logger.info(
-      { shopId: payload.shopId, embeddingBatchId, candidates: candidates.length },
-      'Backfill batch created'
-    );
-  } finally {
-    await unlink(filePath).catch(() => undefined);
-  }
+        logger.info(
+          { shopId: payload.shopId, embeddingBatchId, candidates: candidates.length },
+          'Backfill batch created'
+        );
+      } finally {
+        await unlink(filePath).catch(() => undefined);
+      }
+    }
+  );
 }

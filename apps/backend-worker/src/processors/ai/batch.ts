@@ -12,7 +12,13 @@ import type { AiBatchOrchestratorJobPayload, AiBatchPollerJobPayload } from '@ap
 import { normalizeText, toPgVectorLiteral } from '../bulk-operations/pim/vector.js';
 import { classifyEmbeddingError } from './error-classifier.js';
 import { moveToEmbeddingDlq } from './dlq.js';
-import { recordEmbeddingPermanentFailure, recordEmbeddingRetry } from '../../otel/metrics.js';
+import {
+  recordAiError,
+  recordAiItemsProcessed,
+  recordEmbeddingPermanentFailure,
+  recordEmbeddingRetry,
+} from '../../otel/metrics.js';
+import { AI_SPAN_NAMES, withAiSpan } from './otel/spans.js';
 
 export type ShopifyEmbeddingSourceRow = Readonly<{
   id: string;
@@ -361,233 +367,269 @@ export async function runAiBatchOrchestrator(params: {
   logger: Logger;
 }): Promise<void> {
   const { payload, logger } = params;
-  const env = loadEnv();
+  return withAiSpan(
+    AI_SPAN_NAMES.ORCHESTRATOR,
+    { 'ai.shop_id': payload.shopId, 'ai.embedding_type': payload.embeddingType },
+    async () => {
+      const env = loadEnv();
 
-  if (!env.openAiApiKey) {
-    logger.warn({ shopId: payload.shopId }, 'OPENAI_API_KEY missing; skipping batch orchestrator');
-    return;
-  }
+      if (!env.openAiApiKey) {
+        logger.warn(
+          { shopId: payload.shopId },
+          'OPENAI_API_KEY missing; skipping batch orchestrator'
+        );
+        return;
+      }
 
-  const provider = createEmbeddingsProvider({
-    ...(env.openAiApiKey ? { openAiApiKey: env.openAiApiKey } : {}),
-    ...(env.openAiBaseUrl ? { openAiBaseUrl: env.openAiBaseUrl } : {}),
-    ...(env.openAiEmbeddingsModel ? { openAiEmbeddingsModel: env.openAiEmbeddingsModel } : {}),
-    openAiTimeoutMs: env.openAiTimeoutMs,
-  });
-
-  const model = payload.model ?? provider.model.name;
-  const dimensions = payload.dimensions ?? provider.model.dimensions;
-  const maxItems = payload.maxItems ?? env.openAiBatchMaxItems;
-
-  const existingBatch = await withTenantContext(payload.shopId, async (client) => {
-    const res = await client.query<{
-      id: string;
-      openaiBatchId: string | null;
-    }>(
-      `SELECT id,
-              openai_batch_id as "openaiBatchId"
-         FROM embedding_batches
-        WHERE shop_id = $1
-          AND batch_type = $2
-          AND model = $3
-          AND status IN ('pending', 'submitted', 'processing')
-        ORDER BY created_at DESC
-        LIMIT 1`,
-      [payload.shopId, payload.batchType, model]
-    );
-    return res.rows[0] ?? null;
-  });
-
-  if (existingBatch?.openaiBatchId) {
-    logger.info(
-      { shopId: payload.shopId, embeddingBatchId: existingBatch.id },
-      'Existing embedding batch in progress; skipping new batch creation'
-    );
-    await enqueueAiBatchPollerJob({
-      shopId: payload.shopId,
-      embeddingBatchId: existingBatch.id,
-      openAiBatchId: existingBatch.openaiBatchId,
-      requestedAt: Date.now(),
-      triggeredBy: payload.triggeredBy,
-      pollAttempt: 0,
-    });
-    return;
-  }
-
-  const selection = await withTenantContext(payload.shopId, async (client) => {
-    const productsRes = await client.query<ShopifyEmbeddingSourceRow>(
-      `SELECT id,
-              title,
-              description,
-              description_html as "descriptionHtml",
-              vendor,
-              product_type as "productType",
-              tags
-         FROM shopify_products
-        WHERE shop_id = $1`,
-      [payload.shopId]
-    );
-
-    const embeddingsRes = await client.query<ExistingEmbeddingRow>(
-      `SELECT product_id as "productId",
-              content_hash as "contentHash",
-              status,
-              retry_count as "retryCount",
-              error_message as "errorMessage"
-         FROM shop_product_embeddings
-        WHERE shop_id = $1
-          AND model_version = $2
-          AND embedding_type = $3`,
-      [payload.shopId, model, payload.embeddingType]
-    );
-
-    const existingMap = new Map<string, ExistingEmbeddingRow>();
-    for (const row of embeddingsRes.rows) {
-      existingMap.set(row.productId, row);
-    }
-
-    return computeEmbeddingCandidates({
-      products: productsRes.rows,
-      existing: existingMap,
-      embeddingType: payload.embeddingType,
-      maxRetries: env.openAiEmbeddingMaxRetries,
-    });
-  });
-
-  if (selection.dlqCandidates.length > 0) {
-    await moveToEmbeddingDlq({
-      logger,
-      entries: selection.dlqCandidates.map((candidate) => ({
-        shopId: payload.shopId,
-        productId: candidate.productId,
-        embeddingType: payload.embeddingType,
-        errorMessage: candidate.errorMessage,
-        retryCount: candidate.retryCount,
-        lastAttemptAt: new Date().toISOString(),
-      })),
-    });
-    for (const candidate of selection.dlqCandidates) {
-      recordEmbeddingPermanentFailure({
-        shopId: payload.shopId,
-        errorType: candidate.errorType,
+      const provider = createEmbeddingsProvider({
+        ...(env.openAiApiKey ? { openAiApiKey: env.openAiApiKey } : {}),
+        ...(env.openAiBaseUrl ? { openAiBaseUrl: env.openAiBaseUrl } : {}),
+        ...(env.openAiEmbeddingsModel ? { openAiEmbeddingsModel: env.openAiEmbeddingsModel } : {}),
+        openAiTimeoutMs: env.openAiTimeoutMs,
       });
-    }
-  }
 
-  if (selection.candidates.length === 0) {
-    logger.info(
-      {
-        shopId: payload.shopId,
-        unchanged: selection.unchanged,
-        emptyContent: selection.emptyContent,
-        retryable: selection.retryable,
-        dlqCandidates: selection.dlqCandidates.length,
-      },
-      'No pending embeddings detected'
-    );
-    return;
-  }
+      const model = payload.model ?? provider.model.name;
+      const dimensions =
+        payload.dimensions ?? env.openAiEmbeddingDimensions ?? provider.model.dimensions;
+      const maxItems = payload.maxItems ?? env.openAiBatchMaxItems;
 
-  const candidates = selection.candidates.slice(0, maxItems);
-  const lines = buildBatchJsonlLines({
-    candidates,
-    embeddingType: payload.embeddingType,
-    model,
-    dimensions,
-  });
+      const existingBatch = await withTenantContext(payload.shopId, async (client) => {
+        const res = await client.query<{
+          id: string;
+          openaiBatchId: string | null;
+        }>(
+          `SELECT id,
+                  openai_batch_id as "openaiBatchId"
+             FROM embedding_batches
+            WHERE shop_id = $1
+              AND batch_type = $2
+              AND model = $3
+              AND status IN ('pending', 'submitted', 'processing')
+            ORDER BY created_at DESC
+            LIMIT 1`,
+          [payload.shopId, payload.batchType, model]
+        );
+        return res.rows[0] ?? null;
+      });
 
-  const filePath = await writeJsonlTempFile({
-    lines,
-    shopId: payload.shopId,
-    batchType: payload.batchType,
-  });
+      const openAiBatchId = existingBatch?.openaiBatchId ?? null;
+      if (existingBatch && openAiBatchId) {
+        logger.info(
+          { shopId: payload.shopId, embeddingBatchId: existingBatch.id },
+          'Existing embedding batch in progress; skipping new batch creation'
+        );
+        await withAiSpan(
+          AI_SPAN_NAMES.ENQUEUE,
+          { 'ai.shop_id': payload.shopId, 'ai.batch_id': existingBatch.id },
+          async () =>
+            enqueueAiBatchPollerJob({
+              shopId: payload.shopId,
+              embeddingBatchId: existingBatch.id,
+              openAiBatchId,
+              requestedAt: Date.now(),
+              triggeredBy: payload.triggeredBy,
+              pollAttempt: 0,
+            })
+        );
+        return;
+      }
 
-  const batchManager = new OpenAiBatchManager({
-    apiKey: env.openAiApiKey,
-    ...(env.openAiBaseUrl ? { baseUrl: env.openAiBaseUrl } : {}),
-    timeoutMs: env.openAiTimeoutMs,
-  });
+      const selection = await withAiSpan(
+        AI_SPAN_NAMES.BUILD,
+        { 'ai.shop_id': payload.shopId, 'ai.embedding_type': payload.embeddingType },
+        async () =>
+          withTenantContext(payload.shopId, async (client) => {
+            const productsRes = await client.query<ShopifyEmbeddingSourceRow>(
+              `SELECT id,
+                      title,
+                      description,
+                      description_html as "descriptionHtml",
+                      vendor,
+                      product_type as "productType",
+                      tags
+                 FROM shopify_products
+                WHERE shop_id = $1`,
+              [payload.shopId]
+            );
 
-  let inputFileId = '';
-  let batchId = '';
-  let embeddingBatchId = '';
-  let expiresAt: Date | null = null;
+            const embeddingsRes = await client.query<ExistingEmbeddingRow>(
+              `SELECT product_id as "productId",
+                      content_hash as "contentHash",
+                      status,
+                      retry_count as "retryCount",
+                      error_message as "errorMessage"
+                 FROM shop_product_embeddings
+                WHERE shop_id = $1
+                  AND model_version = $2
+                  AND embedding_type = $3`,
+              [payload.shopId, model, payload.embeddingType]
+            );
 
-  try {
-    const uploaded = await batchManager.uploadJsonlFile({ filePath });
-    inputFileId = uploaded.id;
+            const existingMap = new Map<string, ExistingEmbeddingRow>();
+            for (const row of embeddingsRes.rows) {
+              existingMap.set(row.productId, row);
+            }
 
-    const batch = await batchManager.createBatch({
-      inputFileId,
-      endpoint: OPENAI_ENDPOINT_EMBEDDINGS,
-      completionWindow: '24h',
-      metadata: {
-        shop_id: payload.shopId,
-        batch_type: payload.batchType,
-      },
-    });
-    batchId = batch.id;
-    expiresAt = batch.expires_at ? new Date(batch.expires_at * 1000) : null;
-
-    embeddingBatchId = await withTenantContext(payload.shopId, async (client) => {
-      const insert = await client.query<{ id: string }>(
-        `INSERT INTO embedding_batches (
-           shop_id,
-           batch_type,
-           status,
-           openai_batch_id,
-           input_file_id,
-           model,
-           dimensions,
-           total_items,
-           completed_items,
-           failed_items,
-           submitted_at,
-           expires_at,
-           created_at,
-           updated_at
-         )
-         VALUES ($1, $2, 'submitted', $3, $4, $5, $6, $7, 0, 0, now(), $8, now(), now())
-         RETURNING id`,
-        [
-          payload.shopId,
-          payload.batchType,
-          batchId,
-          inputFileId,
-          model,
-          dimensions,
-          candidates.length,
-          expiresAt ? expiresAt.toISOString() : null,
-        ]
+            return computeEmbeddingCandidates({
+              products: productsRes.rows,
+              existing: existingMap,
+              embeddingType: payload.embeddingType,
+              maxRetries: env.openAiEmbeddingMaxRetries,
+            });
+          })
       );
-      return insert.rows[0]?.id ?? '';
-    });
-  } finally {
-    await unlink(filePath).catch(() => undefined);
-  }
 
-  if (!embeddingBatchId) {
-    throw new Error('embedding_batch_insert_failed');
-  }
+      if (selection.dlqCandidates.length > 0) {
+        await moveToEmbeddingDlq({
+          logger,
+          entries: selection.dlqCandidates.map((candidate) => ({
+            shopId: payload.shopId,
+            productId: candidate.productId,
+            embeddingType: payload.embeddingType,
+            errorMessage: candidate.errorMessage,
+            retryCount: candidate.retryCount,
+            lastAttemptAt: new Date().toISOString(),
+          })),
+        });
+        for (const candidate of selection.dlqCandidates) {
+          recordEmbeddingPermanentFailure({
+            shopId: payload.shopId,
+            errorType: candidate.errorType,
+          });
+        }
+      }
 
-  logger.info(
-    {
-      shopId: payload.shopId,
-      embeddingBatchId,
-      openAiBatchId: batchId,
-      totalItems: candidates.length,
-    },
-    'OpenAI batch created for embeddings'
+      if (selection.candidates.length === 0) {
+        logger.info(
+          {
+            shopId: payload.shopId,
+            unchanged: selection.unchanged,
+            emptyContent: selection.emptyContent,
+            retryable: selection.retryable,
+            dlqCandidates: selection.dlqCandidates.length,
+          },
+          'No pending embeddings detected'
+        );
+        return;
+      }
+
+      const candidates = selection.candidates.slice(0, maxItems);
+      const lines = buildBatchJsonlLines({
+        candidates,
+        embeddingType: payload.embeddingType,
+        model,
+        dimensions,
+      });
+
+      const filePath = await writeJsonlTempFile({
+        lines,
+        shopId: payload.shopId,
+        batchType: payload.batchType,
+      });
+
+      const batchManager = new OpenAiBatchManager({
+        apiKey: env.openAiApiKey,
+        ...(env.openAiBaseUrl ? { baseUrl: env.openAiBaseUrl } : {}),
+        timeoutMs: env.openAiTimeoutMs,
+      });
+
+      let inputFileId = '';
+      let batchId = '';
+      let embeddingBatchId = '';
+      let expiresAt: Date | null = null;
+
+      try {
+        await withAiSpan(
+          AI_SPAN_NAMES.SUBMIT,
+          {
+            'ai.shop_id': payload.shopId,
+            'ai.items_count': candidates.length,
+            'ai.embedding_type': payload.embeddingType,
+          },
+          async () => {
+            const uploaded = await batchManager.uploadJsonlFile({ filePath });
+            inputFileId = uploaded.id;
+
+            const batch = await batchManager.createBatch({
+              inputFileId,
+              endpoint: OPENAI_ENDPOINT_EMBEDDINGS,
+              completionWindow: '24h',
+              metadata: {
+                shop_id: payload.shopId,
+                batch_type: payload.batchType,
+              },
+            });
+            batchId = batch.id;
+            expiresAt = batch.expires_at ? new Date(batch.expires_at * 1000) : null;
+
+            embeddingBatchId = await withTenantContext(payload.shopId, async (client) => {
+              const insert = await client.query<{ id: string }>(
+                `INSERT INTO embedding_batches (
+               shop_id,
+               batch_type,
+               status,
+               openai_batch_id,
+               input_file_id,
+               model,
+               dimensions,
+               total_items,
+               completed_items,
+               failed_items,
+               submitted_at,
+               expires_at,
+               created_at,
+               updated_at
+             )
+             VALUES ($1, $2, 'submitted', $3, $4, $5, $6, $7, 0, 0, now(), $8, now(), now())
+             RETURNING id`,
+                [
+                  payload.shopId,
+                  payload.batchType,
+                  batchId,
+                  inputFileId,
+                  model,
+                  dimensions,
+                  candidates.length,
+                  expiresAt ? expiresAt.toISOString() : null,
+                ]
+              );
+              return insert.rows[0]?.id ?? '';
+            });
+          }
+        );
+      } finally {
+        await unlink(filePath).catch(() => undefined);
+      }
+
+      if (!embeddingBatchId) {
+        throw new Error('embedding_batch_insert_failed');
+      }
+
+      logger.info(
+        {
+          shopId: payload.shopId,
+          embeddingBatchId,
+          openAiBatchId: batchId,
+          totalItems: candidates.length,
+        },
+        'OpenAI batch created for embeddings'
+      );
+
+      await withAiSpan(
+        AI_SPAN_NAMES.ENQUEUE,
+        { 'ai.shop_id': payload.shopId, 'ai.batch_id': embeddingBatchId },
+        async () =>
+          enqueueAiBatchPollerJob({
+            shopId: payload.shopId,
+            embeddingBatchId,
+            openAiBatchId: batchId,
+            requestedAt: Date.now(),
+            triggeredBy: payload.triggeredBy,
+            pollAttempt: 0,
+          })
+      );
+    }
   );
-
-  await enqueueAiBatchPollerJob({
-    shopId: payload.shopId,
-    embeddingBatchId,
-    openAiBatchId: batchId,
-    requestedAt: Date.now(),
-    triggeredBy: payload.triggeredBy,
-    pollAttempt: 0,
-  });
 }
 
 export async function runAiBatchPoller(params: {
@@ -595,30 +637,34 @@ export async function runAiBatchPoller(params: {
   logger: Logger;
 }): Promise<void> {
   const { payload, logger } = params;
-  const env = loadEnv();
+  return withAiSpan(
+    AI_SPAN_NAMES.POLL,
+    { 'ai.shop_id': payload.shopId, 'ai.batch_id': payload.embeddingBatchId },
+    async () => {
+      const env = loadEnv();
 
-  if (!env.openAiApiKey) {
-    logger.warn({ shopId: payload.shopId }, 'OPENAI_API_KEY missing; skipping batch poller');
-    return;
-  }
+      if (!env.openAiApiKey) {
+        logger.warn({ shopId: payload.shopId }, 'OPENAI_API_KEY missing; skipping batch poller');
+        return;
+      }
 
-  const batchManager = new OpenAiBatchManager({
-    apiKey: env.openAiApiKey,
-    ...(env.openAiBaseUrl ? { baseUrl: env.openAiBaseUrl } : {}),
-    timeoutMs: env.openAiTimeoutMs,
-  });
+      const batchManager = new OpenAiBatchManager({
+        apiKey: env.openAiApiKey,
+        ...(env.openAiBaseUrl ? { baseUrl: env.openAiBaseUrl } : {}),
+        timeoutMs: env.openAiTimeoutMs,
+      });
 
-  const batch = await batchManager.getBatch(payload.openAiBatchId);
-  const mappedStatus = mapOpenAiStatus(batch.status);
+      const batch = await batchManager.getBatch(payload.openAiBatchId);
+      const mappedStatus = mapOpenAiStatus(batch.status);
 
-  const batchMetadata = await withTenantContext(payload.shopId, async (client) => {
-    const res = await client.query<{
-      id: string;
-      model: string;
-      dimensions: number;
-      batchType: string;
-    }>(
-      `SELECT id,
+      const batchMetadata = await withTenantContext(payload.shopId, async (client) => {
+        const res = await client.query<{
+          id: string;
+          model: string;
+          dimensions: number;
+          batchType: string;
+        }>(
+          `SELECT id,
               model,
               dimensions,
               batch_type as "batchType"
@@ -626,27 +672,31 @@ export async function runAiBatchPoller(params: {
         WHERE id = $1
           AND shop_id = $2
         LIMIT 1`,
-      [payload.embeddingBatchId, payload.shopId]
-    );
-    return res.rows[0] ?? null;
-  });
+          [payload.embeddingBatchId, payload.shopId]
+        );
+        return res.rows[0] ?? null;
+      });
 
-  if (!batchMetadata) {
-    logger.warn(
-      { shopId: payload.shopId, embeddingBatchId: payload.embeddingBatchId },
-      'Embedding batch missing; skipping poller'
-    );
-    return;
-  }
+      if (!batchMetadata) {
+        logger.warn(
+          { shopId: payload.shopId, embeddingBatchId: payload.embeddingBatchId },
+          'Embedding batch missing; skipping poller'
+        );
+        return;
+      }
 
-  const outputFileId = batch.output_file_id ?? null;
-  const errorFileId = batch.error_file_id ?? null;
-  const expiresAt = batch.expires_at ? new Date(batch.expires_at * 1000) : null;
+      const outputFileId = batch.output_file_id ?? null;
+      const errorFileId = batch.error_file_id ?? null;
+      const expiresAt = batch.expires_at ? new Date(batch.expires_at * 1000) : null;
 
-  if (mappedStatus === 'submitted' || mappedStatus === 'processing' || mappedStatus === 'pending') {
-    await withTenantContext(payload.shopId, async (client) => {
-      await client.query(
-        `UPDATE embedding_batches
+      if (
+        mappedStatus === 'submitted' ||
+        mappedStatus === 'processing' ||
+        mappedStatus === 'pending'
+      ) {
+        await withTenantContext(payload.shopId, async (client) => {
+          await client.query(
+            `UPDATE embedding_batches
             SET status = $1,
                 output_file_id = COALESCE($2, output_file_id),
                 error_file_id = COALESCE($3, error_file_id),
@@ -654,33 +704,33 @@ export async function runAiBatchPoller(params: {
                 updated_at = now()
           WHERE id = $5
             AND shop_id = $6`,
-        [
-          mappedStatus,
-          outputFileId,
-          errorFileId,
-          expiresAt ? expiresAt.toISOString() : null,
-          payload.embeddingBatchId,
-          payload.shopId,
-        ]
-      );
-    });
+            [
+              mappedStatus,
+              outputFileId,
+              errorFileId,
+              expiresAt ? expiresAt.toISOString() : null,
+              payload.embeddingBatchId,
+              payload.shopId,
+            ]
+          );
+        });
 
-    const delayMs = Math.max(1_000, env.openAiBatchPollSeconds * 1000);
-    await enqueueAiBatchPollerJob(
-      {
-        ...payload,
-        pollAttempt: (payload.pollAttempt ?? 0) + 1,
-        requestedAt: Date.now(),
-      },
-      { delayMs }
-    );
-    return;
-  }
+        const delayMs = Math.max(1_000, env.openAiBatchPollSeconds * 1000);
+        await enqueueAiBatchPollerJob(
+          {
+            ...payload,
+            pollAttempt: (payload.pollAttempt ?? 0) + 1,
+            requestedAt: Date.now(),
+          },
+          { delayMs }
+        );
+        return;
+      }
 
-  if (mappedStatus === 'failed' || mappedStatus === 'cancelled') {
-    await withTenantContext(payload.shopId, async (client) => {
-      await client.query(
-        `UPDATE embedding_batches
+      if (mappedStatus === 'failed' || mappedStatus === 'cancelled') {
+        await withTenantContext(payload.shopId, async (client) => {
+          await client.query(
+            `UPDATE embedding_batches
             SET status = $1,
                 output_file_id = COALESCE($2, output_file_id),
                 error_file_id = COALESCE($3, error_file_id),
@@ -690,49 +740,179 @@ export async function runAiBatchPoller(params: {
                 error_message = $5
           WHERE id = $6
             AND shop_id = $7`,
-        [
-          mappedStatus,
-          outputFileId,
-          errorFileId,
-          expiresAt ? expiresAt.toISOString() : null,
-          `openai_batch_${mappedStatus}`,
-          payload.embeddingBatchId,
-          payload.shopId,
-        ]
+            [
+              mappedStatus,
+              outputFileId,
+              errorFileId,
+              expiresAt ? expiresAt.toISOString() : null,
+              `openai_batch_${mappedStatus}`,
+              payload.embeddingBatchId,
+              payload.shopId,
+            ]
+          );
+        });
+        return;
+      }
+
+      const { outputLines, errorLines } = await withAiSpan(
+        AI_SPAN_NAMES.DOWNLOAD,
+        { 'ai.shop_id': payload.shopId, 'ai.batch_id': payload.embeddingBatchId },
+        async () => {
+          const output = outputFileId
+            ? (await batchManager.downloadFile(outputFileId)).split('\n')
+            : [];
+          const error = errorFileId
+            ? (await batchManager.downloadFile(errorFileId)).split('\n')
+            : [];
+          return { outputLines: output, errorLines: error };
+        }
       );
-    });
-    return;
-  }
 
-  const outputLines = outputFileId
-    ? (await batchManager.downloadFile(outputFileId)).split('\n')
-    : [];
-  const errorLines = errorFileId ? (await batchManager.downloadFile(errorFileId)).split('\n') : [];
+      const { outputRecords, errorRecords } = await withAiSpan(
+        AI_SPAN_NAMES.PARSE,
+        { 'ai.shop_id': payload.shopId, 'ai.batch_id': payload.embeddingBatchId },
+        () => ({
+          outputRecords: parseBatchOutputLines(outputLines),
+          errorRecords: parseBatchErrorLines(errorLines),
+        })
+      );
 
-  const outputRecords = parseBatchOutputLines(outputLines);
-  const errorRecords = parseBatchErrorLines(errorLines);
+      const errorByCustomId = new Map<string, string>();
+      for (const rec of errorRecords) {
+        errorByCustomId.set(rec.customId, rec.errorMessage);
+      }
 
-  const errorByCustomId = new Map<string, string>();
-  for (const rec of errorRecords) {
-    errorByCustomId.set(rec.customId, rec.errorMessage);
-  }
+      let completedItems = 0;
+      let failedItems = 0;
+      let tokensUsed = 0;
+      const processedCustomIds = new Set<string>();
 
-  let completedItems = 0;
-  let failedItems = 0;
-  let tokensUsed = 0;
-  const processedCustomIds = new Set<string>();
+      await withAiSpan(
+        AI_SPAN_NAMES.DB_UPSERT,
+        { 'ai.shop_id': payload.shopId, 'ai.batch_id': payload.embeddingBatchId },
+        async () =>
+          withTenantContext(payload.shopId, async (client) => {
+            for (const record of outputRecords) {
+              const parsedCustom = parseCustomId(record.customId);
+              if (!parsedCustom) continue;
+              processedCustomIds.add(record.customId);
 
-  await withTenantContext(payload.shopId, async (client) => {
-    for (const record of outputRecords) {
-      const parsedCustom = parseCustomId(record.customId);
-      if (!parsedCustom) continue;
-      processedCustomIds.add(record.customId);
+              if (record.statusCode === 200 && record.embedding) {
+                if (record.embedding.length !== batchMetadata.dimensions) {
+                  const errorMessage = `embedding_dimension_mismatch:${record.embedding.length}`;
+                  const decision = classifyEmbeddingError(errorMessage);
+                  recordAiError(decision.errorType);
+                  await client.query(
+                    `UPDATE shop_product_embeddings
+                    SET status = 'failed',
+                        error_message = $1,
+                        retry_count = retry_count + 1,
+                        updated_at = now()
+                  WHERE shop_id = $2
+                    AND product_id = $3
+                    AND embedding_type = $4
+                    AND model_version = $5`,
+                    [
+                      errorMessage,
+                      payload.shopId,
+                      parsedCustom.productId,
+                      parsedCustom.embeddingType,
+                      batchMetadata.model,
+                    ]
+                  );
+                  recordEmbeddingRetry({
+                    shopId: payload.shopId,
+                    embeddingType: parsedCustom.embeddingType,
+                  });
+                  failedItems += 1;
+                  continue;
+                }
 
-      if (record.statusCode === 200 && record.embedding) {
-        if (record.embedding.length !== batchMetadata.dimensions) {
-          const errorMessage = `embedding_dimension_mismatch:${record.embedding.length}`;
-          await client.query(
-            `UPDATE shop_product_embeddings
+                const vec = toPgVectorLiteral(record.embedding);
+                await client.query(
+                  `INSERT INTO shop_product_embeddings (
+                 shop_id,
+                 product_id,
+                 embedding_type,
+                 embedding,
+                 content_hash,
+                 model_version,
+                 dimensions,
+                 quality_level,
+                 source,
+                 lang,
+                 status,
+                 error_message,
+                 generated_at,
+                 created_at,
+                 updated_at
+               )
+               VALUES ($1, $2, $3, $4::vector(2000), $5, $6, $7, 'bronze', 'shopify', 'ro', 'ready', NULL, now(), now(), now())
+               ON CONFLICT (shop_id, product_id, embedding_type, model_version)
+               DO UPDATE SET
+                 embedding = EXCLUDED.embedding,
+                 content_hash = EXCLUDED.content_hash,
+                 dimensions = EXCLUDED.dimensions,
+                 quality_level = EXCLUDED.quality_level,
+                 source = EXCLUDED.source,
+                 lang = EXCLUDED.lang,
+                 status = 'ready',
+                 error_message = NULL,
+                 generated_at = now(),
+                 updated_at = now()`,
+                  [
+                    payload.shopId,
+                    parsedCustom.productId,
+                    parsedCustom.embeddingType,
+                    vec,
+                    parsedCustom.contentHash,
+                    batchMetadata.model,
+                    batchMetadata.dimensions,
+                  ]
+                );
+                completedItems += 1;
+                tokensUsed += record.tokensUsed;
+              } else {
+                const errorMessage =
+                  record.errorMessage ??
+                  errorByCustomId.get(record.customId) ??
+                  'openai_embedding_failed';
+                const decision = classifyEmbeddingError(errorMessage);
+                recordAiError(decision.errorType);
+                await client.query(
+                  `UPDATE shop_product_embeddings
+                  SET status = 'failed',
+                      error_message = $1,
+                      retry_count = retry_count + 1,
+                      updated_at = now()
+                WHERE shop_id = $2
+                  AND product_id = $3
+                  AND embedding_type = $4
+                  AND model_version = $5`,
+                  [
+                    errorMessage,
+                    payload.shopId,
+                    parsedCustom.productId,
+                    parsedCustom.embeddingType,
+                    batchMetadata.model,
+                  ]
+                );
+                recordEmbeddingRetry({
+                  shopId: payload.shopId,
+                  embeddingType: parsedCustom.embeddingType,
+                });
+                failedItems += 1;
+              }
+            }
+
+            for (const rec of errorRecords) {
+              if (processedCustomIds.has(rec.customId)) continue;
+              const parsedCustom = parseCustomId(rec.customId);
+              if (!parsedCustom) continue;
+              const decision = classifyEmbeddingError(rec.errorMessage);
+              recordAiError(decision.errorType);
+              await client.query(
+                `UPDATE shop_product_embeddings
                 SET status = 'failed',
                     error_message = $1,
                     retry_count = retry_count + 1,
@@ -741,132 +921,32 @@ export async function runAiBatchPoller(params: {
                 AND product_id = $3
                 AND embedding_type = $4
                 AND model_version = $5`,
-            [
-              errorMessage,
-              payload.shopId,
-              parsedCustom.productId,
-              parsedCustom.embeddingType,
-              batchMetadata.model,
-            ]
-          );
-          recordEmbeddingRetry({
-            shopId: payload.shopId,
-            embeddingType: parsedCustom.embeddingType,
-          });
-          failedItems += 1;
-          continue;
-        }
-
-        const vec = toPgVectorLiteral(record.embedding);
-        await client.query(
-          `INSERT INTO shop_product_embeddings (
-             shop_id,
-             product_id,
-             embedding_type,
-             embedding,
-             content_hash,
-             model_version,
-             dimensions,
-             quality_level,
-             source,
-             lang,
-             status,
-             error_message,
-             generated_at,
-             created_at,
-             updated_at
-           )
-           VALUES ($1, $2, $3, $4::vector(2000), $5, $6, $7, 'bronze', 'shopify', 'ro', 'ready', NULL, now(), now(), now())
-           ON CONFLICT (shop_id, product_id, embedding_type, model_version)
-           DO UPDATE SET
-             embedding = EXCLUDED.embedding,
-             content_hash = EXCLUDED.content_hash,
-             dimensions = EXCLUDED.dimensions,
-             quality_level = EXCLUDED.quality_level,
-             source = EXCLUDED.source,
-             lang = EXCLUDED.lang,
-             status = 'ready',
-             error_message = NULL,
-             generated_at = now(),
-             updated_at = now()`,
-          [
-            payload.shopId,
-            parsedCustom.productId,
-            parsedCustom.embeddingType,
-            vec,
-            parsedCustom.contentHash,
-            batchMetadata.model,
-            batchMetadata.dimensions,
-          ]
-        );
-        completedItems += 1;
-        tokensUsed += record.tokensUsed;
-      } else {
-        const errorMessage =
-          record.errorMessage ?? errorByCustomId.get(record.customId) ?? 'openai_embedding_failed';
-        await client.query(
-          `UPDATE shop_product_embeddings
-              SET status = 'failed',
-                  error_message = $1,
-                  retry_count = retry_count + 1,
-                  updated_at = now()
-            WHERE shop_id = $2
-              AND product_id = $3
-              AND embedding_type = $4
-              AND model_version = $5`,
-          [
-            errorMessage,
-            payload.shopId,
-            parsedCustom.productId,
-            parsedCustom.embeddingType,
-            batchMetadata.model,
-          ]
-        );
-        recordEmbeddingRetry({
-          shopId: payload.shopId,
-          embeddingType: parsedCustom.embeddingType,
-        });
-        failedItems += 1;
-      }
-    }
-
-    for (const rec of errorRecords) {
-      if (processedCustomIds.has(rec.customId)) continue;
-      const parsedCustom = parseCustomId(rec.customId);
-      if (!parsedCustom) continue;
-      await client.query(
-        `UPDATE shop_product_embeddings
-            SET status = 'failed',
-                error_message = $1,
-                retry_count = retry_count + 1,
-                updated_at = now()
-          WHERE shop_id = $2
-            AND product_id = $3
-            AND embedding_type = $4
-            AND model_version = $5`,
-        [
-          rec.errorMessage,
-          payload.shopId,
-          parsedCustom.productId,
-          parsedCustom.embeddingType,
-          batchMetadata.model,
-        ]
+                [
+                  rec.errorMessage,
+                  payload.shopId,
+                  parsedCustom.productId,
+                  parsedCustom.embeddingType,
+                  batchMetadata.model,
+                ]
+              );
+              recordEmbeddingRetry({
+                shopId: payload.shopId,
+                embeddingType: parsedCustom.embeddingType,
+              });
+              failedItems += 1;
+            }
+          })
       );
-      recordEmbeddingRetry({
-        shopId: payload.shopId,
-        embeddingType: parsedCustom.embeddingType,
-      });
-      failedItems += 1;
-    }
-  });
 
-  const totalItems = batch.request_counts?.total ?? outputRecords.length;
-  const failedTotal = Math.max(failedItems, batch.request_counts?.failed ?? 0);
-  const completedTotal = Math.max(completedItems, batch.request_counts?.completed ?? 0);
+      const totalItems = batch.request_counts?.total ?? outputRecords.length;
+      const failedTotal = Math.max(failedItems, batch.request_counts?.failed ?? 0);
+      const completedTotal = Math.max(completedItems, batch.request_counts?.completed ?? 0);
 
-  await withTenantContext(payload.shopId, async (client) => {
-    await client.query(
-      `UPDATE embedding_batches
+      recordAiItemsProcessed(completedTotal);
+
+      await withTenantContext(payload.shopId, async (client) => {
+        await client.query(
+          `UPDATE embedding_batches
           SET status = 'completed',
               output_file_id = COALESCE($1, output_file_id),
               error_file_id = COALESCE($2, error_file_id),
@@ -879,28 +959,30 @@ export async function runAiBatchPoller(params: {
               updated_at = now()
         WHERE id = $8
           AND shop_id = $9`,
-      [
-        outputFileId,
-        errorFileId,
-        completedTotal,
-        failedTotal,
-        totalItems,
-        tokensUsed,
-        expiresAt ? expiresAt.toISOString() : null,
-        payload.embeddingBatchId,
-        payload.shopId,
-      ]
-    );
-  });
+          [
+            outputFileId,
+            errorFileId,
+            completedTotal,
+            failedTotal,
+            totalItems,
+            tokensUsed,
+            expiresAt ? expiresAt.toISOString() : null,
+            payload.embeddingBatchId,
+            payload.shopId,
+          ]
+        );
+      });
 
-  logger.info(
-    {
-      shopId: payload.shopId,
-      embeddingBatchId: payload.embeddingBatchId,
-      completedItems: completedTotal,
-      failedItems: failedTotal,
-    },
-    'OpenAI batch embeddings processed'
+      logger.info(
+        {
+          shopId: payload.shopId,
+          embeddingBatchId: payload.embeddingBatchId,
+          completedItems: completedTotal,
+          failedItems: failedTotal,
+        },
+        'OpenAI batch embeddings processed'
+      );
+    }
   );
 }
 

@@ -7,10 +7,11 @@ Această secțiune conține runbook-uri pentru operațiuni și debugging.
 
 ## Runbooks Disponibile
 
-| Runbook                           | Descriere                                             | Ultima actualizare |
-| --------------------------------- | ----------------------------------------------------- | ------------------ |
-| [TEMPLATE](TEMPLATE.md)           | Template standard pentru crearea de runbook-uri noi   | 2025-01-XX         |
-| [logql-queries](logql-queries.md) | Queries LogQL comune pentru debugging în Grafana/Loki | 2025-01-XX         |
+| Runbook                                             | Descriere                                             | Ultima actualizare |
+| --------------------------------------------------- | ----------------------------------------------------- | ------------------ |
+| [TEMPLATE](TEMPLATE.md)                             | Template standard pentru crearea de runbook-uri noi   | 2025-01-XX         |
+| [logql-queries](logql-queries.md)                   | Queries LogQL comune pentru debugging în Grafana/Loki | 2025-01-XX         |
+| [ai-pipeline-operations](ai-pipeline-operations.md) | AI embeddings și vector search operations             | 2026-02-01         |
 
 ## Runbooks Planificate
 

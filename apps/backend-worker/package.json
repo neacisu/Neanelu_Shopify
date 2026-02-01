@@ -40,6 +40,9 @@
     "stream-json": "^1.9.1"
   },
   "devDependencies": {
+    "@testcontainers/postgresql": "^11.11.0",
+    "@testcontainers/redis": "^11.11.0",
+    "nock": "^14.0.10",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }

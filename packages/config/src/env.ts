@@ -86,6 +86,16 @@ export type AppEnv = Readonly<{
   openAiEmbedRateLimitRequestsPerMinute: number;
   /** OpenAI embeddings rate limit: bucket TTL in ms */
   openAiEmbedRateLimitBucketTtlMs: number;
+  /** Throttle: max items per shop per hour */
+  openAiEmbedThrottleShopHourlyLimit: number;
+  /** Throttle: max items global per hour */
+  openAiEmbedThrottleGlobalHourlyLimit: number;
+  /** Vector search cache TTL in seconds */
+  vectorSearchCacheTtlSeconds: number;
+  /** Vector search query timeout in ms */
+  vectorSearchQueryTimeoutMs: number;
+  /** Embedding dimensions (defaults to 2000 for text-embedding-3-large) */
+  openAiEmbeddingDimensions: number;
 
   // ============================================
   // BULK DEDUP + CONSENSUS + PIM SYNC (PR-043 / F5.2.9-F5.2.10)
@@ -382,6 +392,31 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     'OPENAI_EMBED_RATELIMIT_BUCKET_TTL_MS',
     120_000
   );
+  const openAiEmbedThrottleShopHourlyLimit = parsePositiveIntWithDefault(
+    env,
+    'OPENAI_EMBED_THROTTLE_SHOP_HOURLY',
+    1000
+  );
+  const openAiEmbedThrottleGlobalHourlyLimit = parsePositiveIntWithDefault(
+    env,
+    'OPENAI_EMBED_THROTTLE_GLOBAL_HOURLY',
+    10000
+  );
+  const vectorSearchCacheTtlSeconds = parsePositiveIntWithDefault(
+    env,
+    'VECTOR_SEARCH_CACHE_TTL_SECONDS',
+    3600
+  );
+  const vectorSearchQueryTimeoutMs = parsePositiveIntWithDefault(
+    env,
+    'VECTOR_SEARCH_QUERY_TIMEOUT_MS',
+    5000
+  );
+  const openAiEmbeddingDimensions = parsePositiveIntWithDefault(
+    env,
+    'OPENAI_EMBEDDING_DIMENSIONS',
+    2000
+  );
 
   const bulkPimSyncEnabled = parseBooleanWithDefault(env, 'BULK_PIM_SYNC_ENABLED', true);
   const bulkSemanticDedupEnabled = parseBooleanWithDefault(
@@ -464,6 +499,11 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     openAiEmbedRateLimitTokensPerMinute,
     openAiEmbedRateLimitRequestsPerMinute,
     openAiEmbedRateLimitBucketTtlMs,
+    openAiEmbedThrottleShopHourlyLimit,
+    openAiEmbedThrottleGlobalHourlyLimit,
+    vectorSearchCacheTtlSeconds,
+    vectorSearchQueryTimeoutMs,
+    openAiEmbeddingDimensions,
 
     bulkPimSyncEnabled,
     bulkSemanticDedupEnabled,

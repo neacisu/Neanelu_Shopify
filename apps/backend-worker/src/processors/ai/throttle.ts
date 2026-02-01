@@ -56,8 +56,14 @@ export async function checkBackfillThrottle(params: {
   const { dayKey, hourKey } = formatKeyDate(now);
   const redis = getRedis();
 
-  const maxItemsPerShopPerHour = params.maxItemsPerShopPerHour ?? SHOP_HOURLY_LIMIT_DEFAULT;
-  const maxItemsGlobalPerHour = params.maxItemsGlobalPerHour ?? GLOBAL_HOURLY_LIMIT_DEFAULT;
+  const maxItemsPerShopPerHour =
+    params.maxItemsPerShopPerHour ??
+    env.openAiEmbedThrottleShopHourlyLimit ??
+    SHOP_HOURLY_LIMIT_DEFAULT;
+  const maxItemsGlobalPerHour =
+    params.maxItemsGlobalPerHour ??
+    env.openAiEmbedThrottleGlobalHourlyLimit ??
+    GLOBAL_HOURLY_LIMIT_DEFAULT;
   const maxItemsPerDay = params.maxItemsPerDay ?? env.openAiEmbeddingDailyBudget;
 
   const shopHourKey = `embedding:backfill:shop:${params.shopId}:hour:${hourKey}`;

@@ -9,6 +9,7 @@
     "packages/**/*.ts",
     "packages/**/*.tsx",
     "scripts/**/*.ts",
+    "tests/**/*.ts",
     "*.ts"
   ],
   "exclude": [
