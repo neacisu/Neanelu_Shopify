@@ -162,46 +162,54 @@ void describe('search route integration', () => {
     rateLimitAllowed = true;
     rateLimitDelayMs = 0;
     const app = Fastify();
-    await app.register(searchRoutes, {
-      prefix: '/api',
-      env,
-      logger,
-      sessionConfig: { secret: 'test', maxAge: 3600, cookieName: 'neanelu_session' },
-    });
+    try {
+      await app.register(searchRoutes, {
+        prefix: '/api',
+        env,
+        logger,
+        sessionConfig: { secret: 'test', maxAge: 3600, cookieName: 'neanelu_session' },
+      });
 
-    const response = await app.inject({
-      method: 'GET',
-      url: '/api/products/search?q=iphone+case',
-    });
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/products/search?q=iphone+case',
+      });
 
-    assert.equal(response.statusCode, 200);
-    const parsed: unknown = JSON.parse(response.body);
-    assert.ok(parsed && typeof parsed === 'object');
-    const body = parsed as { data?: { results?: unknown[]; cached?: boolean } };
-    assert.equal(body.data?.cached, false);
-    assert.equal(body.data?.results?.length, 1);
+      assert.equal(response.statusCode, 200);
+      const parsed: unknown = JSON.parse(response.body);
+      assert.ok(parsed && typeof parsed === 'object');
+      const body = parsed as { data?: { results?: unknown[]; cached?: boolean } };
+      assert.equal(body.data?.cached, false);
+      assert.equal(body.data?.results?.length, 1);
+    } finally {
+      await app.close();
+    }
   });
 
   void it('returns 429 when rate limited', async () => {
     rateLimitAllowed = false;
     rateLimitDelayMs = 250;
     const app = Fastify();
-    await app.register(searchRoutes, {
-      prefix: '/api',
-      env,
-      logger,
-      sessionConfig: { secret: 'test', maxAge: 3600, cookieName: 'neanelu_session' },
-    });
+    try {
+      await app.register(searchRoutes, {
+        prefix: '/api',
+        env,
+        logger,
+        sessionConfig: { secret: 'test', maxAge: 3600, cookieName: 'neanelu_session' },
+      });
 
-    const response = await app.inject({
-      method: 'GET',
-      url: '/api/products/search?q=iphone+case',
-    });
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/products/search?q=iphone+case',
+      });
 
-    assert.equal(response.statusCode, 429);
-    const parsed: unknown = JSON.parse(response.body);
-    assert.ok(parsed && typeof parsed === 'object');
-    const body = parsed as { error?: { code?: string } };
-    assert.equal(body.error?.code, 'TOO_MANY_REQUESTS');
+      assert.equal(response.statusCode, 429);
+      const parsed: unknown = JSON.parse(response.body);
+      assert.ok(parsed && typeof parsed === 'object');
+      const body = parsed as { error?: { code?: string } };
+      assert.equal(body.error?.code, 'TOO_MANY_REQUESTS');
+    } finally {
+      await app.close();
+    }
   });
 });
