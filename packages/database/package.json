@@ -39,7 +39,7 @@
     "generate:tests": "node --import tsx scripts/generate-schema-tests.ts"
   },
   "dependencies": {
-    "@faker-js/faker": "^10.1.0",
+    "@faker-js/faker": "^10.2.0",
     "drizzle-orm": "^0.45.1",
     "pg": "^8.16.3",
     "pg-copy-streams": "^7.0.0",
