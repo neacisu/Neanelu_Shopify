@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useLocation } from 'react-router-dom';
 
-import type { AiSettingsResponse, AiSettingsUpdateRequest } from '@app/types';
+import type { AiHealthResponse, AiSettingsResponse, AiSettingsUpdateRequest } from '@app/types';
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { PageHeader } from '../components/layout/page-header';
@@ -32,6 +32,9 @@ export default function SettingsPage() {
   const [aiApiKey, setAiApiKey] = useState('');
   const [aiApiKeyDirty, setAiApiKeyDirty] = useState(false);
   const [aiHasApiKey, setAiHasApiKey] = useState(false);
+  const [aiHealthLoading, setAiHealthLoading] = useState(false);
+  const [aiHealthResult, setAiHealthResult] = useState<AiHealthResponse | null>(null);
+  const [aiHealthError, setAiHealthError] = useState<string | null>(null);
 
   const [apiLoading, setApiLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -317,6 +320,21 @@ export default function SettingsPage() {
     if (aiError) return 'error';
     return 'idle';
   }, [aiError, aiSaving, aiSuccess]);
+
+  const testAiConnection = async () => {
+    setAiHealthLoading(true);
+    setAiHealthError(null);
+    try {
+      const data = await api.getApi<AiHealthResponse>('/settings/ai/health');
+      setAiHealthResult(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Testul conexiunii OpenAI a eșuat.';
+      setAiHealthError(message);
+      setAiHealthResult(null);
+    } finally {
+      setAiHealthLoading(false);
+    }
+  };
 
   const onSaveAiSettings = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -888,6 +906,42 @@ export default function SettingsPage() {
               placeholder="https://api.openai.com"
             />
           </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void testAiConnection()}
+              disabled={aiHealthLoading}
+              className="rounded-md border border-muted/20 px-4 py-2 text-sm font-medium shadow-sm hover:bg-muted/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {aiHealthLoading ? 'Testing...' : 'Test conexiune'}
+            </button>
+            {aiHealthResult ? (
+              <span
+                className={`text-xs ${
+                  aiHealthResult.status === 'ok'
+                    ? 'text-success'
+                    : aiHealthResult.status === 'disabled' ||
+                        aiHealthResult.status === 'missing_key'
+                      ? 'text-warning'
+                      : 'text-error'
+                }`}
+              >
+                {aiHealthResult.status === 'ok'
+                  ? 'Conexiune OK'
+                  : aiHealthResult.status === 'disabled'
+                    ? 'OpenAI este dezactivat'
+                    : aiHealthResult.status === 'missing_key'
+                      ? 'Cheie OpenAI lipsă'
+                      : 'Conexiune eșuată'}
+              </span>
+            ) : null}
+            {aiHealthError ? <span className="text-xs text-error">{aiHealthError}</span> : null}
+          </div>
+
+          {aiHealthResult?.message ? (
+            <div className="text-xs text-muted">{aiHealthResult.message}</div>
+          ) : null}
 
           <SubmitButton state={aiSubmitState}>Save OpenAI Settings</SubmitButton>
 

@@ -1,10 +1,11 @@
 import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
-import type { AiSettingsResponse, AiSettingsUpdateRequest } from '@app/types';
+import type { AiHealthResponse, AiSettingsResponse, AiSettingsUpdateRequest } from '@app/types';
 import { encryptAesGcm, withTenantContext } from '@app/database';
 import type { FastifyInstance, FastifyPluginCallback } from 'fastify';
 import type { SessionConfig } from '../auth/session.js';
 import { getSessionFromRequest, requireSession } from '../auth/session.js';
+import { getShopOpenAiConfig } from '../runtime/openai-config.js';
 
 type AiSettingsPluginOptions = Readonly<{
   env: AppEnv;
@@ -104,6 +105,92 @@ function toApiResponse(row: ShopAiRow | undefined, env: AppEnv): AiSettingsRespo
   };
 }
 
+async function checkOpenAiHealth(
+  env: AppEnv,
+  logger: Logger,
+  config: Awaited<ReturnType<typeof getShopOpenAiConfig>>
+): Promise<AiHealthResponse> {
+  const checkedAt = nowIso();
+  const baseUrl = config.openAiBaseUrl ?? env.openAiBaseUrl ?? 'https://api.openai.com';
+  const model = config.openAiEmbeddingsModel;
+
+  if (!config.enabled) {
+    return {
+      status: 'disabled',
+      checkedAt,
+      message: 'OpenAI este dezactivat pentru acest shop.',
+      baseUrl,
+      model,
+      source: config.source,
+    };
+  }
+
+  if (!config.openAiApiKey) {
+    return {
+      status: 'missing_key',
+      checkedAt,
+      message: 'Cheia OpenAI lipsește.',
+      baseUrl,
+      model,
+      source: config.source,
+    };
+  }
+
+  const controller = new AbortController();
+  const timeoutMs = env.openAiTimeoutMs ?? 10_000;
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const url = `${baseUrl.replace(/\/$/, '')}/v1/models`;
+  const startedAt = Date.now();
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${config.openAiApiKey}`,
+      },
+      signal: controller.signal,
+    });
+    const latencyMs = Date.now() - startedAt;
+
+    if (!response.ok) {
+      return {
+        status: 'error',
+        checkedAt,
+        message: `OpenAI a răspuns cu status ${response.status}.`,
+        latencyMs,
+        httpStatus: response.status,
+        baseUrl,
+        model,
+        source: config.source,
+      };
+    }
+
+    return {
+      status: 'ok',
+      checkedAt,
+      latencyMs,
+      httpStatus: response.status,
+      baseUrl,
+      model,
+      source: config.source,
+    };
+  } catch (error) {
+    logger.warn({ error }, 'OpenAI health check failed');
+    const latencyMs = Date.now() - startedAt;
+    return {
+      status: 'error',
+      checkedAt,
+      message: error instanceof Error ? error.message : 'OpenAI health check failed.',
+      latencyMs,
+      baseUrl,
+      model,
+      source: config.source,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export const aiSettingsRoutes: FastifyPluginCallback<AiSettingsPluginOptions> = (
   server: FastifyInstance,
   options
@@ -144,6 +231,30 @@ export const aiSettingsRoutes: FastifyPluginCallback<AiSettingsPluginOptions> = 
         return reply
           .status(500)
           .send(errorEnvelope(request.id, 500, 'INTERNAL_SERVER_ERROR', 'Failed to load settings'));
+      }
+    }
+  );
+
+  server.get(
+    '/settings/ai/health',
+    { preHandler: requireSession(sessionConfig) },
+    async (request, reply) => {
+      const session = getSessionFromRequest(request, sessionConfig);
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Missing session'));
+      }
+
+      try {
+        const config = await getShopOpenAiConfig({ shopId: session.shopId, env, logger });
+        const response = await checkOpenAiHealth(env, logger, config);
+        return reply.send(successEnvelope(request.id, response));
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to check OpenAI health');
+        return reply
+          .status(500)
+          .send(errorEnvelope(request.id, 500, 'INTERNAL_SERVER_ERROR', 'Health check failed'));
       }
     }
   );

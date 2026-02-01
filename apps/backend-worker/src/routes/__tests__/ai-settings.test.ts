@@ -15,6 +15,19 @@ void mock.module(sessionPath, {
   },
 });
 
+const openAiConfigPath = new URL('../../runtime/openai-config.js', import.meta.url).href;
+void mock.module(openAiConfigPath, {
+  namedExports: {
+    getShopOpenAiConfig: () => ({
+      enabled: true,
+      openAiApiKey: 'test-key',
+      openAiBaseUrl: 'https://api.openai.com',
+      openAiEmbeddingsModel: 'text-embedding-3-small',
+      source: 'shop',
+    }),
+  },
+});
+
 interface DbRow {
   enabled: boolean;
   openaiBaseUrl: string | null;
@@ -36,10 +49,23 @@ interface AiSettingsEnvelope {
   };
 }
 
+interface AiHealthEnvelope {
+  success: boolean;
+  data: {
+    status: string;
+  };
+}
+
 function readEnvelope(response: { json: () => unknown }): AiSettingsEnvelope {
   const body: unknown = response.json();
   assert.ok(body && typeof body === 'object');
   return body as AiSettingsEnvelope;
+}
+
+function readHealthEnvelope(response: { json: () => unknown }): AiHealthEnvelope {
+  const body: unknown = response.json();
+  assert.ok(body && typeof body === 'object');
+  return body as AiHealthEnvelope;
 }
 
 let dbRow: DbRow | null = null;
@@ -293,6 +319,22 @@ void describe('AI Settings Routes', () => {
     assert.equal(response.statusCode, 200);
     const body = readEnvelope(response);
     assert.equal(body.data.hasApiKey, false);
+  });
+
+  void it('returns healthy OpenAI status', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mock.fn(() =>
+      Promise.resolve({ ok: true, status: 200 } as Response)
+    ) as typeof fetch;
+
+    const response = await app.inject({ method: 'GET', url: '/settings/ai/health' });
+    assert.equal(response.statusCode, 200);
+    const body = readHealthEnvelope(response);
+    assert.equal(body.data.status, 'ok');
+
+    if (originalFetch) {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   void it('rejects invalid embedding batch size', async () => {

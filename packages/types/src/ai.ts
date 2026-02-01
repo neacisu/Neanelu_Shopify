@@ -70,6 +70,17 @@ export interface AiSettingsUpdateRequest {
   similarityThreshold?: number;
 }
 
+export interface AiHealthResponse {
+  status: 'ok' | 'disabled' | 'missing_key' | 'error';
+  checkedAt: string;
+  message?: string;
+  latencyMs?: number;
+  httpStatus?: number;
+  baseUrl?: string;
+  model?: string;
+  source?: 'shop' | 'env' | 'disabled';
+}
+
 function isCanonicalUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
 }
