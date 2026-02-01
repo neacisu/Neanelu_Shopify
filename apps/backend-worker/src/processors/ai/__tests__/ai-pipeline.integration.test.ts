@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, it, before, after } from 'node:test';
@@ -46,26 +47,36 @@ void describe('AI Pipeline Integration (Testcontainers)', { timeout: 120_000 }, 
     fatal: () => undefined,
     child: () => noopLogger,
   };
-  let pgContainer: StartedPostgreSqlContainer;
-  let redisContainer: StartedRedisContainer;
+  const useExternalServices = Boolean(
+    process.env['CI'] === 'true' && process.env['DATABASE_URL'] && process.env['REDIS_URL']
+  );
+
+  let pgContainer: StartedPostgreSqlContainer | undefined;
+  let redisContainer: StartedRedisContainer | undefined;
   let pool: Pool;
   let redis: RedisClient;
 
   before(async () => {
-    pgContainer = await new PostgreSqlContainer('pgvector/pgvector:0.8.1-pg18-trixie').start();
-    redisContainer = await new RedisContainer('redis:8.4-alpine').start();
+    if (useExternalServices) {
+      pool = new Pool({ connectionString: process.env['DATABASE_URL'] });
+      redis = new IORedis(process.env['REDIS_URL'] ?? '');
+    } else {
+      pgContainer = await new PostgreSqlContainer('pgvector/pgvector:0.8.1-pg18-trixie').start();
+      redisContainer = await new RedisContainer('redis:8.4-alpine').start();
 
-    pool = new Pool({ connectionString: pgContainer.getConnectionUri() });
-    await pool.query('CREATE EXTENSION IF NOT EXISTS vector');
-    await pool.query('CREATE EXTENSION IF NOT EXISTS pgcrypto');
-    await pool.query('CREATE EXTENSION IF NOT EXISTS pg_trgm');
-    await pool.query(
-      `CREATE OR REPLACE FUNCTION uuidv7() RETURNS uuid AS $$
-       SELECT gen_random_uuid();
-       $$ LANGUAGE SQL;`
-    );
+      pool = new Pool({ connectionString: pgContainer.getConnectionUri() });
+      await pool.query('CREATE EXTENSION IF NOT EXISTS vector');
+      await pool.query('CREATE EXTENSION IF NOT EXISTS pgcrypto');
+      await pool.query('CREATE EXTENSION IF NOT EXISTS pg_trgm');
+      await pool.query(
+        `CREATE OR REPLACE FUNCTION uuidv7() RETURNS uuid AS $$
+         SELECT gen_random_uuid();
+         $$ LANGUAGE SQL;`
+      );
 
-    await runAllMigrations(pool);
+      await runAllMigrations(pool);
+      redis = new IORedis(redisContainer.getConnectionUrl());
+    }
 
     await pool.query(`
       DO $$
@@ -79,8 +90,6 @@ void describe('AI Pipeline Integration (Testcontainers)', { timeout: 120_000 }, 
     await pool.query(
       `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user`
     );
-
-    redis = new IORedis(redisContainer.getConnectionUrl());
   });
 
   after(async () => {
@@ -93,9 +102,9 @@ void describe('AI Pipeline Integration (Testcontainers)', { timeout: 120_000 }, 
 
   void it('enforces RLS isolation for shop_product_embeddings', async () => {
     const client = await pool.connect();
-    const shop1Id = '11111111-1111-1111-1111-111111111111';
-    const shop2Id = '22222222-2222-2222-2222-222222222222';
-    const product1Id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+    const shop1Id = randomUUID();
+    const shop2Id = randomUUID();
+    const product1Id = randomUUID();
 
     try {
       await client.query(
@@ -125,7 +134,15 @@ void describe('AI Pipeline Integration (Testcontainers)', { timeout: 120_000 }, 
           handle,
           status
         ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [product1Id, shop1Id, 'gid://shopify/Product/1', 1, 'Produs 1', 'produs-1', 'ACTIVE']
+        [
+          product1Id,
+          shop1Id,
+          `gid://shopify/Product/${Math.floor(Math.random() * 1_000_000)}`,
+          Math.floor(Math.random() * 1_000_000),
+          'Produs 1',
+          `produs-${product1Id.slice(0, 8)}`,
+          'ACTIVE',
+        ]
       );
 
       const embedding = Array(2000).fill(0.1);
@@ -157,9 +174,9 @@ void describe('AI Pipeline Integration (Testcontainers)', { timeout: 120_000 }, 
 
   void it('supports vector KNN search per shop', async () => {
     const client = await pool.connect();
-    const shopId = '33333333-3333-3333-3333-333333333333';
-    const product1Id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
-    const product2Id = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+    const shopId = randomUUID();
+    const product1Id = randomUUID();
+    const product2Id = randomUUID();
 
     try {
       await client.query(
@@ -184,17 +201,17 @@ void describe('AI Pipeline Integration (Testcontainers)', { timeout: 120_000 }, 
         [
           product1Id,
           shopId,
-          'gid://shopify/Product/2',
-          2,
+          `gid://shopify/Product/${Math.floor(Math.random() * 1_000_000)}`,
+          Math.floor(Math.random() * 1_000_000),
           'Produs Similar',
-          'produs-similar',
+          `produs-${product1Id.slice(0, 8)}`,
           'ACTIVE',
           product2Id,
           shopId,
-          'gid://shopify/Product/3',
-          3,
+          `gid://shopify/Product/${Math.floor(Math.random() * 1_000_000)}`,
+          Math.floor(Math.random() * 1_000_000),
           'Produs Diferit',
-          'produs-diferit',
+          `produs-${product2Id.slice(0, 8)}`,
           'ACTIVE',
         ]
       );
@@ -244,7 +261,7 @@ void describe('AI Pipeline Integration (Testcontainers)', { timeout: 120_000 }, 
   });
 
   void it('uses Redis cache for search results', async () => {
-    const shopId = '44444444-4444-4444-4444-444444444444';
+    const shopId = randomUUID();
     const queryText = 'test query';
     const results = [{ id: 'p1', title: 'Produs', similarity: 0.9 }];
 
