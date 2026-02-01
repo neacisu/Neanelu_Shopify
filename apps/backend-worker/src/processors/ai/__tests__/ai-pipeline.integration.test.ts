@@ -296,6 +296,7 @@ void describe('AI Pipeline Integration (Testcontainers)', { timeout: 120_000 }, 
       queryText,
       result: results,
       vectorSearchTimeMs: 42,
+      totalCount: results.length,
     });
     logStep('cache:set:done');
 

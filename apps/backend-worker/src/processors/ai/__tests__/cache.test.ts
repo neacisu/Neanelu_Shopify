@@ -67,6 +67,7 @@ void describe('search cache', () => {
       queryText: 'iphone case',
       result: [{ id: 'p1', title: 'iPhone Case', similarity: 0.9 }],
       vectorSearchTimeMs: 25,
+      totalCount: 1,
     });
 
     const cached = await getCachedSearchResult({
@@ -88,6 +89,7 @@ void describe('search cache', () => {
       queryText: 'iphone case',
       result: [{ id: 'p1', title: 'iPhone Case', similarity: 0.9 }],
       vectorSearchTimeMs: 25,
+      totalCount: 1,
     });
     await setCachedSearchResult({
       redis: redis as unknown as Redis,
@@ -95,6 +97,7 @@ void describe('search cache', () => {
       queryText: 'iphone case',
       result: [{ id: 'p2', title: 'Other', similarity: 0.9 }],
       vectorSearchTimeMs: 25,
+      totalCount: 1,
     });
 
     const deleted = await invalidateSearchCache({

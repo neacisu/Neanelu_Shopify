@@ -37,7 +37,9 @@ void mock.module('@app/database', {
     getOptimalEfSearch: () => 40,
     setHnswEfSearch: () => Promise.resolve(),
     withTenantContext: async (_shopId: string, fn: (client: unknown) => Promise<unknown>) => {
-      return await fn({});
+      return await fn({
+        query: () => Promise.resolve({ rows: [{ count: 1 }] }),
+      });
     },
   },
 });

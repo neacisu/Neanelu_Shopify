@@ -24,6 +24,7 @@ export interface ProductSearchResponse {
   query: string;
   vectorSearchTimeMs: number;
   cached: boolean;
+  totalCount: number;
 }
 
 export interface CategoryNode {

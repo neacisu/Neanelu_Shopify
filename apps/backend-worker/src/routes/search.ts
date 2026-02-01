@@ -23,14 +23,15 @@ import {
   vectorSearchLatencySeconds,
 } from '../otel/metrics.js';
 import { generateQueryEmbedding, searchSimilarProducts } from '../processors/ai/search.js';
+import { toPgVectorLiteral } from '../processors/bulk-operations/pim/vector.js';
 import { getCachedSearchResult, setCachedSearchResult } from '../processors/ai/cache.js';
 import { AI_SPAN_NAMES, withAiSpan } from '../processors/ai/otel/spans.js';
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 const DEFAULT_THRESHOLD = 0.7;
-const MIN_THRESHOLD = 0.5;
-const MAX_THRESHOLD = 0.95;
+const MIN_THRESHOLD = 0.1;
+const MAX_THRESHOLD = 1;
 
 type SearchRoutesOptions = Readonly<{
   env: AppEnv;
@@ -277,6 +278,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
               query: rawText,
               vectorSearchTimeMs: cached.vectorSearchTimeMs,
               cached: true,
+              totalCount: cached.totalCount,
             } satisfies ProductSearchResponse)
           );
           return;
@@ -326,6 +328,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
 
         const start = process.hrtime.bigint();
         let results: ProductSearchResult[] = [];
+        let totalCount = 0;
 
         try {
           const embedding = await generateQueryEmbedding({
@@ -334,8 +337,8 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
             logger,
           });
 
-          const searchRows = await withTenantContext(session.shopId, async (client) => {
-            return searchSimilarProducts({
+          const searchResult = await withTenantContext(session.shopId, async (client) => {
+            const rows = await searchSimilarProducts({
               client,
               shopId: session.shopId,
               embedding,
@@ -349,9 +352,37 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
               queryTimeoutMs: env.vectorSearchQueryTimeoutMs,
               logger,
             });
+
+            const vectorLiteral = toPgVectorLiteral(embedding);
+            const countResult = await client.query<{ count: number }>(
+              `SELECT COUNT(*)::int as "count"
+                 FROM shop_product_embeddings e
+                 JOIN shopify_products p ON p.id = e.product_id
+                WHERE e.shop_id = $1
+                  AND e.status = 'ready'
+                  AND p.shop_id = $1
+                  AND (e.embedding <=> $2::vector(2000)) < (1 - $3)
+                  AND ($4::text[] IS NULL OR p.vendor = ANY($4::text[]))
+                  AND ($5::text[] IS NULL OR p.product_type = ANY($5::text[]))
+                  AND ($6::numeric IS NULL OR (p.price_range->>'max')::numeric >= $6::numeric)
+                  AND ($7::numeric IS NULL OR (p.price_range->>'min')::numeric <= $7::numeric)
+                  AND ($8::text IS NULL OR p.category_id = $8::text)`,
+              [
+                session.shopId,
+                vectorLiteral,
+                threshold,
+                vendors.length ? vendors : null,
+                productTypes.length ? productTypes : null,
+                Number.isFinite(priceMin) ? priceMin : null,
+                Number.isFinite(priceMax) ? priceMax : null,
+                categoryId || null,
+              ]
+            );
+
+            return { rows, total: countResult.rows[0]?.count ?? 0 };
           });
 
-          results = searchRows.map((row) => ({
+          results = searchResult.rows.map((row) => ({
             id: row.productId,
             title: row.title,
             similarity: row.similarity,
@@ -360,6 +391,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
             productType: row.productType,
             priceRange: row.priceRange,
           }));
+          totalCount = searchResult.total;
         } catch (error) {
           if (error instanceof EmbeddingsDisabledError) {
             void reply
@@ -380,6 +412,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           queryText: cacheKeyText,
           result: results,
           vectorSearchTimeMs: Math.round(durationMs),
+          totalCount,
           config: { ttlSeconds: env.vectorSearchCacheTtlSeconds },
         });
 
@@ -389,6 +422,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
             query: rawText,
             vectorSearchTimeMs: Math.round(durationMs),
             cached: false,
+            totalCount,
           } satisfies ProductSearchResponse)
         );
       }

@@ -30,6 +30,7 @@ const getApi = vi.fn((path: string) => {
       query: 'result',
       vectorSearchTimeMs: 12,
       cached: false,
+      totalCount: 1,
     });
   }
   return Promise.resolve(null);

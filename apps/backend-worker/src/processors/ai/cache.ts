@@ -14,6 +14,7 @@ export interface SearchCacheConfig {
 export type CachedSearchResult = Readonly<{
   results: ProductSearchResult[];
   vectorSearchTimeMs: number;
+  totalCount: number;
   cachedAt: string;
 }>;
 
@@ -45,6 +46,12 @@ export async function getCachedSearchResult(params: {
   try {
     const parsed = JSON.parse(raw) as CachedSearchResult;
     if (!parsed || !Array.isArray(parsed.results)) return null;
+    if (typeof parsed.totalCount !== 'number') {
+      return {
+        ...parsed,
+        totalCount: parsed.results.length,
+      };
+    }
     return parsed;
   } catch {
     return null;
@@ -57,6 +64,7 @@ export async function setCachedSearchResult(params: {
   queryText: string;
   result: ProductSearchResult[];
   vectorSearchTimeMs: number;
+  totalCount: number;
   config?: Partial<SearchCacheConfig>;
 }): Promise<void> {
   const config = params.config ?? {};
@@ -70,6 +78,7 @@ export async function setCachedSearchResult(params: {
   const payload: CachedSearchResult = {
     results: params.result,
     vectorSearchTimeMs: params.vectorSearchTimeMs,
+    totalCount: params.totalCount,
     cachedAt: new Date().toISOString(),
   };
 

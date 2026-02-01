@@ -81,6 +81,7 @@ export default function SearchPage() {
 
   const [filtersOptions, setFiltersOptions] = useState<ProductFiltersResponse>(emptyFilterOptions);
   const [results, setResults] = useState<ProductSearchResult[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [vectorSearchTimeMs, setVectorSearchTimeMs] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [typing, setTyping] = useState(false);
@@ -142,6 +143,7 @@ export default function SearchPage() {
       if (!trimmed) {
         setResults([]);
         setVectorSearchTimeMs(null);
+        setTotalCount(0);
         return;
       }
 
@@ -164,9 +166,11 @@ export default function SearchPage() {
         );
         setResults(response.results);
         setVectorSearchTimeMs(response.vectorSearchTimeMs);
+        setTotalCount(response.totalCount);
         recent.add(trimmed);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Search failed');
+        setTotalCount(0);
       } finally {
         setLoading(false);
       }
@@ -352,7 +356,7 @@ export default function SearchPage() {
       <ExportResultsModal
         open={exportOpen}
         results={results}
-        totalCount={results.length}
+        totalCount={totalCount}
         onClose={() => setExportOpen(false)}
         onStartAsyncExport={async (format) => {
           const payload = {
