@@ -25,6 +25,7 @@ import {
   setWebhookWorkerHandle,
 } from './runtime/worker-registry.js';
 import { emitQueueStreamEvent } from './runtime/queue-stream.js';
+import { startQueueConfigListener } from './runtime/queue-config-listener.js';
 
 const env = loadEnv();
 const logger = createLogger({
@@ -50,6 +51,7 @@ let bulkIngestWorker: Awaited<ReturnType<typeof startBulkIngestWorker>> | null =
 let bulkScheduleWorker: Awaited<ReturnType<typeof startBulkScheduleWorker>> | null = null;
 let aiBatchWorker: Awaited<ReturnType<typeof startAiBatchWorker>> | null = null;
 let aiBatchScheduleWorker: Awaited<ReturnType<typeof startAiBatchScheduleWorker>> | null = null;
+let queueConfigListener: Awaited<ReturnType<typeof startQueueConfigListener>> | null = null;
 
 try {
   await server.listen({ port: env.port, host: '0.0.0.0' });
@@ -143,6 +145,18 @@ try {
     workerId: 'ai-batch-schedule-worker',
     timestamp: new Date().toISOString(),
   });
+
+  queueConfigListener = await startQueueConfigListener(env, logger, {
+    'webhook-queue': webhookWorker?.worker as unknown as { concurrency?: number },
+    'sync-queue': syncWorker?.worker as unknown as { concurrency?: number },
+    'bulk-queue': bulkOrchestratorWorker?.worker as unknown as { concurrency?: number },
+    'bulk-poller-queue': bulkPollerWorker?.worker as unknown as { concurrency?: number },
+    'bulk-mutation-reconcile-queue': bulkMutationReconcileWorker?.worker as unknown as {
+      concurrency?: number;
+    },
+    'ai-batch-queue': aiBatchWorker?.worker as unknown as { concurrency?: number },
+  });
+  logger.info({}, 'queue config listener started');
 } catch (error) {
   logger.fatal({ error }, 'server failed to start');
   process.exitCode = 1;
@@ -266,6 +280,12 @@ const shutdown = async (signal: string): Promise<void> => {
         workerId: 'ai-batch-schedule-worker',
         timestamp: new Date().toISOString(),
       });
+    }
+
+    if (queueConfigListener) {
+      await queueConfigListener.quit().catch(() => undefined);
+      queueConfigListener = null;
+      logger.info({ signal }, 'queue config listener stopped');
     }
 
     await closeTokenHealthQueue();

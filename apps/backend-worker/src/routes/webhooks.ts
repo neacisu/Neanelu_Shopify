@@ -155,13 +155,31 @@ export const webhookRoutes: FastifyPluginCallback<{ appLogger?: Logger }> = (app
     // 5. Build Payload
     // Parse the body now that we verified signature
     const rawJson = rawBody.toString('utf8');
+    let parsedJson: unknown;
     try {
       // Validate JSON is well-formed (payload content is stored out-of-band)
-      JSON.parse(rawJson);
+      parsedJson = JSON.parse(rawJson);
     } catch (err) {
       incrementWebhookMetric('rejected', { reason: 'invalid_json', topic: headerTopic });
       log.error({ err }, 'Failed to parse webhook JSON body');
       return reply.code(400).send({ error: 'Invalid JSON' });
+    }
+
+    const testHeader = request.headers['x-neanelu-webhook-test'];
+    const isTestWebhook = typeof testHeader === 'string' && testHeader === 'true';
+    if (isTestWebhook && parsedJson && typeof parsedJson === 'object') {
+      const record = parsedJson as { testId?: unknown; sentAt?: unknown };
+      const testId = typeof record.testId === 'string' ? record.testId : null;
+      const sentAt = typeof record.sentAt === 'number' ? record.sentAt : null;
+      if (testId) {
+        const latencyMs = sentAt ? Math.max(0, Date.now() - sentAt) : null;
+        try {
+          await redis.set(`webhook_test:${testId}`, `received:${latencyMs ?? 0}`, 'EX', 10);
+        } catch (err) {
+          log.warn({ err, testId }, 'Failed to mark webhook test as received');
+        }
+        return reply.code(200).send();
+      }
     }
 
     // Store payload out-of-band (TTL) and enqueue only a reference.

@@ -37,6 +37,12 @@ void mock.module('@app/database', {
 
 void mock.module('@app/queue-manager', {
   namedExports: {
+    QUEUE_NAMES: ['webhook-queue', 'sync-queue', 'bulk-queue', 'ai-batch-queue'],
+    defaultQueuePolicy: () => ({
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 1000 },
+      removeOnFail: { age: 7 * 24 * 60 * 60 },
+    }),
     checkAndConsumeCost: () =>
       Promise.resolve({ allowed: true, delayMs: 0, tokensRemaining: 1, tokensNow: 1 }),
     configFromEnv: () => ({}),

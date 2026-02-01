@@ -19,7 +19,7 @@ import IngestionSchedulePage, {
 import QueuesPage, { action as queuesAction, loader as queuesLoader } from './routes/queues';
 import Root, { ErrorBoundary, HydrateFallback } from './root';
 import SearchPage from './routes/search';
-import SettingsPage, { action as settingsAction } from './routes/settings';
+import SettingsPage from './routes/settings';
 
 export const routes: RouteObject[] = [
   {
@@ -89,7 +89,6 @@ export const routes: RouteObject[] = [
       {
         id: 'settings',
         path: 'settings',
-        action: settingsAction,
         handle: { title: 'Settings' },
         element: createElement(SettingsPage),
       },

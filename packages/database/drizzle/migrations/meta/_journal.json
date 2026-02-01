@@ -463,6 +463,13 @@
       "when": 1769817600000,
       "tag": "0065_shop_ai_credentials",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1769904000000,
+      "tag": "0066_ai_settings_extended",
+      "breakpoints": true
     }
   ]
 }

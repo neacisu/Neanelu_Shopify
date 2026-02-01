@@ -56,6 +56,9 @@ export interface AiSettingsResponse {
   hasApiKey: boolean;
   openaiBaseUrl?: string | null;
   openaiEmbeddingsModel?: string | null;
+  embeddingBatchSize?: number;
+  similarityThreshold?: number;
+  availableModels?: string[];
 }
 
 export interface AiSettingsUpdateRequest {
@@ -63,6 +66,8 @@ export interface AiSettingsUpdateRequest {
   apiKey?: string | null;
   openaiBaseUrl?: string | null;
   openaiEmbeddingsModel?: string | null;
+  embeddingBatchSize?: number;
+  similarityThreshold?: number;
 }
 
 function isCanonicalUuid(value: string): boolean {

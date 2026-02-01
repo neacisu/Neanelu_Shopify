@@ -10,21 +10,38 @@ vi.mock('sonner', () => ({
   toast: () => undefined,
 }));
 
-const mockGetApi = vi.fn((_: string, init?: RequestInit) => {
-  if (init?.method === 'PUT') {
+const mockGetApi = vi.fn((path: string, init?: RequestInit) => {
+  if (path === '/settings/shop') {
+    return Promise.resolve({
+      shopName: 'Neanelu Demo',
+      shopDomain: 'demo.myshopify.com',
+      shopEmail: 'owner@demo.com',
+      preferences: { timezone: 'Europe/Bucharest', language: 'ro' },
+    });
+  }
+  if (path === '/settings/ai' && init?.method === 'PUT') {
     return Promise.resolve({
       enabled: true,
       hasApiKey: true,
       openaiBaseUrl: 'https://api.openai.com',
       openaiEmbeddingsModel: 'text-embedding-3-large',
+      embeddingBatchSize: 100,
+      similarityThreshold: 0.8,
+      availableModels: ['text-embedding-3-large'],
     });
   }
-  return Promise.resolve({
-    enabled: false,
-    hasApiKey: false,
-    openaiBaseUrl: 'https://api.openai.com',
-    openaiEmbeddingsModel: 'text-embedding-3-small',
-  });
+  if (path === '/settings/ai') {
+    return Promise.resolve({
+      enabled: false,
+      hasApiKey: false,
+      openaiBaseUrl: 'https://api.openai.com',
+      openaiEmbeddingsModel: 'text-embedding-3-small',
+      embeddingBatchSize: 100,
+      similarityThreshold: 0.8,
+      availableModels: ['text-embedding-3-small'],
+    });
+  }
+  return Promise.resolve({});
 });
 
 vi.mock('../hooks/use-api', () => ({
@@ -38,17 +55,14 @@ describe('settings form', () => {
     mockGetApi.mockClear();
   });
 
-  it('shows validation errors from actionData', async () => {
-    const user = userEvent.setup();
+  it('renders shop info from API', async () => {
     const router = createMemoryRouter(routes, { initialEntries: ['/settings'] });
 
     render(<RouterProvider router={router} />);
 
-    await user.click(screen.getByRole('button', { name: /save/i }));
-
-    expect(await screen.findByText(/Te rugăm să corectezi erorile/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/Email invalid/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Shop domain este obligatoriu/i).length).toBeGreaterThan(0);
+    expect(await screen.findByDisplayValue('Neanelu Demo')).toBeInTheDocument();
+    expect(await screen.findByDisplayValue('demo.myshopify.com')).toBeInTheDocument();
+    expect(await screen.findByDisplayValue('owner@demo.com')).toBeInTheDocument();
   });
 
   it('saves OpenAI settings from tab', async () => {

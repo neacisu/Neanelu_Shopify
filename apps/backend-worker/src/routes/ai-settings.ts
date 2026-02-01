@@ -17,6 +17,8 @@ type ShopAiRow = Readonly<{
   openaiBaseUrl: string | null;
   openaiEmbeddingsModel: string | null;
   hasApiKey: boolean;
+  embeddingBatchSize: number | null;
+  similarityThreshold: string | number | null;
 }>;
 
 function nowIso(): string {
@@ -64,6 +66,20 @@ function buildEncryptionKey(env: AppEnv): Buffer {
   return key;
 }
 
+const DEFAULT_EMBEDDING_BATCH_SIZE = 100;
+const DEFAULT_SIMILARITY_THRESHOLD = 0.8;
+
+function toNumber(value: string | number | null | undefined): number | null {
+  if (value == null) return null;
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function availableModels(env: AppEnv): string[] {
+  const list = [env.openAiEmbeddingsModel, 'text-embedding-3-small', 'text-embedding-3-large'];
+  return Array.from(new Set(list.filter(Boolean)));
+}
+
 function toApiResponse(row: ShopAiRow | undefined, env: AppEnv): AiSettingsResponse {
   if (!row) {
     return {
@@ -71,6 +87,9 @@ function toApiResponse(row: ShopAiRow | undefined, env: AppEnv): AiSettingsRespo
       hasApiKey: false,
       openaiBaseUrl: env.openAiBaseUrl ?? null,
       openaiEmbeddingsModel: env.openAiEmbeddingsModel,
+      embeddingBatchSize: DEFAULT_EMBEDDING_BATCH_SIZE,
+      similarityThreshold: DEFAULT_SIMILARITY_THRESHOLD,
+      availableModels: availableModels(env),
     };
   }
 
@@ -79,6 +98,9 @@ function toApiResponse(row: ShopAiRow | undefined, env: AppEnv): AiSettingsRespo
     hasApiKey: row.hasApiKey,
     openaiBaseUrl: row.openaiBaseUrl ?? env.openAiBaseUrl ?? null,
     openaiEmbeddingsModel: row.openaiEmbeddingsModel ?? env.openAiEmbeddingsModel,
+    embeddingBatchSize: row.embeddingBatchSize ?? DEFAULT_EMBEDDING_BATCH_SIZE,
+    similarityThreshold: toNumber(row.similarityThreshold) ?? DEFAULT_SIMILARITY_THRESHOLD,
+    availableModels: availableModels(env),
   };
 }
 
@@ -105,6 +127,8 @@ export const aiSettingsRoutes: FastifyPluginCallback<AiSettingsPluginOptions> = 
             `SELECT enabled,
               openai_base_url AS "openaiBaseUrl",
               openai_embeddings_model AS "openaiEmbeddingsModel",
+              embedding_batch_size AS "embeddingBatchSize",
+              similarity_threshold AS "similarityThreshold",
               openai_api_key_ciphertext IS NOT NULL AS "hasApiKey"
             FROM shop_ai_credentials
             WHERE shop_id = $1`,
@@ -146,6 +170,30 @@ export const aiSettingsRoutes: FastifyPluginCallback<AiSettingsPluginOptions> = 
       const openaiBaseUrl = normalizeOptionalString(body.openaiBaseUrl);
       const openaiEmbeddingsModel = normalizeOptionalString(body.openaiEmbeddingsModel);
       const apiKeyRaw = typeof body.apiKey === 'string' ? body.apiKey : undefined;
+      const embeddingBatchSize =
+        typeof body.embeddingBatchSize === 'number' ? body.embeddingBatchSize : undefined;
+      const similarityThreshold =
+        typeof body.similarityThreshold === 'number' ? body.similarityThreshold : undefined;
+
+      if (embeddingBatchSize !== undefined) {
+        if (
+          !Number.isInteger(embeddingBatchSize) ||
+          embeddingBatchSize < 10 ||
+          embeddingBatchSize > 500
+        ) {
+          return reply
+            .status(400)
+            .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Invalid embedding batch size'));
+        }
+      }
+
+      if (similarityThreshold !== undefined) {
+        if (similarityThreshold < 0.7 || similarityThreshold > 0.95) {
+          return reply
+            .status(400)
+            .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Invalid similarity threshold'));
+        }
+      }
 
       try {
         await withTenantContext(session.shopId, async (client) => {
@@ -173,6 +221,16 @@ export const aiSettingsRoutes: FastifyPluginCallback<AiSettingsPluginOptions> = 
           if (openaiEmbeddingsModel !== undefined) {
             updates.push(`openai_embeddings_model = $${idx++}`);
             values.push(openaiEmbeddingsModel);
+          }
+
+          if (embeddingBatchSize !== undefined) {
+            updates.push(`embedding_batch_size = $${idx++}`);
+            values.push(embeddingBatchSize);
+          }
+
+          if (similarityThreshold !== undefined) {
+            updates.push(`similarity_threshold = $${idx++}`);
+            values.push(similarityThreshold);
           }
 
           if (apiKeyRaw !== undefined) {
@@ -210,6 +268,8 @@ export const aiSettingsRoutes: FastifyPluginCallback<AiSettingsPluginOptions> = 
             `SELECT enabled,
               openai_base_url AS "openaiBaseUrl",
               openai_embeddings_model AS "openaiEmbeddingsModel",
+              embedding_batch_size AS "embeddingBatchSize",
+              similarity_threshold AS "similarityThreshold",
               openai_api_key_ciphertext IS NOT NULL AS "hasApiKey"
             FROM shop_ai_credentials
             WHERE shop_id = $1`,

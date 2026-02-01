@@ -13,6 +13,7 @@ import {
   timestamp,
   uniqueIndex,
   customType,
+  numeric,
 } from 'drizzle-orm/pg-core';
 import { shops } from './shops.ts';
 
@@ -42,6 +43,10 @@ export const shopAiCredentials = pgTable(
 
     openaiBaseUrl: text('openai_base_url'),
     openaiEmbeddingsModel: text('openai_embeddings_model'),
+    embeddingBatchSize: integer('embedding_batch_size').default(100),
+    similarityThreshold: numeric('similarity_threshold', { precision: 3, scale: 2 }).default(
+      '0.80'
+    ),
     enabled: boolean('enabled').notNull().default(false),
 
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),

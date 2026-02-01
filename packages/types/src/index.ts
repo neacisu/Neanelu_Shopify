@@ -6,6 +6,7 @@ export * from './jobs.js';
 export * from './products.js';
 export * from './queues.js';
 export * from './search.js';
+export * from './settings.js';
 export * from './shop.js';
 export * from './user.js';
 export * from './webhooks.js';

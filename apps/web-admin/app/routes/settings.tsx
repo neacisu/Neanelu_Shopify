@@ -1,72 +1,22 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import type { ActionFunctionArgs } from 'react-router-dom';
-import { useActionData, useLocation, useNavigation, useSubmit } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 
-import { SettingsSchema } from '@app/validation';
-import { zodResolver } from '@hookform/resolvers/zod';
-import type { SettingsInput } from '@app/validation';
 import type { AiSettingsResponse, AiSettingsUpdateRequest } from '@app/types';
-import { useForm } from 'react-hook-form';
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { PageHeader } from '../components/layout/page-header';
-import { FormErrorSummary } from '../components/forms/form-error-summary';
-import { FormField } from '../components/forms/form-field';
+import { ConnectionStatus } from '../components/domain/connection-status';
+import { WebhookTester } from '../components/domain/webhook-tester';
+import { WarningModal } from '../components/ui/warning-modal';
 import { SubmitButton } from '../components/forms/submit-button';
 import { Tabs } from '../components/ui/tabs';
 import { useApiClient } from '../hooks/use-api';
-
-type ActionData =
-  | {
-      ok: true;
-    }
-  | {
-      ok: false;
-      errors: Record<string, string[]>;
-    };
-
-function getFormString(formData: FormData, key: string): string {
-  const value = formData.get(key);
-  return typeof value === 'string' ? value : '';
-}
-
-export async function action({ request }: ActionFunctionArgs) {
-  const formData = await request.formData();
-  const input = {
-    email: getFormString(formData, 'email'),
-    shopDomain: getFormString(formData, 'shopDomain'),
-  };
-
-  const parsed = SettingsSchema.safeParse(input);
-
-  if (!parsed.success) {
-    const errors: Record<string, string[]> = {};
-    for (const issue of parsed.error.issues) {
-      const [firstPath] = issue.path;
-      const key = firstPath ? String(firstPath) : 'form';
-      const bucket = errors[key] ?? (errors[key] = []);
-      bucket.push(issue.message);
-    }
-
-    return new Response(JSON.stringify({ ok: false, errors } satisfies ActionData), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  return new Response(JSON.stringify({ ok: true } satisfies ActionData), {
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
+import { useLocalPreferences } from '../hooks/useLocalPreferences';
 
 export default function SettingsPage() {
-  const actionData = useActionData<ActionData>();
   const location = useLocation();
   const api = useApiClient();
 
-  const navigation = useNavigation();
-  const submit = useSubmit();
-  const [showSuccess, setShowSuccess] = useState(false);
   const [activeTab, setActiveTab] = useState('general');
 
   const [aiLoading, setAiLoading] = useState(true);
@@ -76,28 +26,76 @@ export default function SettingsPage() {
   const [aiEnabled, setAiEnabled] = useState(false);
   const [aiBaseUrl, setAiBaseUrl] = useState('');
   const [aiEmbeddingsModel, setAiEmbeddingsModel] = useState('');
+  const [aiModels, setAiModels] = useState<string[]>([]);
+  const [aiBatchSize, setAiBatchSize] = useState(100);
+  const [aiSimilarityThreshold, setAiSimilarityThreshold] = useState(0.8);
   const [aiApiKey, setAiApiKey] = useState('');
   const [aiApiKeyDirty, setAiApiKeyDirty] = useState(false);
   const [aiHasApiKey, setAiHasApiKey] = useState(false);
 
+  const [apiLoading, setApiLoading] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<{
+    shopifyApiStatus: 'connected' | 'degraded' | 'disconnected';
+    tokenHealthy: boolean;
+    tokenHealthCheckAt: string | null;
+    lastApiCallAt: string | null;
+    rateLimitRemaining: number | null;
+    scopes: string[];
+  } | null>(null);
+  const [webhookConfig, setWebhookConfig] = useState<{
+    webhooks: {
+      topic: string;
+      address: string;
+      format: string;
+      apiVersion: string | null;
+      registeredAt: string;
+    }[];
+    appWebhookUrl: string;
+    requiredTopics: string[];
+    missingTopics: string[];
+  } | null>(null);
+
+  const [queuesLoading, setQueuesLoading] = useState(false);
+  const [queuesError, setQueuesError] = useState<string | null>(null);
+  const [queuesData, setQueuesData] = useState<{
+    queues: {
+      name: string;
+      concurrency: number;
+      maxAttempts: number;
+      backoffType: 'exponential' | 'fixed';
+      backoffDelayMs: number;
+      dlqRetentionDays: number;
+    }[];
+    isAdmin: boolean;
+  } | null>(null);
+  const [queueEdits, setQueueEdits] = useState<
+    Record<
+      string,
+      {
+        name: string;
+        concurrency: number;
+        maxAttempts: number;
+        backoffType: 'exponential' | 'fixed';
+        backoffDelayMs: number;
+        dlqRetentionDays: number;
+      }
+    >
+  >({});
+  const [queueSaving, setQueueSaving] = useState<string | null>(null);
+  const [queueSaveMessage, setQueueSaveMessage] = useState<Record<string, string>>({});
+  const [warningQueue, setWarningQueue] = useState<string | null>(null);
+
   const {
-    register,
-    handleSubmit,
-    setError,
-    setFocus,
-    formState: { errors: formErrors, submitCount },
-  } = useForm<SettingsInput>({
-    resolver: zodResolver(SettingsSchema),
-    mode: 'onBlur',
-  });
-
-  useEffect(() => {
-    if (actionData?.ok !== true) return;
-
-    setShowSuccess(true);
-    const timer = setTimeout(() => setShowSuccess(false), 2000);
-    return () => clearTimeout(timer);
-  }, [actionData?.ok]);
+    shopInfo,
+    preferences,
+    updatePreferences,
+    loading: generalLoading,
+    saving: generalSaving,
+    error: generalError,
+    saveError: generalSaveError,
+    lastSavedAt,
+  } = useLocalPreferences(api);
 
   useEffect(() => {
     let cancelled = false;
@@ -111,6 +109,9 @@ export default function SettingsPage() {
         setAiEnabled(data.enabled);
         setAiBaseUrl(data.openaiBaseUrl ?? '');
         setAiEmbeddingsModel(data.openaiEmbeddingsModel ?? '');
+        setAiModels(data.availableModels ?? []);
+        setAiBatchSize(data.embeddingBatchSize ?? 100);
+        setAiSimilarityThreshold(data.similarityThreshold ?? 0.8);
         setAiHasApiKey(data.hasApiKey);
       } catch (error) {
         if (!cancelled) {
@@ -130,64 +131,168 @@ export default function SettingsPage() {
   }, [api]);
 
   useEffect(() => {
+    if (activeTab !== 'api') return;
+    let cancelled = false;
+
+    const loadApiSettings = async () => {
+      setApiLoading(true);
+      setApiError(null);
+      try {
+        const [status, webhooks] = await Promise.all([
+          api.getApi<{
+            shopifyApiStatus: 'connected' | 'degraded' | 'disconnected';
+            tokenHealthy: boolean;
+            tokenHealthCheckAt: string | null;
+            lastApiCallAt: string | null;
+            rateLimitRemaining: number | null;
+            scopes: string[];
+          }>('/settings/connection'),
+          api.getApi<{
+            webhooks: {
+              topic: string;
+              address: string;
+              format: string;
+              apiVersion: string | null;
+              registeredAt: string;
+            }[];
+            appWebhookUrl: string;
+            requiredTopics: string[];
+            missingTopics: string[];
+          }>('/settings/webhooks'),
+        ]);
+
+        if (cancelled) return;
+        setConnectionStatus(status);
+        setWebhookConfig(webhooks);
+      } catch (error) {
+        if (!cancelled) {
+          const message = error instanceof Error ? error.message : 'Nu am putut încărca statusul.';
+          setApiError(message);
+        }
+      } finally {
+        if (!cancelled) setApiLoading(false);
+      }
+    };
+
+    void loadApiSettings();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, api]);
+
+  useEffect(() => {
+    if (activeTab !== 'queues') return;
+    let cancelled = false;
+
+    const loadQueues = async () => {
+      setQueuesLoading(true);
+      setQueuesError(null);
+      try {
+        const data = await api.getApi<{
+          queues: {
+            name: string;
+            concurrency: number;
+            maxAttempts: number;
+            backoffType: 'exponential' | 'fixed';
+            backoffDelayMs: number;
+            dlqRetentionDays: number;
+          }[];
+          isAdmin: boolean;
+        }>('/settings/queues');
+        if (cancelled) return;
+        setQueuesData(data);
+        const next: typeof queueEdits = {};
+        for (const queue of data.queues) {
+          next[queue.name] = { ...queue };
+        }
+        setQueueEdits(next);
+      } catch (error) {
+        if (!cancelled) {
+          const message = error instanceof Error ? error.message : 'Nu am putut încărca setările.';
+          setQueuesError(message);
+        }
+      } finally {
+        if (!cancelled) setQueuesLoading(false);
+      }
+    };
+
+    void loadQueues();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, api]);
+
+  useEffect(() => {
     if (!aiSuccess) return;
     const timer = setTimeout(() => setAiSuccess(false), 2000);
     return () => clearTimeout(timer);
   }, [aiSuccess]);
 
-  useEffect(() => {
-    if (actionData?.ok !== false) return;
-
-    let firstFieldToFocus: keyof SettingsInput | null = null;
-    for (const [field, msgs] of Object.entries(actionData.errors)) {
-      const message = msgs?.[0];
-      if (!message) continue;
-
-      if (field === 'email' || field === 'shopDomain') {
-        setError(field, { type: 'server', message });
-        firstFieldToFocus ??= field;
-      }
+  const timezones = useMemo(() => {
+    if (typeof Intl.supportedValuesOf === 'function') {
+      return Intl.supportedValuesOf('timeZone');
     }
+    return ['Europe/Bucharest', 'Europe/London', 'Europe/Paris', 'America/New_York', 'UTC'];
+  }, []);
 
-    if (firstFieldToFocus) {
-      setFocus(firstFieldToFocus, { shouldSelect: true });
-    }
-  }, [actionData, setError, setFocus]);
+  const generalStatus = useMemo(() => {
+    if (generalSaving) return { tone: 'info', label: 'Se salvează preferințele...' };
+    if (generalSaveError) return { tone: 'error', label: generalSaveError };
+    if (lastSavedAt) return { tone: 'success', label: 'Preferințele au fost salvate.' };
+    return null;
+  }, [generalSaveError, generalSaving, lastSavedAt]);
 
-  const errors = useMemo(() => {
-    const record: Record<string, string[]> = {};
-    for (const [key, value] of Object.entries(formErrors)) {
-      const message = (value as { message?: unknown } | undefined)?.message;
-      if (typeof message === 'string' && message.length > 0) {
-        record[key] = [message];
-      }
-    }
-    return Object.keys(record).length ? record : undefined;
-  }, [formErrors]);
-
-  const submitState = useMemo(() => {
-    if (navigation.state === 'submitting' || navigation.state === 'loading') return 'loading';
-    if (showSuccess) return 'success';
-    if (submitCount > 0 && errors) return 'error';
-    return 'idle';
-  }, [errors, navigation.state, showSuccess, submitCount]);
-
-  const onValid = (values: SettingsInput) => {
-    const formData = new FormData();
-    formData.set('email', values.email);
-    formData.set('shopDomain', values.shopDomain);
-    void submit(formData, { method: 'post' });
+  const updateQueueField = (
+    name: string,
+    field: 'concurrency' | 'maxAttempts' | 'dlqRetentionDays',
+    value: number
+  ) => {
+    setQueueEdits((prev) => {
+      const base = prev[name] ?? queuesData?.queues.find((queue) => queue.name === name);
+      if (!base) return prev;
+      return {
+        ...prev,
+        [name]: {
+          ...base,
+          [field]: value,
+        },
+      };
+    });
   };
 
-  const onInvalid = () => {
-    // Focus the first invalid field for better a11y/UX.
-    if (formErrors.email) {
-      setFocus('email', { shouldSelect: true });
+  const saveQueueConfig = async (name: string) => {
+    const current = queueEdits[name];
+    if (!current) return;
+    setQueueSaving(name);
+    setQueueSaveMessage((prev) => ({ ...prev, [name]: '' }));
+    try {
+      await api.getApi('/settings/queues', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          queueName: name,
+          concurrency: current.concurrency,
+          maxAttempts: current.maxAttempts,
+          dlqRetentionDays: current.dlqRetentionDays,
+        }),
+      });
+      setQueueSaveMessage((prev) => ({ ...prev, [name]: 'Applied!' }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Update failed.';
+      setQueueSaveMessage((prev) => ({ ...prev, [name]: message }));
+    } finally {
+      setQueueSaving(null);
+    }
+  };
+
+  const requestSaveQueue = (name: string) => {
+    const current = queueEdits[name];
+    if (!current) return;
+    if (current.concurrency > 20) {
+      setWarningQueue(name);
       return;
     }
-    if (formErrors.shopDomain) {
-      setFocus('shopDomain', { shouldSelect: true });
-    }
+    void saveQueueConfig(name);
   };
 
   const aiSubmitState = useMemo(() => {
@@ -207,6 +312,8 @@ export default function SettingsPage() {
       enabled: aiEnabled,
       openaiBaseUrl: aiBaseUrl.trim() ? aiBaseUrl.trim() : null,
       openaiEmbeddingsModel: aiEmbeddingsModel.trim() ? aiEmbeddingsModel.trim() : null,
+      embeddingBatchSize: aiBatchSize,
+      similarityThreshold: aiSimilarityThreshold,
     };
 
     if (aiApiKeyDirty) {
@@ -222,6 +329,9 @@ export default function SettingsPage() {
       setAiEnabled(data.enabled);
       setAiBaseUrl(data.openaiBaseUrl ?? '');
       setAiEmbeddingsModel(data.openaiEmbeddingsModel ?? '');
+      setAiModels(data.availableModels ?? aiModels);
+      setAiBatchSize(data.embeddingBatchSize ?? aiBatchSize);
+      setAiSimilarityThreshold(data.similarityThreshold ?? aiSimilarityThreshold);
       setAiHasApiKey(data.hasApiKey);
       setAiApiKey('');
       setAiApiKeyDirty(false);
@@ -245,6 +355,8 @@ export default function SettingsPage() {
   const tabs = useMemo(
     () => [
       { label: 'General', value: 'general' },
+      { label: 'API & Webhooks', value: 'api' },
+      { label: 'Queues', value: 'queues' },
       { label: 'OpenAI', value: 'openai' },
     ],
     []
@@ -259,39 +371,325 @@ export default function SettingsPage() {
       <Tabs items={tabs} value={activeTab} onValueChange={setActiveTab} />
 
       {activeTab === 'general' ? (
-        <>
-          <FormErrorSummary errors={errors} title="Te rugăm să corectezi erorile" />
-
-          <form
-            onSubmit={(event) => void handleSubmit(onValid, onInvalid)(event)}
-            className="space-y-4"
-            noValidate
-          >
-            <FormField
-              id="email"
-              label="Email"
-              type="email"
-              registration={register('email')}
-              error={formErrors.email?.message}
-            />
-
-            <FormField
-              id="shopDomain"
-              label="Shop Domain"
-              placeholder="store.myshopify.com"
-              registration={register('shopDomain')}
-              error={formErrors.shopDomain?.message}
-            />
-
-            <SubmitButton state={submitState}>Save</SubmitButton>
-          </form>
-
-          {actionData?.ok === true ? (
-            <div className="rounded-md border border-success/30 bg-success/10 p-4 text-success shadow-sm">
-              Saved.
+        <div className="space-y-4">
+          {generalLoading ? (
+            <div className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted">
+              Se încarcă preferințele...
             </div>
           ) : null}
-        </>
+
+          {generalError ? (
+            <div className="rounded-md border border-error/30 bg-error/10 p-4 text-error shadow-sm">
+              {generalError}
+            </div>
+          ) : null}
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="text-caption text-muted" htmlFor="shop-name">
+                Shop name
+              </label>
+              <input
+                id="shop-name"
+                type="text"
+                value={shopInfo?.shopName ?? ''}
+                placeholder="—"
+                disabled
+                className="mt-1 w-full rounded-md border border-muted/20 bg-muted/10 px-3 py-2 text-body shadow-sm"
+              />
+            </div>
+
+            <div>
+              <label className="text-caption text-muted" htmlFor="shop-domain">
+                Shop domain
+              </label>
+              <input
+                id="shop-domain"
+                type="text"
+                value={shopInfo?.shopDomain ?? ''}
+                placeholder="store.myshopify.com"
+                disabled
+                className="mt-1 w-full rounded-md border border-muted/20 bg-muted/10 px-3 py-2 text-body shadow-sm"
+              />
+            </div>
+
+            <div>
+              <label className="text-caption text-muted" htmlFor="shop-email">
+                Shop email
+              </label>
+              <input
+                id="shop-email"
+                type="email"
+                value={shopInfo?.shopEmail ?? ''}
+                placeholder="—"
+                disabled
+                className="mt-1 w-full rounded-md border border-muted/20 bg-muted/10 px-3 py-2 text-body shadow-sm"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-caption text-muted" htmlFor="timezone">
+              Timezone
+            </label>
+            <select
+              id="timezone"
+              value={preferences.timezone}
+              onChange={(event) => updatePreferences({ timezone: event.target.value })}
+              className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+            >
+              {timezones.map((tz) => (
+                <option key={tz} value={tz}>
+                  {tz}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <div className="text-caption text-muted">Language</div>
+            <div className="mt-2 flex items-center gap-4">
+              <label className="flex items-center gap-2 text-body">
+                <input
+                  type="radio"
+                  name="language"
+                  value="ro"
+                  checked={preferences.language === 'ro'}
+                  onChange={() => updatePreferences({ language: 'ro' })}
+                />
+                Română
+              </label>
+              <label className="flex items-center gap-2 text-body">
+                <input
+                  type="radio"
+                  name="language"
+                  value="en"
+                  checked={preferences.language === 'en'}
+                  onChange={() => updatePreferences({ language: 'en' })}
+                />
+                English
+              </label>
+            </div>
+          </div>
+
+          {generalStatus ? (
+            <div
+              className={`rounded-md border p-3 text-sm shadow-sm ${
+                generalStatus.tone === 'error'
+                  ? 'border-error/30 bg-error/10 text-error'
+                  : generalStatus.tone === 'success'
+                    ? 'border-success/30 bg-success/10 text-success'
+                    : 'border-muted/20 bg-muted/5 text-muted'
+              }`}
+            >
+              {generalStatus.label}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {activeTab === 'api' ? (
+        <div className="space-y-4">
+          {apiLoading ? (
+            <div className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted">
+              Se încarcă statusul conexiunii...
+            </div>
+          ) : null}
+
+          {apiError ? (
+            <div className="rounded-md border border-error/30 bg-error/10 p-4 text-error shadow-sm">
+              {apiError}
+            </div>
+          ) : null}
+
+          {connectionStatus ? (
+            <ConnectionStatus
+              status={connectionStatus.shopifyApiStatus}
+              tokenHealthy={connectionStatus.tokenHealthy}
+              checkedAt={connectionStatus.tokenHealthCheckAt}
+              scopes={connectionStatus.scopes}
+              rateLimitRemaining={connectionStatus.rateLimitRemaining}
+            />
+          ) : null}
+
+          {webhookConfig ? (
+            <div className="space-y-3 rounded-md border border-muted/20 bg-background p-4">
+              <div className="text-sm font-medium">Webhook URLs configurate</div>
+              {webhookConfig.missingTopics.length ? (
+                <div className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
+                  Lipsesc {webhookConfig.missingTopics.length} topicuri:{' '}
+                  {webhookConfig.missingTopics.join(', ')}
+                </div>
+              ) : null}
+
+              <div className="overflow-x-auto">
+                <table className="min-w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="text-left text-muted">
+                      <th className="border-b border-muted/20 px-2 py-2">Topic</th>
+                      <th className="border-b border-muted/20 px-2 py-2">Address</th>
+                      <th className="border-b border-muted/20 px-2 py-2">Format</th>
+                      <th className="border-b border-muted/20 px-2 py-2">API</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {webhookConfig.webhooks.map((row) => (
+                      <tr key={row.topic}>
+                        <td className="border-b border-muted/10 px-2 py-2">{row.topic}</td>
+                        <td className="border-b border-muted/10 px-2 py-2">{row.address}</td>
+                        <td className="border-b border-muted/10 px-2 py-2">{row.format}</td>
+                        <td className="border-b border-muted/10 px-2 py-2">
+                          {row.apiVersion ?? '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+
+          <WebhookTester
+            topics={webhookConfig?.requiredTopics ?? []}
+            onTest={async (topic) =>
+              api.getApi<{ success: boolean; latencyMs?: number; error?: string }>(
+                '/settings/webhooks/test',
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ topic }),
+                }
+              )
+            }
+            disabled={!webhookConfig}
+          />
+        </div>
+      ) : null}
+
+      {activeTab === 'queues' ? (
+        <div className="space-y-4">
+          {queuesLoading ? (
+            <div className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted">
+              Se încarcă setările de queue...
+            </div>
+          ) : null}
+
+          {queuesError ? (
+            <div className="rounded-md border border-error/30 bg-error/10 p-4 text-error shadow-sm">
+              {queuesError}
+            </div>
+          ) : null}
+
+          {!queuesLoading && queuesData?.queues.length === 0 ? (
+            <div className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted">
+              Nu există queue-uri configurate.
+            </div>
+          ) : null}
+
+          {queuesData?.queues.map((queue) => {
+            const draft = queueEdits[queue.name] ?? queue;
+            const disabled = queuesData.isAdmin === false;
+            const message = queueSaveMessage[queue.name];
+            return (
+              <details key={queue.name} className="rounded-md border border-muted/20 bg-background">
+                <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
+                  {queue.name}
+                </summary>
+                <div className="space-y-4 px-4 pb-4">
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div>
+                      <label
+                        className="text-caption text-muted"
+                        htmlFor={`${queue.name}-concurrency`}
+                      >
+                        Concurrency
+                      </label>
+                      <input
+                        id={`${queue.name}-concurrency`}
+                        type="number"
+                        min={1}
+                        max={50}
+                        value={draft.concurrency}
+                        disabled={disabled}
+                        onChange={(event) =>
+                          updateQueueField(queue.name, 'concurrency', Number(event.target.value))
+                        }
+                        className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-caption text-muted" htmlFor={`${queue.name}-attempts`}>
+                        Max attempts
+                      </label>
+                      <input
+                        id={`${queue.name}-attempts`}
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={draft.maxAttempts}
+                        disabled={disabled}
+                        onChange={(event) =>
+                          updateQueueField(queue.name, 'maxAttempts', Number(event.target.value))
+                        }
+                        className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-caption text-muted" htmlFor={`${queue.name}-dlq`}>
+                        DLQ retention (days)
+                      </label>
+                      <input
+                        id={`${queue.name}-dlq`}
+                        type="number"
+                        min={7}
+                        max={90}
+                        value={draft.dlqRetentionDays}
+                        disabled={disabled}
+                        onChange={(event) =>
+                          updateQueueField(
+                            queue.name,
+                            'dlqRetentionDays',
+                            Number(event.target.value)
+                          )
+                        }
+                        className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="text-xs text-muted">
+                    Backoff: {queue.backoffType} ({queue.backoffDelayMs}ms)
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      disabled={disabled || queueSaving === queue.name}
+                      onClick={() => requestSaveQueue(queue.name)}
+                      className="rounded-md border border-muted/20 px-4 py-2 text-sm font-medium shadow-sm hover:bg-muted/10 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {queueSaving === queue.name ? 'Saving...' : 'Apply'}
+                    </button>
+                    {disabled ? (
+                      <span className="text-xs text-muted">Admin access required.</span>
+                    ) : null}
+                    {message ? (
+                      <span
+                        className={`text-xs ${
+                          message === 'Applied!' ? 'text-success' : 'text-error'
+                        }`}
+                      >
+                        {message}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              </details>
+            );
+          })}
+        </div>
       ) : null}
 
       {activeTab === 'openai' ? (
@@ -360,14 +758,51 @@ export default function SettingsPage() {
             <label className="text-caption text-muted" htmlFor="openai-embeddings-model">
               Model embeddings
             </label>
-            <input
+            <select
               id="openai-embeddings-model"
-              type="text"
               value={aiEmbeddingsModel}
               onChange={(event) => setAiEmbeddingsModel(event.target.value)}
               className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-              placeholder="text-embedding-3-small"
-            />
+            >
+              {(aiModels.length ? aiModels : ['text-embedding-3-small']).map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="text-caption text-muted" htmlFor="embedding-batch-size">
+                Embedding batch size
+              </label>
+              <input
+                id="embedding-batch-size"
+                type="number"
+                min={10}
+                max={500}
+                value={aiBatchSize}
+                onChange={(event) => setAiBatchSize(Number(event.target.value))}
+                className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+              />
+            </div>
+
+            <div>
+              <label className="text-caption text-muted" htmlFor="similarity-threshold">
+                Similarity threshold ({aiSimilarityThreshold.toFixed(2)})
+              </label>
+              <input
+                id="similarity-threshold"
+                type="range"
+                min={0.7}
+                max={0.95}
+                step={0.01}
+                value={aiSimilarityThreshold}
+                onChange={(event) => setAiSimilarityThreshold(Number(event.target.value))}
+                className="mt-2 w-full"
+              />
+            </div>
           </div>
 
           <div>
@@ -393,6 +828,19 @@ export default function SettingsPage() {
           ) : null}
         </form>
       ) : null}
+
+      <WarningModal
+        open={warningQueue !== null}
+        title="Concurrency ridicată"
+        description="Valori peste 20 pot impacta performanța și rate limit-urile. Confirmi schimbarea?"
+        onCancel={() => setWarningQueue(null)}
+        onConfirm={() => {
+          if (warningQueue) {
+            void saveQueueConfig(warningQueue);
+          }
+          setWarningQueue(null);
+        }}
+      />
     </div>
   );
 }

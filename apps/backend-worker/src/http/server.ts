@@ -20,6 +20,10 @@ import { dashboardRoutes } from '../routes/dashboard.js';
 import { bulkRoutes } from '../routes/bulk.js';
 import { searchRoutes } from '../routes/search.js';
 import { aiSettingsRoutes } from '../routes/ai-settings.js';
+import { shopSettingsRoutes } from '../routes/shop-settings.js';
+import { connectionStatusRoutes } from '../routes/connection-status.js';
+import { webhookSettingsRoutes } from '../routes/webhook-settings.js';
+import { queueSettingsRoutes } from '../routes/queue-settings.js';
 import { setRequestIdAttribute } from '@app/logger';
 import {
   httpActiveRequests,
@@ -260,6 +264,10 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await server.register(bulkRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(searchRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(aiSettingsRoutes, { prefix: '/api', env, logger, sessionConfig });
+  await server.register(shopSettingsRoutes, { prefix: '/api', env, logger, sessionConfig });
+  await server.register(connectionStatusRoutes, { prefix: '/api', env, logger, sessionConfig });
+  await server.register(webhookSettingsRoutes, { prefix: '/api', env, logger, sessionConfig });
+  await server.register(queueSettingsRoutes, { prefix: '/api', env, logger, sessionConfig });
 
   // Compatibility mounting without /api prefix.
   // Some reverse proxies (or legacy deployments) may strip `/api` before forwarding.
@@ -269,6 +277,10 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await server.register(bulkRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(searchRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(aiSettingsRoutes, { prefix: '', env, logger, sessionConfig });
+  await server.register(shopSettingsRoutes, { prefix: '', env, logger, sessionConfig });
+  await server.register(connectionStatusRoutes, { prefix: '', env, logger, sessionConfig });
+  await server.register(webhookSettingsRoutes, { prefix: '', env, logger, sessionConfig });
+  await server.register(queueSettingsRoutes, { prefix: '', env, logger, sessionConfig });
 
   server.get('/api/health', (request, reply) => {
     void reply.status(200).send({
