@@ -489,7 +489,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
                      pt.name,
                      pt.shopify_taxonomy_id as "shopifyTaxonomyId"
                 FROM prod_taxonomy pt
-                JOIN selected s ON s.parentId = pt.id
+                JOIN selected s ON s."parentId" = pt.id
             )
             SELECT DISTINCT id, "parentId", name, "shopifyTaxonomyId"
               FROM selected`,
