@@ -682,8 +682,8 @@ export default function SettingsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {webhookConfig.webhooks.map((row) => (
-                      <tr key={row.topic}>
+                    {webhookConfig.webhooks.map((row, index) => (
+                      <tr key={`${row.topic}:${row.address}:${row.apiVersion ?? 'na'}:${index}`}>
                         <td className="border-b border-muted/10 px-2 py-2">{row.topic}</td>
                         <td className="border-b border-muted/10 px-2 py-2">{row.address}</td>
                         <td className="border-b border-muted/10 px-2 py-2">{row.format}</td>
