@@ -30,7 +30,7 @@ describe('SearchFilters', () => {
     );
 
     expect(screen.getByText('Advanced filters')).toBeInTheDocument();
-    expect(screen.getByText('Vendors')).toBeInTheDocument();
+    expect(screen.getByText('Vendors (1)')).toBeInTheDocument();
     expect(screen.getByText('Product types')).toBeInTheDocument();
     expect(screen.getByText('Category')).toBeInTheDocument();
     expect(screen.getByText('Footwear')).toBeInTheDocument();
