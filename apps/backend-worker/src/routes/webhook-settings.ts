@@ -4,7 +4,9 @@ import { withTenantContext } from '@app/database';
 import type { FastifyInstance, FastifyPluginCallback } from 'fastify';
 import type { SessionConfig } from '../auth/session.js';
 import { requireSession } from '../auth/session.js';
-import { REQUIRED_TOPICS } from '../shopify/webhooks/register.js';
+import { requireAdmin } from '../auth/require-admin.js';
+import { withTokenRetry } from '../auth/token-lifecycle.js';
+import { REQUIRED_TOPICS, registerWebhooks } from '../shopify/webhooks/register.js';
 import { createHmac, randomUUID } from 'node:crypto';
 import { createClient } from 'redis';
 
@@ -69,6 +71,32 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+function buildEncryptionKey(env: AppEnv): Buffer {
+  const key = Buffer.from(env.encryptionKeyHex, 'hex');
+  if (key.length !== 32) {
+    throw new Error('Invalid encryption key length (expected 32 bytes)');
+  }
+  return key;
+}
+
+function buildWebhookConfigResponse(rows: WebhookRow[], env: AppEnv): WebhookConfigResponse {
+  const registeredTopics = new Set(rows.map((row) => row.topic));
+  const missingTopics = REQUIRED_TOPICS.filter((topic) => !registeredTopics.has(topic));
+
+  return {
+    webhooks: rows.map((row) => ({
+      topic: row.topic,
+      address: row.address,
+      format: row.format ?? 'json',
+      apiVersion: row.apiVersion,
+      registeredAt: row.createdAt,
+    })),
+    appWebhookUrl: `${env.appHost.origin}/webhooks`,
+    requiredTopics: [...REQUIRED_TOPICS],
+    missingTopics,
+  };
+}
+
 type RedisClient = ReturnType<typeof createClient>;
 
 let redisClient: RedisClient | null = null;
@@ -131,21 +159,7 @@ export const webhookSettingsRoutes: FastifyPluginCallback<WebhookSettingsPluginO
           return result.rows;
         });
 
-        const registeredTopics = new Set(rows.map((row) => row.topic));
-        const missingTopics = REQUIRED_TOPICS.filter((topic) => !registeredTopics.has(topic));
-
-        const response: WebhookConfigResponse = {
-          webhooks: rows.map((row) => ({
-            topic: row.topic,
-            address: row.address,
-            format: row.format ?? 'json',
-            apiVersion: row.apiVersion,
-            registeredAt: row.createdAt,
-          })),
-          appWebhookUrl: `${env.appHost.origin}/webhooks`,
-          requiredTopics: [...REQUIRED_TOPICS],
-          missingTopics,
-        };
+        const response = buildWebhookConfigResponse(rows, env);
 
         return reply.send(successEnvelope(request.id, response));
       } catch (error) {
@@ -160,6 +174,51 @@ export const webhookSettingsRoutes: FastifyPluginCallback<WebhookSettingsPluginO
               'Failed to load webhook settings'
             )
           );
+      }
+    }
+  );
+
+  server.post(
+    '/settings/webhooks/reconcile',
+    { preHandler: [requireSession(sessionConfig), requireAdmin()] },
+    async (request, reply) => {
+      const session = (request as typeof request & { session: { shopId: string } }).session;
+
+      try {
+        const key = buildEncryptionKey(env);
+        await withTokenRetry(session.shopId, key, logger, async (accessToken, shopDomain) => {
+          await registerWebhooks(
+            session.shopId,
+            shopDomain,
+            accessToken,
+            env.appHost.toString(),
+            logger
+          );
+        });
+
+        const rows = await withTenantContext(session.shopId, async (client) => {
+          const result = await client.query<WebhookRow>(
+            `SELECT topic,
+              address,
+              format,
+              api_version AS "apiVersion",
+              created_at AS "createdAt"
+            FROM shopify_webhooks
+            WHERE shop_id = $1
+            ORDER BY topic ASC`,
+            [session.shopId]
+          );
+          return result.rows;
+        });
+
+        const response = buildWebhookConfigResponse(rows, env);
+        return reply.send(successEnvelope(request.id, response));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to reconcile webhooks';
+        const status = message.includes('reauthorization') ? 409 : 500;
+        const code = status === 409 ? 'REAUTH_REQUIRED' : 'INTERNAL_SERVER_ERROR';
+        logger.error({ requestId: request.id, error }, 'Failed to reconcile webhooks');
+        return reply.status(status).send(errorEnvelope(request.id, status, code, message));
       }
     }
   );

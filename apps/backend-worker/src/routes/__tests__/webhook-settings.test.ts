@@ -12,10 +12,30 @@ void mock.module(sessionPath, {
   },
 });
 
+const requireAdminPath = new URL('../../auth/require-admin.js', import.meta.url).href;
+void mock.module(requireAdminPath, {
+  namedExports: {
+    requireAdmin: () => (_req: unknown, _reply: unknown) => Promise.resolve(),
+  },
+});
+
 const registerPath = new URL('../../shopify/webhooks/register.js', import.meta.url).href;
 void mock.module(registerPath, {
   namedExports: {
     REQUIRED_TOPICS: ['products/create', 'orders/create'],
+    registerWebhooks: () => Promise.resolve(),
+  },
+});
+
+const tokenLifecyclePath = new URL('../../auth/token-lifecycle.js', import.meta.url).href;
+void mock.module(tokenLifecyclePath, {
+  namedExports: {
+    withTokenRetry: (
+      _shopId: string,
+      _key: Buffer,
+      _logger: unknown,
+      fn: (token: string, shopDomain: string) => Promise<unknown>
+    ) => fn('token', 'demo.myshopify.com'),
   },
 });
 
@@ -156,5 +176,32 @@ void describe('webhook settings routes', () => {
     assert.equal(body.data?.success, true);
     assert.equal(body.data?.latencyMs, 12);
     assert.equal(redisSetMock.mock.callCount(), 1);
+  });
+
+  void it('reconciles webhooks and returns updated config', async () => {
+    const { webhookSettingsRoutes } = await import('../webhook-settings.js');
+    const app = Fastify();
+    await app.register(webhookSettingsRoutes as unknown as Parameters<typeof app.register>[0], {
+      env: {
+        appHost: new URL('https://example.com'),
+        shopifyApiSecret: 'test-secret',
+        redisUrl: 'redis://localhost:6379',
+        encryptionKeyHex: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      },
+      logger: console,
+      sessionConfig: { secret: 'test', cookieName: 'neanelu_session', maxAge: 10 },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/settings/webhooks/reconcile',
+    });
+    assert.equal(response.statusCode, 200);
+    const body = JSON.parse(response.body) as {
+      success?: boolean;
+      data?: { webhooks?: unknown[]; missingTopics?: string[] };
+    };
+    assert.equal(body.success, true);
+    assert.equal(body.data?.webhooks?.length, 1);
   });
 });

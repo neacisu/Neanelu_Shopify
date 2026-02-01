@@ -58,6 +58,11 @@ export default function SettingsPage() {
     requiredTopics: string[];
     missingTopics: string[];
   } | null>(null);
+  const [webhookRefreshLoading, setWebhookRefreshLoading] = useState(false);
+  const [webhookRefreshMessage, setWebhookRefreshMessage] = useState<string | null>(null);
+  const [disconnectLoading, setDisconnectLoading] = useState(false);
+  const [disconnectMessage, setDisconnectMessage] = useState<string | null>(null);
+  const [disconnectOpen, setDisconnectOpen] = useState(false);
 
   const [queuesLoading, setQueuesLoading] = useState(false);
   const [queuesError, setQueuesError] = useState<string | null>(null);
@@ -244,6 +249,71 @@ export default function SettingsPage() {
     if (lastSavedAt) return { tone: 'success', label: 'Preferințele au fost salvate.' };
     return null;
   }, [generalSaveError, generalSaving, lastSavedAt]);
+
+  const reconnectShop = () => {
+    if (!shopInfo?.shopDomain || typeof window === 'undefined') return;
+    const returnTo = location.pathname;
+    const params = new URLSearchParams({ shop: shopInfo.shopDomain, returnTo });
+    window.location.href = `/auth?${params.toString()}`;
+  };
+
+  const refreshWebhooks = async () => {
+    setWebhookRefreshLoading(true);
+    setWebhookRefreshMessage(null);
+    try {
+      const data = await api.getApi<{
+        webhooks: {
+          topic: string;
+          address: string;
+          format: string;
+          apiVersion: string | null;
+          registeredAt: string;
+        }[];
+        appWebhookUrl: string;
+        requiredTopics: string[];
+        missingTopics: string[];
+      }>('/settings/webhooks/reconcile', { method: 'POST' });
+      setWebhookConfig(data);
+      setWebhookRefreshMessage('Webhook-urile au fost reînregistrate.');
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Reînregistrarea webhook-urilor a eșuat.';
+      setWebhookRefreshMessage(message);
+    } finally {
+      setWebhookRefreshLoading(false);
+    }
+  };
+
+  const disconnectShop = async () => {
+    setDisconnectLoading(true);
+    setDisconnectMessage(null);
+    try {
+      await api.getApi('/settings/connection/disconnect', { method: 'POST' });
+      setDisconnectMessage('Shopul a fost deconectat.');
+      setConnectionStatus((prev) =>
+        prev
+          ? {
+              ...prev,
+              shopifyApiStatus: 'disconnected',
+              tokenHealthy: false,
+              tokenHealthCheckAt: new Date().toISOString(),
+            }
+          : {
+              shopifyApiStatus: 'disconnected',
+              tokenHealthy: false,
+              tokenHealthCheckAt: new Date().toISOString(),
+              lastApiCallAt: null,
+              rateLimitRemaining: null,
+              scopes: [],
+            }
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Deconectarea a eșuat.';
+      setDisconnectMessage(message);
+    } finally {
+      setDisconnectLoading(false);
+    }
+  };
 
   const updateQueueField = (
     name: string,
@@ -547,6 +617,39 @@ export default function SettingsPage() {
               {apiError}
             </div>
           ) : null}
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={reconnectShop}
+              disabled={!shopInfo?.shopDomain}
+              className="rounded-md border border-muted/20 px-4 py-2 text-sm font-medium shadow-sm hover:bg-muted/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Reconectare shop
+            </button>
+            <button
+              type="button"
+              onClick={() => void refreshWebhooks()}
+              disabled={webhookRefreshLoading}
+              className="rounded-md border border-muted/20 px-4 py-2 text-sm font-medium shadow-sm hover:bg-muted/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {webhookRefreshLoading ? 'Reînregistrare...' : 'Reînregistrează webhooks'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setDisconnectOpen(true)}
+              disabled={disconnectLoading}
+              className="rounded-md border border-error/40 px-4 py-2 text-sm font-medium text-error shadow-sm hover:bg-error/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {disconnectLoading ? 'Deconectare...' : 'Deconectează shop'}
+            </button>
+            {webhookRefreshMessage ? (
+              <span className="text-xs text-muted">{webhookRefreshMessage}</span>
+            ) : null}
+            {disconnectMessage ? (
+              <span className="text-xs text-muted">{disconnectMessage}</span>
+            ) : null}
+          </div>
 
           {connectionStatus ? (
             <ConnectionStatus
@@ -963,6 +1066,17 @@ export default function SettingsPage() {
             void saveQueueConfig(warningQueue);
           }
           setWarningQueue(null);
+        }}
+      />
+
+      <WarningModal
+        open={disconnectOpen}
+        title="Deconectare shop"
+        description="Această acțiune revocă tokenul și oprește accesul aplicației. Confirmi deconectarea?"
+        onCancel={() => setDisconnectOpen(false)}
+        onConfirm={() => {
+          void disconnectShop();
+          setDisconnectOpen(false);
         }}
       />
     </div>

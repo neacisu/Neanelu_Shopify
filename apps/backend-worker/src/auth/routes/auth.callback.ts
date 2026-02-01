@@ -17,9 +17,11 @@ import {
   exchangeCodeForToken,
   encryptShopifyAccessToken,
   upsertOfflineShopCredentials,
+  withTenantContext,
 } from '@app/database';
 import { verifyShopifyHmac } from '../hmac.js';
 import { validateShopParam } from '../validation.js';
+import { shopifyApi } from '../../shopify/client.js';
 
 interface AuthCallbackQuery {
   code?: string;
@@ -33,6 +35,70 @@ interface AuthCallbackQuery {
 export interface AuthCallbackRouteOptions {
   env: AppEnv;
   logger: Logger;
+}
+
+type ShopifyShopEmailResponse = Readonly<{
+  shop?: {
+    email?: string | null;
+  };
+}>;
+
+async function fetchShopEmail(params: {
+  shopDomain: string;
+  accessToken: string;
+}): Promise<string | null> {
+  const client = shopifyApi.createClient({
+    shopDomain: params.shopDomain,
+    accessToken: params.accessToken,
+  });
+  const query = `
+    query ShopEmail {
+      shop {
+        email
+      }
+    }
+  `;
+  const response = await client.request<ShopifyShopEmailResponse>(query);
+  const email = response.data?.shop?.email;
+  return typeof email === 'string' && email.trim().length > 0 ? email.trim() : null;
+}
+
+async function ensureAdminStaffUser(params: {
+  shopId: string;
+  shopDomain: string;
+  accessToken: string;
+  logger: Logger;
+}): Promise<void> {
+  try {
+    const email = await fetchShopEmail({
+      shopDomain: params.shopDomain,
+      accessToken: params.accessToken,
+    });
+    if (!email) {
+      params.logger.warn({ shopId: params.shopId }, 'Shop email missing; cannot seed admin user');
+      return;
+    }
+
+    await withTenantContext(params.shopId, async (client) => {
+      const existing = await client.query<{ is_admin: boolean }>(
+        `SELECT (role->>'admin')::boolean AS "is_admin"
+         FROM staff_users
+         WHERE shop_id = $1`,
+        [params.shopId]
+      );
+      if (existing.rows.some((row) => row.is_admin)) return;
+
+      await client.query(
+        `INSERT INTO staff_users (shop_id, email, role, created_at)
+         VALUES ($1, $2, $3::jsonb, now())
+         ON CONFLICT (shop_id, email)
+         DO UPDATE SET role = EXCLUDED.role`,
+        [params.shopId, email, JSON.stringify({ admin: true })]
+      );
+    });
+  } catch (err) {
+    params.logger.warn({ err, shopId: params.shopId }, 'Failed to seed admin staff user');
+  }
 }
 
 export function registerAuthCallbackRoute(
@@ -391,6 +457,16 @@ export function registerAuthCallbackRoute(
         }
       } catch (err) {
         logger.error({ err, shop: shopDomain }, 'Failed to register webhooks during install');
+      }
+
+      // 10B. Seed admin staff user (best-effort)
+      if (shopId && tokenResponse.access_token) {
+        await ensureAdminStaffUser({
+          shopId,
+          shopDomain,
+          accessToken: tokenResponse.access_token,
+          logger,
+        });
       }
 
       // 11. Set session cookie for admin UI

@@ -1,11 +1,13 @@
 import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
-import { pool } from '@app/database';
+import { pool, withTenantContext } from '@app/database';
 import type { FastifyInstance, FastifyPluginCallback } from 'fastify';
 import type { SessionConfig } from '../auth/session.js';
 import { requireSession } from '../auth/session.js';
+import { requireAdmin } from '../auth/require-admin.js';
 import { checkTokenHealth } from '../auth/token-lifecycle.js';
 import { ShopifyRateLimitedError } from '@app/shopify-client';
+import { handleAppUninstalled } from '../processors/webhooks/handlers/app-uninstalled.handler.js';
 
 type ConnectionStatusPluginOptions = Readonly<{
   env: AppEnv;
@@ -115,6 +117,44 @@ export const connectionStatusRoutes: FastifyPluginCallback<ConnectionStatusPlugi
               'INTERNAL_SERVER_ERROR',
               'Failed to load connection status'
             )
+          );
+      }
+    }
+  );
+
+  server.post(
+    '/settings/connection/disconnect',
+    { preHandler: [requireSession(sessionConfig), requireAdmin()] },
+    async (request, reply) => {
+      const session = (request as typeof request & { session: { shopId: string } }).session;
+
+      try {
+        const shop = await withTenantContext(session.shopId, async (client) => {
+          const result = await client.query<{ shopify_domain: string }>(
+            `SELECT shopify_domain FROM shops WHERE id = $1`,
+            [session.shopId]
+          );
+          return result.rows[0];
+        });
+
+        if (!shop?.shopify_domain) {
+          return reply
+            .status(404)
+            .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Shop not found'));
+        }
+
+        await handleAppUninstalled(
+          { shopId: session.shopId, shopDomain: shop.shopify_domain },
+          logger
+        );
+
+        return reply.send(successEnvelope(request.id, { ok: true }));
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to disconnect shop');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(request.id, 500, 'INTERNAL_SERVER_ERROR', 'Failed to disconnect shop')
           );
       }
     }
