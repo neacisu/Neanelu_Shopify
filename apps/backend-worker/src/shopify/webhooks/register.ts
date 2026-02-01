@@ -58,6 +58,16 @@ interface MetaobjectDefinitionsQueryResponse {
   };
 }
 
+function normalizeCallbackUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.pathname = url.pathname.replace(/\/{2,}/g, '/');
+    return url.toString();
+  } catch {
+    return value.replace(/([^:]\/)\/+/g, '$1');
+  }
+}
+
 // Exhaustive list of topics to register
 export const REQUIRED_TOPICS = [
   // App Lifecycle
@@ -101,12 +111,17 @@ export const REQUIRED_TOPICS = [
   'bulk_operations/finish',
 ];
 
+const REQUIRED_TOPIC_ENUM_MAP = new Map<string, string>(
+  REQUIRED_TOPICS.map((topic) => [topicToEnum(topic), topic])
+);
+
 function topicToEnum(topic: string): string {
   return topic.toUpperCase().replace(/\//g, '_');
 }
 
 function enumToTopic(topicEnum: string): string {
-  return topicEnum.toLowerCase().replace(/_/g, '/');
+  const normalized = topicEnum.toUpperCase();
+  return REQUIRED_TOPIC_ENUM_MAP.get(normalized) ?? topicEnum.toLowerCase().replace(/_/g, '/');
 }
 
 async function upsertWebhookRecord(
@@ -131,6 +146,37 @@ async function upsertWebhookRecord(
          api_version = EXCLUDED.api_version`,
       [shopId, record.shopifyGid, record.topic, record.address, record.format, record.apiVersion]
     );
+  });
+}
+
+async function deleteWebhookRecord(shopId: string, shopifyGid: string): Promise<void> {
+  await withTenantContext(shopId, async (client) => {
+    await client.query(`DELETE FROM shopify_webhooks WHERE shop_id = $1 AND shopify_gid = $2`, [
+      shopId,
+      shopifyGid,
+    ]);
+  });
+}
+
+async function syncWebhookRecords(
+  shopId: string,
+  rows: { id: string; topic: string; callbackUrl: string; format: string }[]
+): Promise<void> {
+  await withTenantContext(shopId, async (client) => {
+    await client.query(`DELETE FROM shopify_webhooks WHERE shop_id = $1`, [shopId]);
+    for (const row of rows) {
+      await client.query(
+        `INSERT INTO shopify_webhooks (shop_id, shopify_gid, topic, address, format, api_version)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (shop_id, shopify_gid)
+         DO UPDATE SET
+           topic = EXCLUDED.topic,
+           address = EXCLUDED.address,
+           format = EXCLUDED.format,
+           api_version = EXCLUDED.api_version`,
+        [shopId, row.id, row.topic, row.callbackUrl, row.format, SHOPIFY_API_VERSION]
+      );
+    }
   });
 }
 
@@ -312,6 +358,7 @@ export async function reconcileWebhooks(
   for (const topic of REQUIRED_TOPICS) {
     const expectedUrl = expectedByTopic.get(topic);
     if (!expectedUrl) continue;
+    const expectedUrlNormalized = normalizeCallbackUrl(expectedUrl);
 
     if (topic.startsWith('metaobjects/')) {
       if (metaobjectFilters.length === 0) {
@@ -320,32 +367,47 @@ export async function reconcileWebhooks(
       }
 
       const existingSubs = existingByTopic.get(topic) ?? [];
+      const expectedFilterSet = new Set(metaobjectFilters);
+
+      for (const sub of existingSubs) {
+        const normalized = normalizeCallbackUrl(sub.callbackUrl);
+        if (
+          normalized !== expectedUrlNormalized ||
+          sub.callbackUrl !== expectedUrl ||
+          (sub.filter && !expectedFilterSet.has(sub.filter))
+        ) {
+          try {
+            await deleteWebhookSubscription(client, sub.id, logger);
+            await deleteWebhookRecord(shopId, sub.id);
+          } catch (err) {
+            logger.warn({ err, topic, filter: sub.filter }, 'Failed to delete stale webhook');
+          }
+        }
+      }
+
       for (const filter of metaobjectFilters) {
-        const existingMatch = existingSubs.find(
+        const matchingSubs = existingSubs.filter(
           (sub) => sub.callbackUrl === expectedUrl && sub.filter === filter
         );
-        if (existingMatch) {
+        if (matchingSubs.length > 0) {
+          const [keep, ...extras] = matchingSubs;
+          if (!keep) continue;
           await upsertWebhookRecord(shopId, {
-            shopifyGid: existingMatch.id,
+            shopifyGid: keep.id,
             topic,
             address: expectedUrl,
-            format: existingMatch.format,
+            format: keep.format,
             apiVersion: SHOPIFY_API_VERSION,
           });
-          continue;
-        }
-
-        const existingSameFilter = existingSubs.find((sub) => sub.filter === filter);
-        if (existingSameFilter?.callbackUrl && existingSameFilter.callbackUrl !== expectedUrl) {
-          logger.warn(
-            { topic, filter, existingUrl: existingSameFilter.callbackUrl, expectedUrl },
-            'Webhook callbackUrl mismatch; re-registering'
-          );
-          try {
-            await deleteWebhookSubscription(client, existingSameFilter.id, logger);
-          } catch (err) {
-            logger.warn({ err, topic, filter }, 'Failed to delete mismatched webhook; continuing');
+          for (const extra of extras) {
+            try {
+              await deleteWebhookSubscription(client, extra.id, logger);
+              await deleteWebhookRecord(shopId, extra.id);
+            } catch (err) {
+              logger.warn({ err, topic, filter }, 'Failed to delete duplicate webhook');
+            }
           }
+          continue;
         }
 
         const created = await createWebhookSubscription(client, topic, expectedUrl, filter, logger);
@@ -370,29 +432,40 @@ export async function reconcileWebhooks(
     }
 
     const existingSubs = existingByTopic.get(topic) ?? [];
-    const existingSub = existingSubs.find((sub) => sub.callbackUrl === expectedUrl);
-    if (existingSub) {
-      await upsertWebhookRecord(shopId, {
-        shopifyGid: existingSub.id,
-        topic,
-        address: expectedUrl,
-        format: existingSub.format,
-        apiVersion: SHOPIFY_API_VERSION,
-      });
-      continue;
-    }
-
-    const mismatched = existingSubs[0];
-    if (mismatched?.callbackUrl && mismatched.callbackUrl !== expectedUrl) {
+    const matchingSubs = existingSubs.filter((sub) => sub.callbackUrl === expectedUrl);
+    const mismatchedSubs = existingSubs.filter((sub) => sub.callbackUrl !== expectedUrl);
+    for (const sub of mismatchedSubs) {
       logger.warn(
-        { topic, existingUrl: mismatched.callbackUrl, expectedUrl },
+        { topic, existingUrl: sub.callbackUrl, expectedUrl },
         'Webhook callbackUrl mismatch; re-registering'
       );
       try {
-        await deleteWebhookSubscription(client, mismatched.id, logger);
+        await deleteWebhookSubscription(client, sub.id, logger);
+        await deleteWebhookRecord(shopId, sub.id);
       } catch (err) {
         logger.warn({ err, topic }, 'Failed to delete mismatched webhook; continuing');
       }
+    }
+
+    if (matchingSubs.length > 0) {
+      const [keep, ...extras] = matchingSubs;
+      if (!keep) continue;
+      await upsertWebhookRecord(shopId, {
+        shopifyGid: keep.id,
+        topic,
+        address: expectedUrl,
+        format: keep.format,
+        apiVersion: SHOPIFY_API_VERSION,
+      });
+      for (const extra of extras) {
+        try {
+          await deleteWebhookSubscription(client, extra.id, logger);
+          await deleteWebhookRecord(shopId, extra.id);
+        } catch (err) {
+          logger.warn({ err, topic }, 'Failed to delete duplicate webhook');
+        }
+      }
+      continue;
     }
 
     const created = await createWebhookSubscription(client, topic, expectedUrl, undefined, logger);
@@ -413,6 +486,9 @@ export async function reconcileWebhooks(
     });
     logger.debug({ topic }, 'Webhook registered and persisted');
   }
+
+  const finalSubscriptions = await listWebhookSubscriptions(client);
+  await syncWebhookRecords(shopId, finalSubscriptions);
 }
 
 /**
