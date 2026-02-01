@@ -9,6 +9,7 @@ import {
 } from '@app/queue-manager';
 
 import { recordEmbeddingDlqEntry } from '../../otel/metrics.js';
+import { addAiEvent, AI_EVENTS } from './otel/events.js';
 export const EMBEDDING_DLQ_QUEUE_NAME = 'embedding-product-dlq';
 
 export interface EmbeddingDlqEntry {
@@ -49,7 +50,13 @@ export async function moveToEmbeddingDlq(params: {
     };
 
     await enqueueDlqEntry(queue, dlqEntry);
-    recordEmbeddingDlqEntry({ shopId: entry.shopId });
+    recordEmbeddingDlqEntry();
+    addAiEvent(AI_EVENTS.DLQ_MOVE, {
+      shop_id: entry.shopId,
+      product_id: entry.productId,
+      embedding_type: entry.embeddingType,
+      retry_count: entry.retryCount,
+    });
     params.logger.error(
       { shopId: entry.shopId, productId: entry.productId, retryCount: entry.retryCount },
       'Embedding item moved to DLQ'

@@ -668,31 +668,16 @@ export function recordAiQueryLatencyMs(latencyMs: number): void {
   aiQueryLatencyMs.record(latencyMs);
 }
 
-export function recordEmbeddingRetry(params: { shopId?: string; embeddingType: string }): void {
-  const attributes: Record<string, string> = { embedding_type: params.embeddingType };
-  if (params.shopId) {
-    attributes['shop_id'] = params.shopId;
-  }
-  embeddingRetryTotal.add(1, attributes);
+export function recordEmbeddingRetry(params: { embeddingType: string }): void {
+  embeddingRetryTotal.add(1, { embedding_type: params.embeddingType });
 }
 
-export function recordEmbeddingDlqEntry(params: { shopId?: string }): void {
-  const attributes: Record<string, string> = {};
-  if (params.shopId) {
-    attributes['shop_id'] = params.shopId;
-  }
-  embeddingDlqEntriesTotal.add(1, attributes);
+export function recordEmbeddingDlqEntry(): void {
+  embeddingDlqEntriesTotal.add(1);
 }
 
-export function recordEmbeddingPermanentFailure(params: {
-  shopId?: string;
-  errorType: string;
-}): void {
-  const attributes: Record<string, string> = { error_type: params.errorType };
-  if (params.shopId) {
-    attributes['shop_id'] = params.shopId;
-  }
-  embeddingFailedPermanentTotal.add(1, attributes);
+export function recordEmbeddingPermanentFailure(params: { errorType: string }): void {
+  embeddingFailedPermanentTotal.add(1, { error_type: params.errorType });
 }
 
 /** Increment bulk active operations (best-effort). */

@@ -170,7 +170,7 @@ Pentru evitarea drift-ului între documentație și implementare, nu mai folosim
 - `ai.items_processed_total` - processed items count
 - `ai.errors_total` - AI errors count
 - `ai.query_latency_ms` - semantic query latency (ms)
-- `ai.redis_sync_lag` - **not applicable** (Redis is not used for vector storage)
+- `ai.redis_sync_lag` - **not applicable**. Redis nu este folosit pentru vector storage (pgvector este primary store); Redis este folosit doar pentru cache de rezultate.
 
 ---
 

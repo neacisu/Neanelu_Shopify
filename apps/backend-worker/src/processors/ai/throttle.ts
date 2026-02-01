@@ -8,6 +8,7 @@ type ThrottleResult = Readonly<{
 }>;
 
 const SHOP_HOURLY_LIMIT_DEFAULT = 1000;
+const SHOP_DAILY_LIMIT_DEFAULT = 10000;
 const GLOBAL_HOURLY_LIMIT_DEFAULT = 10000;
 
 let cachedRedis: ReturnType<typeof createRedisConnection> | null = null;
@@ -48,6 +49,7 @@ export async function checkBackfillThrottle(params: {
   shopId: string;
   requestedItems: number;
   maxItemsPerShopPerHour?: number;
+  maxItemsPerShopPerDay?: number;
   maxItemsGlobalPerHour?: number;
   maxItemsPerDay?: number;
 }): Promise<ThrottleResult> {
@@ -60,6 +62,10 @@ export async function checkBackfillThrottle(params: {
     params.maxItemsPerShopPerHour ??
     env.openAiEmbedThrottleShopHourlyLimit ??
     SHOP_HOURLY_LIMIT_DEFAULT;
+  const maxItemsPerShopPerDay =
+    params.maxItemsPerShopPerDay ??
+    env.openAiEmbedThrottleShopDailyLimit ??
+    SHOP_DAILY_LIMIT_DEFAULT;
   const maxItemsGlobalPerHour =
     params.maxItemsGlobalPerHour ??
     env.openAiEmbedThrottleGlobalHourlyLimit ??
@@ -67,21 +73,28 @@ export async function checkBackfillThrottle(params: {
   const maxItemsPerDay = params.maxItemsPerDay ?? env.openAiEmbeddingDailyBudget;
 
   const shopHourKey = `embedding:backfill:shop:${params.shopId}:hour:${hourKey}`;
+  const shopDayKey = `embedding:backfill:shop:${params.shopId}:day:${dayKey}`;
   const globalHourKey = `embedding:backfill:global:hour:${hourKey}`;
   const globalDayKey = `embedding:backfill:global:day:${dayKey}`;
 
-  const [shopHourRaw, globalHourRaw, globalDayRaw] = await redis.mget(
+  const [shopHourRaw, shopDayRaw, globalHourRaw, globalDayRaw] = await redis.mget(
     shopHourKey,
+    shopDayKey,
     globalHourKey,
     globalDayKey
   );
 
   const shopHour = Number(shopHourRaw ?? 0);
+  const shopDay = Number(shopDayRaw ?? 0);
   const globalHour = Number(globalHourRaw ?? 0);
   const globalDay = Number(globalDayRaw ?? 0);
 
   if (shopHour + params.requestedItems > maxItemsPerShopPerHour) {
     return { allowed: false, delayMs: msUntilNextHour(now), reason: 'shop_hourly_limit' };
+  }
+
+  if (shopDay + params.requestedItems > maxItemsPerShopPerDay) {
+    return { allowed: false, delayMs: msUntilNextDay(now), reason: 'shop_daily_limit' };
   }
 
   if (globalHour + params.requestedItems > maxItemsGlobalPerHour) {
@@ -95,6 +108,8 @@ export async function checkBackfillThrottle(params: {
   const multi = redis.multi();
   multi.incrby(shopHourKey, params.requestedItems);
   multi.expire(shopHourKey, 3 * 3600);
+  multi.incrby(shopDayKey, params.requestedItems);
+  multi.expire(shopDayKey, 3 * 86400);
   multi.incrby(globalHourKey, params.requestedItems);
   multi.expire(globalHourKey, 3 * 3600);
   multi.incrby(globalDayKey, params.requestedItems);

@@ -2959,7 +2959,7 @@ Obiectiv: embeddings OpenAI Batch + index vectorial în Redis 8.4 + observabilit
     {
         "id_task": "F6.3.1",
         "denumire_task": "OTel pentru AI pipeline (spans/metrics/events, fără high-cardinality labels)",
-        "descriere_task": "Instrumentează: enqueue→batch_build→batch_submit→poll→download→parse→db_upsert→redis_sync→vector_query. Metrici: ai.backlog_items, ai.batch_age_seconds, ai.items_processed_total, ai.errors_total, ai.query_latency_ms, ai.redis_sync_lag. Fără shop_domain în metric labels (shop_id doar în span attributes).",
+        "descriere_task": "Instrumentează: enqueue→batch_build→batch_submit→poll→download→parse→db_upsert→vector_query. Metrici: ai.backlog_items, ai.batch_age_seconds, ai.items_processed_total, ai.errors_total, ai.query_latency_ms. Fără shop_domain în metric labels (shop_id doar în span attributes).",
         "cale_implementare": "apps/backend-worker/src/ + packages/ai-engine/src/",
         "contextul_anterior": "F3.4/F4.4/F5.3 au standard OTel; F6 trebuie să-l respecte.",
         "validare_task": "Traces coerente; metrici disponibili; nu există labels cu cardinalitate mare.",
@@ -2978,8 +2978,8 @@ Obiectiv: embeddings OpenAI Batch + index vectorial în Redis 8.4 + observabilit
     },
     {
         "id_task": "F6.3.3",
-        "denumire_task": "Integration tests (containers) pentru Redis RediSearch + Postgres RLS + provider mock",
-        "descriere_task": "Teste end-to-end: embeddings persistate în Postgres cu RLS, sync în Redis, query KNN cu FILTER shop_id. OpenAI mock (fără dependență de serviciu extern).",
+        "denumire_task": "Integration tests (containers) pentru pgvector + Redis cache + Postgres RLS + provider mock",
+        "descriere_task": "Teste end-to-end: embeddings persistate în Postgres cu RLS (pgvector), Redis folosit doar pentru cache rezultate, query KNN cu FILTER shop_id. OpenAI mock (fără dependență de serviciu extern).",
         "cale_implementare": "apps/backend-worker/src/ + packages/ai-engine/src/",
         "contextul_anterior": "F5.4 cere CI-friendly fără Shopify real; aplicăm același principiu pentru OpenAI.",
         "validare_task": "Rulează local/CI cu containere; confirmă izolare multi-tenant.",
@@ -3000,7 +3000,7 @@ Obiectiv: embeddings OpenAI Batch + index vectorial în Redis 8.4 + observabilit
         "id_task": "F6.3.5",
         "denumire_task": "Performance Test Harness (Vector Search Latency)",
         "descriere_task": "Script de load testing (k6 sau custom node) care bombardează API-ul de search cu query-uri sintetice. Validează SLA: p95 < 100ms pentru cached queries și < 300ms pentru uncached (cu embedding generation).",
-        "cale_implementare": "tests/performance/vector-search-load.js",
+        "cale_implementare": "tests/performance/vector-search-load.ts",
         "contextul_anterior": "Fără măsurători, 'latență mică' e doar o promisiune.",
         "validare_task": "Rulează testul în CI/staging; generează raport latență.",
         "outcome_task": "Certitudine asupra performanței înainte de producție.",

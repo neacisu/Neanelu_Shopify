@@ -1,3 +1,5 @@
+import { addAiEvent, AI_EVENTS } from './otel/events.js';
+
 export type EmbeddingErrorClass = 'transient' | 'permanent';
 
 export type EmbeddingErrorType =
@@ -26,24 +28,84 @@ export function classifyEmbeddingError(
 ): EmbeddingErrorDecision {
   const message = errorMessage?.trim() ?? '';
   if (!message) {
-    return { classification: 'transient', errorType: 'UNKNOWN', shouldRetry: true };
+    const decision = {
+      classification: 'transient',
+      errorType: 'UNKNOWN',
+      shouldRetry: true,
+    } as const;
+    addAiEvent(AI_EVENTS.ERROR_CLASSIFIED, {
+      error_type: decision.errorType,
+      classification: decision.classification,
+      should_retry: decision.shouldRetry,
+    });
+    return decision;
   }
 
   if (DIMENSION_REGEX.test(message)) {
-    return { classification: 'permanent', errorType: 'DIMENSION_MISMATCH', shouldRetry: false };
+    const decision = {
+      classification: 'permanent',
+      errorType: 'DIMENSION_MISMATCH',
+      shouldRetry: false,
+    } as const;
+    addAiEvent(AI_EVENTS.ERROR_CLASSIFIED, {
+      error_type: decision.errorType,
+      classification: decision.classification,
+      should_retry: decision.shouldRetry,
+    });
+    return decision;
   }
 
   if (INVALID_CONTENT_REGEX.test(message)) {
-    return { classification: 'permanent', errorType: 'INVALID_CONTENT', shouldRetry: false };
+    const decision = {
+      classification: 'permanent',
+      errorType: 'INVALID_CONTENT',
+      shouldRetry: false,
+    } as const;
+    addAiEvent(AI_EVENTS.ERROR_CLASSIFIED, {
+      error_type: decision.errorType,
+      classification: decision.classification,
+      should_retry: decision.shouldRetry,
+    });
+    return decision;
   }
 
   if (MODEL_REGEX.test(message)) {
-    return { classification: 'permanent', errorType: 'MODEL_ERROR', shouldRetry: false };
+    const decision = {
+      classification: 'permanent',
+      errorType: 'MODEL_ERROR',
+      shouldRetry: false,
+    } as const;
+    addAiEvent(AI_EVENTS.ERROR_CLASSIFIED, {
+      error_type: decision.errorType,
+      classification: decision.classification,
+      should_retry: decision.shouldRetry,
+    });
+    return decision;
   }
 
   if (TRANSIENT_REGEX.test(message)) {
-    return { classification: 'transient', errorType: 'RATE_LIMITED', shouldRetry: true };
+    const decision = {
+      classification: 'transient',
+      errorType: 'RATE_LIMITED',
+      shouldRetry: true,
+    } as const;
+    addAiEvent(AI_EVENTS.ERROR_CLASSIFIED, {
+      error_type: decision.errorType,
+      classification: decision.classification,
+      should_retry: decision.shouldRetry,
+    });
+    return decision;
   }
 
-  return { classification: 'transient', errorType: 'UNKNOWN', shouldRetry: true };
+  const decision = {
+    classification: 'transient',
+    errorType: 'UNKNOWN',
+    shouldRetry: true,
+  } as const;
+  addAiEvent(AI_EVENTS.ERROR_CLASSIFIED, {
+    error_type: decision.errorType,
+    classification: decision.classification,
+    should_retry: decision.shouldRetry,
+  });
+  return decision;
 }

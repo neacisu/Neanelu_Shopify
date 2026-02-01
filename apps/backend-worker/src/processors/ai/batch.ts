@@ -18,6 +18,7 @@ import {
   recordEmbeddingPermanentFailure,
   recordEmbeddingRetry,
 } from '../../otel/metrics.js';
+import { addAiEvent, AI_EVENTS } from './otel/events.js';
 import { AI_SPAN_NAMES, withAiSpan } from './otel/spans.js';
 
 export type ShopifyEmbeddingSourceRow = Readonly<{
@@ -348,6 +349,15 @@ function mapOpenAiStatus(
   return 'pending';
 }
 
+async function countActiveEmbeddingBatches(): Promise<number> {
+  const res = await pool.query<{ count: number }>(
+    `SELECT COUNT(*)::int as count
+       FROM embedding_batches
+      WHERE status IN ('pending', 'submitted', 'processing')`
+  );
+  return Number(res.rows[0]?.count ?? 0);
+}
+
 async function writeJsonlTempFile(params: {
   lines: readonly string[];
   shopId: string;
@@ -434,6 +444,15 @@ export async function runAiBatchOrchestrator(params: {
         return;
       }
 
+      const activeBatches = await countActiveEmbeddingBatches();
+      if (activeBatches >= env.openAiBatchMaxGlobal) {
+        logger.info(
+          { shopId: payload.shopId, activeBatches, maxGlobal: env.openAiBatchMaxGlobal },
+          'Max global batches reached; skipping new batch creation'
+        );
+        return;
+      }
+
       const selection = await withAiSpan(
         AI_SPAN_NAMES.BUILD,
         { 'ai.shop_id': payload.shopId, 'ai.embedding_type': payload.embeddingType },
@@ -493,7 +512,6 @@ export async function runAiBatchOrchestrator(params: {
         });
         for (const candidate of selection.dlqCandidates) {
           recordEmbeddingPermanentFailure({
-            shopId: payload.shopId,
             errorType: candidate.errorType,
           });
         }
@@ -561,6 +579,12 @@ export async function runAiBatchOrchestrator(params: {
             });
             batchId = batch.id;
             expiresAt = batch.expires_at ? new Date(batch.expires_at * 1000) : null;
+            addAiEvent(AI_EVENTS.BATCH_SUBMITTED, {
+              shop_id: payload.shopId,
+              batch_id: batchId,
+              items_count: candidates.length,
+              embedding_type: payload.embeddingType,
+            });
 
             embeddingBatchId = await withTenantContext(payload.shopId, async (client) => {
               const insert = await client.query<{ id: string }>(
@@ -751,6 +775,11 @@ export async function runAiBatchPoller(params: {
             ]
           );
         });
+        addAiEvent(AI_EVENTS.BATCH_FAILED, {
+          shop_id: payload.shopId,
+          batch_id: payload.embeddingBatchId,
+          openai_status: mappedStatus,
+        });
         return;
       }
 
@@ -821,8 +850,13 @@ export async function runAiBatchPoller(params: {
                     ]
                   );
                   recordEmbeddingRetry({
-                    shopId: payload.shopId,
                     embeddingType: parsedCustom.embeddingType,
+                  });
+                  addAiEvent(AI_EVENTS.EMBEDDING_RETRY, {
+                    shop_id: payload.shopId,
+                    product_id: parsedCustom.productId,
+                    embedding_type: parsedCustom.embeddingType,
+                    error_type: decision.errorType,
                   });
                   failedItems += 1;
                   continue;
@@ -898,8 +932,13 @@ export async function runAiBatchPoller(params: {
                   ]
                 );
                 recordEmbeddingRetry({
-                  shopId: payload.shopId,
                   embeddingType: parsedCustom.embeddingType,
+                });
+                addAiEvent(AI_EVENTS.EMBEDDING_RETRY, {
+                  shop_id: payload.shopId,
+                  product_id: parsedCustom.productId,
+                  embedding_type: parsedCustom.embeddingType,
+                  error_type: decision.errorType,
                 });
                 failedItems += 1;
               }
@@ -930,8 +969,13 @@ export async function runAiBatchPoller(params: {
                 ]
               );
               recordEmbeddingRetry({
-                shopId: payload.shopId,
                 embeddingType: parsedCustom.embeddingType,
+              });
+              addAiEvent(AI_EVENTS.EMBEDDING_RETRY, {
+                shop_id: payload.shopId,
+                product_id: parsedCustom.productId,
+                embedding_type: parsedCustom.embeddingType,
+                error_type: decision.errorType,
               });
               failedItems += 1;
             }
@@ -943,6 +987,13 @@ export async function runAiBatchPoller(params: {
       const completedTotal = Math.max(completedItems, batch.request_counts?.completed ?? 0);
 
       recordAiItemsProcessed(completedTotal);
+      addAiEvent(AI_EVENTS.BATCH_COMPLETED, {
+        shop_id: payload.shopId,
+        batch_id: payload.embeddingBatchId,
+        completed_items: completedTotal,
+        failed_items: failedTotal,
+        total_items: totalItems,
+      });
 
       await withTenantContext(payload.shopId, async (client) => {
         await client.query(

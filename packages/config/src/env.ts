@@ -88,8 +88,12 @@ export type AppEnv = Readonly<{
   openAiEmbedRateLimitBucketTtlMs: number;
   /** Throttle: max items per shop per hour */
   openAiEmbedThrottleShopHourlyLimit: number;
+  /** Throttle: max items per shop per day */
+  openAiEmbedThrottleShopDailyLimit: number;
   /** Throttle: max items global per hour */
   openAiEmbedThrottleGlobalHourlyLimit: number;
+  /** Max concurrent global OpenAI batches */
+  openAiBatchMaxGlobal: number;
   /** Vector search cache TTL in seconds */
   vectorSearchCacheTtlSeconds: number;
   /** Vector search query timeout in ms */
@@ -397,11 +401,17 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     'OPENAI_EMBED_THROTTLE_SHOP_HOURLY',
     1000
   );
+  const openAiEmbedThrottleShopDailyLimit = parsePositiveIntWithDefault(
+    env,
+    'OPENAI_EMBED_THROTTLE_SHOP_DAILY',
+    10000
+  );
   const openAiEmbedThrottleGlobalHourlyLimit = parsePositiveIntWithDefault(
     env,
     'OPENAI_EMBED_THROTTLE_GLOBAL_HOURLY',
     10000
   );
+  const openAiBatchMaxGlobal = parsePositiveIntWithDefault(env, 'OPENAI_BATCH_MAX_GLOBAL', 5);
   const vectorSearchCacheTtlSeconds = parsePositiveIntWithDefault(
     env,
     'VECTOR_SEARCH_CACHE_TTL_SECONDS',
@@ -500,7 +510,9 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     openAiEmbedRateLimitRequestsPerMinute,
     openAiEmbedRateLimitBucketTtlMs,
     openAiEmbedThrottleShopHourlyLimit,
+    openAiEmbedThrottleShopDailyLimit,
     openAiEmbedThrottleGlobalHourlyLimit,
+    openAiBatchMaxGlobal,
     vectorSearchCacheTtlSeconds,
     vectorSearchQueryTimeoutMs,
     openAiEmbeddingDimensions,

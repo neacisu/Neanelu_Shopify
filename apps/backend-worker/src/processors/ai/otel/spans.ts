@@ -1,11 +1,15 @@
 import { withSpan } from '@app/logger';
 
 export type AiSpanAttributes = Record<string, string | number | boolean> & {
-  'ai.shop_id': string;
+  'ai.shop_id'?: string;
   'ai.batch_id'?: string;
   'ai.items_count'?: number;
   'ai.tokens_used'?: number;
   'ai.embedding_type'?: string;
+};
+
+export type AiSpanInputAttributes = AiSpanAttributes & {
+  shopId?: string;
 };
 
 export const AI_SPAN_NAMES = {
@@ -23,8 +27,14 @@ export const AI_SPAN_NAMES = {
 
 export function withAiSpan<T>(
   name: (typeof AI_SPAN_NAMES)[keyof typeof AI_SPAN_NAMES],
-  attributes: AiSpanAttributes,
+  attributes: AiSpanInputAttributes,
   fn: () => T | Promise<T>
 ): Promise<T> {
-  return withSpan(name, attributes, async () => Promise.resolve(fn()));
+  const { shopId, ...rest } = attributes;
+  const resolvedShopId = shopId ?? rest['ai.shop_id'];
+  const spanAttributes: AiSpanAttributes = {
+    ...rest,
+    ...(resolvedShopId ? { 'ai.shop_id': resolvedShopId, 'shop.id': resolvedShopId } : {}),
+  };
+  return withSpan(name, spanAttributes, async () => Promise.resolve(fn()));
 }
