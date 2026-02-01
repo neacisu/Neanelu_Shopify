@@ -142,6 +142,14 @@ export const queueSettingsRoutes: FastifyPluginCallback<QueueSettingsPluginOptio
             typeof override['maxAttempts'] === 'number'
               ? override['maxAttempts']
               : DEFAULT_POLICY.attempts;
+          const backoffType =
+            override['backoffType'] === 'fixed' || override['backoffType'] === 'exponential'
+              ? override['backoffType']
+              : DEFAULT_BACKOFF_TYPE;
+          const backoffDelayMs =
+            typeof override['backoffDelayMs'] === 'number'
+              ? override['backoffDelayMs']
+              : DEFAULT_BACKOFF_DELAY_MS;
           const dlqRetentionDays =
             typeof override['dlqRetentionDays'] === 'number'
               ? override['dlqRetentionDays']
@@ -151,8 +159,8 @@ export const queueSettingsRoutes: FastifyPluginCallback<QueueSettingsPluginOptio
             name,
             concurrency,
             maxAttempts,
-            backoffType: DEFAULT_BACKOFF_TYPE,
-            backoffDelayMs: DEFAULT_BACKOFF_DELAY_MS,
+            backoffType,
+            backoffDelayMs,
             dlqRetentionDays,
           };
         });
@@ -180,7 +188,8 @@ export const queueSettingsRoutes: FastifyPluginCallback<QueueSettingsPluginOptio
           .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Invalid queue payload'));
       }
 
-      const { queueName, concurrency, maxAttempts, dlqRetentionDays } = parsed.data;
+      const { queueName, concurrency, maxAttempts, backoffType, backoffDelayMs, dlqRetentionDays } =
+        parsed.data;
       const name = normalizeQueueName(queueName);
       if (!isKnownQueueName(name)) {
         return reply
@@ -192,6 +201,8 @@ export const queueSettingsRoutes: FastifyPluginCallback<QueueSettingsPluginOptio
         const payload = {
           ...(concurrency !== undefined ? { concurrency } : {}),
           ...(maxAttempts !== undefined ? { maxAttempts } : {}),
+          ...(backoffType !== undefined ? { backoffType } : {}),
+          ...(backoffDelayMs !== undefined ? { backoffDelayMs } : {}),
           ...(dlqRetentionDays !== undefined ? { dlqRetentionDays } : {}),
         };
 

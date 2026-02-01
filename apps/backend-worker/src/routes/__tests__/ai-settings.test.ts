@@ -20,6 +20,8 @@ interface DbRow {
   openaiBaseUrl: string | null;
   openaiEmbeddingsModel: string | null;
   hasApiKey: boolean;
+  embeddingBatchSize?: number | null;
+  similarityThreshold?: number | null;
 }
 
 interface AiSettingsEnvelope {
@@ -29,6 +31,8 @@ interface AiSettingsEnvelope {
     hasApiKey: boolean;
     openaiBaseUrl?: string | null;
     openaiEmbeddingsModel?: string | null;
+    embeddingBatchSize?: number | null;
+    similarityThreshold?: number | null;
   };
 }
 
@@ -63,6 +67,8 @@ void mock.module('@app/database', {
               openaiBaseUrl: null,
               openaiEmbeddingsModel: null,
               hasApiKey: false,
+              embeddingBatchSize: null,
+              similarityThreshold: null,
             };
             return Promise.resolve({ rows: [] });
           }
@@ -73,6 +79,8 @@ void mock.module('@app/database', {
               openaiBaseUrl: null,
               openaiEmbeddingsModel: null,
               hasApiKey: false,
+              embeddingBatchSize: null,
+              similarityThreshold: null,
             };
 
             const setClause = trimmed.split('SET')[1];
@@ -108,6 +116,22 @@ void mock.module('@app/database', {
                 if (match && values) {
                   const index = Number(match[1]) - 1;
                   dbRow.openaiEmbeddingsModel = (values[index] as string | null) ?? null;
+                }
+              }
+
+              if (assignment.startsWith('embedding_batch_size =')) {
+                const match = /\$(\d+)/.exec(assignment);
+                if (match && values) {
+                  const index = Number(match[1]) - 1;
+                  dbRow.embeddingBatchSize = (values[index] as number | null) ?? null;
+                }
+              }
+
+              if (assignment.startsWith('similarity_threshold =')) {
+                const match = /\$(\d+)/.exec(assignment);
+                if (match && values) {
+                  const index = Number(match[1]) - 1;
+                  dbRow.similarityThreshold = (values[index] as number | null) ?? null;
                 }
               }
 
@@ -221,6 +245,8 @@ void describe('AI Settings Routes', () => {
     assert.equal(body.data.hasApiKey, false);
     assert.equal(body.data.openaiBaseUrl, env.openAiBaseUrl);
     assert.equal(body.data.openaiEmbeddingsModel, env.openAiEmbeddingsModel);
+    assert.equal(body.data.embeddingBatchSize, 100);
+    assert.equal(body.data.similarityThreshold, 0.8);
   });
 
   void it('updates settings and stores api key flag', async () => {
@@ -232,6 +258,8 @@ void describe('AI Settings Routes', () => {
         apiKey: 'sk-test',
         openaiBaseUrl: 'https://api.openai.com',
         openaiEmbeddingsModel: 'text-embedding-3-large',
+        embeddingBatchSize: 120,
+        similarityThreshold: 0.9,
       },
     });
 
@@ -240,6 +268,8 @@ void describe('AI Settings Routes', () => {
     assert.equal(body.data.enabled, true);
     assert.equal(body.data.hasApiKey, true);
     assert.equal(body.data.openaiEmbeddingsModel, 'text-embedding-3-large');
+    assert.equal(body.data.embeddingBatchSize, 120);
+    assert.equal(body.data.similarityThreshold, 0.9);
   });
 
   void it('clears api key when empty string provided', async () => {
@@ -248,6 +278,8 @@ void describe('AI Settings Routes', () => {
       openaiBaseUrl: 'https://api.openai.com',
       openaiEmbeddingsModel: 'text-embedding-3-small',
       hasApiKey: true,
+      embeddingBatchSize: 100,
+      similarityThreshold: 0.8,
     };
 
     const response = await app.inject({
@@ -261,5 +293,29 @@ void describe('AI Settings Routes', () => {
     assert.equal(response.statusCode, 200);
     const body = readEnvelope(response);
     assert.equal(body.data.hasApiKey, false);
+  });
+
+  void it('rejects invalid embedding batch size', async () => {
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/ai',
+      payload: {
+        embeddingBatchSize: 5,
+      },
+    });
+
+    assert.equal(response.statusCode, 400);
+  });
+
+  void it('rejects invalid similarity threshold', async () => {
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/ai',
+      payload: {
+        similarityThreshold: 0.5,
+      },
+    });
+
+    assert.equal(response.statusCode, 400);
   });
 });

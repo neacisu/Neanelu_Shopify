@@ -244,7 +244,7 @@ export default function SettingsPage() {
 
   const updateQueueField = (
     name: string,
-    field: 'concurrency' | 'maxAttempts' | 'dlqRetentionDays',
+    field: 'concurrency' | 'maxAttempts' | 'backoffDelayMs' | 'dlqRetentionDays',
     value: number
   ) => {
     setQueueEdits((prev) => {
@@ -255,6 +255,20 @@ export default function SettingsPage() {
         [name]: {
           ...base,
           [field]: value,
+        },
+      };
+    });
+  };
+
+  const updateQueueBackoffType = (name: string, value: 'exponential' | 'fixed') => {
+    setQueueEdits((prev) => {
+      const base = prev[name] ?? queuesData?.queues.find((queue) => queue.name === name);
+      if (!base) return prev;
+      return {
+        ...prev,
+        [name]: {
+          ...base,
+          backoffType: value,
         },
       };
     });
@@ -273,6 +287,8 @@ export default function SettingsPage() {
           queueName: name,
           concurrency: current.concurrency,
           maxAttempts: current.maxAttempts,
+          backoffType: current.backoffType,
+          backoffDelayMs: current.backoffDelayMs,
           dlqRetentionDays: current.dlqRetentionDays,
         }),
       });
@@ -472,6 +488,18 @@ export default function SettingsPage() {
             </div>
           </div>
 
+          <label className="flex items-center gap-2 text-body">
+            <input
+              type="checkbox"
+              className="size-4 accent-primary"
+              checked={preferences.notificationsEnabled ?? false}
+              onChange={(event) =>
+                updatePreferences({ notificationsEnabled: event.target.checked })
+              }
+            />
+            Primește notificări despre sincronizări și alerte
+          </label>
+
           {generalStatus ? (
             <div
               className={`rounded-md border p-3 text-sm shadow-sm ${
@@ -657,10 +685,52 @@ export default function SettingsPage() {
                         className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                       />
                     </div>
+
+                    <div>
+                      <label className="text-caption text-muted" htmlFor={`${queue.name}-backoff`}>
+                        Backoff type
+                      </label>
+                      <select
+                        id={`${queue.name}-backoff`}
+                        value={draft.backoffType}
+                        disabled={disabled}
+                        onChange={(event) =>
+                          updateQueueBackoffType(
+                            queue.name,
+                            event.target.value === 'fixed' ? 'fixed' : 'exponential'
+                          )
+                        }
+                        className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                      >
+                        <option value="exponential">Exponential</option>
+                        <option value="fixed">Fixed</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label
+                        className="text-caption text-muted"
+                        htmlFor={`${queue.name}-backoff-delay`}
+                      >
+                        Backoff delay (ms)
+                      </label>
+                      <input
+                        id={`${queue.name}-backoff-delay`}
+                        type="number"
+                        min={0}
+                        value={draft.backoffDelayMs}
+                        disabled={disabled}
+                        onChange={(event) =>
+                          updateQueueField(queue.name, 'backoffDelayMs', Number(event.target.value))
+                        }
+                        className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                      />
+                    </div>
                   </div>
 
                   <div className="text-xs text-muted">
-                    Backoff: {queue.backoffType} ({queue.backoffDelayMs}ms)
+                    Modificările pentru max attempts și DLQ retention se aplică după restartul
+                    worker-ului.
                   </div>
 
                   <div className="flex items-center gap-3">
