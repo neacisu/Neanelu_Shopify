@@ -1,5 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { pool } from '@app/database';
+import { withTenantContext } from '@app/database';
 import type { SessionData } from './session.js';
 
 export function requireAdmin() {
@@ -15,9 +15,11 @@ export function requireAdmin() {
     }
 
     try {
-      const result = await pool.query<{ role: { admin?: boolean } }>(
-        `SELECT role FROM staff_users WHERE shop_id = $1`,
-        [session.shopId]
+      const result = await withTenantContext(session.shopId, (client) =>
+        client.query<{ role: { admin?: boolean } }>(
+          `SELECT role FROM staff_users WHERE shop_id = $1`,
+          [session.shopId]
+        )
       );
       const hasAdmin = result.rows.some((row) => row.role?.admin === true);
       if (!hasAdmin) {
