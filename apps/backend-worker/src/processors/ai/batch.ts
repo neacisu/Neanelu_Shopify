@@ -8,6 +8,7 @@ import { OpenAiBatchManager, createEmbeddingsProvider, sha256Hex } from '@app/ai
 import type { Logger } from '@app/logger';
 import { enqueueAiBatchPollerJob } from '@app/queue-manager';
 import type { AiBatchOrchestratorJobPayload, AiBatchPollerJobPayload } from '@app/types';
+import { getShopOpenAiConfig } from '../../runtime/openai-config.js';
 
 import { normalizeText, toPgVectorLiteral } from '../bulk-operations/pim/vector.js';
 import { classifyEmbeddingError } from './error-classifier.js';
@@ -383,18 +384,20 @@ export async function runAiBatchOrchestrator(params: {
     async () => {
       const env = loadEnv();
 
-      if (!env.openAiApiKey) {
-        logger.warn(
-          { shopId: payload.shopId },
-          'OPENAI_API_KEY missing; skipping batch orchestrator'
-        );
+      const openAiConfig = await getShopOpenAiConfig({
+        shopId: payload.shopId,
+        env,
+        logger,
+      });
+      if (!openAiConfig.enabled || !openAiConfig.openAiApiKey) {
+        logger.warn({ shopId: payload.shopId }, 'OpenAI disabled; skipping batch orchestrator');
         return;
       }
 
       const provider = createEmbeddingsProvider({
-        ...(env.openAiApiKey ? { openAiApiKey: env.openAiApiKey } : {}),
-        ...(env.openAiBaseUrl ? { openAiBaseUrl: env.openAiBaseUrl } : {}),
-        ...(env.openAiEmbeddingsModel ? { openAiEmbeddingsModel: env.openAiEmbeddingsModel } : {}),
+        openAiApiKey: openAiConfig.openAiApiKey,
+        ...(openAiConfig.openAiBaseUrl ? { openAiBaseUrl: openAiConfig.openAiBaseUrl } : {}),
+        openAiEmbeddingsModel: openAiConfig.openAiEmbeddingsModel,
         openAiTimeoutMs: env.openAiTimeoutMs,
       });
 
@@ -546,8 +549,8 @@ export async function runAiBatchOrchestrator(params: {
       });
 
       const batchManager = new OpenAiBatchManager({
-        apiKey: env.openAiApiKey,
-        ...(env.openAiBaseUrl ? { baseUrl: env.openAiBaseUrl } : {}),
+        apiKey: openAiConfig.openAiApiKey,
+        ...(openAiConfig.openAiBaseUrl ? { baseUrl: openAiConfig.openAiBaseUrl } : {}),
         timeoutMs: env.openAiTimeoutMs,
       });
 
@@ -667,14 +670,19 @@ export async function runAiBatchPoller(params: {
     async () => {
       const env = loadEnv();
 
-      if (!env.openAiApiKey) {
-        logger.warn({ shopId: payload.shopId }, 'OPENAI_API_KEY missing; skipping batch poller');
+      const openAiConfig = await getShopOpenAiConfig({
+        shopId: payload.shopId,
+        env,
+        logger,
+      });
+      if (!openAiConfig.enabled || !openAiConfig.openAiApiKey) {
+        logger.warn({ shopId: payload.shopId }, 'OpenAI disabled; skipping batch poller');
         return;
       }
 
       const batchManager = new OpenAiBatchManager({
-        apiKey: env.openAiApiKey,
-        ...(env.openAiBaseUrl ? { baseUrl: env.openAiBaseUrl } : {}),
+        apiKey: openAiConfig.openAiApiKey,
+        ...(openAiConfig.openAiBaseUrl ? { baseUrl: openAiConfig.openAiBaseUrl } : {}),
         timeoutMs: env.openAiTimeoutMs,
       });
 
@@ -1045,14 +1053,19 @@ export async function runAiBatchCleanup(params: {
   const { shopId, retentionDays, logger } = params;
   const env = loadEnv();
 
-  if (!env.openAiApiKey) {
-    logger.warn({ shopId }, 'OPENAI_API_KEY missing; skipping batch cleanup');
+  const openAiConfig = await getShopOpenAiConfig({
+    shopId,
+    env,
+    logger,
+  });
+  if (!openAiConfig.enabled || !openAiConfig.openAiApiKey) {
+    logger.warn({ shopId }, 'OpenAI disabled; skipping batch cleanup');
     return;
   }
 
   const batchManager = new OpenAiBatchManager({
-    apiKey: env.openAiApiKey,
-    ...(env.openAiBaseUrl ? { baseUrl: env.openAiBaseUrl } : {}),
+    apiKey: openAiConfig.openAiApiKey,
+    ...(openAiConfig.openAiBaseUrl ? { baseUrl: openAiConfig.openAiBaseUrl } : {}),
     timeoutMs: env.openAiTimeoutMs,
   });
 

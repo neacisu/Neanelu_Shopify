@@ -26,6 +26,7 @@ import { generateQueryEmbedding, searchSimilarProducts } from '../processors/ai/
 import { toPgVectorLiteral } from '../processors/bulk-operations/pim/vector.js';
 import { getCachedSearchResult, setCachedSearchResult } from '../processors/ai/cache.js';
 import { AI_SPAN_NAMES, withAiSpan } from '../processors/ai/otel/spans.js';
+import { getShopOpenAiConfig } from '../runtime/openai-config.js';
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -286,12 +287,16 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
 
         vectorSearchCacheMissTotal.add(1);
 
+        const openAiConfig = await getShopOpenAiConfig({
+          shopId: session.shopId,
+          env,
+          logger,
+        });
+
         const provider = createEmbeddingsProvider({
-          ...(env.openAiApiKey ? { openAiApiKey: env.openAiApiKey } : {}),
-          ...(env.openAiBaseUrl ? { openAiBaseUrl: env.openAiBaseUrl } : {}),
-          ...(env.openAiEmbeddingsModel
-            ? { openAiEmbeddingsModel: env.openAiEmbeddingsModel }
-            : {}),
+          ...(openAiConfig.openAiApiKey ? { openAiApiKey: openAiConfig.openAiApiKey } : {}),
+          ...(openAiConfig.openAiBaseUrl ? { openAiBaseUrl: openAiConfig.openAiBaseUrl } : {}),
+          openAiEmbeddingsModel: openAiConfig.openAiEmbeddingsModel,
           openAiTimeoutMs: env.openAiTimeoutMs,
         });
 
@@ -361,7 +366,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
                 WHERE e.shop_id = $1
                   AND e.status = 'ready'
                   AND p.shop_id = $1
-                  AND (e.embedding <=> $2::vector(2000)) < (1 - $3)
+                  AND (e.embedding <=> $2::vector(2000)) < (1.0 - $3::numeric)
                   AND ($4::text[] IS NULL OR p.vendor = ANY($4::text[]))
                   AND ($5::text[] IS NULL OR p.product_type = ANY($5::text[]))
                   AND ($6::numeric IS NULL OR (p.price_range->>'max')::numeric >= $6::numeric)
@@ -591,12 +596,16 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
     void (async () => {
       exportJobs.set(jobId, { ...initial, status: 'processing', progress: 10 });
       try {
+        const openAiConfig = await getShopOpenAiConfig({
+          shopId: session.shopId,
+          env,
+          logger,
+        });
+
         const provider = createEmbeddingsProvider({
-          ...(env.openAiApiKey ? { openAiApiKey: env.openAiApiKey } : {}),
-          ...(env.openAiBaseUrl ? { openAiBaseUrl: env.openAiBaseUrl } : {}),
-          ...(env.openAiEmbeddingsModel
-            ? { openAiEmbeddingsModel: env.openAiEmbeddingsModel }
-            : {}),
+          ...(openAiConfig.openAiApiKey ? { openAiApiKey: openAiConfig.openAiApiKey } : {}),
+          ...(openAiConfig.openAiBaseUrl ? { openAiBaseUrl: openAiConfig.openAiBaseUrl } : {}),
+          openAiEmbeddingsModel: openAiConfig.openAiEmbeddingsModel,
           openAiTimeoutMs: env.openAiTimeoutMs,
         });
 

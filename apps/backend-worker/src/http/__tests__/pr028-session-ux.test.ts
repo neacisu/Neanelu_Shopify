@@ -6,6 +6,11 @@ import type { FastifyInstance } from 'fastify';
 void mock.module('@app/database', {
   namedExports: {
     decryptAesGcm: () => Buffer.from(''),
+    encryptAesGcm: () => ({
+      ciphertext: Buffer.from(''),
+      iv: Buffer.from(''),
+      tag: Buffer.from(''),
+    }),
     checkDatabaseConnection: () => Promise.resolve(true),
     getOptimalEfSearch: () => 40,
     setHnswEfSearch: () => Promise.resolve(),

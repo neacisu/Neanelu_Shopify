@@ -449,6 +449,20 @@
       "when": 1769644800000,
       "tag": "0063_embedding_backfill_runs",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1769731200000,
+      "tag": "0064_pgvector_maintenance",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1769817600000,
+      "tag": "0065_shop_ai_credentials",
+      "breakpoints": true
     }
   ]
 }

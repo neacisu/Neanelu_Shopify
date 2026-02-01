@@ -6,6 +6,7 @@ import {
   enqueueAiBatchOrchestratorJob,
 } from '@app/queue-manager';
 import { createEmbeddingsProvider } from '@app/ai-engine';
+import { getShopOpenAiConfig } from '../../runtime/openai-config.js';
 
 import { listShops } from './batch.js';
 import { refreshAiObservabilityMetrics } from './otel/observable-callbacks.js';
@@ -24,14 +25,19 @@ export async function runAiBatchScheduleTick(logger: Logger): Promise<void> {
     logger.warn({ error }, 'Failed to refresh AI observability metrics');
   });
   const shops = await listShops();
-  const provider = createEmbeddingsProvider({
-    ...(env.openAiApiKey ? { openAiApiKey: env.openAiApiKey } : {}),
-    ...(env.openAiBaseUrl ? { openAiBaseUrl: env.openAiBaseUrl } : {}),
-    ...(env.openAiEmbeddingsModel ? { openAiEmbeddingsModel: env.openAiEmbeddingsModel } : {}),
-    openAiTimeoutMs: env.openAiTimeoutMs,
-  });
-
   for (const shopId of shops) {
+    const openAiConfig = await getShopOpenAiConfig({ shopId, env, logger });
+    if (!openAiConfig.enabled || !openAiConfig.openAiApiKey) {
+      continue;
+    }
+
+    const provider = createEmbeddingsProvider({
+      openAiApiKey: openAiConfig.openAiApiKey,
+      ...(openAiConfig.openAiBaseUrl ? { openAiBaseUrl: openAiConfig.openAiBaseUrl } : {}),
+      openAiEmbeddingsModel: openAiConfig.openAiEmbeddingsModel,
+      openAiTimeoutMs: env.openAiTimeoutMs,
+    });
+
     await withAiSpan(
       AI_SPAN_NAMES.ENQUEUE,
       { 'ai.shop_id': shopId, 'ai.embedding_type': 'combined' },
@@ -54,6 +60,11 @@ export async function runAiBatchScheduleTick(logger: Logger): Promise<void> {
   if (!lastCleanupAt || now - lastCleanupAt > cleanupIntervalMs) {
     lastCleanupAt = now;
     for (const shopId of shops) {
+      const openAiConfig = await getShopOpenAiConfig({ shopId, env, logger });
+      if (!openAiConfig.enabled || !openAiConfig.openAiApiKey) {
+        continue;
+      }
+
       await enqueueAiBatchCleanupJob({
         shopId,
         requestedAt: Date.now(),
@@ -67,6 +78,11 @@ export async function runAiBatchScheduleTick(logger: Logger): Promise<void> {
   if (!lastBackfillAt || now - lastBackfillAt > backfillIntervalMs) {
     lastBackfillAt = now;
     for (const shopId of shops) {
+      const openAiConfig = await getShopOpenAiConfig({ shopId, env, logger });
+      if (!openAiConfig.enabled || !openAiConfig.openAiApiKey) {
+        continue;
+      }
+
       await enqueueAiBatchBackfillJob({
         shopId,
         requestedAt: Date.now(),

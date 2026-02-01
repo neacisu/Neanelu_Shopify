@@ -63,6 +63,7 @@ export default function SearchPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const api = useApiClient();
   const recent = useRecentSearches({ storageKey: 'neanelu:web-admin:search:recent:v1' });
+  const addRecent = recent.add;
 
   const [query, setQuery] = useState(searchParams.get('q') ?? '');
   const [limit, setLimit] = useState(
@@ -104,10 +105,17 @@ export default function SearchPage() {
   );
 
   useEffect(() => {
-    setTyping(Boolean(query.trim()) && debouncedQuery !== query);
+    const nextTyping = Boolean(query.trim()) && debouncedQuery !== query;
+    console.info('[SearchDebug] typing-state', {
+      query,
+      debouncedQuery,
+      nextTyping,
+    });
+    setTyping(nextTyping);
   }, [debouncedQuery, query]);
 
   useEffect(() => {
+    console.info('[SearchDebug] showJson', { showJson });
     if (!showJson) setActiveJson(null);
   }, [showJson]);
 
@@ -121,26 +129,56 @@ export default function SearchPage() {
     if (filters.priceMin !== null) next.set('priceMin', String(filters.priceMin));
     if (filters.priceMax !== null) next.set('priceMax', String(filters.priceMax));
     if (filters.categoryId) next.set('categoryId', filters.categoryId);
-    setSearchParams(next, { replace: true });
-  }, [filters, limit, query, setSearchParams, threshold]);
+    const nextString = next.toString();
+    const currentString = searchParams.toString();
+    console.info('[SearchDebug] sync-url', {
+      current: currentString,
+      next: nextString,
+      query,
+      limit,
+      threshold,
+      filters,
+    });
+    if (nextString !== currentString) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [filters, limit, query, searchParams, setSearchParams, threshold]);
 
   const fetchFilters = useCallback(async () => {
+    console.info('[SearchDebug] fetch-filters:start');
     try {
       const data = await api.getApi<ProductFiltersResponse>('/products/filters');
+      console.info('[SearchDebug] fetch-filters:success', {
+        vendors: data.vendors.length,
+        productTypes: data.productTypes.length,
+        categories: data.categories.length,
+      });
       setFiltersOptions(data);
-    } catch {
+    } catch (err) {
+      console.info('[SearchDebug] fetch-filters:error', {
+        message: err instanceof Error ? err.message : String(err),
+      });
       setFiltersOptions(emptyFilterOptions);
     }
   }, [api]);
 
   useEffect(() => {
+    console.info('[SearchDebug] useEffect:fetchFilters');
     void fetchFilters();
   }, [fetchFilters]);
 
   const runSearch = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
+      console.info('[SearchDebug] runSearch:start', {
+        text,
+        trimmed,
+        limit,
+        threshold,
+        filters,
+      });
       if (!trimmed) {
+        console.info('[SearchDebug] runSearch:empty-query');
         setResults([]);
         setVectorSearchTimeMs(null);
         setTotalCount(0);
@@ -164,21 +202,32 @@ export default function SearchPage() {
         const response = await api.getApi<ProductSearchResponse>(
           `/products/search?${params.toString()}`
         );
+        console.info('[SearchDebug] runSearch:success', {
+          results: response.results.length,
+          totalCount: response.totalCount,
+          vectorSearchTimeMs: response.vectorSearchTimeMs,
+          cached: response.cached,
+        });
         setResults(response.results);
         setVectorSearchTimeMs(response.vectorSearchTimeMs);
         setTotalCount(response.totalCount);
-        recent.add(trimmed);
+        addRecent(trimmed);
       } catch (err) {
+        console.info('[SearchDebug] runSearch:error', {
+          message: err instanceof Error ? err.message : String(err),
+        });
         setError(err instanceof Error ? err.message : 'Search failed');
         setTotalCount(0);
       } finally {
         setLoading(false);
+        console.info('[SearchDebug] runSearch:done');
       }
     },
-    [api, filters, limit, recent, threshold]
+    [api, filters, limit, addRecent, threshold]
   );
 
   useEffect(() => {
+    console.info('[SearchDebug] useEffect:debouncedQuery', { debouncedQuery });
     void runSearch(debouncedQuery);
   }, [debouncedQuery, runSearch]);
 

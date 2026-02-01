@@ -8,6 +8,7 @@ import { OpenAiBatchManager, createEmbeddingsProvider } from '@app/ai-engine';
 import type { Logger } from '@app/logger';
 import { enqueueAiBatchBackfillJob, enqueueAiBatchPollerJob } from '@app/queue-manager';
 import type { AiBatchBackfillJobPayload } from '@app/types';
+import { getShopOpenAiConfig } from '../../runtime/openai-config.js';
 
 import {
   buildBatchJsonlLines,
@@ -99,8 +100,13 @@ export async function runAiBatchBackfill(params: {
     async () => {
       const env = loadEnv();
 
-      if (!env.openAiApiKey) {
-        logger.warn({ shopId: payload.shopId }, 'OPENAI_API_KEY missing; skipping backfill');
+      const openAiConfig = await getShopOpenAiConfig({
+        shopId: payload.shopId,
+        env,
+        logger,
+      });
+      if (!openAiConfig.enabled || !openAiConfig.openAiApiKey) {
+        logger.warn({ shopId: payload.shopId }, 'OpenAI disabled; skipping backfill');
         return;
       }
 
@@ -129,9 +135,9 @@ export async function runAiBatchBackfill(params: {
       }
 
       const provider = createEmbeddingsProvider({
-        ...(env.openAiApiKey ? { openAiApiKey: env.openAiApiKey } : {}),
-        ...(env.openAiBaseUrl ? { openAiBaseUrl: env.openAiBaseUrl } : {}),
-        ...(env.openAiEmbeddingsModel ? { openAiEmbeddingsModel: env.openAiEmbeddingsModel } : {}),
+        openAiApiKey: openAiConfig.openAiApiKey,
+        ...(openAiConfig.openAiBaseUrl ? { openAiBaseUrl: openAiConfig.openAiBaseUrl } : {}),
+        openAiEmbeddingsModel: openAiConfig.openAiEmbeddingsModel,
         openAiTimeoutMs: env.openAiTimeoutMs,
       });
       const dimensions = env.openAiEmbeddingDimensions ?? provider.model.dimensions;
@@ -315,8 +321,8 @@ export async function runAiBatchBackfill(params: {
 
       const filePath = await writeJsonlTempFile(lines);
       const batchManager = new OpenAiBatchManager({
-        apiKey: env.openAiApiKey,
-        ...(env.openAiBaseUrl ? { baseUrl: env.openAiBaseUrl } : {}),
+        apiKey: openAiConfig.openAiApiKey,
+        ...(openAiConfig.openAiBaseUrl ? { baseUrl: openAiConfig.openAiBaseUrl } : {}),
         timeoutMs: env.openAiTimeoutMs,
       });
 

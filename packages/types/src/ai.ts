@@ -51,6 +51,20 @@ export interface AiBatchBackfillJobPayload {
   nightlyWindowOnly?: boolean;
 }
 
+export interface AiSettingsResponse {
+  enabled: boolean;
+  hasApiKey: boolean;
+  openaiBaseUrl?: string | null;
+  openaiEmbeddingsModel?: string | null;
+}
+
+export interface AiSettingsUpdateRequest {
+  enabled?: boolean;
+  apiKey?: string | null;
+  openaiBaseUrl?: string | null;
+  openaiEmbeddingsModel?: string | null;
+}
+
 function isCanonicalUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
 }

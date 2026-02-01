@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 
 export type MultiSelectOption = Readonly<{
   value: string;
@@ -135,7 +136,7 @@ export function MultiSelect(props: MultiSelectProps) {
   const menuItems = useMemo((): MenuItem[] => {
     const items: MenuItem[] = [];
     if (showCreate) items.push({ type: 'create', label: normalizedQuery, value: normalizedQuery });
-    for (const o of filtered.slice(0, 50)) items.push({ type: 'option', option: o });
+    for (const o of filtered) items.push({ type: 'option', option: o });
     return items;
   }, [filtered, normalizedQuery, showCreate]);
 
@@ -273,6 +274,9 @@ export function MultiSelect(props: MultiSelectProps) {
             }}
           />
         </div>
+        <div className="mt-2 flex items-center justify-end">
+          <ChevronDown className="size-4 text-muted-foreground" aria-hidden="true" />
+        </div>
       </div>
 
       {open ? (
@@ -283,77 +287,79 @@ export function MultiSelect(props: MultiSelectProps) {
           className="relative"
           aria-label={`${label} options`}
         >
-          <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-md border bg-background shadow">
-            {menuItems.length > 0 ? (
-              menuItems.map((item, idx) => {
-                const active = idx === activeIndex;
+          <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-md border bg-amber-50 text-slate-900 shadow">
+            <div className="max-h-64 overflow-y-auto">
+              {menuItems.length > 0 ? (
+                menuItems.map((item, idx) => {
+                  const active = idx === activeIndex;
 
-                if (item.type === 'create') {
+                  if (item.type === 'create') {
+                    return (
+                      <button
+                        key="__create__"
+                        id={`${listboxId}-opt-${idx}`}
+                        type="button"
+                        data-multi-select-option="true"
+                        role="option"
+                        aria-selected={active}
+                        tabIndex={-1}
+                        className={
+                          'flex w-full items-center justify-between px-3 py-2 text-left text-sm ' +
+                          (active ? 'bg-muted/40' : 'hover:bg-muted/20')
+                        }
+                        onMouseEnter={() => setActiveIndex(idx)}
+                        onMouseDown={(ev) => ev.preventDefault()}
+                        onClick={() => {
+                          const created = onCreateOption?.(item.value);
+                          toggleValue(created?.value ?? item.value);
+                          setQuery('');
+                        }}
+                      >
+                        Create “{item.label}”
+                      </button>
+                    );
+                  }
+
+                  const o = item.option;
+                  const checked = selectedSet.has(o.value);
+                  const optionDisabled = Boolean(o.disabled) || (!checked && !canSelectMore);
+
                   return (
                     <button
-                      key="__create__"
+                      key={o.value}
                       id={`${listboxId}-opt-${idx}`}
                       type="button"
                       data-multi-select-option="true"
                       role="option"
-                      aria-selected={active}
+                      aria-selected={checked}
                       tabIndex={-1}
+                      disabled={disabled === true || optionDisabled}
                       className={
                         'flex w-full items-center justify-between px-3 py-2 text-left text-sm ' +
-                        (active ? 'bg-muted/40' : 'hover:bg-muted/20')
+                        (active ? 'bg-muted/40' : 'hover:bg-muted/20') +
+                        (optionDisabled ? ' opacity-60' : '')
                       }
                       onMouseEnter={() => setActiveIndex(idx)}
                       onMouseDown={(ev) => ev.preventDefault()}
-                      onClick={() => {
-                        const created = onCreateOption?.(item.value);
-                        toggleValue(created?.value ?? item.value);
-                        setQuery('');
-                      }}
+                      onClick={() => toggleValue(o.value)}
                     >
-                      Create “{item.label}”
+                      <span className="flex min-w-0 items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          readOnly
+                          tabIndex={-1}
+                          aria-hidden="true"
+                        />
+                        <span className="truncate">{o.label}</span>
+                      </span>
                     </button>
                   );
-                }
-
-                const o = item.option;
-                const checked = selectedSet.has(o.value);
-                const optionDisabled = Boolean(o.disabled) || (!checked && !canSelectMore);
-
-                return (
-                  <button
-                    key={o.value}
-                    id={`${listboxId}-opt-${idx}`}
-                    type="button"
-                    data-multi-select-option="true"
-                    role="option"
-                    aria-selected={checked}
-                    tabIndex={-1}
-                    disabled={disabled === true || optionDisabled}
-                    className={
-                      'flex w-full items-center justify-between px-3 py-2 text-left text-sm ' +
-                      (active ? 'bg-muted/40' : 'hover:bg-muted/20') +
-                      (optionDisabled ? ' opacity-60' : '')
-                    }
-                    onMouseEnter={() => setActiveIndex(idx)}
-                    onMouseDown={(ev) => ev.preventDefault()}
-                    onClick={() => toggleValue(o.value)}
-                  >
-                    <span className="flex min-w-0 items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        readOnly
-                        tabIndex={-1}
-                        aria-hidden="true"
-                      />
-                      <span className="truncate">{o.label}</span>
-                    </span>
-                  </button>
-                );
-              })
-            ) : (
-              <div className="px-3 py-2 text-sm text-muted">No results</div>
-            )}
+                })
+              ) : (
+                <div className="px-3 py-2 text-sm text-muted">No results</div>
+              )}
+            </div>
           </div>
         </div>
       ) : null}

@@ -18,6 +18,7 @@
 // ============================================
 export * from './shops.ts';
 export * from './staff-users.ts';
+export * from './shop-ai-credentials.ts';
 
 // ============================================
 // Module H: Audit & Observability

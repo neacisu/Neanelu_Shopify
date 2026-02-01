@@ -16,7 +16,7 @@ export function getOptimalEfSearch(resultLimit: number): number {
 export async function setHnswEfSearch(client: PoolClient, efSearch: number): Promise<void> {
   const value = Math.floor(efSearch);
   const bounded = Math.min(MAX_EF_SEARCH, Math.max(MIN_EF_SEARCH, value));
-  await client.query('SET LOCAL hnsw.ef_search = $1', [bounded]);
+  await client.query(`SET LOCAL hnsw.ef_search = ${bounded}`);
 }
 
 export async function withOptimizedSearch<T>(

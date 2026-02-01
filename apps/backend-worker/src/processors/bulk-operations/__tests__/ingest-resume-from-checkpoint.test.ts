@@ -86,6 +86,12 @@ async function installBaseMocks(params: {
   await Promise.resolve(
     mock.module('@app/database', {
       namedExports: {
+        decryptAesGcm: () => Buffer.from(''),
+        encryptAesGcm: () => ({
+          ciphertext: Buffer.from(''),
+          iv: Buffer.from(''),
+          tag: Buffer.from(''),
+        }),
         getOptimalEfSearch: () => 40,
         setHnswEfSearch: () => Promise.resolve(),
         withTenantContext: async (

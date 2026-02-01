@@ -19,6 +19,12 @@ void mock.module('@app/config', {
 // Mock @app/database (used for shopId resolution in ingress)
 void mock.module('@app/database', {
   namedExports: {
+    decryptAesGcm: () => Buffer.from(''),
+    encryptAesGcm: () => ({
+      ciphertext: Buffer.from(''),
+      iv: Buffer.from(''),
+      tag: Buffer.from(''),
+    }),
     getOptimalEfSearch: () => 40,
     setHnswEfSearch: () => Promise.resolve(),
     pool: {

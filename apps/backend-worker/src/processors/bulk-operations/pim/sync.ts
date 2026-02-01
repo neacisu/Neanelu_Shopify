@@ -2,6 +2,7 @@ import { createEmbeddingsProvider, sha256Hex } from '@app/ai-engine';
 import { loadEnv } from '@app/config';
 import { withTenantContext } from '@app/database';
 import { OTEL_ATTR, type Logger } from '@app/logger';
+import { getShopOpenAiConfig } from '../../../runtime/openai-config.js';
 
 import { applyConsensusToProdMaster } from '../consensus.js';
 import { createSuspiciousDedupeCluster } from '../deduplication.js';
@@ -70,10 +71,20 @@ export async function runPimSyncFromBulkRun(params: {
     return;
   }
 
+  const openAiConfig = await getShopOpenAiConfig({
+    shopId: params.shopId,
+    env,
+    logger: params.logger,
+  });
+  if (!openAiConfig.enabled || !openAiConfig.openAiApiKey) {
+    params.logger.info({ [OTEL_ATTR.SHOP_ID]: params.shopId }, 'OpenAI disabled for PIM sync');
+    return;
+  }
+
   const provider = createEmbeddingsProvider({
-    ...(env.openAiApiKey ? { openAiApiKey: env.openAiApiKey } : {}),
-    ...(env.openAiBaseUrl ? { openAiBaseUrl: env.openAiBaseUrl } : {}),
-    openAiEmbeddingsModel: env.openAiEmbeddingsModel,
+    openAiApiKey: openAiConfig.openAiApiKey,
+    ...(openAiConfig.openAiBaseUrl ? { openAiBaseUrl: openAiConfig.openAiBaseUrl } : {}),
+    openAiEmbeddingsModel: openAiConfig.openAiEmbeddingsModel,
     openAiTimeoutMs: env.openAiTimeoutMs,
   });
 

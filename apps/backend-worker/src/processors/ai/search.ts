@@ -89,7 +89,7 @@ export async function searchSimilarProducts(params: {
     await setHnswEfSearch(params.client, efSearch);
     if (typeof params.queryTimeoutMs === 'number' && Number.isFinite(params.queryTimeoutMs)) {
       const timeoutMs = Math.max(1, Math.floor(params.queryTimeoutMs));
-      await params.client.query('SET LOCAL statement_timeout = $1', [timeoutMs]);
+      await params.client.query(`SET LOCAL statement_timeout = ${timeoutMs}`);
     }
 
     const result = await params.client.query<SearchRow>(
