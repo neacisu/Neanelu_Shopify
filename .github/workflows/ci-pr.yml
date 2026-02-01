@@ -94,13 +94,26 @@ jobs:
         run: pnpm --filter @app/web-admin build
 
   # ============================================
-  # Tests: queue-manager (fast unit tests)
+  # Tests: package matrix (parallel)
   # ============================================
-  test-queue-manager:
-    name: Test (queue-manager)
+  test-packages:
+    name: Test (packages)
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: queue-manager
+            command: pnpm --filter @app/queue-manager test
+            needsRedis: true
+          - package: web-admin
+            command: pnpm --filter @app/web-admin test
+            needsRedis: false
+          - package: pim
+            command: pnpm --filter @app/pim test
+            needsRedis: false
     env:
       NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
       BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
@@ -144,25 +157,56 @@ jobs:
         env:
           NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
 
-      - name: Run tests (@app/queue-manager)
-        run: pnpm --filter @app/queue-manager test
+      - name: Run tests (${{ matrix.package }})
+        run: ${{ matrix.command }}
         env:
           REDIS_URL: redis://localhost:65011
 
+      - name: Upload test results (web-admin)
+        uses: actions/upload-artifact@v4
+        if: always() && matrix.package == 'web-admin'
+        with:
+          name: test-results-web-admin
+          path: |
+            apps/web-admin/coverage/
+            apps/web-admin/junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
   # ============================================
-  # Tests: web-admin (vitest)
+  # Tests: backend-worker (unit)
   # ============================================
-  test-web-admin:
-    name: Test (web-admin)
+  test-backend-worker-unit:
+    name: Test (backend-worker unit)
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     env:
+      NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
+      BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
+      APP_HOST: https://example.test
+      SHOPIFY_API_KEY: ci_dummy
+      SHOPIFY_API_SECRET: ci_dummy
+      SCOPES: read_products
+      ENCRYPTION_KEY_VERSION: '1'
+      # Quote to avoid YAML parsing this as numeric 0.
+      ENCRYPTION_KEY_256: '0000000000000000000000000000000000000000000000000000000000000000'
+      OTEL_EXPORTER_OTLP_ENDPOINT: ''
+      OTEL_SERVICE_NAME: neanelu-shopify-ci
+      OTEL_SAMPLING_RATIO: '0'
+      OBS_DEBUG: '0'
       NODE_ENV: test
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Validate required secrets (no output)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${NPM_TASKFORCESH_TOKEN}" || (echo "Missing NPM_TASKFORCESH_TOKEN" >&2; exit 1)
+          test -n "${BULLMQ_PRO_TOKEN}" || (echo "Missing BULLMQ_PRO_TOKEN" >&2; exit 1)
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -180,25 +224,18 @@ jobs:
         env:
           NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
 
-      - name: Run tests (@app/web-admin)
-        run: pnpm --filter @app/web-admin test
-
-      - name: Upload test results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: test-results-web-admin
-          path: |
-            apps/web-admin/coverage/
-            apps/web-admin/junit.xml
-          if-no-files-found: ignore
-          retention-days: 7
+      - name: Run unit tests (@app/backend-worker)
+        run: |
+          pnpm --filter @app/backend-worker exec node \
+            --experimental-test-module-mocks --import tsx \
+            --test src/**/*.test.ts \
+            --test-name-pattern="^(?!AI Pipeline Integration).*"
 
   # ============================================
-  # Tests: backend-worker (integration-ish)
+  # Tests: backend-worker (integration)
   # ============================================
-  test-backend-worker:
-    name: Test (backend-worker)
+  test-backend-worker-integration:
+    name: Test (backend-worker integration)
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -210,7 +247,6 @@ jobs:
       SHOPIFY_API_SECRET: ci_dummy
       SCOPES: read_products
       ENCRYPTION_KEY_VERSION: '1'
-      # Quote to avoid YAML parsing this as numeric 0.
       ENCRYPTION_KEY_256: '0000000000000000000000000000000000000000000000000000000000000000'
       OTEL_EXPORTER_OTLP_ENDPOINT: ''
       OTEL_SERVICE_NAME: neanelu-shopify-ci
@@ -299,12 +335,11 @@ jobs:
           DATABASE_URL_MIGRATE: postgresql://test:test@localhost:65010/test_db
           REDIS_URL: redis://localhost:65011
 
-      - name: Run tests (@app/backend-worker)
-        run: pnpm --filter @app/backend-worker test
-        env:
-          DATABASE_URL: postgresql://test:test@localhost:65010/test_db
-          DATABASE_URL_MIGRATE: postgresql://test:test@localhost:65010/test_db
-          REDIS_URL: redis://localhost:65011
+      - name: Run integration tests (@app/backend-worker)
+        run: |
+          pnpm --filter @app/backend-worker exec node \
+            --experimental-test-module-mocks --import tsx \
+            --test src/processors/ai/__tests__/ai-pipeline.integration.test.ts
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
