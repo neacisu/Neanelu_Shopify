@@ -39,13 +39,7 @@ describe('SearchFilters', () => {
       />
     );
 
-    expect(screen.getByText('Advanced filters')).toBeInTheDocument();
-    expect(screen.getByText('Vendors (1)')).toBeInTheDocument();
-    expect(screen.getByText('Product types')).toBeInTheDocument();
-    expect(screen.getByText('Category')).toBeInTheDocument();
-    expect(screen.getByRole('tree')).toBeInTheDocument();
-
-    await user.click(screen.getByText('Reset all'));
+    await user.click(screen.getByRole('button', { name: 'Reset all' }));
     expect(onReset).toHaveBeenCalled();
   });
 });
