@@ -27,7 +27,9 @@ function getDatabaseUrl(): string | null {
 }
 
 function isIntegrationEnvPresent(): boolean {
-  return Boolean(getDatabaseUrl() && process.env['REDIS_URL']);
+  return Boolean(
+    process.env['RUN_INTEGRATION_TESTS'] === '1' && getDatabaseUrl() && process.env['REDIS_URL']
+  );
 }
 
 async function createShop(shopId: string, shopDomain: string): Promise<void> {
@@ -111,7 +113,7 @@ void describe(
 
     void it('ingests a JSONL fixture and enforces RLS', async (t) => {
       if (!isIntegrationEnvPresent()) {
-        t.skip('Requires DATABASE_URL and REDIS_URL');
+        t.skip('Requires RUN_INTEGRATION_TESTS=1, DATABASE_URL, and REDIS_URL');
         return;
       }
 
@@ -223,7 +225,7 @@ void describe(
 
     void it('is idempotent across repeated runs', async (t) => {
       if (!isIntegrationEnvPresent()) {
-        t.skip('Requires DATABASE_URL and REDIS_URL');
+        t.skip('Requires RUN_INTEGRATION_TESTS=1, DATABASE_URL, and REDIS_URL');
         return;
       }
 

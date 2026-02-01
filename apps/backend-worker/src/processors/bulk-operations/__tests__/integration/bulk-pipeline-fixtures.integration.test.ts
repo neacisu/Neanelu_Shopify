@@ -23,7 +23,9 @@ const noopLogger: Logger = {
 
 function isIntegrationEnvPresent(): boolean {
   return Boolean(
-    (process.env['DATABASE_URL_TEST'] ?? process.env['DATABASE_URL']) && process.env['REDIS_URL']
+    process.env['RUN_INTEGRATION_TESTS'] === '1' &&
+    (process.env['DATABASE_URL_TEST'] ?? process.env['DATABASE_URL']) &&
+    process.env['REDIS_URL']
   );
 }
 
@@ -91,7 +93,7 @@ void describe(
 
     void it('ingests small (100 rows) fixture', async (t) => {
       if (!isIntegrationEnvPresent()) {
-        t.skip('Requires DATABASE_URL and REDIS_URL');
+        t.skip('Requires RUN_INTEGRATION_TESTS=1, DATABASE_URL, and REDIS_URL');
         return;
       }
 
@@ -155,7 +157,7 @@ void describe(
 
     void it('ingests medium (10k rows) fixture', async (t) => {
       if (!isIntegrationEnvPresent() || process.env['RUN_MEDIUM_FIXTURE'] !== '1') {
-        t.skip('Requires RUN_MEDIUM_FIXTURE=1 and integration env');
+        t.skip('Requires RUN_INTEGRATION_TESTS=1, RUN_MEDIUM_FIXTURE=1, and integration env');
         return;
       }
 
@@ -215,7 +217,7 @@ void describe(
 
     void it('ingests large (100k rows) fixture', async (t) => {
       if (!isIntegrationEnvPresent() || process.env['RUN_LARGE_FIXTURE'] !== '1') {
-        t.skip('Requires RUN_LARGE_FIXTURE=1 and integration env');
+        t.skip('Requires RUN_INTEGRATION_TESTS=1, RUN_LARGE_FIXTURE=1, and integration env');
         return;
       }
 
