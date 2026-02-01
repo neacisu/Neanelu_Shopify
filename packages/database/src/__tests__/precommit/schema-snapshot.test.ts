@@ -26,7 +26,7 @@ const SKIP = shouldSkipDbTests();
 
 // Expected counts from audit (with tolerance)
 const EXPECTED = {
-  tables: { min: 65, max: 70 }, // 67 base tables
+  tables: { min: 65, max: 71 }, // 68 base tables
   indexes: { min: 700, max: 800 }, // 742 total with partitions
   foreignKeys: { min: 100, max: 115 }, // 105 FKs
   checkConstraints: { min: 55, max: 75 }, // ~63 CHECKs (base tables only)
