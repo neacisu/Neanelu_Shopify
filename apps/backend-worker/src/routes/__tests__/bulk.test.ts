@@ -104,11 +104,11 @@ void mock.module('@app/database', {
             return resolve([{ total: 1 }]);
           }
 
-          if (
-            lower.includes('from bulk_runs br') &&
-            lower.includes('left join') &&
-            !lower.includes('where br.id')
-          ) {
+          const isBulkRunsJoined =
+            lower.includes('from bulk_runs br') && lower.includes('left join');
+          const hasBulkRunIdFilter = lower.includes('where') && lower.includes('br.id');
+
+          if (isBulkRunsJoined && !hasBulkRunIdFilter) {
             return resolve([
               {
                 ...bulkRuns[0],
@@ -117,7 +117,7 @@ void mock.module('@app/database', {
             ]);
           }
 
-          if (lower.includes('from bulk_runs br') && lower.includes('where br.id')) {
+          if (isBulkRunsJoined && hasBulkRunIdFilter) {
             return resolve([
               {
                 ...bulkRuns[0],
