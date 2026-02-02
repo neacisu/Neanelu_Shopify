@@ -67,7 +67,8 @@ async function getOrCreateBackfillRun(params: { shopId: string }): Promise<Backf
         WHERE shop_id = $1
           AND status IN ('pending', 'running', 'paused')
         ORDER BY created_at DESC
-        LIMIT 1`,
+       LIMIT 1
+       FOR UPDATE SKIP LOCKED`,
       [params.shopId]
     );
     const row = existing.rows[0];

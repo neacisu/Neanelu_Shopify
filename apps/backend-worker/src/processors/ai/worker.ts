@@ -41,6 +41,10 @@ export function startAiBatchWorker(logger: Logger): AiBatchWorkerHandle {
       name: AI_BATCH_QUEUE_NAME,
       enableDlq: true,
       enableDelayHandling: true,
+      workerOptions: {
+        concurrency: env.maxGlobalConcurrency,
+        group: { concurrency: env.maxActivePerShop },
+      },
       processor: async (job) =>
         await withJobTelemetryContext(job, async () => {
           const jobId = String(job.id ?? job.name);

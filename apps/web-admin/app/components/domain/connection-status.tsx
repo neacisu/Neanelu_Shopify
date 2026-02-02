@@ -43,6 +43,12 @@ export function ConnectionStatus({
         Ultima verificare: {checkedAt ? new Date(checkedAt).toLocaleString() : '—'}
       </div>
 
+      {!tokenHealthy ? (
+        <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+          Tokenul Shopify necesită reautorizare. Reconectează magazinul pentru a evita erori de API.
+        </div>
+      ) : null}
+
       {scopes.length ? <div className="text-xs text-muted">Scopes: {scopes.join(', ')}</div> : null}
     </div>
   );

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { toast } from 'sonner';
 
 import type { ProductDetail } from '@app/types';
 
@@ -8,11 +9,13 @@ import { PageHeader } from '../components/layout/page-header';
 import { Timeline } from '../components/ui/Timeline';
 import { JsonViewer } from '../components/ui/JsonViewer';
 import { Button } from '../components/ui/button';
+import { ShopifyAdminLink } from '../components/domain/ShopifyAdminLink';
 import { QualityLevelBadge } from '../components/domain/QualityLevelBadge';
 import { useApiClient } from '../hooks/use-api';
 
 export default function ProductDetailPage() {
   const location = useLocation();
+  const navigate = useNavigate();
   const params = useParams<{ id: string }>();
   const api = useApiClient();
   const [product, setProduct] = useState<ProductDetail | null>(null);
@@ -117,6 +120,22 @@ export default function ProductDetailPage() {
     return groups;
   }, [product?.metafields]);
 
+  const handleForceSync = async () => {
+    if (!product) return;
+    try {
+      await api.postApi('/products/bulk-sync', { productIds: [product.id] });
+      toast.success('Force sync queued');
+    } catch (error) {
+      console.error('Force sync failed', error);
+      toast.error('Force sync failed');
+    }
+  };
+
+  const handleEdit = () => {
+    if (!product) return;
+    void navigate(`/products/${product.id}/edit`);
+  };
+
   if (loading || !product) {
     return <div className="text-sm text-muted">Loading...</div>;
   }
@@ -129,13 +148,18 @@ export default function ProductDetailPage() {
         description={product.vendor ?? 'Product details'}
         actions={
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => undefined}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                void handleForceSync();
+              }}
+            >
               Force Sync
             </Button>
-            <Button variant="secondary" onClick={() => undefined}>
+            <ShopifyAdminLink resourceType="products" resourceId={product.id}>
               View in Shopify
-            </Button>
-            <Button variant="secondary" onClick={() => undefined}>
+            </ShopifyAdminLink>
+            <Button variant="secondary" onClick={handleEdit}>
               Edit
             </Button>
           </div>

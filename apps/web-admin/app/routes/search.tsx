@@ -56,6 +56,7 @@ const emptyFilterOptions: ProductFiltersResponse = {
   productTypes: [],
   priceRange: { min: null, max: null },
   categories: [],
+  enrichmentStatus: [],
 };
 
 export default function SearchPage() {
@@ -322,11 +323,21 @@ export default function SearchPage() {
           </div>
 
           <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={showJson}
-              onChange={(e) => setShowJson(e.target.checked)}
-            />
+            <button
+              type="button"
+              role="switch"
+              aria-checked={showJson}
+              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                showJson ? 'bg-primary' : 'bg-muted/30'
+              }`}
+              onClick={() => setShowJson(!showJson)}
+            >
+              <span
+                className={`absolute top-0.5 h-4 w-4 rounded-full bg-background shadow transition-transform ${
+                  showJson ? 'translate-x-4' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
             Show JSON metadata
           </label>
 
