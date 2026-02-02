@@ -152,6 +152,16 @@ void mock.module('@app/database', {
             return resolve([{ id: 'run-1', query_type: 'core' }]);
           }
 
+          if (lower.includes('from bulk_runs')) {
+            return resolve([
+              {
+                ...bulkRuns[0],
+                shopify_status: bulkRuns[0].shopify_status ?? 'COMPLETED',
+                error_count: 1,
+              },
+            ]);
+          }
+
           if (lower.includes('update bulk_runs') && lower.includes('cancelled')) {
             return resolve([]);
           }
