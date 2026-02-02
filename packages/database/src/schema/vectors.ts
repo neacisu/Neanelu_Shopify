@@ -237,6 +237,7 @@ export const shopProductEmbeddings = pgTable(
     uniqueIndex('idx_shop_embeddings_product').on(
       table.shopId,
       table.productId,
+      table.contentHash,
       table.embeddingType,
       table.modelVersion
     ),

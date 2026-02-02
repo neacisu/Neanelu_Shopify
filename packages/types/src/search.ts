@@ -25,6 +25,8 @@ export interface ProductSearchResponse {
   vectorSearchTimeMs: number;
   cached: boolean;
   totalCount: number;
+  hasMore?: boolean;
+  nextCursor?: string | null;
 }
 
 export interface CategoryNode {

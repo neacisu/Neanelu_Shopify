@@ -128,6 +128,21 @@ VACUUM ANALYZE shop_product_embeddings;
 VACUUM ANALYZE embedding_batches;
 ```
 
+### Mentenanta automatizata (pg_cron)
+
+```sql
+-- Verificare job-uri programate
+SELECT * FROM cron.job;
+
+-- Verificare executii recente
+SELECT * FROM cron.job_run_details ORDER BY start_time DESC LIMIT 10;
+
+-- Dezactivare temporara job
+SELECT cron.unschedule('vacuum-embeddings-weekly');
+
+-- Reactivare job (ruleaza din nou migratia 0070)
+```
+
 ### REINDEX (doar pentru coruptie severa)
 
 ```sql

@@ -7,12 +7,18 @@ import { pool, withTenantContext } from '@app/database';
 import { OpenAiBatchManager, createEmbeddingsProvider, sha256Hex } from '@app/ai-engine';
 import type { Logger } from '@app/logger';
 import { enqueueAiBatchPollerJob } from '@app/queue-manager';
-import type { AiBatchOrchestratorJobPayload, AiBatchPollerJobPayload } from '@app/types';
+import type {
+  AiBatchOrchestratorJobPayload,
+  AiBatchPollerJobPayload,
+  AiEmbeddingBatchType,
+  AiEmbeddingType,
+} from '@app/types';
 import { getShopOpenAiConfig } from '../../runtime/openai-config.js';
 
 import { normalizeText, toPgVectorLiteral } from '../bulk-operations/pim/vector.js';
 import { classifyEmbeddingError } from './error-classifier.js';
 import { moveToEmbeddingDlq } from './dlq.js';
+import { scheduleEmbeddingRetries } from './retry-scheduler.js';
 import {
   recordAiError,
   recordAiItemsProcessed,
@@ -39,6 +45,14 @@ export type ExistingEmbeddingRow = Readonly<{
   retryCount: number | null;
   errorMessage: string | null;
 }>;
+
+function extractProductIds(payload: unknown): string[] | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const maybe = (payload as { productIds?: unknown }).productIds;
+  if (!Array.isArray(maybe)) return null;
+  const ids = maybe.filter((id): id is string => typeof id === 'string');
+  return ids.length ? ids : null;
+}
 
 export type EmbeddingCandidate = Readonly<{
   productId: string;
@@ -461,39 +475,80 @@ export async function runAiBatchOrchestrator(params: {
         { 'ai.shop_id': payload.shopId, 'ai.embedding_type': payload.embeddingType },
         async () =>
           withTenantContext(payload.shopId, async (client) => {
-            const productsRes = await client.query<ShopifyEmbeddingSourceRow>(
-              `SELECT id,
-                      title,
-                      description,
-                      description_html as "descriptionHtml",
-                      vendor,
-                      product_type as "productType",
-                      tags
-                 FROM shopify_products
-                WHERE shop_id = $1`,
-              [payload.shopId]
-            );
+            const productIds = extractProductIds(payload);
+            const queryParams: (string | string[])[] = [
+              payload.shopId,
+              model,
+              payload.embeddingType,
+            ];
+            if (productIds?.length) queryParams.push(productIds);
 
-            const embeddingsRes = await client.query<ExistingEmbeddingRow>(
-              `SELECT product_id as "productId",
-                      content_hash as "contentHash",
-                      status,
-                      retry_count as "retryCount",
-                      error_message as "errorMessage"
-                 FROM shop_product_embeddings
-                WHERE shop_id = $1
-                  AND model_version = $2
-                  AND embedding_type = $3`,
-              [payload.shopId, model, payload.embeddingType]
+            const productsRes = await client.query<
+              ShopifyEmbeddingSourceRow & Partial<ExistingEmbeddingRow>
+            >(
+              `WITH latest_embeddings AS (
+                 SELECT DISTINCT ON (product_id)
+                        product_id,
+                        content_hash,
+                        status,
+                        retry_count,
+                        error_message,
+                        generated_at
+                   FROM shop_product_embeddings
+                  WHERE shop_id = $1
+                    AND model_version = $2
+                    AND embedding_type = $3
+                  ORDER BY product_id, generated_at DESC NULLS LAST
+               )
+               SELECT p.id,
+                      p.title,
+                      p.description,
+                      p.description_html as "descriptionHtml",
+                      p.vendor,
+                      p.product_type as "productType",
+                      p.tags,
+                      e.content_hash as "contentHash",
+                      e.status,
+                      e.retry_count as "retryCount",
+                      e.error_message as "errorMessage"
+                 FROM shopify_products p
+            LEFT JOIN latest_embeddings e
+                   ON e.product_id = p.id
+                WHERE p.shop_id = $1
+                  ${productIds ? 'AND p.id = ANY($4)' : ''}
+                  AND (
+                        e.product_id IS NULL
+                     OR e.status IS DISTINCT FROM 'ready'
+                     OR p.updated_at > COALESCE(e.generated_at, p.updated_at - interval '1 second')
+                  )`,
+              queryParams
             );
 
             const existingMap = new Map<string, ExistingEmbeddingRow>();
-            for (const row of embeddingsRes.rows) {
-              existingMap.set(row.productId, row);
+            const products: ShopifyEmbeddingSourceRow[] = [];
+            for (const row of productsRes.rows) {
+              products.push({
+                id: row.id,
+                title: row.title,
+                description: row.description,
+                descriptionHtml: row.descriptionHtml,
+                vendor: row.vendor,
+                productType: row.productType,
+                tags: row.tags,
+              });
+              if (row.contentHash) {
+                existingMap.set(row.id, {
+                  productId: row.id,
+                  contentHash: row.contentHash,
+                  status: row.status ?? null,
+                  retryCount: row.retryCount ?? null,
+                  errorMessage: row.errorMessage ?? null,
+                });
+              }
             }
 
             return computeEmbeddingCandidates({
-              products: productsRes.rows,
+              products,
               existing: existingMap,
               embeddingType: payload.embeddingType,
               maxRetries: env.openAiEmbeddingMaxRetries,
@@ -823,6 +878,12 @@ export async function runAiBatchPoller(params: {
       let failedItems = 0;
       let tokensUsed = 0;
       const processedCustomIds = new Set<string>();
+      const retryCandidates = new Map<string, number>();
+      let retryEmbeddingType: string | null = null;
+
+      let totalItems = 0;
+      let failedTotal = 0;
+      let completedTotal = 0;
 
       await withAiSpan(
         AI_SPAN_NAMES.DB_UPSERT,
@@ -833,13 +894,14 @@ export async function runAiBatchPoller(params: {
               const parsedCustom = parseCustomId(record.customId);
               if (!parsedCustom) continue;
               processedCustomIds.add(record.customId);
+              retryEmbeddingType ??= parsedCustom.embeddingType;
 
               if (record.statusCode === 200 && record.embedding) {
                 if (record.embedding.length !== batchMetadata.dimensions) {
                   const errorMessage = `embedding_dimension_mismatch:${record.embedding.length}`;
                   const decision = classifyEmbeddingError(errorMessage);
                   recordAiError(decision.errorType);
-                  await client.query(
+                  const retryRes = await client.query<{ retryCount: number }>(
                     `UPDATE shop_product_embeddings
                     SET status = 'failed',
                         error_message = $1,
@@ -848,15 +910,19 @@ export async function runAiBatchPoller(params: {
                   WHERE shop_id = $2
                     AND product_id = $3
                     AND embedding_type = $4
-                    AND model_version = $5`,
+                    AND model_version = $5
+                    AND content_hash = $6
+                  RETURNING retry_count as "retryCount"`,
                     [
                       errorMessage,
                       payload.shopId,
                       parsedCustom.productId,
                       parsedCustom.embeddingType,
                       batchMetadata.model,
+                      parsedCustom.contentHash,
                     ]
                   );
+                  const retryCount = retryRes.rows[0]?.retryCount ?? 0;
                   recordEmbeddingRetry({
                     embeddingType: parsedCustom.embeddingType,
                   });
@@ -866,6 +932,9 @@ export async function runAiBatchPoller(params: {
                     embedding_type: parsedCustom.embeddingType,
                     error_type: decision.errorType,
                   });
+                  if (decision.shouldRetry && retryCount < env.openAiEmbeddingMaxRetries) {
+                    retryCandidates.set(parsedCustom.productId, retryCount);
+                  }
                   failedItems += 1;
                   continue;
                 }
@@ -890,7 +959,7 @@ export async function runAiBatchPoller(params: {
                  updated_at
                )
                VALUES ($1, $2, $3, $4::vector(2000), $5, $6, $7, 'bronze', 'shopify', 'ro', 'ready', NULL, now(), now(), now())
-               ON CONFLICT (shop_id, product_id, embedding_type, model_version)
+               ON CONFLICT (shop_id, product_id, content_hash, embedding_type, model_version)
                DO UPDATE SET
                  embedding = EXCLUDED.embedding,
                  content_hash = EXCLUDED.content_hash,
@@ -921,7 +990,7 @@ export async function runAiBatchPoller(params: {
                   'openai_embedding_failed';
                 const decision = classifyEmbeddingError(errorMessage);
                 recordAiError(decision.errorType);
-                await client.query(
+                const retryRes = await client.query<{ retryCount: number }>(
                   `UPDATE shop_product_embeddings
                   SET status = 'failed',
                       error_message = $1,
@@ -930,15 +999,19 @@ export async function runAiBatchPoller(params: {
                 WHERE shop_id = $2
                   AND product_id = $3
                   AND embedding_type = $4
-                  AND model_version = $5`,
+                  AND model_version = $5
+                  AND content_hash = $6
+                RETURNING retry_count as "retryCount"`,
                   [
                     errorMessage,
                     payload.shopId,
                     parsedCustom.productId,
                     parsedCustom.embeddingType,
                     batchMetadata.model,
+                    parsedCustom.contentHash,
                   ]
                 );
+                const retryCount = retryRes.rows[0]?.retryCount ?? 0;
                 recordEmbeddingRetry({
                   embeddingType: parsedCustom.embeddingType,
                 });
@@ -948,6 +1021,9 @@ export async function runAiBatchPoller(params: {
                   embedding_type: parsedCustom.embeddingType,
                   error_type: decision.errorType,
                 });
+                if (decision.shouldRetry && retryCount < env.openAiEmbeddingMaxRetries) {
+                  retryCandidates.set(parsedCustom.productId, retryCount);
+                }
                 failedItems += 1;
               }
             }
@@ -956,9 +1032,10 @@ export async function runAiBatchPoller(params: {
               if (processedCustomIds.has(rec.customId)) continue;
               const parsedCustom = parseCustomId(rec.customId);
               if (!parsedCustom) continue;
+              retryEmbeddingType ??= parsedCustom.embeddingType;
               const decision = classifyEmbeddingError(rec.errorMessage);
               recordAiError(decision.errorType);
-              await client.query(
+              const retryRes = await client.query<{ retryCount: number }>(
                 `UPDATE shop_product_embeddings
                 SET status = 'failed',
                     error_message = $1,
@@ -967,15 +1044,19 @@ export async function runAiBatchPoller(params: {
               WHERE shop_id = $2
                 AND product_id = $3
                 AND embedding_type = $4
-                AND model_version = $5`,
+                AND model_version = $5
+                AND content_hash = $6
+              RETURNING retry_count as "retryCount"`,
                 [
                   rec.errorMessage,
                   payload.shopId,
                   parsedCustom.productId,
                   parsedCustom.embeddingType,
                   batchMetadata.model,
+                  parsedCustom.contentHash,
                 ]
               );
+              const retryCount = retryRes.rows[0]?.retryCount ?? 0;
               recordEmbeddingRetry({
                 embeddingType: parsedCustom.embeddingType,
               });
@@ -985,14 +1066,60 @@ export async function runAiBatchPoller(params: {
                 embedding_type: parsedCustom.embeddingType,
                 error_type: decision.errorType,
               });
+              if (decision.shouldRetry && retryCount < env.openAiEmbeddingMaxRetries) {
+                retryCandidates.set(parsedCustom.productId, retryCount);
+              }
               failedItems += 1;
             }
+
+            totalItems = batch.request_counts?.total ?? outputRecords.length;
+            failedTotal = Math.max(failedItems, batch.request_counts?.failed ?? 0);
+            completedTotal = Math.max(completedItems, batch.request_counts?.completed ?? 0);
+
+            await client.query(
+              `UPDATE embedding_batches
+              SET status = 'completed',
+                  output_file_id = COALESCE($1, output_file_id),
+                  error_file_id = COALESCE($2, error_file_id),
+                  completed_items = $3,
+                  failed_items = $4,
+                  total_items = $5,
+                  tokens_used = $6,
+                  completed_at = now(),
+                  expires_at = COALESCE($7, expires_at),
+                  updated_at = now()
+            WHERE id = $8
+              AND shop_id = $9`,
+              [
+                outputFileId,
+                errorFileId,
+                completedTotal,
+                failedTotal,
+                totalItems,
+                tokensUsed,
+                expiresAt ? expiresAt.toISOString() : null,
+                payload.embeddingBatchId,
+                payload.shopId,
+              ]
+            );
           })
       );
 
-      const totalItems = batch.request_counts?.total ?? outputRecords.length;
-      const failedTotal = Math.max(failedItems, batch.request_counts?.failed ?? 0);
-      const completedTotal = Math.max(completedItems, batch.request_counts?.completed ?? 0);
+      if (retryCandidates.size > 0 && retryEmbeddingType) {
+        await scheduleEmbeddingRetries({
+          shopId: payload.shopId,
+          batchType: batchMetadata.batchType as AiEmbeddingBatchType,
+          embeddingType: retryEmbeddingType as AiEmbeddingType,
+          model: batchMetadata.model,
+          dimensions: batchMetadata.dimensions,
+          candidates: Array.from(retryCandidates, ([productId, retryCount]) => ({
+            productId,
+            retryCount,
+          })),
+          maxRetries: env.openAiEmbeddingMaxRetries,
+          logger,
+        });
+      }
 
       recordAiItemsProcessed(completedTotal);
       addAiEvent(AI_EVENTS.BATCH_COMPLETED, {
@@ -1001,35 +1128,6 @@ export async function runAiBatchPoller(params: {
         completed_items: completedTotal,
         failed_items: failedTotal,
         total_items: totalItems,
-      });
-
-      await withTenantContext(payload.shopId, async (client) => {
-        await client.query(
-          `UPDATE embedding_batches
-          SET status = 'completed',
-              output_file_id = COALESCE($1, output_file_id),
-              error_file_id = COALESCE($2, error_file_id),
-              completed_items = $3,
-              failed_items = $4,
-              total_items = $5,
-              tokens_used = $6,
-              completed_at = now(),
-              expires_at = COALESCE($7, expires_at),
-              updated_at = now()
-        WHERE id = $8
-          AND shop_id = $9`,
-          [
-            outputFileId,
-            errorFileId,
-            completedTotal,
-            failedTotal,
-            totalItems,
-            tokensUsed,
-            expiresAt ? expiresAt.toISOString() : null,
-            payload.embeddingBatchId,
-            payload.shopId,
-          ]
-        );
       });
 
       logger.info(

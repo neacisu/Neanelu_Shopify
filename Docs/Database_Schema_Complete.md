@@ -1294,7 +1294,7 @@
 
 **Indexes:**
 
-- `idx_shop_embeddings_product` UNIQUE ON (shop_id, product_id, embedding_type, model_version)
+- `idx_shop_embeddings_product` UNIQUE ON (shop_id, product_id, content_hash, embedding_type, model_version)
 - `idx_shop_embeddings_hash` ON (shop_id, content_hash)
 - `idx_shop_embeddings_pending` ON (shop_id, status) WHERE status = 'pending'
 - `idx_shop_embeddings_vector` USING hnsw (embedding vector_cosine_ops) WITH (m=24, ef_construction=128)

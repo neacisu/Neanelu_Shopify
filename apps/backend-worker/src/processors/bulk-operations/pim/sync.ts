@@ -730,7 +730,7 @@ async function upsertShopProductEmbedding(params: {
        updated_at
      )
      VALUES ($1, $2, 'combined', $3::vector(2000), $4, $5, 2000, 'bronze', 'shopify', 'ro', 'ready', now(), now(), now())
-     ON CONFLICT (shop_id, product_id, embedding_type, model_version)
+    ON CONFLICT (shop_id, product_id, content_hash, embedding_type, model_version)
      DO UPDATE SET
        embedding = EXCLUDED.embedding,
        content_hash = EXCLUDED.content_hash,

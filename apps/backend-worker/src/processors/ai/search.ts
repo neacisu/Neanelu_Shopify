@@ -75,6 +75,8 @@ export async function searchSimilarProducts(params: {
   priceMin?: number | null;
   priceMax?: number | null;
   categoryId?: string | null;
+  minSimilarity?: number | null;
+  excludeProductIds?: readonly string[] | null;
   efSearch?: number;
   queryTimeoutMs?: number;
   logger: Logger;
@@ -135,6 +137,8 @@ export async function searchSimilarProducts(params: {
             AND ($7::numeric IS NULL OR (p.price_range->>'max')::numeric >= $7::numeric)
             AND ($8::numeric IS NULL OR (p.price_range->>'min')::numeric <= $8::numeric)
             AND ($9::text IS NULL OR p.category_id = $9::text)
+            AND ($10::numeric IS NULL OR s.similarity < $10::numeric)
+            AND ($11::uuid[] IS NULL OR p.id <> ALL($11::uuid[]))
           ORDER BY s.similarity DESC`,
       [
         params.shopId,
@@ -146,6 +150,8 @@ export async function searchSimilarProducts(params: {
         params.priceMin ?? null,
         params.priceMax ?? null,
         params.categoryId ?? null,
+        params.minSimilarity ?? null,
+        params.excludeProductIds?.length ? params.excludeProductIds : null,
       ]
     );
 

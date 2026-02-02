@@ -85,6 +85,8 @@ export default function ProductsPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [semanticCursor, setSemanticCursor] = useState<string | null>(null);
+  const [semanticHasMore, setSemanticHasMore] = useState(false);
   const [sortBy, setSortBy] = useState(searchParams.get('sortBy') ?? 'updated_at');
   const [sortOrder, setSortOrder] = useState(searchParams.get('sortOrder') ?? 'desc');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -164,7 +166,10 @@ export default function ProductsPage() {
         if (searchMode === 'semantic' && debouncedQuery.trim()) {
           const params = new URLSearchParams();
           params.set('q', debouncedQuery.trim());
-          params.set('limit', '100');
+          params.set('limit', '50');
+          if (!replace && semanticCursor) {
+            params.set('cursor', semanticCursor);
+          }
           const response = await api.getApi<{
             results: {
               id: string;
@@ -176,6 +181,8 @@ export default function ProductsPage() {
               priceRange?: { min: string; max: string; currency: string } | null;
             }[];
             totalCount: number;
+            hasMore?: boolean;
+            nextCursor?: string | null;
           }>(`/products/search?${params.toString()}`);
 
           const mapped = response.results.map((result) => ({
@@ -194,9 +201,15 @@ export default function ProductsPage() {
             qualityScore: null,
           })) satisfies ProductListItem[];
 
-          setItems(mapped);
+          if (replace) {
+            setItems(mapped);
+          } else {
+            setItems((prev) => [...prev, ...mapped]);
+          }
           setTotal(response.totalCount);
           setPage(1);
+          setSemanticCursor(response.nextCursor ?? null);
+          setSemanticHasMore(Boolean(response.hasMore));
           return;
         }
 
@@ -233,7 +246,7 @@ export default function ProductsPage() {
         setLoadingMore(false);
       }
     },
-    [api, debouncedQuery, filters, searchMode, sortBy, sortOrder]
+    [api, debouncedQuery, filters, searchMode, sortBy, sortOrder, semanticCursor]
   );
 
   useEffect(() => {
@@ -244,14 +257,20 @@ export default function ProductsPage() {
     setItems([]);
     setSelectedIds(new Set());
     setPage(1);
+    setSemanticCursor(null);
+    setSemanticHasMore(false);
     void fetchProducts(1, true);
   }, [fetchProducts]);
 
-  const hasMore = searchMode === 'semantic' ? false : items.length < total;
+  const hasMore = searchMode === 'semantic' ? semanticHasMore : items.length < total;
 
   const onLoadMore = () => {
     if (loadingMore || loading) return;
     if (!hasMore) return;
+    if (searchMode === 'semantic') {
+      void fetchProducts(1, false);
+      return;
+    }
     void fetchProducts(page + 1);
   };
 
@@ -281,9 +300,13 @@ export default function ProductsPage() {
     setDrawerOpen(true);
   };
 
-  const onForceSync = async () => {
-    if (selectedIds.size === 0) return;
-    await api.postApi('/products/bulk-sync', { productIds: Array.from(selectedIds) });
+  const onForceSync = async (singleProductId?: string) => {
+    const idsToSync = singleProductId ? [singleProductId] : Array.from(selectedIds);
+    if (idsToSync.length === 0) {
+      toast.error('Select at least one product');
+      return;
+    }
+    await api.postApi('/products/bulk-sync', { productIds: idsToSync });
   };
 
   const onExport = () => setExportOpen(true);
@@ -383,7 +406,6 @@ export default function ProductsPage() {
               label="Search products"
               placeholder="Search products..."
               loading={loading}
-              debounceMs={0}
             />
             <div className="flex items-center gap-2 rounded-md border px-2 py-1 text-xs">
               <label className="flex items-center gap-1">
@@ -451,7 +473,7 @@ export default function ProductsPage() {
         open={drawerOpen}
         product={activeProduct}
         onClose={() => setDrawerOpen(false)}
-        onForceSync={() => void onForceSync()}
+        onForceSync={() => (activeProduct ? void onForceSync(activeProduct.id) : undefined)}
         onEdit={() => {
           if (activeProduct) void navigate(`/products/${activeProduct.id}/edit`);
         }}

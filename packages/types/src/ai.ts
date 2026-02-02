@@ -23,6 +23,7 @@ export interface AiBatchOrchestratorJobPayload {
   requestedAt: number;
   triggeredBy: AiBatchTriggeredBy;
   maxItems?: number;
+  productIds?: string[];
 }
 
 export interface AiBatchPollerJobPayload {
@@ -112,6 +113,13 @@ export function validateAiBatchOrchestratorJobPayload(
   if (job.maxItems !== undefined) {
     if (typeof job.maxItems !== 'number' || !Number.isFinite(job.maxItems)) return false;
     if (!Number.isInteger(job.maxItems) || job.maxItems <= 0) return false;
+  }
+
+  if (job.productIds !== undefined) {
+    if (!Array.isArray(job.productIds) || job.productIds.length === 0) return false;
+    if (!job.productIds.every((value) => typeof value === 'string' && isCanonicalUuid(value))) {
+      return false;
+    }
   }
 
   return true;

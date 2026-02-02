@@ -56,8 +56,14 @@ export async function runAiBatchScheduleTick(logger: Logger): Promise<void> {
   }
 
   const now = Date.now();
-  const cleanupIntervalMs = 24 * 60 * 60 * 1000;
-  if (!lastCleanupAt || now - lastCleanupAt > cleanupIntervalMs) {
+  const nowDate = new Date(now);
+  const lastCleanupDate = lastCleanupAt ? new Date(lastCleanupAt) : null;
+  const shouldRunCleanup =
+    nowDate.getUTCHours() === 4 &&
+    (lastCleanupDate?.getUTCFullYear() !== nowDate.getUTCFullYear() ||
+      lastCleanupDate?.getUTCMonth() !== nowDate.getUTCMonth() ||
+      lastCleanupDate?.getUTCDate() !== nowDate.getUTCDate());
+  if (shouldRunCleanup) {
     lastCleanupAt = now;
     for (const shopId of shops) {
       const openAiConfig = await getShopOpenAiConfig({ shopId, env, logger });

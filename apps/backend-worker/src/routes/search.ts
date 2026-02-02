@@ -34,6 +34,27 @@ const DEFAULT_THRESHOLD = 0.7;
 const MIN_THRESHOLD = 0.1;
 const MAX_THRESHOLD = 1;
 
+interface SearchCursor {
+  lastSimilarity: number;
+  seenIds: string[];
+}
+
+function decodeSearchCursor(value: string): SearchCursor | null {
+  try {
+    const decoded = Buffer.from(value, 'base64').toString('utf8');
+    const parsed = JSON.parse(decoded) as SearchCursor;
+    if (!parsed || typeof parsed.lastSimilarity !== 'number') return null;
+    if (!Array.isArray(parsed.seenIds)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function encodeSearchCursor(cursor: SearchCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString('base64');
+}
+
 type SearchRoutesOptions = Readonly<{
   env: AppEnv;
   logger: Logger;
@@ -219,6 +240,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           priceMin?: unknown;
           priceMax?: unknown;
           categoryId?: unknown;
+          cursor?: unknown;
         };
         const rawText = query.q;
         if (!isNonEmptyString(rawText)) {
@@ -253,6 +275,9 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
         const priceMax = parseFloatParam(query.priceMax, NaN, 0, Number.MAX_SAFE_INTEGER);
         const categoryId = typeof query.categoryId === 'string' ? query.categoryId.trim() : '';
 
+        const cursor = typeof query.cursor === 'string' ? query.cursor.trim() : '';
+        const decodedCursor = cursor ? decodeSearchCursor(cursor) : null;
+
         const cacheKeyText = [
           rawText,
           `limit=${limit}`,
@@ -264,28 +289,32 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           `categoryId=${categoryId}`,
         ].join(' ');
 
-        const cached = await getCachedSearchResult({
-          redis,
-          shopId: session.shopId,
-          queryText: cacheKeyText,
-          config: { ttlSeconds: env.vectorSearchCacheTtlSeconds },
-        });
+        if (!cursor) {
+          const cached = await getCachedSearchResult({
+            redis,
+            shopId: session.shopId,
+            queryText: cacheKeyText,
+            config: { ttlSeconds: env.vectorSearchCacheTtlSeconds },
+          });
 
-        if (cached) {
-          vectorSearchCacheHitTotal.add(1);
-          void reply.status(200).send(
-            successEnvelope(request.id, {
-              results: cached.results,
-              query: rawText,
-              vectorSearchTimeMs: cached.vectorSearchTimeMs,
-              cached: true,
-              totalCount: cached.totalCount,
-            } satisfies ProductSearchResponse)
-          );
-          return;
+          if (cached) {
+            vectorSearchCacheHitTotal.add(1);
+            void reply.status(200).send(
+              successEnvelope(request.id, {
+                results: cached.results,
+                query: rawText,
+                vectorSearchTimeMs: cached.vectorSearchTimeMs,
+                cached: true,
+                totalCount: cached.totalCount,
+                hasMore: cached.totalCount > cached.results.length,
+                nextCursor: null,
+              } satisfies ProductSearchResponse)
+            );
+            return;
+          }
+
+          vectorSearchCacheMissTotal.add(1);
         }
-
-        vectorSearchCacheMissTotal.add(1);
 
         const openAiConfig = await getShopOpenAiConfig({
           shopId: session.shopId,
@@ -354,6 +383,8 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
               priceMin: Number.isFinite(priceMin) ? priceMin : null,
               priceMax: Number.isFinite(priceMax) ? priceMax : null,
               categoryId: categoryId || null,
+              minSimilarity: decodedCursor?.lastSimilarity ?? null,
+              excludeProductIds: decodedCursor?.seenIds ?? null,
               queryTimeoutMs: env.vectorSearchQueryTimeoutMs,
               logger,
             });
@@ -411,15 +442,26 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
         vectorSearchLatencySeconds.record(durationMs / 1000);
         recordAiQueryLatencyMs(durationMs);
 
-        await setCachedSearchResult({
-          redis,
-          shopId: session.shopId,
-          queryText: cacheKeyText,
-          result: results,
-          vectorSearchTimeMs: Math.round(durationMs),
-          totalCount,
-          config: { ttlSeconds: env.vectorSearchCacheTtlSeconds },
-        });
+        const hasMore = results.length === limit;
+        const nextCursor =
+          hasMore && results.length > 0
+            ? encodeSearchCursor({
+                lastSimilarity: results[results.length - 1]?.similarity ?? threshold,
+                seenIds: results.map((result) => result.id),
+              })
+            : null;
+
+        if (!cursor) {
+          await setCachedSearchResult({
+            redis,
+            shopId: session.shopId,
+            queryText: cacheKeyText,
+            result: results,
+            vectorSearchTimeMs: Math.round(durationMs),
+            totalCount,
+            config: { ttlSeconds: env.vectorSearchCacheTtlSeconds },
+          });
+        }
 
         void reply.status(200).send(
           successEnvelope(request.id, {
@@ -428,6 +470,8 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
             vectorSearchTimeMs: Math.round(durationMs),
             cached: false,
             totalCount,
+            hasMore,
+            nextCursor,
           } satisfies ProductSearchResponse)
         );
       }

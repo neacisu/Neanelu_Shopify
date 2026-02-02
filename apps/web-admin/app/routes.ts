@@ -24,7 +24,12 @@ import ProductDetailPage from './routes/app.products.$id';
 import ProductEditPage, { action as productEditAction } from './routes/app.products.$id.edit';
 import ProductsImportPage from './routes/app.products.import';
 import ProductsReviewPage from './routes/app.products.review';
-import SettingsPage from './routes/settings';
+import SettingsLayout from './routes/settings';
+import SettingsIndex from './routes/settings._index';
+import SettingsGeneral from './routes/settings.general';
+import SettingsApi from './routes/settings.api';
+import SettingsQueues from './routes/settings.queues';
+import SettingsOpenAi from './routes/settings.openai';
 
 export const routes: RouteObject[] = [
   {
@@ -126,7 +131,38 @@ export const routes: RouteObject[] = [
         id: 'settings',
         path: 'settings',
         handle: { title: 'Settings' },
-        element: createElement(SettingsPage),
+        element: createElement(SettingsLayout),
+        children: [
+          {
+            id: 'settings-index',
+            index: true,
+            element: createElement(SettingsIndex),
+          },
+          {
+            id: 'settings-general',
+            path: 'general',
+            handle: { title: 'Settings - General' },
+            element: createElement(SettingsGeneral),
+          },
+          {
+            id: 'settings-api',
+            path: 'api',
+            handle: { title: 'Settings - API' },
+            element: createElement(SettingsApi),
+          },
+          {
+            id: 'settings-queues',
+            path: 'queues',
+            handle: { title: 'Settings - Queues' },
+            element: createElement(SettingsQueues),
+          },
+          {
+            id: 'settings-openai',
+            path: 'openai',
+            handle: { title: 'Settings - OpenAI' },
+            element: createElement(SettingsOpenAi),
+          },
+        ],
       },
     ],
   },
