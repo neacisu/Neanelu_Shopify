@@ -247,7 +247,7 @@ void describe('Bulk Routes', () => {
       };
     };
     assert.equal(body.success, true);
-    assert.equal(body.data.shopifyStatus, 'COMPLETED');
+    assert.equal(body.data.shopifyStatus, 'COMPLETED', `run detail: ${JSON.stringify(body.data)}`);
     assert.equal(body.data.shopifyObjectCount, 55);
     assert.equal(body.data.shopifyRootObjectCount, 12);
     assert.equal(body.data.shopifyFileSizeBytes, 2048);
