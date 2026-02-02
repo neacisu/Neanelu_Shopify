@@ -143,6 +143,7 @@ describe('Ingestion page', () => {
   });
 
   it('loads current run and recent runs, then starts ingestion', async () => {
+    currentRunResponse = null;
     const router = createMemoryRouter(
       [
         {
