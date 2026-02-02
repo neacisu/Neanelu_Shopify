@@ -62,6 +62,10 @@
       "esbuild",
       "msgpackr-extract",
       "protobufjs"
+    ],
+    "ignoredBuiltDependencies": [
+      "cpu-features",
+      "ssh2"
     ]
   },
   "devDependencies": {

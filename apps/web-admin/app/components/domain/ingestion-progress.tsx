@@ -23,6 +23,11 @@ export interface IngestionProgressProps {
   status?: 'running' | 'failed' | 'completed';
   onAbort?: () => void;
   abortDisabled?: boolean;
+  overallLabel?: string | null;
+  overallProcessedLabel?: string | null;
+  overallTotalLabel?: string | null;
+  overallSpeedLabel?: string | null;
+  overallEtaLabel?: string | null;
   stageDetails?: IngestionStageMetric[];
 }
 
@@ -39,6 +44,11 @@ export function IngestionProgress({
   status = 'running',
   onAbort,
   abortDisabled,
+  overallLabel,
+  overallProcessedLabel,
+  overallTotalLabel,
+  overallSpeedLabel,
+  overallEtaLabel,
   stageDetails,
 }: IngestionProgressProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -104,12 +114,22 @@ export function IngestionProgress({
 
         <div className="rounded-md border bg-muted/10 px-4 py-3">
           <div className="flex items-center justify-between text-xs text-muted">
-            <span>Overall progress</span>
+            <span>{overallLabel ?? 'Overall progress'}</span>
             <span>{Math.min(Math.max(progress, 0), 100)}%</span>
           </div>
           <div className="mt-2">
             <PolarisProgressBar progress={Math.min(Math.max(progress, 0), 100)} />
           </div>
+          {overallProcessedLabel || overallTotalLabel || overallSpeedLabel || overallEtaLabel ? (
+            <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted">
+              <span>
+                {overallProcessedLabel ?? '—'}
+                {overallTotalLabel ? ` / ${overallTotalLabel}` : ''}
+              </span>
+              {overallSpeedLabel ? <span>Speed: {overallSpeedLabel}</span> : null}
+              {overallEtaLabel ? <span>ETA: {overallEtaLabel}</span> : null}
+            </div>
+          ) : null}
         </div>
 
         {stageDetails && stageDetails.length > 0 ? (

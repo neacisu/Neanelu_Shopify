@@ -70,6 +70,12 @@ const bulkRuns = [
     started_at: now,
     completed_at: new Date(now.getTime() + 60_000),
     records_processed: 12,
+    shopify_status: 'COMPLETED',
+    shopify_error_code: null,
+    shopify_object_count: 55,
+    shopify_root_object_count: 12,
+    shopify_file_size_bytes: 2048,
+    shopify_updated_at: new Date(now.getTime() + 30_000),
     query_type: 'core',
   },
 ] as const;
@@ -228,8 +234,22 @@ void describe('Bulk Routes', () => {
     logStep(`inject:GET /bulk/:id:done status=${res.statusCode}`);
     assert.equal(res.statusCode, 200);
 
-    const body = JSON.parse(res.body) as { success: boolean };
+    const body = JSON.parse(res.body) as {
+      success: boolean;
+      data: {
+        shopifyStatus?: string | null;
+        shopifyObjectCount?: number | null;
+        shopifyRootObjectCount?: number | null;
+        shopifyFileSizeBytes?: number | null;
+        shopifyUpdatedAt?: string | null;
+      };
+    };
     assert.equal(body.success, true);
+    assert.equal(body.data.shopifyStatus, 'COMPLETED');
+    assert.equal(body.data.shopifyObjectCount, 55);
+    assert.equal(body.data.shopifyRootObjectCount, 12);
+    assert.equal(body.data.shopifyFileSizeBytes, 2048);
+    assert.ok(body.data.shopifyUpdatedAt);
   });
 
   void test('POST /bulk/start enqueues run', async () => {

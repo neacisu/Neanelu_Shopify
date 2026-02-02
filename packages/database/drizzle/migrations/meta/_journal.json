@@ -470,6 +470,20 @@
       "when": 1769904000000,
       "tag": "0066_ai_settings_extended",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1769990400000,
+      "tag": "0067_staging_media",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1769990401000,
+      "tag": "0068_bulk_runs_shopify_progress",
+      "breakpoints": true
     }
   ]
 }

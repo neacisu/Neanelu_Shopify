@@ -51,6 +51,7 @@ await (async () => {
                       createdAt: new Date(Date.now() - 60_000).toISOString(),
                       completedAt: new Date().toISOString(),
                       objectCount: '10',
+                      rootObjectCount: '7',
                       fileSize: '1234',
                       url: MOCK_RESULT_URL,
                       partialDataUrl: MOCK_PARTIAL_URL,
@@ -242,6 +243,8 @@ void describe('smoke: bulk poller (enqueue → poll → bulk_runs completed + ar
     let resultUrl: string | null = null;
     let partialDataUrl: string | null = null;
     let cursorPartial: string | null = null;
+    let shopifyObjectCount: number | null = null;
+    let shopifyRootObjectCount: number | null = null;
     for (let i = 0; i < 50; i++) {
       const row = await withTenantContext(shopId, async (client) => {
         const res = await client.query<{
@@ -249,12 +252,16 @@ void describe('smoke: bulk poller (enqueue → poll → bulk_runs completed + ar
           result_url: string | null;
           partial_data_url: string | null;
           cursor_partial: string | null;
+          shopify_object_count: number | null;
+          shopify_root_object_count: number | null;
         }>(
           `SELECT
              status,
              result_url,
              partial_data_url,
-             cursor_state ->> 'partialDataUrl' AS cursor_partial
+             cursor_state ->> 'partialDataUrl' AS cursor_partial,
+             shopify_object_count,
+             shopify_root_object_count
            FROM bulk_runs
            WHERE id = $1`,
           [bulkRunId]
@@ -266,6 +273,8 @@ void describe('smoke: bulk poller (enqueue → poll → bulk_runs completed + ar
       resultUrl = row?.result_url ?? null;
       partialDataUrl = row?.partial_data_url ?? null;
       cursorPartial = row?.cursor_partial ?? null;
+      shopifyObjectCount = row?.shopify_object_count ?? null;
+      shopifyRootObjectCount = row?.shopify_root_object_count ?? null;
       if (resultUrl && partialDataUrl && cursorPartial) break;
       await sleep(100);
     }
@@ -274,6 +283,8 @@ void describe('smoke: bulk poller (enqueue → poll → bulk_runs completed + ar
     assert.equal(resultUrl, MOCK_RESULT_URL);
     assert.equal(partialDataUrl, MOCK_PARTIAL_URL);
     assert.equal(cursorPartial, MOCK_PARTIAL_URL);
+    assert.equal(shopifyObjectCount, 10);
+    assert.equal(shopifyRootObjectCount, 7);
 
     const artifact = await withTenantContext(shopId, async (client) => {
       const res = await client.query<{ url: string }>(

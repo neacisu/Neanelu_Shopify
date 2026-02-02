@@ -107,6 +107,7 @@ interface ShopifyBulkOperationNode {
   createdAt?: string | null;
   completedAt?: string | null;
   objectCount?: string | null;
+  rootObjectCount?: string | null;
   fileSize?: string | null;
   url?: string | null;
   partialDataUrl?: string | null;
@@ -128,6 +129,7 @@ const BULK_OPERATION_NODE_QUERY = `#graphql
         createdAt
         completedAt
         objectCount
+        rootObjectCount
         fileSize
         url
         partialDataUrl
@@ -202,7 +204,7 @@ async function recordShopifyCompletion(params: {
   bulkRunId: string;
   resultUrl: string;
   partialDataUrl?: string | null;
-  objectCount?: number | null;
+  rootObjectCount?: number | null;
   resultSizeBytes?: number | null;
 }): Promise<void> {
   await withTenantContext(params.shopId, async (client) => {
@@ -218,7 +220,7 @@ async function recordShopifyCompletion(params: {
         params.resultUrl,
         params.resultSizeBytes ?? null,
         params.partialDataUrl ?? null,
-        params.objectCount ?? null,
+        params.rootObjectCount ?? null,
         params.bulkRunId,
       ]
     );
@@ -259,6 +261,44 @@ async function recordShopifyCompletion(params: {
         ]
       );
     }
+  });
+}
+
+async function recordShopifyProgress(params: {
+  shopId: string;
+  bulkRunId: string;
+  status: ShopifyBulkOpStatus;
+  errorCode?: string | null;
+  objectCount?: number | null;
+  rootObjectCount?: number | null;
+  fileSizeBytes?: number | null;
+}): Promise<void> {
+  await withTenantContext(params.shopId, async (client) => {
+    await client.query(
+      `UPDATE bulk_runs
+       SET shopify_status = $1,
+           shopify_error_code = COALESCE($2::text, shopify_error_code),
+           shopify_object_count = COALESCE($3::bigint, shopify_object_count),
+           shopify_root_object_count = COALESCE($4::bigint, shopify_root_object_count),
+           shopify_file_size_bytes = COALESCE($5::bigint, shopify_file_size_bytes),
+           shopify_updated_at = now(),
+           records_processed = CASE
+             WHEN $4::bigint IS NULL THEN records_processed
+             ELSE GREATEST(records_processed, $4::int)
+           END,
+           updated_at = now()
+       WHERE id = $6
+         AND shop_id = $7`,
+      [
+        params.status,
+        params.errorCode ?? null,
+        params.objectCount ?? null,
+        params.rootObjectCount ?? null,
+        params.fileSizeBytes ?? null,
+        params.bulkRunId,
+        params.shopId,
+      ]
+    );
   });
 }
 
@@ -525,17 +565,34 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
               }
 
               const bulk = node;
+              const objectCount = safeIntFromString(bulk.objectCount);
+              const rootObjectCount = safeIntFromString(bulk.rootObjectCount);
+              const fileSizeBytes = safeIntFromString(bulk.fileSize);
               logger.info(
                 {
                   [OTEL_ATTR.SHOP_ID]: payload.shopId,
                   jobId,
                   bulkRunId: payload.bulkRunId,
+                  bulkOperationId: bulk.id,
                   status: bulk.status,
-                  objectCount: safeIntFromString(bulk.objectCount),
-                  fileSizeBytes: safeIntFromString(bulk.fileSize),
+                  objectCount,
+                  objectCountRaw: bulk.objectCount ?? null,
+                  rootObjectCount,
+                  rootObjectCountRaw: bulk.rootObjectCount ?? null,
+                  fileSizeBytes,
                 },
-                'Polled bulk operation status'
+                'Bulk poller status update'
               );
+
+              await recordShopifyProgress({
+                shopId: payload.shopId,
+                bulkRunId: payload.bulkRunId,
+                status: bulk.status,
+                errorCode: bulk.errorCode ?? null,
+                objectCount,
+                rootObjectCount,
+                fileSizeBytes,
+              });
 
               if (bulk.partialDataUrl) {
                 await recordPartialDataUrlForResume({
@@ -582,7 +639,8 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
                   bulkRunId: payload.bulkRunId,
                   step: 'poller.completed',
                   details: {
-                    objectCount: safeIntFromString(bulk.objectCount),
+                    objectCount,
+                    rootObjectCount,
                     fileSize: safeIntFromString(bulk.fileSize),
                   },
                 });
@@ -592,7 +650,7 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
                   bulkRunId: payload.bulkRunId,
                   resultUrl: chosenUrl,
                   partialDataUrl: bulk.partialDataUrl ?? null,
-                  objectCount: safeIntFromString(bulk.objectCount),
+                  rootObjectCount,
                   resultSizeBytes: safeIntFromString(bulk.fileSize),
                 });
 
@@ -613,7 +671,7 @@ export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
                   shopId: payload.shopId,
                   bulkRunId: payload.bulkRunId,
                   operationType,
-                  rowsProcessed: safeIntFromString(bulk.objectCount),
+                  rowsProcessed: rootObjectCount ?? objectCount ?? null,
                   durationSeconds: durationSeconds ?? null,
                 });
 

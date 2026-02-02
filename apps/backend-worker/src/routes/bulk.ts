@@ -99,6 +99,12 @@ type BulkRunRow = Readonly<{
   records_processed: number | null;
   bytes_processed?: number | null;
   result_size_bytes?: number | null;
+  shopify_status?: string | null;
+  shopify_error_code?: string | null;
+  shopify_object_count?: number | null;
+  shopify_root_object_count?: number | null;
+  shopify_file_size_bytes?: number | null;
+  shopify_updated_at?: Date | null;
   cursor_state?: Record<string, unknown> | null;
   query_type: string | null;
   shopify_operation_id?: string | null;
@@ -157,11 +163,18 @@ function normalizeRun(row: BulkRunRow & { error_count?: number | null }, steps?:
   return {
     id: row.id,
     status: row.status,
+    createdAt: row.created_at?.toISOString() ?? null,
     startedAt: row.started_at?.toISOString() ?? null,
     completedAt: row.completed_at?.toISOString() ?? null,
     recordsProcessed: row.records_processed ?? null,
     bytesProcessed: row.bytes_processed ?? null,
     resultSizeBytes: row.result_size_bytes ?? null,
+    shopifyStatus: row.shopify_status ?? null,
+    shopifyErrorCode: row.shopify_error_code ?? null,
+    shopifyObjectCount: row.shopify_object_count ?? null,
+    shopifyRootObjectCount: row.shopify_root_object_count ?? null,
+    shopifyFileSizeBytes: row.shopify_file_size_bytes ?? null,
+    shopifyUpdatedAt: row.shopify_updated_at?.toISOString() ?? null,
     errorCount: row.error_count ?? 0,
     checkpoint: checkpoint
       ? {
@@ -246,9 +259,30 @@ function buildCurrentBulkOperationQuery(): string {
     createdAt
     completedAt
     objectCount
+    rootObjectCount
     fileSize
     url
     partialDataUrl
+  }
+}`;
+}
+
+function buildBulkOperationNodeQuery(): string {
+  return `query BulkOperationNode($id: ID!) {
+  node(id: $id) {
+    __typename
+    ... on BulkOperation {
+      id
+      status
+      errorCode
+      createdAt
+      completedAt
+      objectCount
+      rootObjectCount
+      fileSize
+      url
+      partialDataUrl
+    }
   }
 }`;
 }
@@ -396,7 +430,7 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
     const sortColumn = (() => {
       switch (sortRaw) {
         case 'startedAt':
-          return 'started_at';
+          return 'COALESCE(started_at, created_at)';
         case 'completedAt':
           return 'completed_at';
         case 'records':
@@ -408,7 +442,7 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
         case 'status':
           return 'status';
         default:
-          return 'started_at';
+          return 'COALESCE(started_at, created_at)';
       }
     })();
 
@@ -437,6 +471,12 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
           br.records_processed,
           br.bytes_processed,
           br.result_size_bytes,
+          br.shopify_status,
+          br.shopify_error_code,
+          br.shopify_object_count,
+          br.shopify_root_object_count,
+          br.shopify_file_size_bytes,
+          br.shopify_updated_at,
           br.cursor_state,
           br.query_type,
           COALESCE(err.error_count, 0) as error_count
@@ -472,7 +512,21 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
 
     const run = await withTenantContext(session.shopId, async (client) => {
       const res = await client.query<BulkRunRow>(
-        `SELECT id, status, created_at, started_at, completed_at, records_processed, bytes_processed, result_size_bytes, cursor_state
+        `SELECT id,
+           status,
+           created_at,
+           started_at,
+           completed_at,
+           records_processed,
+           bytes_processed,
+           result_size_bytes,
+           shopify_status,
+           shopify_error_code,
+           shopify_object_count,
+           shopify_root_object_count,
+           shopify_file_size_bytes,
+           shopify_updated_at,
+           cursor_state
          FROM bulk_runs
         WHERE status IN ('pending', 'running', 'polling', 'downloading', 'processing')
          ORDER BY created_at DESC
@@ -507,30 +561,86 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
 
     try {
       const encryptionKey = Buffer.from(env.encryptionKeyHex, 'hex');
-      const query = buildCurrentBulkOperationQuery();
-      const res = await withTokenRetry(
-        session.shopId,
-        encryptionKey,
-        logger,
-        async (accessToken, shopDomain) => {
-          const client = shopifyApi.createClient({ shopDomain, accessToken });
-          return await client.request<{
-            currentBulkOperation?: {
-              id?: string | null;
-              status?: ShopifyBulkOperationStatus | null;
-              errorCode?: string | null;
-              createdAt?: string | null;
-              completedAt?: string | null;
-              objectCount?: string | null;
-              fileSize?: string | null;
-              url?: string | null;
-              partialDataUrl?: string | null;
-            } | null;
-          }>(query);
-        }
-      );
+      const activeRun = await withTenantContext(session.shopId, async (client) => {
+        const res = await client.query<{ shopify_operation_id: string | null }>(
+          `SELECT shopify_operation_id
+           FROM bulk_runs
+           WHERE status IN ('pending', 'running', 'polling', 'downloading', 'processing')
+           ORDER BY created_at DESC
+           LIMIT 1`
+        );
+        return res.rows[0]?.shopify_operation_id ?? null;
+      });
+      const useNodeQuery = Boolean(activeRun);
+      let op: {
+        id?: string | null;
+        status?: ShopifyBulkOperationStatus | null;
+        errorCode?: string | null;
+        createdAt?: string | null;
+        completedAt?: string | null;
+        objectCount?: string | null;
+        rootObjectCount?: string | null;
+        fileSize?: string | null;
+        url?: string | null;
+        partialDataUrl?: string | null;
+      } | null = null;
 
-      const op = res.data?.currentBulkOperation ?? null;
+      if (useNodeQuery && activeRun) {
+        const query = buildBulkOperationNodeQuery();
+        const res = await withTokenRetry(
+          session.shopId,
+          encryptionKey,
+          logger,
+          async (accessToken, shopDomain) => {
+            const client = shopifyApi.createClient({ shopDomain, accessToken });
+            return await client.request<{
+              node?: {
+                __typename?: string | null;
+                id?: string | null;
+                status?: ShopifyBulkOperationStatus | null;
+                errorCode?: string | null;
+                createdAt?: string | null;
+                completedAt?: string | null;
+                objectCount?: string | null;
+                rootObjectCount?: string | null;
+                fileSize?: string | null;
+                url?: string | null;
+                partialDataUrl?: string | null;
+              } | null;
+            }>(query, { id: activeRun });
+          }
+        );
+        const node = res.data?.node;
+        if (node?.__typename === 'BulkOperation') {
+          op = node;
+        }
+      } else {
+        const query = buildCurrentBulkOperationQuery();
+        const res = await withTokenRetry(
+          session.shopId,
+          encryptionKey,
+          logger,
+          async (accessToken, shopDomain) => {
+            const client = shopifyApi.createClient({ shopDomain, accessToken });
+            return await client.request<{
+              currentBulkOperation?: {
+                id?: string | null;
+                status?: ShopifyBulkOperationStatus | null;
+                errorCode?: string | null;
+                createdAt?: string | null;
+                completedAt?: string | null;
+                objectCount?: string | null;
+                rootObjectCount?: string | null;
+                fileSize?: string | null;
+                url?: string | null;
+                partialDataUrl?: string | null;
+              } | null;
+            }>(query);
+          }
+        );
+        op = res.data?.currentBulkOperation ?? null;
+      }
+
       void reply.status(200).send(successEnvelope(request.id, { operation: op }));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'active_bulk_lookup_failed';
@@ -643,6 +753,12 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
           br.records_processed,
           br.bytes_processed,
           br.result_size_bytes,
+          br.shopify_status,
+          br.shopify_error_code,
+          br.shopify_object_count,
+          br.shopify_root_object_count,
+          br.shopify_file_size_bytes,
+          br.shopify_updated_at,
           br.cursor_state,
           br.query_type,
           COALESCE(err.error_count, 0) as error_count

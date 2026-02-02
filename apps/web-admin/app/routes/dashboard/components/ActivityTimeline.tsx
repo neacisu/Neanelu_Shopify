@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { DashboardActivityResponse } from '@app/types';
 import { useQuery } from '@tanstack/react-query';
@@ -60,12 +60,33 @@ export function ActivityTooltipContent({ active, payload }: ActivityTooltipProps
 
 export function ActivityTimeline() {
   const [isClientMounted, setIsClientMounted] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [containerReady, setContainerReady] = useState(false);
 
   useEffect(() => {
     // In embedded/hydrated layouts, Recharts can briefly measure 0x0 (reported as -1/-1).
     // Defer chart mount to the first client paint to avoid false warnings.
     setIsClientMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!isClientMounted) return;
+    const node = containerRef.current;
+    if (!node || typeof ResizeObserver === 'undefined') {
+      setContainerReady(true);
+      return;
+    }
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      const width = entry?.contentRect?.width ?? 0;
+      const height = entry?.contentRect?.height ?? 0;
+      setContainerReady(width > 0 && height > 0);
+    });
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [isClientMounted]);
 
   const query = useQuery({
     queryKey: ['dashboard', 'activity', 7],
@@ -102,8 +123,8 @@ export function ActivityTimeline() {
           onRetry={() => void query.refetch()}
         />
       ) : (
-        <div style={{ width: '100%', height: '100%' }}>
-          {isClientMounted ? (
+        <div ref={containerRef} style={{ width: '100%', height: '100%' }}>
+          {isClientMounted && containerReady ? (
             <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
               <RechartsLineChart data={data} margin={{ top: 8, right: 12, bottom: 8, left: 12 }}>
                 <ChartGrid strokeDasharray="3 3" vertical={false} className="opacity-30" />

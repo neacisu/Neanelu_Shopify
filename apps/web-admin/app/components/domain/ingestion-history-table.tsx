@@ -10,6 +10,7 @@ export type IngestionRunStatus = 'pending' | 'running' | 'completed' | 'failed' 
 export type IngestionRunRow = Readonly<{
   id: string;
   status: IngestionRunStatus;
+  createdAt?: string | null;
   startedAt?: string | null;
   completedAt?: string | null;
   recordsProcessed?: number | null;
@@ -180,9 +181,11 @@ export function IngestionHistoryTable(props: IngestionHistoryTableProps) {
               runs.flatMap((run) => {
                 const rows = [
                   <tr key={run.id} className="border-b last:border-b-0">
-                    <td className="px-3 py-2 font-mono text-xs">{formatDate(run.startedAt)}</td>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {formatDate(run.startedAt ?? run.createdAt)}
+                    </td>
                     <td className="px-3 py-2 text-caption text-muted">
-                      {formatDuration(run.startedAt, run.completedAt)}
+                      {formatDuration(run.startedAt ?? run.createdAt, run.completedAt)}
                     </td>
                     <td className="px-3 py-2 font-mono">
                       {typeof run.recordsProcessed === 'number' ? run.recordsProcessed : '—'}

@@ -44,16 +44,19 @@ export const PRODUCTS_EXPORT_CORE_QUERY_V2 = `#graphql
           maxVariantCompareAtPrice { amount currencyCode }
         }
         images(first: 250) {
-          nodes {
+          edges {
+            node {
             id
             url
             altText
             width
             height
+            }
           }
         }
         media(first: 250) {
-          nodes {
+          edges {
+            node {
             __typename
             ... on MediaImage {
               id
@@ -72,14 +75,17 @@ export const PRODUCTS_EXPORT_CORE_QUERY_V2 = `#graphql
               id
               sources { url mimeType format filesize }
             }
+            }
           }
         }
         collections(first: 50) {
-          nodes {
+          edges {
+            node {
             id
             handle
             title
             updatedAt
+            }
           }
         }
         variants(first: 100) {

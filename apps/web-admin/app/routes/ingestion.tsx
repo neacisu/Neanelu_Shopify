@@ -1,4 +1,4 @@
-import type { ActionFunctionArgs, LoaderFunctionArgs } from 'react-router-dom';
+import type { ActionFunction, ActionFunctionArgs, LoaderFunctionArgs } from 'react-router-dom';
 import { data, useFetcher, useLoaderData, useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -13,7 +13,7 @@ import { PolarisCard } from '../../components/polaris/index.js';
 import { useLogStream } from '../hooks/use-log-stream';
 import { useApiClient } from '../hooks/use-api';
 import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
-import { apiAction, type ActionData, createActionApiClient } from '../utils/actions';
+import { apiAction, createActionApiClient } from '../utils/actions';
 import type {
   IngestionStageMetric,
   IngestionStepId,
@@ -32,11 +32,18 @@ type BulkRunStatus =
 type BulkRun = Readonly<{
   id: string;
   status: BulkRunStatus;
+  createdAt?: string;
   startedAt?: string;
   completedAt?: string;
   recordsProcessed?: number;
   bytesProcessed?: number | null;
   resultSizeBytes?: number | null;
+  shopifyStatus?: ShopifyBulkOperationStatus | null;
+  shopifyErrorCode?: string | null;
+  shopifyObjectCount?: number | null;
+  shopifyRootObjectCount?: number | null;
+  shopifyFileSizeBytes?: number | null;
+  shopifyUpdatedAt?: string | null;
   checkpoint?: {
     committedLines?: number | null;
     committedRecords?: number | null;
@@ -66,6 +73,7 @@ type ShopifyBulkOperation = Readonly<{
   createdAt?: string | null;
   completedAt?: string | null;
   objectCount?: string | null;
+  rootObjectCount?: string | null;
   fileSize?: string | null;
   url?: string | null;
   partialDataUrl?: string | null;
@@ -86,6 +94,8 @@ type IngestionActionResult =
       error: { code: string; message: string };
     };
 
+type IngestionActionResponse = ReturnType<typeof data<IngestionActionResult>>;
+
 export const loader = apiLoader(async (args: LoaderFunctionArgs) => {
   const api = createLoaderApiClient();
   const url = new URL(args.request.url);
@@ -97,81 +107,85 @@ export const loader = apiLoader(async (args: LoaderFunctionArgs) => {
   const activeShopifyOperation = await api.getApi<{ operation: ShopifyBulkOperation | null }>(
     '/bulk/active-shopify'
   );
+  const completedRuns = await api.getApi<{ runs: BulkRun[] }>(`/bulk?limit=5&status=completed`);
   const recentRuns = await api.getApi<{ runs: BulkRun[] }>(`/bulk?limit=5`);
 
   return {
     currentRun,
     runId,
     recentRuns: recentRuns.runs ?? [],
+    completedRuns: completedRuns.runs ?? [],
     activeShopifyOperation: activeShopifyOperation.operation ?? null,
   };
 });
 
-export const action = apiAction(async (args: ActionFunctionArgs) => {
-  const api = createActionApiClient();
-  const formData = await args.request.formData();
-  const intent = formData.get('intent');
+export const action: ActionFunction = apiAction(
+  async (args: ActionFunctionArgs): Promise<IngestionActionResponse> => {
+    const api = createActionApiClient();
+    const formData = await args.request.formData();
+    const intent = formData.get('intent');
 
-  if (intent !== 'bulk.start' && intent !== 'bulk.abort' && intent !== 'bulk.cancel-shopify') {
-    return data(
-      { ok: false, error: { code: 'missing_intent', message: 'Missing intent' } },
-      { status: 400 }
-    );
-  }
+    if (intent !== 'bulk.start' && intent !== 'bulk.abort' && intent !== 'bulk.cancel-shopify') {
+      return data(
+        { ok: false, error: { code: 'missing_intent', message: 'Missing intent' } },
+        { status: 400 }
+      );
+    }
 
-  if (intent === 'bulk.start') {
-    const startResult = await api.postApi<
-      { run_id?: string | null; status?: string | null },
-      Record<string, unknown>
-    >('/bulk/start', {
-      type: 'export',
-      resource: 'products',
-    });
+    if (intent === 'bulk.start') {
+      const startResult = await api.postApi<
+        { run_id?: string | null; status?: string | null },
+        Record<string, unknown>
+      >('/bulk/start', {
+        type: 'export',
+        resource: 'products',
+      });
 
-    const runId = startResult.run_id ?? null;
-    const status = (startResult.status ?? null) as BulkRunStatus | null;
+      const runId = startResult.run_id ?? null;
+      const status = (startResult.status ?? null) as BulkRunStatus | null;
+
+      return data({
+        ok: true,
+        intent,
+        runId,
+        status,
+        toast: { type: 'success', message: 'Bulk ingestion started' },
+      } satisfies IngestionActionResult);
+    }
+
+    if (intent === 'bulk.cancel-shopify') {
+      await api.postApi<{ cancelled: boolean }, Record<string, never>>(
+        '/bulk/active-shopify/cancel',
+        {}
+      );
+
+      return data({
+        ok: true,
+        intent,
+        toast: { type: 'success', message: 'Shopify bulk operation cancel requested' },
+      } satisfies IngestionActionResult);
+    }
+
+    const runId = formData.get('runId');
+    if (!runId || typeof runId !== 'string') {
+      return data(
+        { ok: false, error: { code: 'missing_runId', message: 'Missing runId' } },
+        { status: 400 }
+      );
+    }
+
+    await api.getApi(`/bulk/${encodeURIComponent(runId)}`, { method: 'DELETE' });
 
     return data({
       ok: true,
       intent,
-      runId,
-      status,
-      toast: { type: 'success', message: 'Bulk ingestion started' },
+      toast: { type: 'success', message: 'Bulk ingestion aborted' },
     } satisfies IngestionActionResult);
   }
-
-  if (intent === 'bulk.cancel-shopify') {
-    await api.postApi<{ cancelled: boolean }, Record<string, never>>(
-      '/bulk/active-shopify/cancel',
-      {}
-    );
-
-    return data({
-      ok: true,
-      intent,
-      toast: { type: 'success', message: 'Shopify bulk operation cancel requested' },
-    } satisfies IngestionActionResult);
-  }
-
-  const runId = formData.get('runId');
-  if (!runId || typeof runId !== 'string') {
-    return data(
-      { ok: false, error: { code: 'missing_runId', message: 'Missing runId' } },
-      { status: 400 }
-    );
-  }
-
-  await api.getApi(`/bulk/${encodeURIComponent(runId)}`, { method: 'DELETE' });
-
-  return data({
-    ok: true,
-    intent,
-    toast: { type: 'success', message: 'Bulk ingestion aborted' },
-  } satisfies IngestionActionResult);
-});
+);
 
 type RouteLoaderData = LoaderData<typeof loader>;
-type RouteActionData = ActionData<typeof action>;
+type RouteActionData = IngestionActionResult;
 
 export default function IngestionPage() {
   const location = useLocation();
@@ -180,6 +194,7 @@ export default function IngestionPage() {
     currentRun: loaderRun,
     runId,
     recentRuns,
+    completedRuns,
     activeShopifyOperation,
   } = useLoaderData<RouteLoaderData>();
   const actionFetcher = useFetcher<RouteActionData>();
@@ -194,6 +209,10 @@ export default function IngestionPage() {
     linesPerSec?: number | null;
     recordsPerSec?: number | null;
   }>({});
+  const [shopifyRateMetrics, setShopifyRateMetrics] = useState<{
+    productsPerSec?: number | null;
+    objectsPerSec?: number | null;
+  }>({});
   const pollRef = useRef<number | null>(null);
   const shopifyPollRef = useRef<number | null>(null);
   const rateSampleRef = useRef<{
@@ -201,6 +220,11 @@ export default function IngestionPage() {
     bytes?: number | null;
     lines?: number | null;
     records?: number | null;
+  } | null>(null);
+  const shopifyRateSampleRef = useRef<{
+    at: number;
+    products?: number | null;
+    objects?: number | null;
   } | null>(null);
 
   useEffect(() => {
@@ -219,6 +243,11 @@ export default function IngestionPage() {
     rateSampleRef.current = null;
     setRateMetrics({});
   }, [currentRun?.id]);
+
+  useEffect(() => {
+    shopifyRateSampleRef.current = null;
+    setShopifyRateMetrics({});
+  }, [currentRun?.id, shopifyOperation?.id]);
 
   useEffect(() => {
     if (!currentRun) return;
@@ -280,7 +309,7 @@ export default function IngestionPage() {
       return;
     }
 
-    const okResult = result as Extract<IngestionActionResult, { ok: true }>;
+    const okResult = result;
 
     if ('toast' in okResult && okResult.toast?.type === 'success') {
       toast.success(okResult.toast.message);
@@ -340,11 +369,12 @@ export default function IngestionPage() {
   const isSelectedRun = Boolean(runId && currentRun);
   const currentStep = currentRun?.progress?.step ?? currentRun?.stepName ?? 'download';
   const progress = currentRun?.progress?.percentage ?? 0;
-  const shopifyStatus = shopifyOperation?.status ?? null;
+  const shopifyStatus = currentRun?.shopifyStatus ?? shopifyOperation?.status ?? null;
   const isShopifyRunning =
     shopifyStatus === 'CREATED' || shopifyStatus === 'RUNNING' || shopifyStatus === 'CANCELING';
   const hasShopifyOperation = Boolean(shopifyOperation?.id);
   const showShopifyStatusCard = isActive || hasShopifyOperation;
+  const shopifyErrorCode = currentRun?.shopifyErrorCode ?? shopifyOperation?.errorCode ?? null;
 
   useEffect(() => {
     if (!isActive && !hasShopifyOperation) return;
@@ -438,8 +468,8 @@ export default function IngestionPage() {
 
   const showLogConsole = !isActive || showRawLogs;
 
-  const formatCount = (value?: string | null) => {
-    const count = value ? Number(value) : Number.NaN;
+  const formatCount = (value?: string | number | null) => {
+    const count = typeof value === 'number' ? value : value ? Number(value) : Number.NaN;
     if (!Number.isFinite(count)) return null;
     return new Intl.NumberFormat('en-GB').format(count);
   };
@@ -450,8 +480,8 @@ export default function IngestionPage() {
     return new Intl.NumberFormat('en-GB').format(count);
   };
 
-  const formatMegabytes = (value?: string | null) => {
-    const bytes = value ? Number(value) : Number.NaN;
+  const formatMegabytes = (value?: string | number | null) => {
+    const bytes = typeof value === 'number' ? value : value ? Number(value) : Number.NaN;
     if (!Number.isFinite(bytes)) return null;
     const mb = bytes / (1024 * 1024);
     return `${mb.toFixed(mb >= 10 ? 0 : 1)} Mb`;
@@ -528,8 +558,33 @@ export default function IngestionPage() {
     return null;
   };
 
-  const objectCountLabel = formatCount(shopifyOperation?.objectCount);
-  const fileSizeLabel = formatMegabytes(shopifyOperation?.fileSize);
+  const shopifyObjectCount =
+    typeof currentRun?.shopifyObjectCount === 'number'
+      ? currentRun.shopifyObjectCount
+      : typeof shopifyOperation?.objectCount === 'string'
+        ? Number(shopifyOperation.objectCount)
+        : null;
+  const shopifyRootObjectCount =
+    typeof currentRun?.shopifyRootObjectCount === 'number'
+      ? currentRun.shopifyRootObjectCount
+      : typeof shopifyOperation?.rootObjectCount === 'string'
+        ? Number(shopifyOperation.rootObjectCount)
+        : null;
+  const objectCountLabel = formatCount(shopifyObjectCount);
+  const rootObjectCountLabel = formatCount(shopifyRootObjectCount);
+  const lastCompletedRun = completedRuns[0] ?? null;
+  const expectedProducts =
+    typeof lastCompletedRun?.shopifyRootObjectCount === 'number'
+      ? lastCompletedRun.shopifyRootObjectCount
+      : typeof lastCompletedRun?.recordsProcessed === 'number'
+        ? lastCompletedRun.recordsProcessed
+        : null;
+  const expectedProductsLabel = formatCount(expectedProducts);
+  const fileSizeLabel = formatMegabytes(
+    typeof currentRun?.shopifyFileSizeBytes === 'number'
+      ? currentRun.shopifyFileSizeBytes
+      : shopifyOperation?.fileSize
+  );
   const bytesProcessed =
     typeof currentRun?.bytesProcessed === 'number'
       ? currentRun.bytesProcessed
@@ -539,9 +594,10 @@ export default function IngestionPage() {
   const totalBytes =
     typeof currentRun?.resultSizeBytes === 'number'
       ? currentRun.resultSizeBytes
-      : parseNumber(shopifyOperation?.fileSize ?? null);
-  const totalRecords =
-    typeof shopifyOperation?.objectCount === 'string' ? Number(shopifyOperation.objectCount) : null;
+      : typeof currentRun?.shopifyFileSizeBytes === 'number'
+        ? currentRun.shopifyFileSizeBytes
+        : parseNumber(shopifyOperation?.fileSize ?? null);
+  const totalRecords = shopifyObjectCount;
   const linesProcessed =
     typeof currentRun?.checkpoint?.committedLines === 'number'
       ? currentRun.checkpoint.committedLines
@@ -550,10 +606,23 @@ export default function IngestionPage() {
     typeof currentRun?.checkpoint?.committedRecords === 'number'
       ? currentRun.checkpoint.committedRecords
       : null;
-  const startedAtMs = parseIsoDate(currentRun?.startedAt ?? null);
+  const startedAtMs = parseIsoDate(currentRun?.startedAt ?? currentRun?.createdAt ?? null);
+  const shopifyStartedAtMs = parseIsoDate(
+    currentRun?.startedAt ?? currentRun?.createdAt ?? shopifyOperation?.createdAt ?? null
+  );
   const downloadRate = computeWeightedRate(rateMetrics.bytesPerSec, bytesProcessed, startedAtMs);
   const parseRate = computeWeightedRate(rateMetrics.linesPerSec, linesProcessed, startedAtMs);
   const ingestRate = computeWeightedRate(rateMetrics.recordsPerSec, recordsProcessed, startedAtMs);
+  const shopifyProductsRate = computeWeightedRate(
+    shopifyRateMetrics.productsPerSec,
+    shopifyRootObjectCount,
+    shopifyStartedAtMs
+  );
+  const shopifyObjectsRate = computeWeightedRate(
+    shopifyRateMetrics.objectsPerSec,
+    shopifyObjectCount,
+    shopifyStartedAtMs
+  );
   const downloadBytesLabel = formatBytes(bytesProcessed);
   const downloadTotalLabel = formatBytes(totalBytes);
   const downloadProgressPct =
@@ -562,8 +631,8 @@ export default function IngestionPage() {
       : null;
   const finalShopifyMessage =
     !isShopifyRunning && shopifyStatus
-      ? shopifyOperation?.errorCode
-        ? `Shopify error: ${shopifyOperation.errorCode}`
+      ? shopifyErrorCode
+        ? `Shopify error: ${shopifyErrorCode}`
         : shopifyStatus === 'COMPLETED'
           ? 'Shopify finished the bulk export.'
           : `Shopify finished with status ${shopifyStatus}.`
@@ -581,6 +650,40 @@ export default function IngestionPage() {
     typeof recordsProcessed === 'number' && typeof totalRecords === 'number' && totalRecords > 0
       ? (recordsProcessed / totalRecords) * 100
       : null;
+
+  const normalizedExpectedProducts =
+    typeof expectedProducts === 'number' &&
+    typeof shopifyRootObjectCount === 'number' &&
+    shopifyRootObjectCount > expectedProducts
+      ? shopifyRootObjectCount
+      : expectedProducts;
+  const overallProgress =
+    typeof shopifyRootObjectCount === 'number' &&
+    typeof normalizedExpectedProducts === 'number' &&
+    normalizedExpectedProducts > 0
+      ? Math.min(100, (shopifyRootObjectCount / normalizedExpectedProducts) * 100)
+      : null;
+  const overallEta =
+    typeof shopifyProductsRate === 'number' &&
+    shopifyProductsRate > 0 &&
+    typeof normalizedExpectedProducts === 'number' &&
+    typeof shopifyRootObjectCount === 'number'
+      ? Math.max(0, (normalizedExpectedProducts - shopifyRootObjectCount) / shopifyProductsRate)
+      : null;
+  const overallSpeedLabelRaw = [
+    formatCountRate(shopifyProductsRate, 'products'),
+    formatCountRate(shopifyObjectsRate, 'objects'),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const overallSpeedLabel = overallSpeedLabelRaw.length > 0 ? overallSpeedLabelRaw : null;
+  const overallProcessedLabel =
+    rootObjectCountLabel && isShopifyRunning ? `${rootObjectCountLabel} products` : null;
+  const overallTotalLabel =
+    expectedProductsLabel && isShopifyRunning ? `${expectedProductsLabel} expected` : null;
+  const overallEtaLabel = isShopifyRunning ? formatDuration(overallEta) : null;
+  const overallProgressPct =
+    isShopifyRunning && typeof overallProgress === 'number' ? overallProgress : progress;
 
   const downloadEta =
     typeof downloadRate === 'number' &&
@@ -666,10 +769,12 @@ export default function IngestionPage() {
                 {shopifyOperation?.id ? ` · ${shopifyOperation.id}` : ''}
                 {shopifyStatus === 'CANCELING' ? ' · Canceling…' : ''}
               </div>
-              {Boolean(objectCountLabel ?? fileSizeLabel) && (
+              {Boolean(objectCountLabel ?? rootObjectCountLabel ?? fileSizeLabel) && (
                 <div className="text-caption text-muted">
+                  {rootObjectCountLabel ? `Products: ${rootObjectCountLabel}` : null}
+                  {rootObjectCountLabel && objectCountLabel ? ' · ' : null}
                   {objectCountLabel ? `Objects: ${objectCountLabel}` : null}
-                  {objectCountLabel && fileSizeLabel ? ' · ' : null}
+                  {(rootObjectCountLabel || objectCountLabel) && fileSizeLabel ? ' · ' : null}
                   {fileSizeLabel ? `File size: ${fileSizeLabel}` : null}
                 </div>
               )}
@@ -715,10 +820,12 @@ export default function IngestionPage() {
             <div className="mt-4 flex items-center gap-3 text-caption text-muted">
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
               Shopify is still processing the bulk export. We will update automatically.
-              {Boolean(objectCountLabel ?? fileSizeLabel) && (
+              {Boolean(rootObjectCountLabel ?? objectCountLabel ?? fileSizeLabel) && (
                 <span>
-                  {objectCountLabel ? `Processed ${objectCountLabel} products` : null}
-                  {objectCountLabel && fileSizeLabel ? ' · ' : null}
+                  {rootObjectCountLabel ? `Processed ${rootObjectCountLabel} products` : null}
+                  {rootObjectCountLabel && objectCountLabel ? ' · ' : null}
+                  {objectCountLabel ? `Objects ${objectCountLabel}` : null}
+                  {(rootObjectCountLabel || objectCountLabel) && fileSizeLabel ? ' · ' : null}
                   {fileSizeLabel ? `File size ${fileSizeLabel}` : null}
                 </span>
               )}
@@ -732,10 +839,15 @@ export default function IngestionPage() {
           <div className="space-y-6">
             <IngestionProgress
               currentStep={currentStep}
-              progress={Math.round(progress)}
+              progress={Math.round(overallProgressPct)}
               status="running"
               onAbort={abortIngestion}
               abortDisabled={actionFetcher.state !== 'idle'}
+              overallLabel={isShopifyRunning ? 'Overall progress (Shopify)' : 'Overall progress'}
+              overallProcessedLabel={overallProcessedLabel}
+              overallTotalLabel={overallTotalLabel}
+              overallSpeedLabel={overallSpeedLabel}
+              overallEtaLabel={overallEtaLabel}
               stageDetails={stageDetails}
             />
 

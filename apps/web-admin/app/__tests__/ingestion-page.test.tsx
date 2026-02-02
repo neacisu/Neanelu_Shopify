@@ -28,11 +28,27 @@ function createApiStub(): ApiClient {
       apiCalls.push({ method: 'GET', path });
 
       if (path === '/bulk/current') {
-        return Promise.resolve(null as T);
+        return Promise.resolve({
+          id: 'run-1',
+          status: 'running',
+          recordsProcessed: 0,
+          shopifyStatus: 'RUNNING',
+          shopifyObjectCount: 45,
+          shopifyRootObjectCount: 12,
+          shopifyFileSizeBytes: 2048,
+        } as T);
       }
 
       if (path === '/bulk/active-shopify') {
-        return Promise.resolve({ operation: null } as T);
+        return Promise.resolve({
+          operation: {
+            id: 'gid://shopify/BulkOperation/123',
+            status: 'RUNNING',
+            objectCount: '45',
+            rootObjectCount: '12',
+            fileSize: '2048',
+          },
+        } as T);
       }
 
       if (path.startsWith('/bulk?')) {
@@ -90,6 +106,30 @@ vi.mock('sonner', () => ({
 describe('Ingestion page', () => {
   beforeEach(() => {
     apiCalls.splice(0, apiCalls.length);
+  });
+
+  it('uses rootObjectCount for products label', async () => {
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: <Outlet />,
+          children: [
+            {
+              path: 'ingestion',
+              element: <IngestionPage />,
+              loader: ingestionLoader,
+            },
+          ],
+        },
+      ],
+      { initialEntries: ['/ingestion'] }
+    );
+
+    render(<RouterProvider router={router} />);
+
+    expect(await screen.findByText(/Products: 12/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Objects: 45/i)).toBeInTheDocument();
   });
 
   it('loads current run and recent runs, then starts ingestion', async () => {
