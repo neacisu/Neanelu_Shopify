@@ -127,8 +127,9 @@ export async function enqueueWebhookJob(
     await otelContext.with(trace.setSpan(otelContext.active(), span), async () => {
       await queue.add(normalizedPayload.topic, normalizedPayload, {
         ...(normalizedPayload.webhookId ? { jobId: normalizedPayload.webhookId } : {}),
-        group: { id: normalizedShopId },
-        priority: priorityForWebhookTopic(normalizedPayload.topic),
+        // BullMQ Pro: job-level `priority` cannot be combined with `group`.
+        // Use group priority to keep fairness + priority semantics.
+        group: { id: normalizedShopId, priority: priorityForWebhookTopic(normalizedPayload.topic) },
         ...(telemetry ? { telemetry } : {}),
       });
     });
