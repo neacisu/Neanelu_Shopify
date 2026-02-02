@@ -61,8 +61,6 @@ const stepsRows = [
 const errorsRows = [
   { error_message: 'bad row', error_type: 'parse', created_at: new Date(now.getTime() + 2000) },
 ];
-let lastBulkRunsSql: string | null = null;
-let lastBulkRunsMatch: { isJoined: boolean; hasId: boolean } | null = null;
 
 const bulkRuns = [
   {
@@ -99,9 +97,6 @@ void mock.module('@app/database', {
       const client = {
         query: (sql: string) => {
           const lower = sql.toLowerCase();
-          if (lower.includes('from bulk_runs')) {
-            lastBulkRunsSql = lower.replace(/\s+/g, ' ').trim();
-          }
           const resolve = (rows: unknown[]) =>
             Promise.resolve({ rows }) as Promise<{ rows: unknown[] }>;
 
@@ -109,12 +104,19 @@ void mock.module('@app/database', {
             return resolve([{ total: 1 }]);
           }
 
+          if (lower.includes('where br.id')) {
+            return resolve([
+              {
+                ...bulkRuns[0],
+                shopify_status: bulkRuns[0].shopify_status ?? 'COMPLETED',
+                error_count: 1,
+              },
+            ]);
+          }
+
           const isBulkRunsJoined =
             lower.includes('from bulk_runs br') && lower.includes('left join');
           const hasBulkRunIdFilter = lower.includes('where') && lower.includes('br.id');
-          if (lower.includes('from bulk_runs')) {
-            lastBulkRunsMatch = { isJoined: isBulkRunsJoined, hasId: hasBulkRunIdFilter };
-          }
 
           if (isBulkRunsJoined && !hasBulkRunIdFilter) {
             return resolve([
@@ -265,13 +267,7 @@ void describe('Bulk Routes', () => {
       };
     };
     assert.equal(body.success, true);
-    assert.equal(
-      body.data.shopifyStatus,
-      'COMPLETED',
-      `run detail: ${JSON.stringify(body.data)}; sql: ${lastBulkRunsSql ?? 'n/a'}; match: ${
-        lastBulkRunsMatch ? JSON.stringify(lastBulkRunsMatch) : 'n/a'
-      }`
-    );
+    assert.equal(body.data.shopifyStatus, 'COMPLETED');
     assert.equal(body.data.shopifyObjectCount, 55);
     assert.equal(body.data.shopifyRootObjectCount, 12);
     assert.equal(body.data.shopifyFileSizeBytes, 2048);
