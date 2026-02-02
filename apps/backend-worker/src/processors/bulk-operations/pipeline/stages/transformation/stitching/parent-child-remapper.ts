@@ -823,10 +823,22 @@ export type StagingProductRowShape = Readonly<{
   shopify_gid: string;
   title: string | null;
   handle: string | null;
+  description: string | null;
+  description_html: string | null;
   vendor: string | null;
   product_type: string | null;
   status: string | null;
   tags: readonly string[];
+  options: unknown;
+  seo: unknown;
+  featured_image_url: string | null;
+  price_range: unknown;
+  compare_at_price_range: unknown;
+  published_at: string | null;
+  template_suffix: string | null;
+  has_only_default_variant: boolean | null;
+  total_inventory: number | null;
+  collections: unknown;
   raw_data: MinimalBulkJsonlObject;
 }>;
 
@@ -841,6 +853,7 @@ export type StagingVariantRowShape = Readonly<{
   inventory_quantity: number | null;
   inventory_item_id: string | null;
   selected_options: unknown;
+  image_url: string | null;
   raw_data: MinimalBulkJsonlObject;
 }>;
 
@@ -850,16 +863,39 @@ export function toStagingProductRowShape(
   const o = product as Record<string, unknown>;
   const id = asString(o['id']);
   if (!id) return null;
+  const featuredImage = o['featuredImage'];
+  const featuredImageUrl =
+    featuredImage && typeof featuredImage === 'object'
+      ? asString((featuredImage as Record<string, unknown>)['url'])
+      : null;
+  const collections = o['collections'];
+  const collectionsNodes =
+    collections && typeof collections === 'object'
+      ? ((collections as Record<string, unknown>)['nodes'] ?? null)
+      : null;
   return {
     shopify_gid: id,
     title: asString(o['title']),
     handle: asString(o['handle']),
+    description: asString(o['description']),
+    description_html: asString(o['descriptionHtml']),
     vendor: asString(o['vendor']),
     product_type: asString(o['productType']),
     status: asString(o['status']),
     tags: Array.isArray(o['tags'])
-      ? (o['tags'] as unknown[]).filter((t) => typeof t === 'string')
+      ? (o['tags'] as unknown[]).filter((t): t is string => typeof t === 'string')
       : [],
+    options: o['options'] ?? null,
+    seo: o['seo'] ?? null,
+    featured_image_url: featuredImageUrl,
+    price_range: o['priceRangeV2'] ?? null,
+    compare_at_price_range: o['compareAtPriceRange'] ?? null,
+    published_at: asString(o['publishedAt']),
+    template_suffix: asString(o['templateSuffix']),
+    has_only_default_variant:
+      typeof o['hasOnlyDefaultVariant'] === 'boolean' ? o['hasOnlyDefaultVariant'] : null,
+    total_inventory: typeof o['totalInventory'] === 'number' ? o['totalInventory'] : null,
+    collections: collectionsNodes,
     raw_data: product,
   };
 }
@@ -879,6 +915,9 @@ export function toStagingVariantRowShape(
     inventoryItem && typeof inventoryItem === 'object'
       ? asString((inventoryItem as Record<string, unknown>)['id'])
       : null;
+  const image = o['image'];
+  const imageUrl =
+    image && typeof image === 'object' ? asString((image as Record<string, unknown>)['url']) : null;
 
   return {
     shopify_gid: id,
@@ -891,6 +930,7 @@ export function toStagingVariantRowShape(
     inventory_quantity: typeof o['inventoryQuantity'] === 'number' ? o['inventoryQuantity'] : null,
     inventory_item_id: inventoryItemId,
     selected_options: o['selectedOptions'] ?? null,
+    image_url: imageUrl,
     raw_data: variant,
   };
 }

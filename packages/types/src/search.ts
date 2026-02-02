@@ -38,4 +38,5 @@ export interface ProductFiltersResponse {
   productTypes: string[];
   priceRange: { min: number | null; max: number | null };
   categories: CategoryNode[];
+  enrichmentStatus: string[];
 }

@@ -19,6 +19,7 @@ import { queueRoutes } from '../routes/queues.js';
 import { dashboardRoutes } from '../routes/dashboard.js';
 import { bulkRoutes } from '../routes/bulk.js';
 import { searchRoutes } from '../routes/search.js';
+import { productsRoutes } from '../routes/products.js';
 import { aiSettingsRoutes } from '../routes/ai-settings.js';
 import { shopSettingsRoutes } from '../routes/shop-settings.js';
 import { connectionStatusRoutes } from '../routes/connection-status.js';
@@ -263,6 +264,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await server.register(dashboardRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(bulkRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(searchRoutes, { prefix: '/api', env, logger, sessionConfig });
+  await server.register(productsRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(aiSettingsRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(shopSettingsRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(connectionStatusRoutes, { prefix: '/api', env, logger, sessionConfig });
@@ -276,6 +278,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await server.register(dashboardRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(bulkRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(searchRoutes, { prefix: '', env, logger, sessionConfig });
+  await server.register(productsRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(aiSettingsRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(shopSettingsRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(connectionStatusRoutes, { prefix: '', env, logger, sessionConfig });

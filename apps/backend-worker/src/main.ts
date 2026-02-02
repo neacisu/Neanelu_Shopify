@@ -14,6 +14,7 @@ import { startBulkIngestWorker } from './processors/bulk-operations/ingest.worke
 import { startBulkScheduleWorker } from './processors/bulk-operations/schedule.worker.js';
 import { startAiBatchWorker } from './processors/ai/worker.js';
 import { startAiBatchScheduleWorker } from './processors/ai/schedule.worker.js';
+import { startEnrichmentWorker } from './processors/enrichment/worker.js';
 import { scheduleTokenHealthJob, closeTokenHealthQueue } from './queue/token-health-queue.js';
 import {
   setBulkOrchestratorWorkerHandle,
@@ -51,6 +52,7 @@ let bulkIngestWorker: Awaited<ReturnType<typeof startBulkIngestWorker>> | null =
 let bulkScheduleWorker: Awaited<ReturnType<typeof startBulkScheduleWorker>> | null = null;
 let aiBatchWorker: Awaited<ReturnType<typeof startAiBatchWorker>> | null = null;
 let aiBatchScheduleWorker: Awaited<ReturnType<typeof startAiBatchScheduleWorker>> | null = null;
+let enrichmentWorker: Awaited<ReturnType<typeof startEnrichmentWorker>> | null = null;
 let queueConfigListener: Awaited<ReturnType<typeof startQueueConfigListener>> | null = null;
 
 try {
@@ -146,6 +148,14 @@ try {
     timestamp: new Date().toISOString(),
   });
 
+  enrichmentWorker = startEnrichmentWorker(logger);
+  logger.info({}, 'enrichment worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'enrichment-worker',
+    timestamp: new Date().toISOString(),
+  });
+
   queueConfigListener = await startQueueConfigListener(env, logger, {
     'webhook-queue': webhookWorker?.worker as unknown as { concurrency?: number },
     'sync-queue': syncWorker?.worker as unknown as { concurrency?: number },
@@ -155,6 +165,7 @@ try {
       concurrency?: number;
     },
     'ai-batch-queue': aiBatchWorker?.worker as unknown as { concurrency?: number },
+    'pim-enrichment-queue': enrichmentWorker?.worker as unknown as { concurrency?: number },
   });
   logger.info({}, 'queue config listener started');
 } catch (error) {
@@ -267,6 +278,17 @@ const shutdown = async (signal: string): Promise<void> => {
       emitQueueStreamEvent({
         type: 'worker.offline',
         workerId: 'ai-batch-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (enrichmentWorker) {
+      await enrichmentWorker.close();
+      enrichmentWorker = null;
+      logger.info({ signal }, 'enrichment worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'enrichment-worker',
         timestamp: new Date().toISOString(),
       });
     }

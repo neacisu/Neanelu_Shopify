@@ -19,6 +19,11 @@ import IngestionSchedulePage, {
 import QueuesPage, { action as queuesAction, loader as queuesLoader } from './routes/queues';
 import Root, { ErrorBoundary, HydrateFallback } from './root';
 import SearchPage from './routes/search';
+import ProductsPage from './routes/app.products';
+import ProductDetailPage from './routes/app.products.$id';
+import ProductEditPage, { action as productEditAction } from './routes/app.products.$id.edit';
+import ProductsImportPage from './routes/app.products.import';
+import ProductsReviewPage from './routes/app.products.review';
 import SettingsPage from './routes/settings';
 
 export const routes: RouteObject[] = [
@@ -85,6 +90,37 @@ export const routes: RouteObject[] = [
         path: 'search',
         handle: { title: 'Search' },
         element: createElement(SearchPage),
+      },
+      {
+        id: 'products',
+        path: 'products',
+        handle: { title: 'Products' },
+        element: createElement(ProductsPage),
+      },
+      {
+        id: 'product-detail',
+        path: 'products/:id',
+        handle: { title: 'Product Details' },
+        element: createElement(ProductDetailPage),
+      },
+      {
+        id: 'product-edit',
+        path: 'products/:id/edit',
+        handle: { title: 'Edit Product' },
+        action: productEditAction,
+        element: createElement(ProductEditPage),
+      },
+      {
+        id: 'products-import',
+        path: 'products/import',
+        handle: { title: 'Import Products' },
+        element: createElement(ProductsImportPage),
+      },
+      {
+        id: 'products-review',
+        path: 'products/review',
+        handle: { title: 'Review Queue' },
+        element: createElement(ProductsReviewPage),
       },
       {
         id: 'settings',

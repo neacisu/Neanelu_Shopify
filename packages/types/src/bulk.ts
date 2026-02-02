@@ -30,6 +30,13 @@ export type BulkRunStatus =
 
 export type BulkJobTriggeredBy = 'manual' | 'scheduler' | 'webhook' | 'system';
 
+export type EnrichmentJobPayload = Readonly<{
+  shopId: string;
+  productIds: string[];
+  triggeredBy: BulkJobTriggeredBy;
+  requestedAt: number;
+}>;
+
 export interface BulkOrchestratorJobPayloadQuery {
   shopId: string;
   operationType: BulkOperationType;

@@ -155,10 +155,27 @@ export function createApiClient(options: ApiClientOptions = {}) {
     });
   }
 
+  async function putApi<TResponse, TBody extends Record<string, unknown>>(
+    path: string,
+    body: TBody,
+    init: RequestInit = {}
+  ): Promise<TResponse> {
+    return getApi<TResponse>(path, {
+      ...init,
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(init.headers ?? {}),
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
   return {
     request,
     getJson,
     getApi,
     postApi,
+    putApi,
   };
 }

@@ -1,6 +1,7 @@
 export * from './names.js';
 export * from './ai.js';
 export * from './bulk.js';
+export * from './enrichment.js';
 export * from './job-delay.js';
 export * from './locks/bulk-lock.js';
 export * from './policy.js';

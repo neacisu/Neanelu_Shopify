@@ -1,6 +1,15 @@
 import type { PropsWithChildren } from 'react';
 import { useMemo, useState } from 'react';
-import { Cpu, LayoutDashboard, Menu, Search, Settings, UserRound, Workflow } from 'lucide-react';
+import {
+  Cpu,
+  LayoutDashboard,
+  Menu,
+  Package,
+  Search,
+  Settings,
+  UserRound,
+  Workflow,
+} from 'lucide-react';
 
 import { NavLink } from './nav-link';
 import { ShopSelector } from './shop-selector';
@@ -37,6 +46,8 @@ export function AppShell({
       { to: '/queues', label: 'Queues', icon: Cpu },
       { to: '/ingestion', label: 'Ingestion', icon: Workflow },
       { to: '/search', label: 'Search', icon: Search },
+      { to: '/products', label: 'Products', icon: Package },
+      { to: '/products/review', label: 'Review Queue', icon: Workflow },
       { to: '/settings', label: 'Settings', icon: Settings },
     ],
     []

@@ -55,6 +55,7 @@ void mock.module('@app/queue-manager', {
       quit: () => Promise.resolve(undefined),
     }),
     enqueueBulkOrchestratorJob: () => Promise.resolve(),
+    enqueueEnrichmentJob: () => Promise.resolve(),
     enqueueBulkIngestJob: () => Promise.resolve(),
     WEBHOOK_QUEUE_NAME: 'webhooks',
     cleanupWebhookJobsForShopDomain: () => Promise.resolve(),

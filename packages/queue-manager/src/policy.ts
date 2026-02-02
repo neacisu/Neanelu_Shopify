@@ -42,6 +42,8 @@ export const DEFAULT_QUEUE_TIMEOUTS_MS: QueueTimeoutsMs = {
   'bulk-mutation-reconcile-queue': 30 * 60_000,
   // AI batch work tends to be longer.
   'ai-batch-queue': 10 * 60_000,
+  // Enrichment jobs can be long-running (external APIs + scraping).
+  'pim-enrichment-queue': 10 * 60_000,
 } as const;
 
 export function defaultJobTimeoutMs(queueName: KnownQueueName): number {

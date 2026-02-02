@@ -443,9 +443,8 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
       return;
     }
 
-    const { vendors, productTypes, priceRange, categories } = await withTenantContext(
-      session.shopId,
-      async (client) => {
+    const { vendors, productTypes, priceRange, categories, enrichmentStatus } =
+      await withTenantContext(session.shopId, async (client) => {
         const vendorRows = await client.query<{ vendor: string }>(
           `SELECT DISTINCT vendor
              FROM shopify_products
@@ -501,6 +500,16 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           [session.shopId]
         );
 
+        const enrichmentRows = await client.query<{ status: string }>(
+          `SELECT DISTINCT COALESCE(metafields->'app--neanelu--pim'->>'enrichment_status', metafields->>'enrichment_status') as status
+             FROM shopify_products
+            WHERE shop_id = $1
+              AND metafields IS NOT NULL
+              AND COALESCE(metafields->'app--neanelu--pim'->>'enrichment_status', metafields->>'enrichment_status') IS NOT NULL
+            ORDER BY status ASC`,
+          [session.shopId]
+        );
+
         return {
           vendors: vendorRows.rows.map((row) => row.vendor),
           productTypes: productTypeRows.rows.map((row) => row.productType),
@@ -509,9 +518,9 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
             max: priceRow.rows[0]?.max ? Number(priceRow.rows[0]?.max) : null,
           },
           categories: buildCategoryTree(categoryRows.rows),
+          enrichmentStatus: enrichmentRows.rows.map((row) => row.status),
         };
-      }
-    );
+      });
 
     void reply.status(200).send(
       successEnvelope(request.id, {
@@ -519,6 +528,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
         productTypes,
         priceRange,
         categories,
+        enrichmentStatus,
       })
     );
   });

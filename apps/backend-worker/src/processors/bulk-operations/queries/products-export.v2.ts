@@ -11,8 +11,77 @@ export const PRODUCTS_EXPORT_CORE_QUERY_V2 = `#graphql
         productType
         status
         tags
+        description
+        descriptionHtml
         createdAt
         updatedAt
+        publishedAt
+        templateSuffix
+        hasOnlyDefaultVariant
+        totalInventory
+        seo {
+          title
+          description
+        }
+        options {
+          id
+          name
+          values
+        }
+        featuredImage {
+          id
+          url
+          altText
+          width
+          height
+        }
+        priceRangeV2 {
+          minVariantPrice { amount currencyCode }
+          maxVariantPrice { amount currencyCode }
+        }
+        compareAtPriceRange {
+          minVariantCompareAtPrice { amount currencyCode }
+          maxVariantCompareAtPrice { amount currencyCode }
+        }
+        images(first: 250) {
+          nodes {
+            id
+            url
+            altText
+            width
+            height
+          }
+        }
+        media(first: 250) {
+          nodes {
+            __typename
+            ... on MediaImage {
+              id
+              image { id url altText width height }
+            }
+            ... on Video {
+              id
+              sources { url mimeType format height width }
+            }
+            ... on ExternalVideo {
+              id
+              embeddedUrl
+              host
+            }
+            ... on Model3d {
+              id
+              sources { url mimeType format filesize }
+            }
+          }
+        }
+        collections(first: 50) {
+          nodes {
+            id
+            handle
+            title
+            updatedAt
+          }
+        }
         variants(first: 100) {
           edges {
             node {
@@ -23,6 +92,7 @@ export const PRODUCTS_EXPORT_CORE_QUERY_V2 = `#graphql
               barcode
               price
               compareAtPrice
+              image { id url altText width height }
               taxable
               inventoryQuantity
               availableForSale

@@ -95,7 +95,7 @@ export async function searchSimilarProducts(params: {
     const result = await params.client.query<SearchRow>(
       `SELECT p.id as "productId",
                 p.title as "title",
-                p.featured_image_url as "featuredImageUrl",
+                COALESCE(p.featured_image_url, pm_image.url, pm_image.preview_url, v_image.image_url) as "featuredImageUrl",
                 p.vendor as "vendor",
                 p.product_type as "productType",
                 p.price_range as "priceRange",
@@ -109,6 +109,26 @@ export async function searchSimilarProducts(params: {
                   $4
                 ) s
            JOIN shopify_products p ON p.id = s.product_id
+           LEFT JOIN LATERAL (
+             SELECT sm.url, sm.preview_url
+             FROM shopify_product_media spm
+             JOIN shopify_media sm
+               ON sm.media_id = spm.media_id
+              AND sm.shop_id = spm.shop_id
+             WHERE spm.shop_id = p.shop_id
+               AND spm.product_id = p.id
+             ORDER BY spm.is_featured DESC, spm.position ASC
+             LIMIT 1
+           ) pm_image ON true
+           LEFT JOIN LATERAL (
+             SELECT sv.image_url
+             FROM shopify_variants sv
+             WHERE sv.shop_id = p.shop_id
+               AND sv.product_id = p.id
+               AND sv.image_url IS NOT NULL
+             ORDER BY sv.position ASC
+             LIMIT 1
+           ) v_image ON true
           WHERE p.shop_id = $1
             AND ($5::text[] IS NULL OR p.vendor = ANY($5::text[]))
             AND ($6::text[] IS NULL OR p.product_type = ANY($6::text[]))
