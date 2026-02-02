@@ -21,6 +21,15 @@ interface ApiClient {
 }
 
 const apiCalls: { method: 'GET' | 'POST'; path: string; body?: unknown }[] = [];
+let currentRunResponse: unknown = {
+  id: 'run-1',
+  status: 'running',
+  recordsProcessed: 0,
+  shopifyStatus: 'RUNNING',
+  shopifyObjectCount: 45,
+  shopifyRootObjectCount: 12,
+  shopifyFileSizeBytes: 2048,
+};
 
 function createApiStub(): ApiClient {
   return {
@@ -28,15 +37,7 @@ function createApiStub(): ApiClient {
       apiCalls.push({ method: 'GET', path });
 
       if (path === '/bulk/current') {
-        return Promise.resolve({
-          id: 'run-1',
-          status: 'running',
-          recordsProcessed: 0,
-          shopifyStatus: 'RUNNING',
-          shopifyObjectCount: 45,
-          shopifyRootObjectCount: 12,
-          shopifyFileSizeBytes: 2048,
-        } as T);
+        return Promise.resolve(currentRunResponse as T);
       }
 
       if (path === '/bulk/active-shopify') {
@@ -106,6 +107,15 @@ vi.mock('sonner', () => ({
 describe('Ingestion page', () => {
   beforeEach(() => {
     apiCalls.splice(0, apiCalls.length);
+    currentRunResponse = {
+      id: 'run-1',
+      status: 'running',
+      recordsProcessed: 0,
+      shopifyStatus: 'RUNNING',
+      shopifyObjectCount: 45,
+      shopifyRootObjectCount: 12,
+      shopifyFileSizeBytes: 2048,
+    };
   });
 
   it('uses rootObjectCount for products label', async () => {
@@ -172,6 +182,7 @@ describe('Ingestion page', () => {
   });
 
   it('uploads a JSONL file and calls the upload endpoint', async () => {
+    currentRunResponse = null;
     const router = createMemoryRouter(
       [
         {
