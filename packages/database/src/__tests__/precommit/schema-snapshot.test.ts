@@ -26,11 +26,11 @@ const SKIP = shouldSkipDbTests();
 
 // Expected counts from audit (with tolerance)
 const EXPECTED = {
-  tables: { min: 65, max: 71 }, // 68 base tables
+  tables: { min: 65, max: 76 }, // 74 base tables (updated 2026-02)
   indexes: { min: 700, max: 800 }, // 742 total with partitions
-  foreignKeys: { min: 100, max: 115 }, // 105 FKs
+  foreignKeys: { min: 100, max: 120 }, // 116 FKs (updated 2026-02)
   checkConstraints: { min: 55, max: 75 }, // ~63 CHECKs (base tables only)
-  rlsTables: { min: 38, max: 42 }, // 40 with RLS
+  rlsTables: { min: 38, max: 47 }, // 45 with RLS (updated 2026-02)
   triggers: { min: 20, max: 30 }, // 25 triggers
   materializedViews: { min: 7, max: 7 }, // Exactly 7
   views: { min: 5, max: 6 }, // 6 views

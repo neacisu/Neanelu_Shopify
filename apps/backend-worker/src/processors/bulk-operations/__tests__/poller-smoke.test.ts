@@ -283,8 +283,9 @@ void describe('smoke: bulk poller (enqueue → poll → bulk_runs completed + ar
     assert.equal(resultUrl, MOCK_RESULT_URL);
     assert.equal(partialDataUrl, MOCK_PARTIAL_URL);
     assert.equal(cursorPartial, MOCK_PARTIAL_URL);
-    assert.equal(shopifyObjectCount, 10);
-    assert.equal(shopifyRootObjectCount, 7);
+    // PostgreSQL may return numeric columns as strings; coerce for comparison
+    assert.equal(Number(shopifyObjectCount), 10);
+    assert.equal(Number(shopifyRootObjectCount), 7);
 
     const artifact = await withTenantContext(shopId, async (client) => {
       const res = await client.query<{ url: string }>(
