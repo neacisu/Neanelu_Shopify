@@ -112,6 +112,7 @@ void mock.module('@app/database', {
             return resolve([
               {
                 ...bulkRuns[0],
+                shopify_status: bulkRuns[0].shopify_status ?? 'COMPLETED',
                 error_count: 1,
               },
             ]);
