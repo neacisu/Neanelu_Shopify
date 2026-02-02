@@ -498,6 +498,13 @@
       "when": 1770063864135,
       "tag": "0070_pgcron_vacuum_embeddings",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1770076800000,
+      "tag": "0071_add_total_inventory_to_products",
+      "breakpoints": true
     }
   ]
 }
