@@ -1,7 +1,7 @@
 /**
  * CHECK Constraints Tests
  *
- * Tests for all 43 CHECK constraints across the database.
+ * Tests for CHECK constraints across the database.
  * Verifies existence and validates allowed values.
  */
 
@@ -32,14 +32,14 @@ void describe('CHECK Constraints Summary', { skip: SKIP }, () => {
     await closePool();
   });
 
-  void it('has at least 40 CHECK constraints', () => {
-    assert.ok(allChecks.length >= 55, `Expected at least 55 CHECKs, got ${allChecks.length}`);
+  void it('has at least 80 CHECK constraints', () => {
+    assert.ok(allChecks.length >= 80, `Expected at least 80 CHECKs, got ${allChecks.length}`);
   });
 
-  void it('has expected CHECK constraint count range (80-120)', () => {
+  void it('has expected CHECK constraint count range (80-95)', () => {
     assert.ok(
-      allChecks.length >= 55 && allChecks.length <= 75,
-      `CHECK count ${allChecks.length} should be in range 55-75`
+      allChecks.length >= 80 && allChecks.length <= 95,
+      `CHECK count ${allChecks.length} should be in range 80-95`
     );
   });
 });

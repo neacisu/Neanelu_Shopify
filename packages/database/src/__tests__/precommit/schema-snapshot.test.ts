@@ -29,7 +29,7 @@ const EXPECTED = {
   tables: { min: 65, max: 76 }, // 74 base tables (updated 2026-02)
   indexes: { min: 700, max: 800 }, // 742 total with partitions
   foreignKeys: { min: 100, max: 120 }, // 116 FKs (updated 2026-02)
-  checkConstraints: { min: 55, max: 75 }, // ~63 CHECKs (base tables only)
+  checkConstraints: { min: 80, max: 95 }, // ~84 CHECKs (updated 2026-02)
   rlsTables: { min: 38, max: 47 }, // 45 with RLS (updated 2026-02)
   triggers: { min: 20, max: 30 }, // 25 triggers
   materializedViews: { min: 7, max: 7 }, // Exactly 7
