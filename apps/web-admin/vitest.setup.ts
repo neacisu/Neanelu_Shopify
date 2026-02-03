@@ -1,10 +1,11 @@
 import '@testing-library/jest-dom/vitest';
+import * as matchers from '@testing-library/jest-dom/matchers';
 
 import { cleanup } from '@testing-library/react';
 
 import type { ReactNode } from 'react';
 import { cloneElement, createElement, isValidElement } from 'react';
-import { afterEach, vi } from 'vitest';
+import { afterEach, expect, vi } from 'vitest';
 
 import type * as Recharts from 'recharts';
 
@@ -13,6 +14,9 @@ import type * as Recharts from 'recharts';
 afterEach(() => {
   cleanup();
 });
+
+// Ensure Testing Library matchers are registered even when globals are disabled.
+expect.extend(matchers);
 
 // Recharts ResponsiveContainer relies on real layout measurement.
 // In JSDOM, it can compute -1 sizes and spam stderr.

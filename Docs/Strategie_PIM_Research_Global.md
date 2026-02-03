@@ -171,7 +171,7 @@ Pentru produse critice, aplicăm **Trei Sesiuni de Validare**:
 
 | PR | Tasks | Focus |
 | ------- | --------- | --------- |
-| PR-TBD | F8.4.1 | Google Custom Search API |
+| PR-TBD | F8.4.1 | Serper API |
 | PR-046 | F8.4.2 | prod_similarity_matches CRUD |
 | PR-047 | F8.4.3 | xAI Grok structured extraction |
 | PR-048 | F8.4.4 | BullMQ enrichment queue |

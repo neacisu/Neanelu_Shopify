@@ -4037,9 +4037,9 @@ Obiectiv: Extensii specifice care nu sunt strict necesare pentru MVP dar îmbun�
     [
     {
         "id_task": "F8.4.1",
-        "denumire_task": "Google Custom Search API Integration - Setup & GTIN Search",
-        "descriere_task": "**Golden Record - Stage 4.1**\n\nImplementează integrare cu Google Custom Search JSON API:\n\n**Configurare:**\n- Environment variables: GOOGLE_SEARCH_API_KEY, GOOGLE_SEARCH_ENGINE_ID\n- Programmatic Search Engine configurare în Google Cloud Console\n- Rate limiting: 10 req/sec (Tier plătit)\n\n**Implementare:**\n```typescript\n// packages/pim/src/services/google-search.ts\nexport async function searchProductByGTIN(gtin: string): Promise<ProductSearchResult[]>\nexport async function searchProductByMPN(brand: string, mpn: string): Promise<ProductSearchResult[]>\nexport async function searchProductByTitle(title: string, brand?: string): Promise<ProductSearchResult[]>\n```\n\n**Schema.org Parsing:**\n- Extrage pagemap.product din rezultate\n- Parse structured data (gtin14, brand, name, price)\n- Store results în prod_raw_harvest\n\n**Cost tracking:**\n- Log fiecare request în api_usage_log\n- Alertă când se apropie de buget zilnic",
-        "cale_implementare": "/packages/pim/src/services/google-search.ts + /packages/pim/src/schemas/google-search.ts",
+        "denumire_task": "Serper API Integration - Setup & GTIN Search",
+        "descriere_task": "**Golden Record - Stage 4.1**\n\nImplementează integrare cu Serper API (înlocuiește Google Custom Search):\n\n**Configurare:**\n- Environment variables: SERPER_API_KEY\n- Rate limiting: 10 req/sec\n\n**Implementare:**\n```typescript\n// packages/pim/src/services/serper-search.ts\nexport async function searchProductByGTIN(gtin: string): Promise<ProductSearchResult[]>\nexport async function searchProductByMPN(brand: string, mpn: string): Promise<ProductSearchResult[]>\nexport async function searchProductByTitle(title: string, brand?: string): Promise<ProductSearchResult[]>\n```\n\n**Structured Data Parsing:**\n- Parse structured data din rezultatele Serper (organic + shopping)\n- Store results în prod_raw_harvest\n\n**Cost tracking:**\n- Log fiecare request în api_usage_log\n- Alertă când se apropie de buget zilnic",
+        "cale_implementare": "/packages/pim/src/services/serper-search.ts + /packages/pim/src/schemas/serper-search.ts",
         "contextul_anterior": "F2.2.5-F2.2.7 definesc schema PIM. F6.1-F6.2 definesc AI/Vector.",
         "validare_task": "Search by GTIN returnează min. 3 rezultate relevante pentru un produs cunoscut. Structured data extrasă corect.",
         "outcome_task": "Căutare produse externe funcțională pentru enrichment.",
@@ -4446,11 +4446,11 @@ Obiectiv: Extensii specifice care nu sunt strict necesare pentru MVP dar îmbun�
 
 #### F8.4.1-F8.4.3: External Search & Extraction
 
-| PR #   | Branch                    | Tasks                                                          | Dependențe |
-| ------ | ------------------------- | -------------------------------------------------------------- | ---------- |
-| PR-055 | `pr/F8.4.1-google-search` | F8.4.1 (Google Custom Search API integration, GTIN/MPN search) | PR-054     |
-| PR-056 | `pr/F8.4.2-similarity`    | F8.4.2 (prod_similarity_matches CRUD, business logic)          | PR-055     |
-| PR-057 | `pr/F8.4.3-xai-extractor` | F8.4.3 (xAI Grok structured extraction, anti-hallucination)    | PR-056     |
+| PR #   | Branch                    | Tasks                                                       | Dependențe |
+| ------ | ------------------------- | ----------------------------------------------------------- | ---------- |
+| PR-055 | `pr/F8.4.1-google-search` | F8.4.1 (Serper API integration, GTIN/MPN search)            | PR-054     |
+| PR-056 | `pr/F8.4.2-similarity`    | F8.4.2 (prod_similarity_matches CRUD, business logic)       | PR-055     |
+| PR-057 | `pr/F8.4.3-xai-extractor` | F8.4.3 (xAI Grok structured extraction, anti-hallucination) | PR-056     |
 
 #### F8.4.4-F8.4.6: Enrichment Pipeline & Quality Promotion
 

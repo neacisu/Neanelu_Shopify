@@ -2,6 +2,7 @@ export * from './api.js';
 export * from './ai.js';
 export * from './bulk.js';
 export * from './dashboard.js';
+export * from './external-search.js';
 export * from './jobs.js';
 export * from './products.js';
 export * from './queues.js';

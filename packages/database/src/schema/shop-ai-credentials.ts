@@ -41,6 +41,11 @@ export const shopAiCredentials = pgTable(
     openaiApiKeyTag: bytea('openai_api_key_tag'),
     openaiKeyVersion: integer('openai_key_version').notNull().default(1),
 
+    serperApiKeyCiphertext: bytea('serper_api_key_ciphertext'),
+    serperApiKeyIv: bytea('serper_api_key_iv'),
+    serperApiKeyTag: bytea('serper_api_key_tag'),
+    serperKeyVersion: integer('serper_key_version').notNull().default(1),
+
     openaiBaseUrl: text('openai_base_url'),
     openaiEmbeddingsModel: text('openai_embeddings_model'),
     embeddingBatchSize: integer('embedding_batch_size').default(100),
@@ -48,6 +53,15 @@ export const shopAiCredentials = pgTable(
       '0.80'
     ),
     enabled: boolean('enabled').notNull().default(false),
+
+    serperEnabled: boolean('serper_enabled').notNull().default(false),
+    serperDailyBudget: integer('serper_daily_budget').default(1000),
+    serperRateLimitPerSecond: integer('serper_rate_limit_per_second').default(10),
+    serperCacheTtlSeconds: integer('serper_cache_ttl_seconds').default(86400),
+    serperBudgetAlertThreshold: numeric('serper_budget_alert_threshold', {
+      precision: 3,
+      scale: 2,
+    }).default('0.80'),
 
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),

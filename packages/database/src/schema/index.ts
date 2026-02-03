@@ -24,6 +24,7 @@ export * from './shop-ai-credentials.ts';
 // Module H: Audit & Observability
 // ============================================
 export * from './audit.ts';
+export * from './api-usage.ts';
 
 // ============================================
 // Module B: Shopify Mirror
@@ -41,6 +42,7 @@ export * from './bulk-schedules.ts';
 // Module D: Global PIM
 // ============================================
 export * from './pim.ts';
+export * from './pim-similarity.ts';
 
 // ============================================
 // Module E: Attribute Normalization & Vectors

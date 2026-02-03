@@ -37,92 +37,87 @@ Această documentație acoperă **Etapa 4** din strategia PIM pentru Golden Reco
 
 ## Google Product APIs
 
-### 1. Google Custom Search JSON API (Recomandat)
+### 1. Serper API (Recomandat)
 
-> **Use Case:** Căutare programatică de produse pe web
+> **Use Case:** Căutare programatică de produse pe web (înlocuiește Google Custom Search)
 
 #### Configurare
 
 ```bash
 # Environment variables necesare
-GOOGLE_SEARCH_API_KEY=your-api-key
-GOOGLE_SEARCH_ENGINE_ID=your-cx-id  # Programmatic Search Engine ID
+SERPER_API_KEY=your-serper-api-key
 ```
 
 #### Endpoint
 
 ``` bash
-GET https://www.googleapis.com/customsearch/v1
+POST https://google.serper.dev/search
 ```
 
 #### Parametri Relevanți
 
-| Parametru    | Tip    | Descriere                           |
-|--------------|--------|-------------------------------------|
-| `key`        | string | API Key (obligatoriu)               |
-| `cx`         | string | Search Engine ID (obligatoriu)      |
-| `q`          | string | Query: "{brand} {mpn}" sau "{gtin}" |
-| `num`        | int    | Rezultate per request (max 10)      |
-| `start`      | int    | Offset pentru paginare              |
-| `siteSearch` | string | Limitare la domeniu specific        |
-| `searchType` | string | "image" pentru căutare imagini      |
+| Parametru | Tip    | Descriere                                     |
+|-----------|--------|-----------------------------------------------|
+| `q`       | string | Query: "{brand} {mpn}" sau "{gtin}"           |
+| `num`     | int    | Rezultate per request (max 10)                |
+| `gl`      | string | Country code (ex: "ro")                       |
+| `hl`      | string | Language (ex: "ro")                           |
+| `type`    | string | "search" (default) sau "shopping"             |
 
 #### Exemplu Request
 
 ```typescript
-// packages/pim/src/services/google-search.ts
+// packages/pim/src/services/serper-search.ts
 import { z } from 'zod';
 
-const GoogleSearchResultSchema = z.object({
-  items: z.array(z.object({
+const SerperResponseSchema = z.object({
+  organic: z.array(z.object({
     title: z.string(),
     link: z.string().url(),
     snippet: z.string().optional(),
-    pagemap: z.object({
-      product: z.array(z.object({
-        name: z.string().optional(),
-        brand: z.string().optional(),
-        gtin14: z.string().optional(),
-        sku: z.string().optional(),
-        price: z.string().optional(),
-        image: z.string().optional(),
-      })).optional(),
-    }).optional(),
+    position: z.number(),
   })).default([]),
-  searchInformation: z.object({
-    totalResults: z.string(),
-  }).optional(),
+  shopping: z.array(z.object({
+    title: z.string(),
+    link: z.string().url(),
+    price: z.string().optional(),
+    source: z.string().optional(),
+  })).optional(),
 });
 
 export async function searchProductByGTIN(gtin: string): Promise<ProductSearchResult[]> {
-  const response = await fetch(
-    `https://www.googleapis.com/customsearch/v1?` +
-    new URLSearchParams({
-      key: process.env.GOOGLE_SEARCH_API_KEY!,
-      cx: process.env.GOOGLE_SEARCH_ENGINE_ID!,
+  const response = await fetch('https://google.serper.dev/search', {
+    method: 'POST',
+    headers: {
+      'X-API-KEY': process.env.SERPER_API_KEY!,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
       q: gtin,
-      num: '10',
-    })
-  );
-  
-  const data = GoogleSearchResultSchema.parse(await response.json());
-  return data.items.map(item => ({
+      num: 10,
+      gl: 'ro',
+      hl: 'ro',
+      type: 'search',
+    }),
+  });
+
+  const data = SerperResponseSchema.parse(await response.json());
+  return data.organic.map(item => ({
     title: item.title,
     url: item.link,
     snippet: item.snippet,
-    structuredData: item.pagemap?.product?.[0],
   }));
 }
 ```
 
 #### Pricing & Limits
 
-| Tier | Requests/Day | Cost            |
-|------|--------------|-----------------|
-| Free | 100          | $0              |
-| Paid | 10,000+      | $5/1000 queries |
+| Tier | Requests | Cost             |
+|------|----------|------------------|
+| Free | 2500     | $0               |
+| Paid | 1000+    | ~$1/1000 queries |
 
-> **Recomandare:** Pentru 1.77M produse, buget estimat: ~$885 (1 query/produs)
+> **Recomandare:** Folosește caching agresiv (24h TTL) pentru reducerea costurilor.
 
 ---
 
@@ -206,7 +201,7 @@ export async function searchSimilarProducts(imageUri: string) {
 | **Rate Limit**         | până la 480 RPM (modelele Grok Fast)            |
 | **Cost**               | vezi tabelul oficial de pricing (per 1M tokens) |
 
-> **Notă (update 2026-01-21):** Pricing-ul xAI publicat în docs include modele Grok Fast cu **$0.20 / 1M input** și **$0.50 / 1M output** (ex. `grok-4-1-fast-*`), limite de **4M TPM** și **480 RPM**. Modelele standard (ex. `grok-3`) sunt mai scumpe. Sursa oficială: https://docs.x.ai/docs/models
+> **Notă (update 2026-01-21):** Pricing-ul xAI publicat în docs include modele Grok Fast cu **$0.20 / 1M input** și **$0.50 / 1M output** (ex. `grok-4-1-fast-*`), limite de **4M TPM** și **480 RPM**. Modelele standard (ex. `grok-3`) sunt mai scumpe. Sursa oficială: [https://docs.x.ai/docs/models](https://docs.x.ai/docs/models)
 
 ### Configurare xAI
 
@@ -324,7 +319,7 @@ ${html.slice(0, 50000)}` // Limitare tokens
 
 ## OpenAI GPT API – Pricing (referință oficială)
 
-Prețurile sunt per **1M tokens** și depind de model + tier (Standard/Flex/Priority). Tabel complet: https://platform.openai.com/docs/pricing
+Prețurile sunt per **1M tokens** și depind de model + tier (Standard/Flex/Priority). Tabel complet: [https://platform.openai.com/docs/pricing](https://platform.openai.com/docs/pricing)
 
 **Exemple (Standard):**
 
@@ -343,7 +338,7 @@ Prețurile sunt per **1M tokens** și depind de model + tier (Standard/Flex/Prio
 - 1M input tokens (cache miss): **$0.28**
 - 1M output tokens: **$0.42**
 
-Sursa oficială: https://api-docs.deepseek.com/quick_start/pricing
+Sursa oficială: [https://api-docs.deepseek.com/quick_start/pricing](https://api-docs.deepseek.com/quick_start/pricing)
 
 ---
 
@@ -511,7 +506,7 @@ GROUP BY DATE(created_at), api_provider;
 
 | Task ID | Descriere                                            | Sprint | PR     | Dependențe   |
 |---------|------------------------------------------------------|--------|--------|--------------|
-| F8.4.1  | Google Custom Search API integration                 | **S8** | PR-TBD | F2.2.1, F6.1 |
+| F8.4.1  | Serper API integration                               | **S8** | PR-TBD | F2.2.1, F6.1 |
 | F8.4.2  | prod_similarity_matches CRUD & business logic.       | **S8** | PR-046 | F8.4.1       |
 | F8.4.3  | xAI Grok structured extraction service               | **S8** | PR-047 | F8.4.2       |
 | F8.4.4  | BullMQ enrichment queue with rate limiting           | **S8** | PR-048 | F8.4.3.      |
