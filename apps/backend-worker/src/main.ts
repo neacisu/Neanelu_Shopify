@@ -14,8 +14,10 @@ import { startBulkIngestWorker } from './processors/bulk-operations/ingest.worke
 import { startBulkScheduleWorker } from './processors/bulk-operations/schedule.worker.js';
 import { startAiBatchWorker } from './processors/ai/worker.js';
 import { startAiBatchScheduleWorker } from './processors/ai/schedule.worker.js';
+import { startOpenAiHealthWorker } from './processors/ai/health.worker.js';
 import { startEnrichmentWorker } from './processors/enrichment/worker.js';
 import { startSerperHealthWorker } from './processors/serper/health.worker.js';
+import { startXaiHealthWorker } from './processors/xai/health.worker.js';
 import { startSimilaritySearchWorker } from './processors/similarity/search-and-match.worker.js';
 import { startAIAuditWorker } from './processors/similarity/ai-audit.worker.js';
 import { scheduleTokenHealthJob, closeTokenHealthQueue } from './queue/token-health-queue.js';
@@ -56,8 +58,10 @@ let bulkIngestWorker: Awaited<ReturnType<typeof startBulkIngestWorker>> | null =
 let bulkScheduleWorker: Awaited<ReturnType<typeof startBulkScheduleWorker>> | null = null;
 let aiBatchWorker: Awaited<ReturnType<typeof startAiBatchWorker>> | null = null;
 let aiBatchScheduleWorker: Awaited<ReturnType<typeof startAiBatchScheduleWorker>> | null = null;
+let openAiHealthWorker: Awaited<ReturnType<typeof startOpenAiHealthWorker>> | null = null;
 let enrichmentWorker: Awaited<ReturnType<typeof startEnrichmentWorker>> | null = null;
 let serperHealthWorker: Awaited<ReturnType<typeof startSerperHealthWorker>> | null = null;
+let xaiHealthWorker: Awaited<ReturnType<typeof startXaiHealthWorker>> | null = null;
 let similaritySearchWorker: Awaited<ReturnType<typeof startSimilaritySearchWorker>> | null = null;
 let similarityAIAuditWorker: Awaited<ReturnType<typeof startAIAuditWorker>> | null = null;
 let queueConfigListener: Awaited<ReturnType<typeof startQueueConfigListener>> | null = null;
@@ -155,11 +159,27 @@ try {
     timestamp: new Date().toISOString(),
   });
 
+  openAiHealthWorker = startOpenAiHealthWorker(logger);
+  logger.info({}, 'openai health worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'openai-health-worker',
+    timestamp: new Date().toISOString(),
+  });
+
   serperHealthWorker = startSerperHealthWorker(logger);
   logger.info({}, 'serper health worker started');
   emitQueueStreamEvent({
     type: 'worker.online',
     workerId: 'serper-health-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  xaiHealthWorker = startXaiHealthWorker(logger);
+  logger.info({}, 'xai health worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'xai-health-worker',
     timestamp: new Date().toISOString(),
   });
 
@@ -359,6 +379,17 @@ const shutdown = async (signal: string): Promise<void> => {
       });
     }
 
+    if (openAiHealthWorker) {
+      await openAiHealthWorker.close();
+      openAiHealthWorker = null;
+      logger.info({ signal }, 'openai health worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'openai-health-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     if (serperHealthWorker) {
       await serperHealthWorker.close();
       serperHealthWorker = null;
@@ -366,6 +397,17 @@ const shutdown = async (signal: string): Promise<void> => {
       emitQueueStreamEvent({
         type: 'worker.offline',
         workerId: 'serper-health-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (xaiHealthWorker) {
+      await xaiHealthWorker.close();
+      xaiHealthWorker = null;
+      logger.info({ signal }, 'xai health worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'xai-health-worker',
         timestamp: new Date().toISOString(),
       });
     }

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -44,15 +44,27 @@ const mockGetApi = vi.fn((path: string, init?: RequestInit) => {
   return Promise.resolve({});
 });
 
+const mockPostApi = vi.fn((path: string) => {
+  if (path === '/settings/ai/health') {
+    return Promise.resolve({
+      status: 'ok',
+      checkedAt: new Date().toISOString(),
+    });
+  }
+  return Promise.resolve({});
+});
+
 vi.mock('../hooks/use-api', () => ({
   useApiClient: () => ({
     getApi: mockGetApi,
+    postApi: mockPostApi,
   }),
 }));
 
 describe('settings form', () => {
   beforeEach(() => {
     mockGetApi.mockClear();
+    mockPostApi.mockClear();
   });
 
   it('renders shop info from API', async () => {
@@ -73,15 +85,16 @@ describe('settings form', () => {
 
     await user.click(screen.getByRole('button', { name: 'OpenAI' }));
 
-    const apiKeyInput = await screen.findByLabelText('OpenAI API Key');
-    await user.type(apiKeyInput, 'sk-test');
+    const saveButton = screen.getByRole('button', { name: /salvează setări openai/i });
+    await waitFor(() => expect(saveButton).toBeEnabled());
+    await user.click(saveButton);
 
-    await user.click(screen.getByRole('button', { name: /save openai settings/i }));
-
-    expect(mockGetApi).toHaveBeenCalledWith(
-      '/settings/ai',
-      expect.objectContaining({ method: 'PUT' })
-    );
+    await waitFor(() => {
+      expect(mockGetApi).toHaveBeenCalledWith(
+        '/settings/ai',
+        expect.objectContaining({ method: 'PUT' })
+      );
+    });
     expect(await screen.findByText(/Setările OpenAI au fost salvate/i)).toBeInTheDocument();
   });
 });

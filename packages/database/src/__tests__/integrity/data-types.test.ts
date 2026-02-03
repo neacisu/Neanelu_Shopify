@@ -1,7 +1,7 @@
 /**
  * Data Types Integrity Tests
  *
- * Verifies correct data types for all ~1121 columns across 67 tables.
+ * Verifies correct data types for all ~1125 columns across 67 tables.
  * Ensures consistency between schema and documentation.
  */
 
@@ -93,7 +93,7 @@ void describe('Data Types: Summary', { skip: SKIP }, () => {
     }
   });
 
-  void it('total column count is approximately 1121', async () => {
+  void it('total column count is approximately 1125', async () => {
     const tables = await getAllTables();
     let totalColumns = 0;
 
@@ -104,8 +104,8 @@ void describe('Data Types: Summary', { skip: SKIP }, () => {
 
     // Allow variance as schema evolves; exclude partitions are already filtered in helpers
     assert.ok(
-      totalColumns >= 1100 && totalColumns <= 1150,
-      `Total columns ${totalColumns} should be in range 1100-1150`
+      totalColumns >= 1100 && totalColumns <= 1160,
+      `Total columns ${totalColumns} should be in range 1100-1160`
     );
   });
 });

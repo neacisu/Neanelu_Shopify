@@ -5,6 +5,32 @@ import type { AiHealthResponse, AiSettingsResponse, AiSettingsUpdateRequest } fr
 import { SubmitButton } from '../components/forms/submit-button';
 import { useApiClient } from '../hooks/use-api';
 
+type OpenAiConnectionStatus =
+  | 'unknown'
+  | 'connected'
+  | 'error'
+  | 'disabled'
+  | 'missing_key'
+  | 'pending';
+
+function normalizeStatus(value: AiSettingsResponse['connectionStatus']): OpenAiConnectionStatus {
+  if (
+    value === 'connected' ||
+    value === 'error' ||
+    value === 'disabled' ||
+    value === 'missing_key' ||
+    value === 'pending' ||
+    value === 'unknown'
+  ) {
+    return value;
+  }
+  return 'unknown';
+}
+
+function coerceNullableString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
 export default function SettingsOpenAi() {
   const api = useApiClient();
 
@@ -21,9 +47,14 @@ export default function SettingsOpenAi() {
   const [aiApiKey, setAiApiKey] = useState('');
   const [aiApiKeyDirty, setAiApiKeyDirty] = useState(false);
   const [aiHasApiKey, setAiHasApiKey] = useState(false);
+  const [todayUsage, setTodayUsage] = useState<AiSettingsResponse['todayUsage']>(undefined);
+  const [connectionStatus, setConnectionStatus] = useState<OpenAiConnectionStatus>('unknown');
+  const [lastCheckedAt, setLastCheckedAt] = useState<string | null>(null);
+  const [lastSuccessAt, setLastSuccessAt] = useState<string | null>(null);
+  const [lastError, setLastError] = useState<string | null>(null);
   const [aiHealthLoading, setAiHealthLoading] = useState(false);
   const [aiHealthResult, setAiHealthResult] = useState<AiHealthResponse | null>(null);
-  const [aiHealthError, setAiHealthError] = useState<string | null>(null);
+  const [lastTestedKey, setLastTestedKey] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -40,6 +71,18 @@ export default function SettingsOpenAi() {
         setAiBatchSize(data.embeddingBatchSize ?? 100);
         setAiSimilarityThreshold(data.similarityThreshold ?? 0.8);
         setAiHasApiKey(data.hasApiKey);
+        setTodayUsage(data.todayUsage);
+        const nextStatus = normalizeStatus(data.connectionStatus);
+        setConnectionStatus(nextStatus);
+        setLastCheckedAt(coerceNullableString(data.lastCheckedAt));
+        setLastSuccessAt(coerceNullableString(data.lastSuccessAt));
+        setLastError(coerceNullableString(data.lastError));
+        if (data.connectionStatus === 'connected' && data.hasApiKey) {
+          setLastTestedKey('__stored__');
+        } else {
+          setLastTestedKey(null);
+        }
+        setAiHealthResult(null);
       } catch (error) {
         if (!cancelled) {
           const message =
@@ -70,15 +113,62 @@ export default function SettingsOpenAi() {
     return 'idle';
   }, [aiError, aiSaving, aiSuccess]);
 
+  const effectiveKey = aiApiKeyDirty ? aiApiKey.trim() : aiHasApiKey ? '__stored__' : '';
+  const isConnectionTested = lastTestedKey === effectiveKey;
+  const mustTestConnection = aiEnabled || aiApiKeyDirty;
+  const canSave = !mustTestConnection || isConnectionTested;
+  const isConnected =
+    connectionStatus === 'connected' && aiEnabled && aiHasApiKey && !aiApiKeyDirty;
+
   const testOpenAiHealth = async () => {
     setAiHealthLoading(true);
-    setAiHealthError(null);
+    setAiHealthResult(null);
     try {
-      const data = await api.getApi<AiHealthResponse>('/settings/ai/health');
+      const trimmedKey = aiApiKeyDirty ? aiApiKey.trim() : '';
+      const usingOverride = trimmedKey.length > 0;
+      const usingStoredKey = !usingOverride && aiHasApiKey;
+      let data: AiHealthResponse;
+      if (trimmedKey) {
+        data = await api.postApi<AiHealthResponse, { apiKey: string }>('/settings/ai/health', {
+          apiKey: trimmedKey,
+        });
+      } else if (aiHasApiKey) {
+        data = await api.postApi<AiHealthResponse, { useStoredKey: true }>('/settings/ai/health', {
+          useStoredKey: true,
+        });
+      } else {
+        data = await api.getApi<AiHealthResponse>('/settings/ai/health');
+      }
       setAiHealthResult(data);
+      if (usingStoredKey) {
+        setLastCheckedAt(new Date().toISOString());
+        if (data.status === 'ok') {
+          setConnectionStatus('connected');
+          setLastError(null);
+          setLastSuccessAt(new Date().toISOString());
+        } else if (data.status === 'disabled') {
+          setConnectionStatus('disabled');
+          setLastError(null);
+        } else if (data.status === 'missing_key') {
+          setConnectionStatus('missing_key');
+          setLastError(null);
+        } else {
+          setConnectionStatus('error');
+          setLastError(data.message ?? 'Eroare conexiune');
+        }
+      }
+      if (data.status === 'ok') {
+        setLastTestedKey(trimmedKey ? trimmedKey : '__stored__');
+      } else {
+        setLastTestedKey(null);
+      }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Testul conexiunii OpenAI a eșuat.';
-      setAiHealthError(message);
+      setAiHealthResult({
+        status: 'error',
+        checkedAt: new Date().toISOString(),
+        message: error instanceof Error ? error.message : 'Test conexiune eșuat.',
+      });
+      setLastTestedKey(null);
     } finally {
       setAiHealthLoading(false);
     }
@@ -86,6 +176,10 @@ export default function SettingsOpenAi() {
 
   const saveAiSettings = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!canSave) {
+      setAiError('Testează conexiunea înainte de a salva setările OpenAI.');
+      return;
+    }
     setAiSaving(true);
     setAiError(null);
     try {
@@ -104,11 +198,49 @@ export default function SettingsOpenAi() {
         body: JSON.stringify(payload),
       });
       setAiHasApiKey(data.hasApiKey);
+      setConnectionStatus(normalizeStatus(data.connectionStatus));
+      setLastCheckedAt(coerceNullableString(data.lastCheckedAt));
+      setLastSuccessAt(coerceNullableString(data.lastSuccessAt));
+      setLastError(coerceNullableString(data.lastError));
       setAiApiKey('');
       setAiApiKeyDirty(false);
       setAiSuccess(true);
+      if (lastTestedKey) {
+        setLastTestedKey('__stored__');
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Salvarea setărilor OpenAI a eșuat.';
+      setAiError(message);
+    } finally {
+      setAiSaving(false);
+    }
+  };
+
+  const disconnectConnection = async () => {
+    setAiSaving(true);
+    setAiError(null);
+    try {
+      const payload: AiSettingsUpdateRequest = {
+        enabled: false,
+        apiKey: '',
+      };
+      const data = await api.getApi<AiSettingsResponse>('/settings/ai', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      setAiEnabled(false);
+      setAiHasApiKey(data.hasApiKey);
+      setConnectionStatus(normalizeStatus(data.connectionStatus));
+      setLastCheckedAt(coerceNullableString(data.lastCheckedAt));
+      setLastSuccessAt(coerceNullableString(data.lastSuccessAt));
+      setLastError(coerceNullableString(data.lastError));
+      setAiApiKey('');
+      setAiApiKeyDirty(false);
+      setAiHealthResult(null);
+      setLastTestedKey(null);
+      setAiSuccess(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Deconectarea OpenAI a eșuat.';
       setAiError(message);
     } finally {
       setAiSaving(false);
@@ -129,18 +261,36 @@ export default function SettingsOpenAi() {
         </div>
       ) : null}
 
-      <form
-        onSubmit={(event) => {
-          void saveAiSettings(event);
-        }}
-        className="space-y-4"
-      >
+      {todayUsage ? (
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="rounded-lg border border-muted/20 p-4">
+            <div className="text-sm text-muted">Requests azi</div>
+            <div className="mt-1 text-2xl font-semibold">{todayUsage.requests}</div>
+          </div>
+          <div className="rounded-lg border border-muted/20 p-4">
+            <div className="text-sm text-muted">Tokens input</div>
+            <div className="mt-1 text-2xl font-semibold">{todayUsage.inputTokens}</div>
+          </div>
+          <div className="rounded-lg border border-muted/20 p-4">
+            <div className="text-sm text-muted">Buget utilizat</div>
+            <div className="mt-1 text-2xl font-semibold">
+              {(todayUsage.percentUsed * 100).toFixed(1)}%
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <form onSubmit={(event) => void saveAiSettings(event)} className="space-y-4">
         <label className="flex items-center gap-2 text-body">
           <input
             type="checkbox"
             className="size-4 accent-primary"
             checked={aiEnabled}
-            onChange={(event) => setAiEnabled(event.target.checked)}
+            onChange={(event) => {
+              setAiEnabled(event.target.checked);
+              setAiHealthResult(null);
+              setLastTestedKey(null);
+            }}
           />
           Activează OpenAI pentru acest shop
         </label>
@@ -156,10 +306,13 @@ export default function SettingsOpenAi() {
             onChange={(event) => {
               setAiApiKey(event.target.value);
               setAiApiKeyDirty(true);
+              setAiHealthResult(null);
+              setLastTestedKey(null);
             }}
             placeholder={aiHasApiKey ? '••••••••' : 'sk-...'}
             className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body"
           />
+          <p className="mt-1 text-xs text-muted">Cheia este stocată criptat în baza de date.</p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -221,27 +374,55 @@ export default function SettingsOpenAi() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <SubmitButton state={aiSubmitState}>Save OpenAI Settings</SubmitButton>
+          <SubmitButton state={aiSubmitState} disabled={!canSave || isConnected}>
+            {isConnected ? 'Conexiune activă' : 'Salvează setări OpenAI'}
+          </SubmitButton>
+          {isConnected ? (
+            <button
+              type="button"
+              onClick={() => void disconnectConnection()}
+              disabled={aiSaving}
+              className="rounded-md border border-error/40 px-4 py-2 text-sm font-medium text-error shadow-sm hover:bg-error/5 disabled:opacity-50"
+            >
+              Deconectează
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => void testOpenAiHealth()}
-            className="rounded-md border border-muted/20 px-4 py-2 text-sm font-medium shadow-sm hover:bg-muted/10"
+            disabled={!aiHasApiKey && !aiApiKeyDirty}
+            className="rounded-md border border-muted/20 px-4 py-2 text-sm font-medium shadow-sm hover:bg-muted/10 disabled:opacity-50"
           >
             {aiHealthLoading ? 'Se testează...' : 'Test conexiune'}
           </button>
-          {aiHealthError ? <span className="text-xs text-error">{aiHealthError}</span> : null}
           {aiHealthResult ? (
-            <span className="text-xs text-muted">
+            <span
+              className={`text-xs ${aiHealthResult.status === 'ok' ? 'text-success' : 'text-error'}`}
+            >
               {aiHealthResult.status === 'ok'
-                ? 'OpenAI este activ'
+                ? `Conexiune OK (${aiHealthResult.latencyMs ?? 0}ms)`
                 : aiHealthResult.status === 'disabled'
-                  ? 'OpenAI este dezactivat'
+                  ? 'OpenAI dezactivat'
                   : aiHealthResult.status === 'missing_key'
-                    ? 'Cheie OpenAI lipsă'
-                    : 'Conexiune OpenAI indisponibilă'}
+                    ? 'API key lipsă'
+                    : (aiHealthResult.message ?? 'Eroare conexiune')}
             </span>
           ) : null}
         </div>
+
+        {!canSave && !isConnected ? (
+          <div className="text-xs text-warning">
+            Pentru a salva conexiunea, testează mai întâi conexiunea OpenAI.
+          </div>
+        ) : null}
+        {connectionStatus && connectionStatus !== 'unknown' ? (
+          <div className="text-xs text-muted">
+            Status conexiune: {connectionStatus}
+            {lastCheckedAt ? ` · verificat ${new Date(lastCheckedAt).toLocaleString()}` : ''}
+            {lastSuccessAt ? ` · succes ${new Date(lastSuccessAt).toLocaleString()}` : ''}
+            {lastError ? ` · ${lastError}` : ''}
+          </div>
+        ) : null}
 
         {aiSuccess ? (
           <div className="rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success shadow-sm">

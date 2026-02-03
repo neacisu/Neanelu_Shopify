@@ -60,6 +60,16 @@ export interface AiSettingsResponse {
   embeddingBatchSize?: number;
   similarityThreshold?: number;
   availableModels?: string[];
+  connectionStatus?: 'unknown' | 'connected' | 'error' | 'disabled' | 'missing_key' | 'pending';
+  lastCheckedAt?: string | null;
+  lastSuccessAt?: string | null;
+  lastError?: string | null;
+  todayUsage?: {
+    requests: number;
+    inputTokens: number;
+    estimatedCost: number;
+    percentUsed: number;
+  };
 }
 
 export interface AiSettingsUpdateRequest {
@@ -119,7 +129,7 @@ export interface XaiSettingsUpdateRequest {
 }
 
 export interface XaiHealthResponse {
-  status: 'connected' | 'disabled' | 'missing_key' | 'error' | 'pending';
+  status: 'ok' | 'disabled' | 'missing_key' | 'error';
   message?: string;
   checkedAt: string;
   latencyMs?: number;

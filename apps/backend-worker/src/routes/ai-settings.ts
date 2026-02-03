@@ -5,7 +5,7 @@ import { encryptAesGcm, withTenantContext } from '@app/database';
 import type { FastifyInstance, FastifyPluginCallback } from 'fastify';
 import type { SessionConfig } from '../auth/session.js';
 import { getSessionFromRequest, requireSession } from '../auth/session.js';
-import { getShopOpenAiConfig } from '../runtime/openai-config.js';
+import { runOpenAiHealthCheck, type OpenAiConnectionStatus } from '../services/openai-health.js';
 
 type AiSettingsPluginOptions = Readonly<{
   env: AppEnv;
@@ -20,6 +20,10 @@ type ShopAiRow = Readonly<{
   hasApiKey: boolean;
   embeddingBatchSize: number | null;
   similarityThreshold: string | number | null;
+  openaiConnectionStatus: OpenAiConnectionStatus | null;
+  openaiLastCheckedAt: string | null;
+  openaiLastSuccessAt: string | null;
+  openaiLastError: string | null;
 }>;
 
 function nowIso(): string {
@@ -69,6 +73,7 @@ function buildEncryptionKey(env: AppEnv): Buffer {
 
 const DEFAULT_EMBEDDING_BATCH_SIZE = 100;
 const DEFAULT_SIMILARITY_THRESHOLD = 0.8;
+const DEFAULT_DAILY_BUDGET = 100000;
 
 function toNumber(value: string | number | null | undefined): number | null {
   if (value == null) return null;
@@ -81,8 +86,35 @@ function availableModels(env: AppEnv): string[] {
   return Array.from(new Set(list.filter(Boolean)));
 }
 
-function toApiResponse(row: ShopAiRow | undefined, env: AppEnv): AiSettingsResponse {
+async function loadOpenAiUsage(shopId: string) {
+  return withTenantContext(shopId, async (client) => {
+    const result = await client.query<{ requests: string; inputTokens: string; cost: string }>(
+      `SELECT
+         COALESCE(SUM(request_count), 0) as requests,
+         COALESCE(SUM(tokens_input), 0) as "inputTokens",
+         COALESCE(SUM(estimated_cost), 0) as cost
+       FROM api_usage_log
+      WHERE api_provider = 'openai'
+        AND endpoint = 'embeddings'
+        AND created_at >= date_trunc('day', now())
+        AND created_at < date_trunc('day', now()) + interval '1 day'`
+    );
+    return {
+      requests: Number(result.rows[0]?.requests ?? 0),
+      inputTokens: Number(result.rows[0]?.inputTokens ?? 0),
+      cost: Number(result.rows[0]?.cost ?? 0),
+    };
+  });
+}
+
+function toApiResponse(
+  row: ShopAiRow | undefined,
+  env: AppEnv,
+  usage: { requests: number; inputTokens: number; cost: number }
+): AiSettingsResponse {
   if (!row) {
+    const dailyBudget = env.openAiEmbeddingDailyBudget ?? DEFAULT_DAILY_BUDGET;
+    const percentUsed = dailyBudget ? usage.requests / dailyBudget : 1;
     return {
       enabled: false,
       hasApiKey: false,
@@ -91,9 +123,21 @@ function toApiResponse(row: ShopAiRow | undefined, env: AppEnv): AiSettingsRespo
       embeddingBatchSize: DEFAULT_EMBEDDING_BATCH_SIZE,
       similarityThreshold: DEFAULT_SIMILARITY_THRESHOLD,
       availableModels: availableModels(env),
+      connectionStatus: 'unknown',
+      lastCheckedAt: null,
+      lastSuccessAt: null,
+      lastError: null,
+      todayUsage: {
+        requests: usage.requests,
+        inputTokens: usage.inputTokens,
+        estimatedCost: usage.cost,
+        percentUsed,
+      },
     };
   }
 
+  const dailyBudget = env.openAiEmbeddingDailyBudget ?? DEFAULT_DAILY_BUDGET;
+  const percentUsed = dailyBudget ? usage.requests / dailyBudget : 1;
   return {
     enabled: row.enabled,
     hasApiKey: row.hasApiKey,
@@ -102,93 +146,17 @@ function toApiResponse(row: ShopAiRow | undefined, env: AppEnv): AiSettingsRespo
     embeddingBatchSize: row.embeddingBatchSize ?? DEFAULT_EMBEDDING_BATCH_SIZE,
     similarityThreshold: toNumber(row.similarityThreshold) ?? DEFAULT_SIMILARITY_THRESHOLD,
     availableModels: availableModels(env),
+    connectionStatus: row.openaiConnectionStatus ?? 'unknown',
+    lastCheckedAt: row.openaiLastCheckedAt ?? null,
+    lastSuccessAt: row.openaiLastSuccessAt ?? null,
+    lastError: row.openaiLastError ?? null,
+    todayUsage: {
+      requests: usage.requests,
+      inputTokens: usage.inputTokens,
+      estimatedCost: usage.cost,
+      percentUsed,
+    },
   };
-}
-
-async function checkOpenAiHealth(
-  env: AppEnv,
-  logger: Logger,
-  config: Awaited<ReturnType<typeof getShopOpenAiConfig>>
-): Promise<AiHealthResponse> {
-  const checkedAt = nowIso();
-  const baseUrl = config.openAiBaseUrl ?? env.openAiBaseUrl ?? 'https://api.openai.com';
-  const model = config.openAiEmbeddingsModel;
-
-  if (!config.enabled) {
-    return {
-      status: 'disabled',
-      checkedAt,
-      message: 'OpenAI este dezactivat pentru acest shop.',
-      baseUrl,
-      model,
-      source: config.source,
-    };
-  }
-
-  if (!config.openAiApiKey) {
-    return {
-      status: 'missing_key',
-      checkedAt,
-      message: 'Cheia OpenAI lipsește.',
-      baseUrl,
-      model,
-      source: config.source,
-    };
-  }
-
-  const controller = new AbortController();
-  const timeoutMs = env.openAiTimeoutMs ?? 10_000;
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  const url = `${baseUrl.replace(/\/$/, '')}/v1/models`;
-  const startedAt = Date.now();
-
-  try {
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.openAiApiKey}`,
-      },
-      signal: controller.signal,
-    });
-    const latencyMs = Date.now() - startedAt;
-
-    if (!response.ok) {
-      return {
-        status: 'error',
-        checkedAt,
-        message: `OpenAI a răspuns cu status ${response.status}.`,
-        latencyMs,
-        httpStatus: response.status,
-        baseUrl,
-        model,
-        source: config.source,
-      };
-    }
-
-    return {
-      status: 'ok',
-      checkedAt,
-      latencyMs,
-      httpStatus: response.status,
-      baseUrl,
-      model,
-      source: config.source,
-    };
-  } catch (error) {
-    logger.warn({ error }, 'OpenAI health check failed');
-    const latencyMs = Date.now() - startedAt;
-    return {
-      status: 'error',
-      checkedAt,
-      message: error instanceof Error ? error.message : 'OpenAI health check failed.',
-      latencyMs,
-      baseUrl,
-      model,
-      source: config.source,
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 export const aiSettingsRoutes: FastifyPluginCallback<AiSettingsPluginOptions> = (
@@ -209,22 +177,40 @@ export const aiSettingsRoutes: FastifyPluginCallback<AiSettingsPluginOptions> = 
       }
 
       try {
-        const row = await withTenantContext(session.shopId, async (client) => {
-          const result = await client.query<ShopAiRow>(
-            `SELECT enabled,
-              openai_base_url AS "openaiBaseUrl",
-              openai_embeddings_model AS "openaiEmbeddingsModel",
-              embedding_batch_size AS "embeddingBatchSize",
-              similarity_threshold AS "similarityThreshold",
-              openai_api_key_ciphertext IS NOT NULL AS "hasApiKey"
-            FROM shop_ai_credentials
-            WHERE shop_id = $1`,
-            [session.shopId]
-          );
-          return result.rows[0];
-        });
+        const fetchRow = async () =>
+          withTenantContext(session.shopId, async (client) => {
+            const result = await client.query<ShopAiRow>(
+              `SELECT enabled,
+                openai_base_url AS "openaiBaseUrl",
+                openai_embeddings_model AS "openaiEmbeddingsModel",
+                embedding_batch_size AS "embeddingBatchSize",
+                similarity_threshold AS "similarityThreshold",
+                openai_api_key_ciphertext IS NOT NULL AS "hasApiKey",
+                openai_connection_status AS "openaiConnectionStatus",
+                openai_last_checked_at AS "openaiLastCheckedAt",
+                openai_last_success_at AS "openaiLastSuccessAt",
+                openai_last_error AS "openaiLastError"
+              FROM shop_ai_credentials
+              WHERE shop_id = $1`,
+              [session.shopId]
+            );
+            return result.rows[0];
+          });
 
-        const response = toApiResponse(row, env);
+        let row = await fetchRow();
+        if (row?.enabled && row.hasApiKey) {
+          await runOpenAiHealthCheck({
+            shopId: session.shopId,
+            env,
+            logger,
+            allowStoredWhenDisabled: true,
+            persist: true,
+          });
+          row = await fetchRow();
+        }
+
+        const usage = await loadOpenAiUsage(session.shopId);
+        const response = toApiResponse(row, env, usage);
         return reply.send(successEnvelope(request.id, response));
       } catch (error) {
         logger.error({ requestId: request.id, error }, 'Failed to load AI settings');
@@ -247,14 +233,62 @@ export const aiSettingsRoutes: FastifyPluginCallback<AiSettingsPluginOptions> = 
       }
 
       try {
-        const config = await getShopOpenAiConfig({ shopId: session.shopId, env, logger });
-        const response = await checkOpenAiHealth(env, logger, config);
+        const response = await runOpenAiHealthCheck({
+          shopId: session.shopId,
+          env,
+          logger,
+          allowStoredWhenDisabled: false,
+          persist: true,
+        });
         return reply.send(successEnvelope(request.id, response));
       } catch (error) {
-        logger.error({ requestId: request.id, error }, 'Failed to check OpenAI health');
+        logger.warn({ requestId: request.id, error }, 'OpenAI health check failed');
+        const response: AiHealthResponse = {
+          status: 'error',
+          checkedAt: nowIso(),
+          message: error instanceof Error ? error.message : 'OpenAI health check failed',
+        };
+        return reply.send(successEnvelope(request.id, response));
+      }
+    }
+  );
+
+  server.post(
+    '/settings/ai/health',
+    { preHandler: requireSession(sessionConfig) },
+    async (request, reply) => {
+      const session = getSessionFromRequest(request, sessionConfig);
+      if (!session) {
         return reply
-          .status(500)
-          .send(errorEnvelope(request.id, 500, 'INTERNAL_SERVER_ERROR', 'Health check failed'));
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Missing session'));
+      }
+
+      const body = (request.body ?? {}) as { apiKey?: unknown; useStoredKey?: unknown };
+      const override =
+        typeof body.apiKey === 'string' && body.apiKey.trim().length > 0
+          ? body.apiKey.trim()
+          : null;
+      const allowStoredWhenDisabled = body.useStoredKey === true;
+
+      try {
+        const response = await runOpenAiHealthCheck({
+          shopId: session.shopId,
+          env,
+          logger,
+          apiKeyOverride: override,
+          allowStoredWhenDisabled,
+          persist: !override,
+        });
+        return reply.send(successEnvelope(request.id, response));
+      } catch (error) {
+        logger.warn({ requestId: request.id, error }, 'OpenAI health check failed');
+        const response: AiHealthResponse = {
+          status: 'error',
+          checkedAt: nowIso(),
+          message: error instanceof Error ? error.message : 'OpenAI health check failed',
+        };
+        return reply.send(successEnvelope(request.id, response));
       }
     }
   );
@@ -318,10 +352,12 @@ export const aiSettingsRoutes: FastifyPluginCallback<AiSettingsPluginOptions> = 
           const updates: string[] = [];
           const values: (string | boolean | number | Buffer | null)[] = [session.shopId];
           let idx = 2;
+          let nextStatus: OpenAiConnectionStatus | null = null;
 
           if (enabled !== undefined) {
             updates.push(`enabled = $${idx++}`);
             values.push(enabled);
+            nextStatus = enabled ? 'pending' : 'disabled';
           }
 
           if (openaiBaseUrl !== undefined) {
@@ -352,6 +388,7 @@ export const aiSettingsRoutes: FastifyPluginCallback<AiSettingsPluginOptions> = 
               updates.push(`openai_api_key_tag = NULL`);
               updates.push(`openai_key_version = $${idx++}`);
               values.push(env.encryptionKeyVersion);
+              nextStatus = enabled === false ? 'disabled' : 'missing_key';
             } else {
               const key = buildEncryptionKey(env);
               const encrypted = encryptAesGcm(Buffer.from(trimmed, 'utf-8'), key);
@@ -363,7 +400,14 @@ export const aiSettingsRoutes: FastifyPluginCallback<AiSettingsPluginOptions> = 
               values.push(encrypted.tag);
               updates.push(`openai_key_version = $${idx++}`);
               values.push(env.encryptionKeyVersion);
+              nextStatus = enabled === false ? 'disabled' : 'pending';
             }
+          }
+
+          if (nextStatus) {
+            updates.push(`openai_connection_status = $${idx++}`);
+            values.push(nextStatus);
+            updates.push(`openai_last_error = NULL`);
           }
 
           if (updates.length > 0) {
@@ -381,7 +425,11 @@ export const aiSettingsRoutes: FastifyPluginCallback<AiSettingsPluginOptions> = 
               openai_embeddings_model AS "openaiEmbeddingsModel",
               embedding_batch_size AS "embeddingBatchSize",
               similarity_threshold AS "similarityThreshold",
-              openai_api_key_ciphertext IS NOT NULL AS "hasApiKey"
+              openai_api_key_ciphertext IS NOT NULL AS "hasApiKey",
+              openai_connection_status AS "openaiConnectionStatus",
+              openai_last_checked_at AS "openaiLastCheckedAt",
+              openai_last_success_at AS "openaiLastSuccessAt",
+              openai_last_error AS "openaiLastError"
             FROM shop_ai_credentials
             WHERE shop_id = $1`,
             [session.shopId]
@@ -389,7 +437,8 @@ export const aiSettingsRoutes: FastifyPluginCallback<AiSettingsPluginOptions> = 
           return result.rows[0];
         });
 
-        const response = toApiResponse(updated, env);
+        const usage = await loadOpenAiUsage(session.shopId);
+        const response = toApiResponse(updated, env, usage);
         return reply.send(successEnvelope(request.id, response));
       } catch (error) {
         logger.error({ requestId: request.id, error }, 'Failed to update AI settings');

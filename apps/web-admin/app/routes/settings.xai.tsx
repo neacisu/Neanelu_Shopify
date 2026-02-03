@@ -5,6 +5,32 @@ import type { XaiHealthResponse, XaiSettingsResponse, XaiSettingsUpdateRequest }
 import { SubmitButton } from '../components/forms/submit-button';
 import { useApiClient } from '../hooks/use-api';
 
+type XaiConnectionStatus =
+  | 'unknown'
+  | 'connected'
+  | 'error'
+  | 'disabled'
+  | 'missing_key'
+  | 'pending';
+
+function normalizeStatus(value: XaiSettingsResponse['connectionStatus']): XaiConnectionStatus {
+  if (
+    value === 'connected' ||
+    value === 'error' ||
+    value === 'disabled' ||
+    value === 'missing_key' ||
+    value === 'pending' ||
+    value === 'unknown'
+  ) {
+    return value;
+  }
+  return 'unknown';
+}
+
+function coerceNullableString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
 export default function SettingsXai() {
   const api = useApiClient();
 
@@ -24,9 +50,16 @@ export default function SettingsXai() {
   const [apiKey, setApiKey] = useState('');
   const [apiKeyDirty, setApiKeyDirty] = useState(false);
   const [hasApiKey, setHasApiKey] = useState(false);
+  const [todayUsage, setTodayUsage] = useState<XaiSettingsResponse['todayUsage'] | undefined>(
+    undefined
+  );
+  const [connectionStatus, setConnectionStatus] = useState<XaiConnectionStatus>('unknown');
+  const [lastCheckedAt, setLastCheckedAt] = useState<string | null>(null);
+  const [lastSuccessAt, setLastSuccessAt] = useState<string | null>(null);
+  const [lastError, setLastError] = useState<string | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
   const [healthResult, setHealthResult] = useState<XaiHealthResponse | null>(null);
-  const [healthError, setHealthError] = useState<string | null>(null);
+  const [lastTestedKey, setLastTestedKey] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,6 +79,18 @@ export default function SettingsXai() {
         setDailyBudget(data.dailyBudget ?? 1000);
         setBudgetAlertThreshold(data.budgetAlertThreshold ?? 0.8);
         setHasApiKey(data.hasApiKey);
+        setTodayUsage(data.todayUsage);
+        const nextStatus = normalizeStatus(data.connectionStatus);
+        setConnectionStatus(nextStatus);
+        setLastCheckedAt(coerceNullableString(data.lastCheckedAt));
+        setLastSuccessAt(coerceNullableString(data.lastSuccessAt));
+        setLastError(coerceNullableString(data.lastError));
+        if (data.connectionStatus === 'connected' && data.hasApiKey) {
+          setLastTestedKey('__stored__');
+        } else {
+          setLastTestedKey(null);
+        }
+        setHealthResult(null);
       } catch (error) {
         if (!cancelled) {
           const message =
@@ -76,15 +121,62 @@ export default function SettingsXai() {
     return 'idle';
   }, [error, saving, success]);
 
+  const effectiveKey = apiKeyDirty ? apiKey.trim() : hasApiKey ? '__stored__' : '';
+  const isConnectionTested = lastTestedKey === effectiveKey;
+  const mustTestConnection = enabled || apiKeyDirty;
+  const canSave = !mustTestConnection || isConnectionTested;
+  const isConnected = connectionStatus === 'connected' && enabled && hasApiKey && !apiKeyDirty;
+
   const testHealth = async () => {
     setHealthLoading(true);
-    setHealthError(null);
+    setHealthResult(null);
     try {
-      const data = await api.getApi<XaiHealthResponse>('/settings/xai/health');
+      const trimmedKey = apiKeyDirty ? apiKey.trim() : '';
+      const usingOverride = trimmedKey.length > 0;
+      const usingStoredKey = !usingOverride && hasApiKey;
+      let data: XaiHealthResponse;
+      if (trimmedKey) {
+        data = await api.postApi<XaiHealthResponse, { apiKey: string }>('/settings/xai/health', {
+          apiKey: trimmedKey,
+        });
+      } else if (hasApiKey) {
+        data = await api.postApi<XaiHealthResponse, { useStoredKey: true }>(
+          '/settings/xai/health',
+          { useStoredKey: true }
+        );
+      } else {
+        data = await api.getApi<XaiHealthResponse>('/settings/xai/health');
+      }
       setHealthResult(data);
+      if (usingStoredKey) {
+        setLastCheckedAt(new Date().toISOString());
+        if (data.status === 'ok') {
+          setConnectionStatus('connected');
+          setLastError(null);
+          setLastSuccessAt(new Date().toISOString());
+        } else if (data.status === 'disabled') {
+          setConnectionStatus('disabled');
+          setLastError(null);
+        } else if (data.status === 'missing_key') {
+          setConnectionStatus('missing_key');
+          setLastError(null);
+        } else {
+          setConnectionStatus('error');
+          setLastError(data.message ?? 'Eroare conexiune');
+        }
+      }
+      if (data.status === 'ok') {
+        setLastTestedKey(trimmedKey ? trimmedKey : '__stored__');
+      } else {
+        setLastTestedKey(null);
+      }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Testul conexiunii xAI a eșuat.';
-      setHealthError(message);
+      setHealthResult({
+        status: 'error',
+        checkedAt: new Date().toISOString(),
+        message: error instanceof Error ? error.message : 'Testul conexiunii xAI a eșuat.',
+      });
+      setLastTestedKey(null);
     } finally {
       setHealthLoading(false);
     }
@@ -92,6 +184,10 @@ export default function SettingsXai() {
 
   const saveSettings = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!canSave) {
+      setError('Testează conexiunea înainte de a salva setările xAI.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -113,11 +209,49 @@ export default function SettingsXai() {
         body: JSON.stringify(payload),
       });
       setHasApiKey(data.hasApiKey);
+      setConnectionStatus(normalizeStatus(data.connectionStatus));
+      setLastCheckedAt(coerceNullableString(data.lastCheckedAt));
+      setLastSuccessAt(coerceNullableString(data.lastSuccessAt));
+      setLastError(coerceNullableString(data.lastError));
       setApiKey('');
       setApiKeyDirty(false);
       setSuccess(true);
+      if (lastTestedKey) {
+        setLastTestedKey('__stored__');
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Salvarea setărilor xAI a eșuat.';
+      setError(message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const disconnectConnection = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const payload: XaiSettingsUpdateRequest = {
+        enabled: false,
+        apiKey: '',
+      };
+      const data = await api.getApi<XaiSettingsResponse>('/settings/xai', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      setEnabled(false);
+      setHasApiKey(data.hasApiKey);
+      setConnectionStatus(normalizeStatus(data.connectionStatus));
+      setLastCheckedAt(coerceNullableString(data.lastCheckedAt));
+      setLastSuccessAt(coerceNullableString(data.lastSuccessAt));
+      setLastError(coerceNullableString(data.lastError));
+      setApiKey('');
+      setApiKeyDirty(false);
+      setHealthResult(null);
+      setLastTestedKey(null);
+      setSuccess(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Deconectarea xAI a eșuat.';
       setError(message);
     } finally {
       setSaving(false);
@@ -138,18 +272,36 @@ export default function SettingsXai() {
         </div>
       ) : null}
 
-      <form
-        onSubmit={(event) => {
-          void saveSettings(event);
-        }}
-        className="space-y-4"
-      >
+      {todayUsage ? (
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="rounded-lg border border-muted/20 p-4">
+            <div className="text-sm text-muted">Requests azi</div>
+            <div className="mt-1 text-2xl font-semibold">{todayUsage.requests}</div>
+          </div>
+          <div className="rounded-lg border border-muted/20 p-4">
+            <div className="text-sm text-muted">Tokens input</div>
+            <div className="mt-1 text-2xl font-semibold">{todayUsage.inputTokens}</div>
+          </div>
+          <div className="rounded-lg border border-muted/20 p-4">
+            <div className="text-sm text-muted">Buget utilizat</div>
+            <div className="mt-1 text-2xl font-semibold">
+              {(todayUsage.percentUsed * 100).toFixed(1)}%
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <form onSubmit={(event) => void saveSettings(event)} className="space-y-4">
         <label className="flex items-center gap-2 text-body">
           <input
             type="checkbox"
             className="size-4 accent-primary"
             checked={enabled}
-            onChange={(event) => setEnabled(event.target.checked)}
+            onChange={(event) => {
+              setEnabled(event.target.checked);
+              setHealthResult(null);
+              setLastTestedKey(null);
+            }}
           />
           Activează xAI Grok pentru AI Auditor
         </label>
@@ -165,10 +317,13 @@ export default function SettingsXai() {
             onChange={(event) => {
               setApiKey(event.target.value);
               setApiKeyDirty(true);
+              setHealthResult(null);
+              setLastTestedKey(null);
             }}
             placeholder={hasApiKey ? '••••••••' : 'xai-...'}
             className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body"
           />
+          <p className="mt-1 text-xs text-muted">Cheia este stocată criptat în baza de date.</p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -267,27 +422,55 @@ export default function SettingsXai() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <SubmitButton state={submitState}>Save xAI Settings</SubmitButton>
+          <SubmitButton state={submitState} disabled={!canSave || isConnected}>
+            {isConnected ? 'Conexiune activă' : 'Salvează setări xAI'}
+          </SubmitButton>
+          {isConnected ? (
+            <button
+              type="button"
+              onClick={() => void disconnectConnection()}
+              disabled={saving}
+              className="rounded-md border border-error/40 px-4 py-2 text-sm font-medium text-error shadow-sm hover:bg-error/5 disabled:opacity-50"
+            >
+              Deconectează
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => void testHealth()}
-            className="rounded-md border border-muted/20 px-4 py-2 text-sm font-medium shadow-sm hover:bg-muted/10"
+            disabled={!hasApiKey && !apiKeyDirty}
+            className="rounded-md border border-muted/20 px-4 py-2 text-sm font-medium shadow-sm hover:bg-muted/10 disabled:opacity-50"
           >
             {healthLoading ? 'Se testează...' : 'Test conexiune'}
           </button>
-          {healthError ? <span className="text-xs text-error">{healthError}</span> : null}
           {healthResult ? (
-            <span className="text-xs text-muted">
-              {healthResult.status === 'connected'
-                ? 'xAI este activ'
+            <span
+              className={`text-xs ${healthResult.status === 'ok' ? 'text-success' : 'text-error'}`}
+            >
+              {healthResult.status === 'ok'
+                ? `Conexiune OK (${healthResult.latencyMs ?? 0}ms)`
                 : healthResult.status === 'disabled'
-                  ? 'xAI este dezactivat'
+                  ? 'xAI dezactivat'
                   : healthResult.status === 'missing_key'
-                    ? 'Cheie xAI lipsă'
-                    : 'Conexiune xAI indisponibilă'}
+                    ? 'API key lipsă'
+                    : (healthResult.message ?? 'Eroare conexiune')}
             </span>
           ) : null}
         </div>
+
+        {!canSave && !isConnected ? (
+          <div className="text-xs text-warning">
+            Pentru a salva conexiunea, testează mai întâi conexiunea xAI.
+          </div>
+        ) : null}
+        {connectionStatus && connectionStatus !== 'unknown' ? (
+          <div className="text-xs text-muted">
+            Status conexiune: {connectionStatus}
+            {lastCheckedAt ? ` · verificat ${new Date(lastCheckedAt).toLocaleString()}` : ''}
+            {lastSuccessAt ? ` · succes ${new Date(lastSuccessAt).toLocaleString()}` : ''}
+            {lastError ? ` · ${lastError}` : ''}
+          </div>
+        ) : null}
 
         {success ? (
           <div className="rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success shadow-sm">

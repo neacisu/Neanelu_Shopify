@@ -148,6 +148,8 @@ const env = {
   vectorSearchQueryTimeoutMs: 2_000,
   openAiEmbeddingDimensions: 2000,
   serperHealthCheckIntervalSeconds: 3600,
+  openAiHealthCheckIntervalSeconds: 3600,
+  xaiHealthCheckIntervalSeconds: 3600,
   bulkPimSyncEnabled: true,
   bulkSemanticDedupEnabled: true,
   bulkConsensusEnabled: true,

@@ -72,6 +72,7 @@ let dbRow: DbRow | null = null;
 
 void mock.module('@app/database', {
   namedExports: {
+    decryptAesGcm: () => Buffer.from(''),
     encryptAesGcm: () => ({
       ciphertext: Buffer.from('cipher'),
       iv: Buffer.from('iv'),

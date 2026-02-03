@@ -58,6 +58,10 @@ export const shopAiCredentials = pgTable(
       '0.80'
     ),
     enabled: boolean('enabled').notNull().default(false),
+    openaiConnectionStatus: text('openai_connection_status').default('unknown'),
+    openaiLastCheckedAt: timestamp('openai_last_checked_at', { withTimezone: true }),
+    openaiLastError: text('openai_last_error'),
+    openaiLastSuccessAt: timestamp('openai_last_success_at', { withTimezone: true }),
 
     serperEnabled: boolean('serper_enabled').notNull().default(false),
     serperDailyBudget: integer('serper_daily_budget').default(1000),
