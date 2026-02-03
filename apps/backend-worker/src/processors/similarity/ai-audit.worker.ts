@@ -3,7 +3,35 @@ import { loadEnv } from '@app/config';
 import { configFromEnv, createWorker, withJobTelemetryContext } from '@app/queue-manager';
 import { withTenantContext } from '@app/database';
 import { AIAuditorService } from '@app/pim';
+import { loadXAICredentials } from '../../services/xai-credentials.js';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
+import { enqueueExtractionJob } from '../../queue/similarity-queues.js';
+
+const warnLogger = (logger: Logger) =>
+  logger as Logger & {
+    warn: (data: Record<string, unknown>, message: string) => void;
+  };
+
+type XaiCredentials = Readonly<{
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  temperature: number;
+  maxTokensPerRequest: number;
+  rateLimitPerMinute: number;
+  dailyBudget: number;
+  budgetAlertThreshold: number;
+}>;
+
+const loadXAICredentialsSafe = loadXAICredentials as (params: {
+  shopId: string;
+  encryptionKeyHex: string;
+}) => Promise<XaiCredentials | null>;
+
+const enqueueExtractionJobSafe = enqueueExtractionJob as (params: {
+  shopId: string;
+  matchId: string;
+}) => Promise<unknown>;
 
 export const AI_AUDIT_QUEUE_NAME = 'pim-ai-audit';
 export const AI_AUDIT_JOB = 'audit-single';
@@ -44,6 +72,18 @@ export function startAIAuditWorker(logger: Logger): AIAuditWorkerHandle {
             const payload = job.data as AIAuditJobPayload | null;
             if (!payload?.shopId || !payload.matchId) {
               throw new Error('invalid_ai_audit_payload');
+            }
+
+            const credentials = await loadXAICredentialsSafe({
+              shopId: payload.shopId,
+              encryptionKeyHex: env.encryptionKeyHex,
+            });
+            if (!credentials) {
+              warnLogger(logger).warn(
+                { shopId: payload.shopId },
+                'xAI credentials missing for AI audit'
+              );
+              return;
             }
 
             const data = await withTenantContext(payload.shopId, async (client) => {
@@ -92,12 +132,14 @@ export function startAIAuditWorker(logger: Logger): AIAuditWorkerHandle {
             });
 
             if (!data) {
-              logger.warn({ matchId: payload.matchId }, 'AI audit match not found');
+              warnLogger(logger).warn({ matchId: payload.matchId }, 'AI audit match not found');
               return;
             }
 
             const auditor = new AIAuditorService();
             const auditResult = await auditor.auditMatch({
+              shopId: payload.shopId,
+              credentials,
               localProduct: {
                 title: data.title,
                 brand: data.brand,
@@ -126,6 +168,10 @@ export function startAIAuditWorker(logger: Logger): AIAuditWorkerHandle {
             let rejectionReason: string | null = null;
             if (auditResult.decision === 'approve') {
               confidence = 'confirmed';
+              await enqueueExtractionJobSafe({
+                shopId: payload.shopId,
+                matchId: payload.matchId,
+              });
             } else if (auditResult.decision === 'reject') {
               confidence = 'rejected';
               rejectionReason = 'ai_audit_reject';

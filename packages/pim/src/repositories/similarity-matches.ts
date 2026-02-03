@@ -252,6 +252,29 @@ export async function updateConfidence(params: {
   );
 }
 
+export async function updateSpecsExtracted(params: {
+  id: string;
+  specsExtracted: Record<string, unknown>;
+  extractionSessionId: string;
+  scrapedAt?: Date;
+}): Promise<void> {
+  const pool = getDbPool();
+  await pool.query(
+    `UPDATE prod_similarity_matches
+        SET specs_extracted = $1,
+            extraction_session_id = $2,
+            scraped_at = COALESCE($3, now()),
+            updated_at = now()
+      WHERE id = $4`,
+    [
+      JSON.stringify(params.specsExtracted),
+      params.extractionSessionId,
+      params.scrapedAt ?? null,
+      params.id,
+    ]
+  );
+}
+
 export async function markAsPrimary(params: { id: string; productId: string }): Promise<void> {
   const pool = getDbPool();
   await pool.query(

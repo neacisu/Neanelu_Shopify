@@ -20,6 +20,7 @@ import { startSerperHealthWorker } from './processors/serper/health.worker.js';
 import { startXaiHealthWorker } from './processors/xai/health.worker.js';
 import { startSimilaritySearchWorker } from './processors/similarity/search-and-match.worker.js';
 import { startAIAuditWorker } from './processors/similarity/ai-audit.worker.js';
+import { startExtractionWorker } from './processors/pim/extraction.worker.js';
 import { scheduleTokenHealthJob, closeTokenHealthQueue } from './queue/token-health-queue.js';
 import { closeSimilarityQueues } from './queue/similarity-queues.js';
 import {
@@ -64,6 +65,7 @@ let serperHealthWorker: Awaited<ReturnType<typeof startSerperHealthWorker>> | nu
 let xaiHealthWorker: Awaited<ReturnType<typeof startXaiHealthWorker>> | null = null;
 let similaritySearchWorker: Awaited<ReturnType<typeof startSimilaritySearchWorker>> | null = null;
 let similarityAIAuditWorker: Awaited<ReturnType<typeof startAIAuditWorker>> | null = null;
+let extractionWorker: Awaited<ReturnType<typeof startExtractionWorker>> | null = null;
 let queueConfigListener: Awaited<ReturnType<typeof startQueueConfigListener>> | null = null;
 
 try {
@@ -207,6 +209,14 @@ try {
     timestamp: new Date().toISOString(),
   });
 
+  extractionWorker = startExtractionWorker(logger);
+  logger.info({}, 'pim extraction worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'pim-extraction-worker',
+    timestamp: new Date().toISOString(),
+  });
+
   queueConfigListener = await startQueueConfigListener(env, logger, {
     'webhook-queue': webhookWorker?.worker as unknown as { concurrency?: number },
     'sync-queue': syncWorker?.worker as unknown as { concurrency?: number },
@@ -219,6 +229,7 @@ try {
     'pim-enrichment-queue': enrichmentWorker?.worker as unknown as { concurrency?: number },
     'pim-similarity-search': similaritySearchWorker?.worker as unknown as { concurrency?: number },
     'pim-ai-audit': similarityAIAuditWorker?.worker as unknown as { concurrency?: number },
+    'pim-extraction': extractionWorker?.worker as unknown as { concurrency?: number },
   });
   logger.info({}, 'queue config listener started');
 } catch (error) {
@@ -364,6 +375,17 @@ const shutdown = async (signal: string): Promise<void> => {
       emitQueueStreamEvent({
         type: 'worker.offline',
         workerId: 'ai-audit-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (extractionWorker) {
+      await extractionWorker.close();
+      extractionWorker = null;
+      logger.info({ signal }, 'pim extraction worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'pim-extraction-worker',
         timestamp: new Date().toISOString(),
       });
     }

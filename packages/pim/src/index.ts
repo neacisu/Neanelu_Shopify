@@ -16,3 +16,7 @@ export * from './content/index.js';
 
 // Services module exports
 export * from './services/index.js';
+
+// Repositories module exports
+export * from './repositories/extraction-sessions.js';
+export * from './repositories/similarity-matches.js';

@@ -5,7 +5,11 @@ import { withTenantContext } from '@app/database';
 import type { SessionConfig } from '../auth/session.js';
 import { getSessionFromRequest, requireSession } from '../auth/session.js';
 import { SimilarityMatchService } from '@app/pim';
-import { enqueueAIAuditJob, enqueueSimilaritySearchJob } from '../queue/similarity-queues.js';
+import {
+  enqueueAIAuditJob,
+  enqueueExtractionJob,
+  enqueueSimilaritySearchJob,
+} from '../queue/similarity-queues.js';
 
 type SimilarityMatchesPluginOptions = Readonly<{
   env: AppEnv;
@@ -744,6 +748,46 @@ export const similarityMatchesRoutes: FastifyPluginCallback<SimilarityMatchesPlu
       productId,
     });
 
+    return reply.status(202).send(successEnvelope(request.id, { queued: true, jobId }));
+  });
+
+  server.post('/similarity-matches/:id/extract', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      return reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+    }
+
+    const matchId = (request.params as IdParams).id;
+    if (!matchId) {
+      return reply
+        .status(400)
+        .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing match id'));
+    }
+
+    const matchExists = await withTenantContext(session.shopId, async (client) => {
+      const result = await client.query<{ id: string }>(
+        `SELECT m.id
+           FROM prod_similarity_matches m
+           JOIN prod_channel_mappings pcm
+             ON pcm.product_id = m.product_id
+            AND pcm.channel = 'shopify'
+            AND pcm.shop_id = $1
+           JOIN shopify_products sp
+             ON sp.shopify_gid = pcm.external_id
+            AND sp.shop_id = $1
+          WHERE m.id = $2`,
+        [session.shopId, matchId]
+      );
+      return Boolean(result.rows[0]?.id);
+    });
+
+    if (!matchExists) {
+      return reply.status(404).send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Match not found'));
+    }
+
+    const jobId = await enqueueExtractionJob({ shopId: session.shopId, matchId });
     return reply.status(202).send(successEnvelope(request.id, { queued: true, jobId }));
   });
 };

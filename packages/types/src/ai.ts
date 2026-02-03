@@ -138,6 +138,47 @@ export interface XaiHealthResponse {
   model?: string;
 }
 
+export interface ExtractedProduct {
+  title: string;
+  brand?: string;
+  mpn?: string;
+  gtin?: string;
+  category?: string;
+  specifications: {
+    name: string;
+    value: string;
+    unit?: string;
+  }[];
+  price?: {
+    amount?: number;
+    currency: string;
+    isPromotional: boolean;
+  };
+  images: string[];
+  confidence: {
+    overall: number;
+    fieldsUncertain: string[];
+  };
+}
+
+export interface XaiExtractionJobPayload {
+  shopId: string;
+  matchId: string;
+  requestedAt: number;
+  triggeredBy?: 'manual' | 'system';
+}
+
+export interface XaiExtractionResult {
+  success: boolean;
+  data?: ExtractedProduct;
+  tokensUsed: {
+    input: number;
+    output: number;
+  };
+  latencyMs: number;
+  error?: string;
+}
+
 function isCanonicalUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
 }

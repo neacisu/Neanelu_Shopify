@@ -12,12 +12,16 @@ export const SIMILARITY_SEARCH_QUEUE_NAME = 'pim-similarity-search';
 export const SIMILARITY_SEARCH_JOB = 'search-external';
 export const AI_AUDIT_QUEUE_NAME = 'pim-ai-audit';
 export const AI_AUDIT_JOB = 'audit-single';
+export const PIM_EXTRACTION_QUEUE_NAME = 'pim-extraction';
+export const PIM_EXTRACTION_JOB = 'extract-specs';
 
 type SimilaritySearchQueue = ReturnType<typeof createQueue>;
 type AIAuditQueue = ReturnType<typeof createQueue>;
+type ExtractionQueue = ReturnType<typeof createQueue>;
 
 let similaritySearchQueue: SimilaritySearchQueue | undefined;
 let aiAuditQueue: AIAuditQueue | undefined;
+let extractionQueue: ExtractionQueue | undefined;
 
 function getSimilaritySearchQueue(): SimilaritySearchQueue {
   const qmOptions: CreateQueueManagerOptions = { config: configFromEnv(getEnv()) };
@@ -47,6 +51,20 @@ function getAIAuditQueue(): AIAuditQueue {
   return aiAuditQueue;
 }
 
+function getExtractionQueue(): ExtractionQueue {
+  const qmOptions: CreateQueueManagerOptions = { config: configFromEnv(getEnv()) };
+  extractionQueue ??= createQueue(qmOptions, {
+    name: PIM_EXTRACTION_QUEUE_NAME,
+    defaultJobOptions: {
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5000 },
+      removeOnComplete: { count: 500 },
+      removeOnFail: { count: 100 },
+    },
+  });
+  return extractionQueue;
+}
+
 export async function enqueueSimilaritySearchJob(params: { shopId: string; productId: string }) {
   const queue = getSimilaritySearchQueue();
   const job = await queue.add(SIMILARITY_SEARCH_JOB, params);
@@ -61,6 +79,14 @@ export async function enqueueAIAuditJob(params: { shopId: string; matchId: strin
   return job.id;
 }
 
+export async function enqueueExtractionJob(params: { shopId: string; matchId: string }) {
+  const queue = getExtractionQueue();
+  const job = await queue.add(PIM_EXTRACTION_JOB, params, {
+    jobId: `pim-extract:${params.matchId}`,
+  });
+  return job.id;
+}
+
 export async function closeSimilarityQueues(): Promise<void> {
   if (similaritySearchQueue) {
     await similaritySearchQueue.close();
@@ -69,5 +95,9 @@ export async function closeSimilarityQueues(): Promise<void> {
   if (aiAuditQueue) {
     await aiAuditQueue.close();
     aiAuditQueue = undefined;
+  }
+  if (extractionQueue) {
+    await extractionQueue.close();
+    extractionQueue = undefined;
   }
 }
