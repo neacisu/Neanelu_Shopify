@@ -35,6 +35,30 @@ Această documentație acoperă **Etapa 4** din strategia PIM pentru Golden Reco
 
 ---
 
+## Similarity Match Triage (F8.4.2)
+
+Acest modul introduce un **sistem de triaj pe praguri** pentru validarea match-urilor externe:
+
+| Similarity Score | Acțiune | Detalii |
+| ---------------- | ------ | ------- |
+| **>= 0.98** | Auto-approve | Match confirmat automat |
+| **0.94 - 0.98** | AI Auditor | xAI Grok validează critic datele |
+| **0.90 - 0.94** | HITL | Review uman obligatoriu |
+| **< 0.90** | Reject | Nu se salvează în `prod_similarity_matches` |
+
+### AI Auditor (xAI Grok)
+
+Pentru matches între **94-98%**, se folosește un **AI Auditor** care:
+
+- Verifică dacă este același produs fizic
+- Evaluează dacă datele sunt utilizabile pentru enrichment
+- Decide: **approve**, **reject** sau **escalate_to_human**
+- Salvează reasoning și discrepanțe în `match_details`
+
+Configurarea xAI se face din pagina **Settings → xAI Grok** (configurare API key, model, rate limit, budget).
+
+---
+
 ## Google Product APIs
 
 ### 1. Serper API (Recomandat)

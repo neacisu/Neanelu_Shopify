@@ -6,6 +6,8 @@ export const QUEUE_NAMES = [
   'bulk-mutation-reconcile-queue',
   'ai-batch-queue',
   'pim-enrichment-queue',
+  'pim-similarity-search',
+  'pim-ai-audit',
 ] as const;
 
 export type KnownQueueName = (typeof QUEUE_NAMES)[number];

@@ -1479,7 +1479,11 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
 
     const type = (request.query as { type?: string }).type ?? 'match';
 
-    if (type === 'match') {
+    if (type === 'match' || type === 'hitl') {
+      const whereClause =
+        type === 'hitl'
+          ? `m.match_confidence = 'pending' AND (m.match_details ->> 'requires_human_review') = 'true'`
+          : `m.match_confidence = 'pending'`;
       const matches = await withTenantContext(session.shopId, async (client) => {
         const result = await client.query<{
           id: string;
@@ -1491,6 +1495,7 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
           source_currency: string | null;
           similarity_score: string;
           match_confidence: string;
+          match_method: string;
           created_at: string;
           product_title: string;
         }>(
@@ -1503,6 +1508,7 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
                   m.source_currency,
                   m.similarity_score,
                   m.match_confidence,
+                  m.match_method,
                   m.created_at,
                   sp.title as product_title
              FROM prod_similarity_matches m
@@ -1513,7 +1519,7 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
              JOIN shopify_products sp
                ON sp.shopify_gid = pcm.external_id
               AND sp.shop_id = $1
-            WHERE m.match_confidence = 'pending'
+           WHERE ${whereClause}
             ORDER BY m.similarity_score DESC, m.created_at DESC
             LIMIT 200`,
           [session.shopId]
@@ -1521,7 +1527,7 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
         return result.rows;
       });
 
-      void reply.status(200).send(successEnvelope(request.id, { items: matches, type: 'match' }));
+      void reply.status(200).send(successEnvelope(request.id, { items: matches, type }));
       return;
     }
 

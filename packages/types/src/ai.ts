@@ -82,6 +82,52 @@ export interface AiHealthResponse {
   source?: 'shop' | 'env' | 'disabled';
 }
 
+export interface XaiSettingsResponse {
+  enabled: boolean;
+  hasApiKey: boolean;
+  baseUrl: string | null;
+  model: string | null;
+  availableModels: string[];
+  temperature: number;
+  maxTokensPerRequest: number;
+  rateLimitPerMinute: number;
+  dailyBudget: number;
+  budgetAlertThreshold: number;
+  connectionStatus: 'unknown' | 'connected' | 'error' | 'disabled' | 'missing_key' | 'pending';
+  lastCheckedAt: string | null;
+  lastSuccessAt: string | null;
+  lastError: string | null;
+  todayUsage: {
+    requests: number;
+    inputTokens: number;
+    outputTokens: number;
+    estimatedCost: number;
+    percentUsed: number;
+  };
+}
+
+export interface XaiSettingsUpdateRequest {
+  enabled?: boolean;
+  apiKey?: string | null;
+  baseUrl?: string | null;
+  model?: string | null;
+  temperature?: number;
+  maxTokensPerRequest?: number;
+  rateLimitPerMinute?: number;
+  dailyBudget?: number;
+  budgetAlertThreshold?: number;
+}
+
+export interface XaiHealthResponse {
+  status: 'connected' | 'disabled' | 'missing_key' | 'error' | 'pending';
+  message?: string;
+  checkedAt: string;
+  latencyMs?: number;
+  httpStatus?: number;
+  baseUrl?: string;
+  model?: string;
+}
+
 function isCanonicalUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
 }

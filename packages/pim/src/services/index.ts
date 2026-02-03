@@ -7,3 +7,5 @@ export * from './serper-search.js';
 export * from './serper-rate-limiter.js';
 export * from './serper-cost-tracker.js';
 export * from './raw-harvest-storage.js';
+export * from './similarity-match-service.js';
+export * from './ai-auditor-service.js';

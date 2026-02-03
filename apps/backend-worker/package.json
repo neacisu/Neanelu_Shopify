@@ -16,6 +16,7 @@
     "@app/config": "workspace:*",
     "@app/database": "workspace:*",
     "@app/logger": "workspace:*",
+    "@app/pim": "workspace:*",
     "@app/queue-manager": "workspace:*",
     "@app/shopify-client": "workspace:*",
     "@app/types": "workspace:*",

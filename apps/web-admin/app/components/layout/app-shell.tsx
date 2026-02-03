@@ -13,6 +13,7 @@ import {
 
 import { NavLink } from './nav-link';
 import { ShopSelector } from './shop-selector';
+import { usePendingSimilarityMatchCount } from '../../hooks/use-similarity-matches';
 
 export type AppShellProps = PropsWithChildren<{
   sidebarOpen?: boolean;
@@ -23,6 +24,7 @@ interface NavItem {
   to: string;
   label: string;
   icon?: Parameters<typeof NavLink>[0]['icon'];
+  badge?: Parameters<typeof NavLink>[0]['badge'];
 }
 
 export function AppShell({
@@ -34,6 +36,7 @@ export function AppShell({
 
   const isControlled = controlledSidebarOpen !== undefined;
   const sidebarOpen = isControlled ? controlledSidebarOpen : uncontrolledOpen;
+  const pendingSimilarityCount = usePendingSimilarityMatchCount();
 
   const toggleSidebar = () => {
     onSidebarToggle?.();
@@ -48,9 +51,17 @@ export function AppShell({
       { to: '/search', label: 'Search', icon: Search },
       { to: '/products', label: 'Products', icon: Package },
       { to: '/products/review', label: 'Review Queue', icon: Workflow },
+      {
+        to: '/similarity-matches',
+        label: 'Similarity Matches',
+        icon: Search,
+        ...(pendingSimilarityCount && pendingSimilarityCount > 0
+          ? { badge: pendingSimilarityCount }
+          : {}),
+      },
       { to: '/settings', label: 'Settings', icon: Settings },
     ],
-    []
+    [pendingSimilarityCount]
   );
 
   return (
@@ -74,7 +85,12 @@ export function AppShell({
 
             <div className="mt-4 flex flex-col gap-1">
               {navItems.map((item) => (
-                <NavLink key={item.to} to={item.to} {...(item.icon ? { icon: item.icon } : {})}>
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  {...(item.icon ? { icon: item.icon } : {})}
+                  {...(item.badge !== undefined ? { badge: item.badge } : {})}
+                >
                   {item.label}
                 </NavLink>
               ))}

@@ -46,6 +46,11 @@ export const shopAiCredentials = pgTable(
     serperApiKeyTag: bytea('serper_api_key_tag'),
     serperKeyVersion: integer('serper_key_version').notNull().default(1),
 
+    xaiApiKeyCiphertext: bytea('xai_api_key_ciphertext'),
+    xaiApiKeyIv: bytea('xai_api_key_iv'),
+    xaiApiKeyTag: bytea('xai_api_key_tag'),
+    xaiKeyVersion: integer('xai_key_version').notNull().default(1),
+
     openaiBaseUrl: text('openai_base_url'),
     openaiEmbeddingsModel: text('openai_embeddings_model'),
     embeddingBatchSize: integer('embedding_batch_size').default(100),
@@ -66,6 +71,22 @@ export const shopAiCredentials = pgTable(
     serperLastCheckedAt: timestamp('serper_last_checked_at', { withTimezone: true }),
     serperLastError: text('serper_last_error'),
     serperLastSuccessAt: timestamp('serper_last_success_at', { withTimezone: true }),
+
+    xaiEnabled: boolean('xai_enabled').notNull().default(false),
+    xaiBaseUrl: text('xai_base_url'),
+    xaiModel: text('xai_model'),
+    xaiTemperature: numeric('xai_temperature', { precision: 3, scale: 2 }).default('0.10'),
+    xaiMaxTokensPerRequest: integer('xai_max_tokens_per_request').default(2000),
+    xaiRateLimitPerMinute: integer('xai_rate_limit_per_minute').default(60),
+    xaiDailyBudget: integer('xai_daily_budget').default(1000),
+    xaiBudgetAlertThreshold: numeric('xai_budget_alert_threshold', {
+      precision: 3,
+      scale: 2,
+    }).default('0.80'),
+    xaiConnectionStatus: text('xai_connection_status').default('unknown'),
+    xaiLastCheckedAt: timestamp('xai_last_checked_at', { withTimezone: true }),
+    xaiLastError: text('xai_last_error'),
+    xaiLastSuccessAt: timestamp('xai_last_success_at', { withTimezone: true }),
 
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),

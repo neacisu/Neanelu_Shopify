@@ -21,7 +21,13 @@ export default function ProductDetailPage() {
   const [product, setProduct] = useState<ProductDetail | null>(null);
   const [variants, setVariants] = useState<ProductDetail['variants']>([]);
   const [matches, setMatches] = useState<
-    { id: string; source_url: string; source_title: string | null; similarity_score: string }[]
+    {
+      id: string;
+      source_url: string;
+      source_title: string | null;
+      similarity_score: string;
+      match_confidence: string;
+    }[]
   >([]);
   const [events, setEvents] = useState<
     {
@@ -230,14 +236,72 @@ export default function ProductDetailPage() {
 
       <section className="rounded-lg border bg-background p-4" ref={matchesRef}>
         <div className="text-sm font-semibold">Enrichment Matches</div>
-        <div className="mt-2 space-y-2 text-xs text-muted">
-          {matches.length === 0
-            ? 'No enrichment matches available.'
-            : matches.map((match) => (
-                <div key={match.id}>
-                  {match.source_title ?? match.source_url} ({match.similarity_score})
+        <div className="mt-3 space-y-2 text-xs text-muted">
+          {matches.length === 0 ? (
+            'No enrichment matches available.'
+          ) : (
+            <div className="space-y-2">
+              {matches.map((match) => (
+                <div key={match.id} className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="text-sm text-foreground">
+                      {match.source_title ?? match.source_url}
+                    </div>
+                    <div className="text-xs text-muted">
+                      Similarity: {match.similarity_score} • {match.match_confidence}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        void api.postApi(`/products/review/${match.id}/confirm`, {}).then(() => {
+                          setMatches((prev) =>
+                            prev.map((item) =>
+                              item.id === match.id
+                                ? { ...item, match_confidence: 'confirmed' }
+                                : item
+                            )
+                          );
+                        });
+                      }}
+                    >
+                      Confirm
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        void api.postApi(`/products/review/${match.id}/reject`, {}).then(() => {
+                          setMatches((prev) =>
+                            prev.map((item) =>
+                              item.id === match.id
+                                ? { ...item, match_confidence: 'rejected' }
+                                : item
+                            )
+                          );
+                        });
+                      }}
+                    >
+                      Reject
+                    </Button>
+                  </div>
                 </div>
               ))}
+            </div>
+          )}
+          <button
+            type="button"
+            className="mt-2 text-xs text-primary underline"
+            onClick={() => {
+              const pimId = product?.pim?.masterId;
+              if (!pimId) return;
+              void navigate(`/similarity-matches?productId=${pimId}`);
+            }}
+          >
+            Vezi toate matches
+          </button>
         </div>
       </section>
 

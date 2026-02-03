@@ -11,6 +11,7 @@ const tabs = [
   { label: 'Queues', value: 'queues' },
   { label: 'OpenAI', value: 'openai' },
   { label: 'Serper', value: 'serper' },
+  { label: 'xAI Grok', value: 'xai' },
 ];
 
 function resolveActiveTab(pathname: string): string {
