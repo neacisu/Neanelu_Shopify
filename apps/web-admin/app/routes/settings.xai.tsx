@@ -204,9 +204,9 @@ export default function SettingsXai() {
       if (apiKeyDirty) {
         payload.apiKey = apiKey;
       }
-      const data = await api.putApi<XaiSettingsResponse, XaiSettingsUpdateRequest>(
+      const data = await api.putApi<XaiSettingsResponse, Record<string, unknown>>(
         '/settings/xai',
-        payload
+        payload as Record<string, unknown>
       );
       setHasApiKey(data.hasApiKey);
       setConnectionStatus(normalizeStatus(data.connectionStatus));
@@ -235,9 +235,9 @@ export default function SettingsXai() {
         enabled: false,
         apiKey: '',
       };
-      const data = await api.putApi<XaiSettingsResponse, XaiSettingsUpdateRequest>(
+      const data = await api.putApi<XaiSettingsResponse, Record<string, unknown>>(
         '/settings/xai',
-        payload
+        payload as Record<string, unknown>
       );
       setEnabled(false);
       setHasApiKey(data.hasApiKey);
