@@ -1,7 +1,12 @@
+import type { AppEnv } from '@app/config';
 import { loadEnv } from '@app/config';
 import { configFromEnv, createQueue, type CreateQueueManagerOptions } from '@app/queue-manager';
 
-const env = loadEnv();
+let cachedEnv: AppEnv | null = null;
+function getEnv(): AppEnv {
+  cachedEnv ??= loadEnv();
+  return cachedEnv;
+}
 
 export const SIMILARITY_SEARCH_QUEUE_NAME = 'pim-similarity-search';
 export const SIMILARITY_SEARCH_JOB = 'search-external';
@@ -15,7 +20,7 @@ let similaritySearchQueue: SimilaritySearchQueue | undefined;
 let aiAuditQueue: AIAuditQueue | undefined;
 
 function getSimilaritySearchQueue(): SimilaritySearchQueue {
-  const qmOptions: CreateQueueManagerOptions = { config: configFromEnv(env) };
+  const qmOptions: CreateQueueManagerOptions = { config: configFromEnv(getEnv()) };
   similaritySearchQueue ??= createQueue(qmOptions, {
     name: SIMILARITY_SEARCH_QUEUE_NAME,
     defaultJobOptions: {
@@ -29,7 +34,7 @@ function getSimilaritySearchQueue(): SimilaritySearchQueue {
 }
 
 function getAIAuditQueue(): AIAuditQueue {
-  const qmOptions: CreateQueueManagerOptions = { config: configFromEnv(env) };
+  const qmOptions: CreateQueueManagerOptions = { config: configFromEnv(getEnv()) };
   aiAuditQueue ??= createQueue(qmOptions, {
     name: AI_AUDIT_QUEUE_NAME,
     defaultJobOptions: {
