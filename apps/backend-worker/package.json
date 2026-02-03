@@ -36,7 +36,7 @@
     "dotenv": "^17.2.3",
     "fastify": "^5.7.4",
     "form-data": "^4.0.5",
-    "ioredis": "^5.8.2",
+    "ioredis": "^5.9.2",
     "redis": "^5.10.0",
     "stream-json": "^1.9.1"
   },
