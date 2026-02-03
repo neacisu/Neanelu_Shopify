@@ -18,6 +18,9 @@ export interface SimilarityMatchItem {
   match_confidence: string;
   is_primary_source: boolean | null;
   match_details: Record<string, unknown> | null;
+  specs_extracted: Record<string, unknown> | null;
+  extraction_session_id: string | null;
+  scraped_at: string | null;
   source_data: Record<string, unknown> | null;
   created_at: string;
 }
@@ -50,6 +53,8 @@ export interface MatchFilters {
   similarityMax?: number;
   requiresHumanReview?: boolean | null;
   hasAIAudit?: boolean | null;
+  hasExtraction?: boolean | null;
+  extractionStatus?: ExtractionStatus[];
   productId?: string;
   search?: string;
   sourceType?: ('organic' | 'shopping' | 'knowledge_graph')[];
@@ -66,8 +71,14 @@ export interface MatchStats {
   aiAuditPending: number;
   aiAuditCompleted: number;
   hitlPending: number;
+  extractionCompleted: number;
+  extractionPending: number;
+  extractionInProgress: number;
+  avgExtractionConfidence: number;
   avgSimilarityScore: number;
 }
+
+export type ExtractionStatus = 'pending' | 'in_progress' | 'complete' | 'failed';
 
 type SimilarityMatchesResponse = Readonly<{
   matches: SimilarityMatchItem[];
@@ -139,6 +150,40 @@ export function getAIAuditResult(match: SimilarityMatchItem): AIAuditResult | nu
   return audit as AIAuditResult;
 }
 
+function hasExtractionData(match: SimilarityMatchItem): boolean {
+  return Boolean(match.specs_extracted && Object.keys(match.specs_extracted).length > 0);
+}
+
+export function getExtractionStatus(match: SimilarityMatchItem): ExtractionStatus {
+  if (hasExtractionData(match)) return 'complete';
+  if (match.extraction_session_id) return 'in_progress';
+  return 'pending';
+}
+
+export function getExtractionConfidence(match: SimilarityMatchItem): number | null {
+  const confidence = match.specs_extracted?.['confidence'];
+  if (confidence && typeof confidence === 'object') {
+    const overall = (confidence as Record<string, unknown>)['overall'];
+    return typeof overall === 'number' ? overall : null;
+  }
+  return null;
+}
+
+export function getExtractionFieldsUncertain(match: SimilarityMatchItem): string[] {
+  const confidence = match.specs_extracted?.['confidence'];
+  if (confidence && typeof confidence === 'object') {
+    const fields = (confidence as Record<string, unknown>)['fieldsUncertain'];
+    if (Array.isArray(fields)) {
+      return fields.filter((item): item is string => typeof item === 'string');
+    }
+  }
+  return [];
+}
+
+export function hasExtraction(match: SimilarityMatchItem): boolean {
+  return hasExtractionData(match);
+}
+
 export function hasAIAudit(match: SimilarityMatchItem): boolean {
   return getAIAuditResult(match) !== null;
 }
@@ -173,6 +218,13 @@ function applyFilters(
     }
     if (filters.hasAIAudit !== null && filters.hasAIAudit !== undefined) {
       if (hasAIAudit(match) !== filters.hasAIAudit) return false;
+    }
+    if (filters.hasExtraction !== null && filters.hasExtraction !== undefined) {
+      if (hasExtraction(match) !== filters.hasExtraction) return false;
+    }
+    if (filters.extractionStatus?.length) {
+      const status = getExtractionStatus(match);
+      if (!filters.extractionStatus.includes(status)) return false;
     }
     if (search) {
       const haystack = [
@@ -258,7 +310,7 @@ export function useSimilarityMatches(filters: MatchFilters) {
     } finally {
       setLoading(false);
     }
-  }, [api, filters.status]);
+  }, [api, filters]);
 
   useEffect(() => {
     void load();
@@ -333,13 +385,21 @@ export function useSimilarityMatchMutations() {
     [updateConfidence]
   );
 
+  const triggerExtraction = useCallback(
+    async (matchId: string) => {
+      await api.postApi(`/similarity-matches/${matchId}/extract`, {});
+    },
+    [api]
+  );
+
   return useMemo(
     () => ({
       updateConfidence,
       markAsPrimary,
       batchUpdateConfidence,
+      triggerExtraction,
     }),
-    [batchUpdateConfidence, markAsPrimary, updateConfidence]
+    [batchUpdateConfidence, markAsPrimary, triggerExtraction, updateConfidence]
   );
 }
 
@@ -353,6 +413,11 @@ export function useSimilarityMatchesStats(matches: SimilarityMatchItem[]): Match
     let aiAuditPending = 0;
     let aiAuditCompleted = 0;
     let hitlPending = 0;
+    let extractionCompleted = 0;
+    let extractionPending = 0;
+    let extractionInProgress = 0;
+    let extractionConfidenceSum = 0;
+    let extractionConfidenceCount = 0;
     let scoreSum = 0;
     let scoreCount = 0;
 
@@ -370,6 +435,15 @@ export function useSimilarityMatchesStats(matches: SimilarityMatchItem[]): Match
         }
       }
       if (triage === 'hitl_required' && match.match_confidence === 'pending') hitlPending += 1;
+      const extractionStatus = getExtractionStatus(match);
+      if (extractionStatus === 'complete') extractionCompleted += 1;
+      if (extractionStatus === 'pending') extractionPending += 1;
+      if (extractionStatus === 'in_progress') extractionInProgress += 1;
+      const confidence = getExtractionConfidence(match);
+      if (confidence !== null && Number.isFinite(confidence)) {
+        extractionConfidenceSum += confidence;
+        extractionConfidenceCount += 1;
+      }
       const score = Number(match.similarity_score);
       if (Number.isFinite(score)) {
         scoreSum += score;
@@ -386,6 +460,11 @@ export function useSimilarityMatchesStats(matches: SimilarityMatchItem[]): Match
       aiAuditPending,
       aiAuditCompleted,
       hitlPending,
+      extractionCompleted,
+      extractionPending,
+      extractionInProgress,
+      avgExtractionConfidence:
+        extractionConfidenceCount > 0 ? extractionConfidenceSum / extractionConfidenceCount : 0,
       avgSimilarityScore: scoreCount > 0 ? scoreSum / scoreCount : 0,
     };
   }, [matches]);

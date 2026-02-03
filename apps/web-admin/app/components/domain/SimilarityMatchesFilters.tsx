@@ -2,6 +2,7 @@ type MatchStatus = 'pending' | 'confirmed' | 'rejected' | 'uncertain';
 type TriageDecision = 'auto_approve' | 'ai_audit' | 'hitl_required' | 'rejected';
 type MatchMethod = 'gtin_exact' | 'mpn_exact' | 'title_fuzzy' | 'vector_semantic';
 type SourceType = 'organic' | 'shopping' | 'knowledge_graph';
+type ExtractionStatus = 'pending' | 'in_progress' | 'complete' | 'failed';
 
 export interface SimilarityMatchesFilterState {
   status?: MatchStatus[];
@@ -11,6 +12,8 @@ export interface SimilarityMatchesFilterState {
   similarityMax?: number;
   requiresHumanReview?: boolean | null;
   hasAIAudit?: boolean | null;
+  hasExtraction?: boolean | null;
+  extractionStatus?: ExtractionStatus[];
   productId?: string;
   search?: string;
   sourceType?: SourceType[];
@@ -28,10 +31,17 @@ const STATUS_OPTIONS: MatchStatus[] = ['pending', 'confirmed', 'rejected', 'unce
 const TRIAGE_OPTIONS: TriageDecision[] = ['auto_approve', 'ai_audit', 'hitl_required', 'rejected'];
 const METHOD_OPTIONS: MatchMethod[] = ['gtin_exact', 'mpn_exact', 'title_fuzzy', 'vector_semantic'];
 const SOURCE_OPTIONS: SourceType[] = ['organic', 'shopping', 'knowledge_graph'];
+const EXTRACTION_STATUS_OPTIONS: ExtractionStatus[] = [
+  'pending',
+  'in_progress',
+  'complete',
+  'failed',
+];
 
 type StatusOption = MatchStatus;
 type MethodOption = MatchMethod;
 type SourceOption = SourceType;
+type ExtractionStatusOption = ExtractionStatus;
 
 function isStatusOption(value: string): value is StatusOption {
   return STATUS_OPTIONS.includes(value as MatchStatus);
@@ -47,6 +57,10 @@ function isMethodOption(value: string): value is MethodOption {
 
 function isSourceOption(value: string): value is SourceOption {
   return SOURCE_OPTIONS.includes(value as SourceType);
+}
+
+function isExtractionStatusOption(value: string): value is ExtractionStatusOption {
+  return EXTRACTION_STATUS_OPTIONS.includes(value as ExtractionStatus);
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -71,6 +85,9 @@ export function SimilarityMatchesFilters({
     : [];
   const sourceValues = isStringArray(filters.sourceType)
     ? filters.sourceType.filter(isSourceOption)
+    : [];
+  const extractionStatusValues = isStringArray(filters.extractionStatus)
+    ? filters.extractionStatus.filter(isExtractionStatusOption)
     : [];
 
   return (
@@ -233,6 +250,7 @@ export function SimilarityMatchesFilters({
           <input
             type="checkbox"
             checked={filters.hasAIAudit === true}
+            aria-label="Filtru doar cu AI audit"
             onChange={(event) =>
               onChange({ ...filters, hasAIAudit: event.target.checked ? true : null })
             }
@@ -242,7 +260,19 @@ export function SimilarityMatchesFilters({
         <label className="flex items-center gap-2">
           <input
             type="checkbox"
+            checked={filters.hasExtraction === true}
+            aria-label="Filtru doar cu extracție"
+            onChange={(event) =>
+              onChange({ ...filters, hasExtraction: event.target.checked ? true : null })
+            }
+          />
+          Doar cu extracție
+        </label>
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
             checked={filters.requiresHumanReview === true}
+            aria-label="Filtru necesită review uman"
             onChange={(event) =>
               onChange({ ...filters, requiresHumanReview: event.target.checked ? true : null })
             }
@@ -256,6 +286,31 @@ export function SimilarityMatchesFilters({
         >
           Reset filtre
         </button>
+      </div>
+
+      <div className="mt-4">
+        <div className="text-xs font-semibold text-muted">Extraction status</div>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {EXTRACTION_STATUS_OPTIONS.map((status) => (
+            <button
+              key={status}
+              type="button"
+              className={`rounded-full border px-3 py-1 text-xs ${
+                extractionStatusValues.includes(status)
+                  ? 'border-primary bg-primary/10 text-foreground'
+                  : 'border-muted/20 text-muted hover:bg-muted/10'
+              }`}
+              onClick={() =>
+                onChange({
+                  ...filters,
+                  extractionStatus: toggleList(extractionStatusValues, status),
+                })
+              }
+            >
+              {status}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

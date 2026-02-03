@@ -88,6 +88,38 @@ export function SimilarityMatchesStats({ stats }: SimilarityMatchesStatsProps) {
           </>
         )}
       </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-muted/20 bg-background p-4">
+          <div className="text-xs text-muted">Extraction complete</div>
+          <div className="text-h5">{stats.extractionCompleted}</div>
+        </div>
+        <div className="rounded-lg border border-muted/20 bg-background p-4">
+          <div className="text-xs text-muted">Extraction pending</div>
+          <div className="text-h5">{stats.extractionPending}</div>
+        </div>
+        <div className="rounded-lg border border-muted/20 bg-background p-4">
+          <div className="text-xs text-muted">Extraction in progress</div>
+          <div className="text-h5">{stats.extractionInProgress}</div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-lg border border-muted/20 bg-background p-4">
+          <div className="text-xs text-muted">Extraction success rate</div>
+          <div className="text-h5">
+            {stats.total > 0 ? Math.round((stats.extractionCompleted / stats.total) * 100) : 0}%
+          </div>
+        </div>
+        <div className="rounded-lg border border-muted/20 bg-background p-4">
+          <div className="text-xs text-muted">Avg extraction confidence</div>
+          <div className="text-h5">
+            {stats.avgExtractionConfidence > 0
+              ? `${Math.round(stats.avgExtractionConfidence * 100)}%`
+              : '—'}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

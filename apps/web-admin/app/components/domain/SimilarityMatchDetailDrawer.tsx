@@ -1,13 +1,18 @@
 import { Button } from '../ui/button';
 import { AIAuditStatusPanel } from './AIAuditStatusPanel';
+import { ExtractionStatusBadge } from './ExtractionStatusBadge';
 import { MatchStatusBadge } from './MatchStatusBadge';
 import { TriageStatusBadge } from './TriageStatusBadge';
 
 import type { SimilarityMatchItem } from '../../hooks/use-similarity-matches';
 import {
+  getExtractionConfidence,
+  getExtractionFieldsUncertain,
+  getExtractionStatus,
   getAIAuditResult,
   getScoreBreakdown,
   getTriageDecision,
+  type ExtractionStatus,
 } from '../../hooks/use-similarity-matches';
 
 interface SimilarityMatchDetailDrawerProps {
@@ -17,6 +22,10 @@ interface SimilarityMatchDetailDrawerProps {
   onConfirm: () => void;
   onReject: () => void;
   onMarkAsPrimary?: () => void;
+  onExtract?: () => void;
+  extractionStatusOverride?: ExtractionStatus;
+  isExtracting?: boolean;
+  extractionError?: string | null;
 }
 
 export function SimilarityMatchDetailDrawer({
@@ -26,12 +35,23 @@ export function SimilarityMatchDetailDrawer({
   onConfirm,
   onReject,
   onMarkAsPrimary,
+  onExtract,
+  extractionStatusOverride,
+  isExtracting,
+  extractionError,
 }: SimilarityMatchDetailDrawerProps) {
   if (!isOpen || !match) return null;
   const breakdown = getScoreBreakdown(match);
   const triage = getTriageDecision(match);
   const audit = getAIAuditResult(match);
+  const extractionStatus = extractionStatusOverride ?? getExtractionStatus(match);
+  const extractionConfidence = getExtractionConfidence(match);
+  const extractionFieldsUncertain = getExtractionFieldsUncertain(match);
   const details = match.match_details ?? {};
+  const specs = Array.isArray(match.specs_extracted?.['specifications'])
+    ? (match.specs_extracted?.['specifications'] as Record<string, unknown>[])
+    : [];
+  const specsPreview = specs.slice(0, 3);
   const timeline = [
     { label: 'Created', value: match.created_at },
     {
@@ -130,6 +150,52 @@ export function SimilarityMatchDetailDrawer({
 
         <div className="mt-4">
           <AIAuditStatusPanel auditResult={audit} isProcessing={triage === 'ai_audit' && !audit} />
+        </div>
+
+        <div className="mt-4 rounded-lg border border-muted/20 p-3">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold text-muted">Extraction</div>
+            <ExtractionStatusBadge status={extractionStatus} />
+          </div>
+          <div className="mt-2 grid gap-2 text-xs text-muted">
+            <div>Session: {match.extraction_session_id ?? '—'}</div>
+            <div>Last scrape: {match.scraped_at ?? '—'}</div>
+            <div>
+              Confidence:{' '}
+              {extractionConfidence !== null ? `${Math.round(extractionConfidence * 100)}%` : '—'}
+            </div>
+            {extractionFieldsUncertain.length ? (
+              <div>Fields uncertain: {extractionFieldsUncertain.join(', ')}</div>
+            ) : null}
+            {specs.length ? (
+              <div>
+                Specs: {specs.length} ·{' '}
+                {specsPreview
+                  .map((item) => {
+                    const name = typeof item['name'] === 'string' ? item['name'] : 'spec';
+                    const value = typeof item['value'] === 'string' ? item['value'] : '';
+                    return value ? `${name}: ${value}` : name;
+                  })
+                  .join(', ')}
+                {specs.length > specsPreview.length ? '…' : ''}
+              </div>
+            ) : (
+              <div>Specs: —</div>
+            )}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {onExtract ? (
+              <Button size="sm" variant="secondary" onClick={onExtract} disabled={isExtracting}>
+                {isExtracting ? 'Se rulează...' : 'Extract now'}
+              </Button>
+            ) : null}
+            <span className="text-xs text-muted">
+              La aprobare prin AI Audit, extracția pornește automat.
+            </span>
+          </div>
+          {extractionError ? (
+            <div className="mt-2 text-xs text-error">{extractionError}</div>
+          ) : null}
         </div>
 
         {timeline.length > 0 ? (

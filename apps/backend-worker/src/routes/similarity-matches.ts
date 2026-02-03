@@ -350,6 +350,9 @@ export const similarityMatchesRoutes: FastifyPluginCallback<SimilarityMatchesPlu
         match_confidence: string;
         is_primary_source: boolean | null;
         match_details: Record<string, unknown> | null;
+        specs_extracted: Record<string, unknown> | null;
+        extraction_session_id: string | null;
+        scraped_at: string | null;
         created_at: string;
         product_title: string;
         product_image: string | null;
@@ -368,6 +371,9 @@ export const similarityMatchesRoutes: FastifyPluginCallback<SimilarityMatchesPlu
                 m.match_confidence,
                 m.is_primary_source,
                 m.match_details,
+               m.specs_extracted,
+               m.extraction_session_id,
+               m.scraped_at,
                 m.created_at,
                 sp.title as product_title,
                 sp.featured_image_url as product_image

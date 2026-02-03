@@ -13,6 +13,24 @@ type XaiConnectionStatus =
   | 'missing_key'
   | 'pending';
 
+const STATUS_LABELS: Record<XaiConnectionStatus, string> = {
+  unknown: 'necunoscut',
+  connected: 'conectat',
+  error: 'eroare',
+  disabled: 'dezactivat',
+  missing_key: 'cheie lipsă',
+  pending: 'în așteptare',
+};
+
+const STATUS_STYLES: Record<XaiConnectionStatus, string> = {
+  unknown: 'bg-muted/20 text-muted',
+  connected: 'bg-success/15 text-success',
+  error: 'bg-error/15 text-error',
+  disabled: 'bg-warning/15 text-warning',
+  missing_key: 'bg-warning/15 text-warning',
+  pending: 'bg-blue-500/15 text-blue-600',
+};
+
 function normalizeStatus(value: XaiSettingsResponse['connectionStatus']): XaiConnectionStatus {
   if (
     value === 'connected' ||
@@ -126,6 +144,9 @@ export default function SettingsXai() {
   const mustTestConnection = enabled || apiKeyDirty;
   const canSave = !mustTestConnection || isConnectionTested;
   const isConnected = connectionStatus === 'connected' && enabled && hasApiKey && !apiKeyDirty;
+  const statusLabel = STATUS_LABELS[connectionStatus];
+  const statusStyle = STATUS_STYLES[connectionStatus];
+  const budgetPercent = Math.min(Math.max(todayUsage?.percentUsed ?? 0, 0), 1);
 
   const testHealth = async () => {
     setHealthLoading(true);
@@ -272,6 +293,18 @@ export default function SettingsXai() {
         </div>
       ) : null}
 
+      <div className="rounded-lg border border-muted/20 bg-background p-4 text-sm">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+          <span>Status conexiune</span>
+          <span className={`rounded-full px-2 py-1 text-xs font-medium ${statusStyle}`}>
+            {statusLabel}
+          </span>
+          {lastCheckedAt ? <span>verificat {new Date(lastCheckedAt).toLocaleString()}</span> : null}
+          {lastSuccessAt ? <span>succes {new Date(lastSuccessAt).toLocaleString()}</span> : null}
+        </div>
+        {lastError ? <div className="mt-1 text-xs text-error">{lastError}</div> : null}
+      </div>
+
       {todayUsage ? (
         <div className="grid gap-4 md:grid-cols-3">
           <div className="rounded-lg border border-muted/20 p-4">
@@ -286,6 +319,12 @@ export default function SettingsXai() {
             <div className="text-sm text-muted">Buget utilizat</div>
             <div className="mt-1 text-2xl font-semibold">
               {(todayUsage.percentUsed * 100).toFixed(1)}%
+            </div>
+            <div className="mt-2 h-2 w-full rounded-full bg-muted/10">
+              <div
+                className="h-2 rounded-full bg-primary/60"
+                style={{ width: `${budgetPercent * 100}%` }}
+              />
             </div>
           </div>
         </div>
@@ -332,6 +371,7 @@ export default function SettingsXai() {
             <select
               value={model}
               onChange={(event) => setModel(event.target.value)}
+              title="Modelul folosit pentru AI Audit și extracție"
               className="w-full rounded-md border border-muted/20 bg-background px-3 py-2"
             >
               {availableModels.map((item) => (
@@ -340,6 +380,7 @@ export default function SettingsXai() {
                 </option>
               ))}
             </select>
+            <p className="text-xs text-muted">Folosit pentru AI Audit și extracție.</p>
           </label>
           <label className="space-y-1 text-sm">
             <span className="text-muted">Max tokens per request</span>
@@ -463,15 +504,6 @@ export default function SettingsXai() {
             Pentru a salva conexiunea, testează mai întâi conexiunea xAI.
           </div>
         ) : null}
-        {connectionStatus && connectionStatus !== 'unknown' ? (
-          <div className="text-xs text-muted">
-            Status conexiune: {connectionStatus}
-            {lastCheckedAt ? ` · verificat ${new Date(lastCheckedAt).toLocaleString()}` : ''}
-            {lastSuccessAt ? ` · succes ${new Date(lastSuccessAt).toLocaleString()}` : ''}
-            {lastError ? ` · ${lastError}` : ''}
-          </div>
-        ) : null}
-
         {success ? (
           <div className="rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success shadow-sm">
             Setările xAI au fost salvate.

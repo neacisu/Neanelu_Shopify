@@ -1,9 +1,15 @@
 import { Button } from '../ui/button';
+import { ExtractionStatusBadge } from './ExtractionStatusBadge';
 import { MatchStatusBadge } from './MatchStatusBadge';
 import { TriageStatusBadge } from './TriageStatusBadge';
 
 import type { SimilarityMatchItem } from '../../hooks/use-similarity-matches';
-import { getScoreBreakdown, getTriageDecision } from '../../hooks/use-similarity-matches';
+import {
+  getExtractionStatus,
+  getScoreBreakdown,
+  getTriageDecision,
+  type ExtractionStatus,
+} from '../../hooks/use-similarity-matches';
 
 interface SimilarityMatchesTableProps {
   matches: SimilarityMatchItem[];
@@ -15,6 +21,7 @@ interface SimilarityMatchesTableProps {
   onRowClick?: (match: SimilarityMatchItem) => void;
   sortBy: { key: 'score' | 'created' | 'product'; direction: 'asc' | 'desc' };
   onSortChange: (sort: { key: 'score' | 'created' | 'product'; direction: 'asc' | 'desc' }) => void;
+  extractionStatusMap?: Record<string, ExtractionStatus>;
 }
 
 export function SimilarityMatchesTable({
@@ -27,6 +34,7 @@ export function SimilarityMatchesTable({
   onRowClick,
   sortBy,
   onSortChange,
+  extractionStatusMap,
 }: SimilarityMatchesTableProps) {
   const allSelected = matches.length > 0 && selectedIds.length === matches.length;
   const toggleSort = (key: 'score' | 'created' | 'product') => {
@@ -46,6 +54,7 @@ export function SimilarityMatchesTable({
               <input
                 type="checkbox"
                 checked={allSelected}
+                aria-label="Selectează toate matches"
                 onChange={() => onToggleSelectAll(matches.map((item) => item.id))}
               />
             </th>
@@ -62,6 +71,7 @@ export function SimilarityMatchesTable({
             </th>
             <th className="px-4 py-3">Method</th>
             <th className="px-4 py-3">Status</th>
+            <th className="px-4 py-3">Extraction</th>
             <th className="px-4 py-3">Triage</th>
             <th className="px-4 py-3">Actions</th>
           </tr>
@@ -77,6 +87,7 @@ export function SimilarityMatchesTable({
                 <input
                   type="checkbox"
                   checked={selectedIds.includes(match.id)}
+                  aria-label={`Selectează match pentru ${match.product_title}`}
                   onChange={(event) => {
                     event.stopPropagation();
                     onToggleSelect(match.id);
@@ -134,6 +145,11 @@ export function SimilarityMatchesTable({
                 />
               </td>
               <td className="px-4 py-3">
+                <ExtractionStatusBadge
+                  status={extractionStatusMap?.[match.id] ?? getExtractionStatus(match)}
+                />
+              </td>
+              <td className="px-4 py-3">
                 {getTriageDecision(match) ? (
                   <TriageStatusBadge status={getTriageDecision(match) ?? 'rejected'} />
                 ) : (
@@ -168,8 +184,8 @@ export function SimilarityMatchesTable({
           ))}
           {matches.length === 0 ? (
             <tr>
-              <td className="px-4 py-6 text-center text-sm text-muted" colSpan={8}>
-                Nu există matches pentru filtrul curent.
+              <td className="px-4 py-6 text-center text-sm text-muted" colSpan={9}>
+                Nu există matches pentru filtrul curent. Încearcă să ajustezi filtrele.
               </td>
             </tr>
           ) : null}

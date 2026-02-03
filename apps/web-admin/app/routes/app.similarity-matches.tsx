@@ -19,8 +19,10 @@ import {
   useSimilarityMatchesStats,
   useSimilarityMatchMutations,
   hasAIAudit,
+  getExtractionStatus,
   type SimilarityMatchItem,
   type TriageDecision,
+  type ExtractionStatus,
 } from '../hooks/use-similarity-matches';
 
 const TABS = [
@@ -54,7 +56,15 @@ export default function SimilarityMatchesPage() {
   const [page, setPage] = useState(1);
   const [drawerMatch, setDrawerMatch] = useState<SimilarityMatchItem | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [extractionOverrides, setExtractionOverrides] = useState<
+    Record<string, { status: ExtractionStatus; error?: string }>
+  >({});
   const prevMatchesRef = useRef<SimilarityMatchItem[]>([]);
+  const drawerMetricsRef = useRef<{
+    matchId: string;
+    openedAt: number;
+    acted: boolean;
+  } | null>(null);
 
   useEffect(() => {
     if (!productIdFromQuery) return;
@@ -74,7 +84,8 @@ export default function SimilarityMatchesPage() {
 
   const { matches, loading, error, reload } = useSimilarityMatches(derivedFilters);
   const stats = useSimilarityMatchesStats(matches);
-  const { updateConfidence, batchUpdateConfidence, markAsPrimary } = useSimilarityMatchMutations();
+  const { updateConfidence, batchUpdateConfidence, markAsPrimary, triggerExtraction } =
+    useSimilarityMatchMutations();
 
   useEffect(() => {
     if (!autoRefresh) return;
@@ -100,8 +111,52 @@ export default function SimilarityMatchesPage() {
   }, [matches]);
 
   useEffect(() => {
+    if (matches.length === 0) return;
+    setExtractionOverrides((prev) => {
+      const next: Record<string, { status: ExtractionStatus; error?: string }> = { ...prev };
+      matches.forEach((match) => {
+        if (!next[match.id]) return;
+        if (getExtractionStatus(match) === 'complete') {
+          delete next[match.id];
+        }
+      });
+      return next;
+    });
+  }, [matches]);
+
+  useEffect(() => {
     setSelectedIds((prev) => prev.filter((id) => matches.some((match) => match.id === id)));
   }, [matches]);
+
+  const trackUxEvent = (name: string, payload: Record<string, unknown> = {}) => {
+    const record = {
+      name,
+      timestamp: new Date().toISOString(),
+      ...payload,
+    };
+    // Placeholder pentru instrumentare KPI: poate fi inlocuit cu un tracker real.
+    console.info('[ux-event]', record);
+  };
+
+  useEffect(() => {
+    if (drawerMatch) {
+      drawerMetricsRef.current = {
+        matchId: drawerMatch.id,
+        openedAt: performance.now(),
+        acted: false,
+      };
+      trackUxEvent('drawer_open', { matchId: drawerMatch.id });
+    } else if (drawerMetricsRef.current) {
+      if (!drawerMetricsRef.current.acted) {
+        const durationMs = performance.now() - drawerMetricsRef.current.openedAt;
+        trackUxEvent('drawer_abandon', {
+          matchId: drawerMetricsRef.current.matchId,
+          durationMs: Math.round(durationMs),
+        });
+      }
+      drawerMetricsRef.current = null;
+    }
+  }, [drawerMatch]);
 
   const sorted = useMemo(() => {
     const items = [...matches];
@@ -132,6 +187,10 @@ export default function SimilarityMatchesPage() {
     try {
       await updateConfidence(matchId, 'confirmed');
       toast.success('Match confirmat.');
+      trackUxEvent('match_confirm', { matchId });
+      if (drawerMetricsRef.current?.matchId === matchId) {
+        drawerMetricsRef.current.acted = true;
+      }
       await reload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Nu am putut confirma match-ul.');
@@ -142,11 +201,49 @@ export default function SimilarityMatchesPage() {
     try {
       await updateConfidence(matchId, 'rejected');
       toast.success('Match respins.');
+      trackUxEvent('match_reject', { matchId });
+      if (drawerMetricsRef.current?.matchId === matchId) {
+        drawerMetricsRef.current.acted = true;
+      }
       await reload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Nu am putut respinge match-ul.');
     }
   };
+
+  const handleExtract = async (matchId: string) => {
+    setExtractionOverrides((prev) => ({
+      ...prev,
+      [matchId]: { status: 'in_progress' },
+    }));
+    try {
+      await triggerExtraction(matchId);
+      toast.info('Extracția a fost programată. Rezultatele vor apărea în câteva momente.');
+      trackUxEvent('extract_start', { matchId });
+      if (drawerMetricsRef.current?.matchId === matchId) {
+        drawerMetricsRef.current.acted = true;
+      }
+      setTimeout(() => {
+        void reload();
+      }, 3000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Nu am putut porni extracția xAI.';
+      setExtractionOverrides((prev) => ({
+        ...prev,
+        [matchId]: { status: 'failed', error: message },
+      }));
+      trackUxEvent('extract_fail', { matchId, message });
+      toast.error(message);
+    }
+  };
+
+  const extractionStatusMap = useMemo(() => {
+    const map: Record<string, ExtractionStatus> = {};
+    matches.forEach((match) => {
+      map[match.id] = extractionOverrides[match.id]?.status ?? getExtractionStatus(match);
+    });
+    return map;
+  }, [extractionOverrides, matches]);
 
   const exportCsv = () => {
     const headers = [
@@ -199,6 +296,7 @@ export default function SimilarityMatchesPage() {
               <input
                 type="checkbox"
                 checked={autoRefresh}
+                aria-label="Activează auto-refresh"
                 onChange={(event) => setAutoRefresh(event.target.checked)}
               />
               Auto-refresh
@@ -270,8 +368,15 @@ export default function SimilarityMatchesPage() {
         <div className="rounded-md border border-error/30 bg-error/10 p-4">{error}</div>
       ) : null}
       {loading ? (
-        <div className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted">
-          Se încarcă similarity matches...
+        <div className="space-y-3">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div
+              key={`skeleton-${index}`}
+              className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted"
+            >
+              Se încarcă similarity matches...
+            </div>
+          ))}
         </div>
       ) : null}
 
@@ -280,17 +385,24 @@ export default function SimilarityMatchesPage() {
           <SimilarityMatchCard
             key={match.id}
             match={match}
+            extractionStatusOverride={extractionStatusMap[match.id] ?? getExtractionStatus(match)}
             onClick={() => setDrawerMatch(match)}
             onQuickConfirm={() => void handleConfirm(match.id)}
             onQuickReject={() => void handleReject(match.id)}
           />
         ))}
+        {!loading && visible.length === 0 ? (
+          <div className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted">
+            Nu există matches pentru filtrul curent. Ajustează filtrele sau încearcă un search nou.
+          </div>
+        ) : null}
       </div>
 
       <div className="hidden md:block">
         <SimilarityMatchesTable
           matches={visible}
           selectedIds={selectedIds}
+          extractionStatusMap={extractionStatusMap}
           onToggleSelect={(id) =>
             setSelectedIds((prev) =>
               prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
@@ -351,6 +463,23 @@ export default function SimilarityMatchesPage() {
           if (!drawerMatch) return;
           void markAsPrimary(drawerMatch.id).then(() => reload());
         }}
+        onExtract={() => {
+          if (!drawerMatch) return;
+          void handleExtract(drawerMatch.id);
+        }}
+        isExtracting={
+          drawerMatch
+            ? (extractionStatusMap[drawerMatch.id] ?? getExtractionStatus(drawerMatch)) ===
+              'in_progress'
+            : false
+        }
+        {...(drawerMatch
+          ? {
+              extractionStatusOverride:
+                extractionStatusMap[drawerMatch.id] ?? getExtractionStatus(drawerMatch),
+            }
+          : {})}
+        extractionError={drawerMatch ? (extractionOverrides[drawerMatch.id]?.error ?? null) : null}
       />
     </div>
   );

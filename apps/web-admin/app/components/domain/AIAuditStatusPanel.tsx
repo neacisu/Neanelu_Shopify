@@ -30,6 +30,8 @@ export function AIAuditStatusPanel({ auditResult, isProcessing }: AIAuditStatusP
   }
 
   const confidencePct = Math.round((auditResult.confidence ?? 0) * 100);
+  const confidenceLabel =
+    confidencePct >= 85 ? 'ridicat' : confidencePct >= 65 ? 'mediu' : 'scăzut';
   return (
     <div className="rounded-lg border border-muted/20 bg-background p-4">
       <div className="flex items-center justify-between text-xs text-muted">
@@ -37,7 +39,9 @@ export function AIAuditStatusPanel({ auditResult, isProcessing }: AIAuditStatusP
         <span>{auditResult.modelUsed ?? 'grok'}</span>
       </div>
       <div className="mt-2 text-sm font-semibold">Decision: {auditResult.decision}</div>
-      <div className="mt-1 text-xs text-muted">Confidence: {confidencePct}%</div>
+      <div className="mt-1 text-xs text-muted">
+        Confidence: {confidencePct}% · {confidenceLabel}
+      </div>
       <div className="mt-2 h-2 w-full rounded-full bg-muted/10">
         <div className="h-2 rounded-full bg-blue-500/70" style={{ width: `${confidencePct}%` }} />
       </div>
