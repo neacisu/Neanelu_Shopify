@@ -18,7 +18,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
-import { prodMaster, prodSources } from './pim.ts';
+import { prodExtractionSessions, prodMaster, prodSources } from './pim.ts';
 import { staffUsers } from './staff-users.ts';
 
 export const prodSimilarityMatches = pgTable(
@@ -32,21 +32,29 @@ export const prodSimilarityMatches = pgTable(
     sourceId: uuid('source_id').references(() => prodSources.id),
 
     sourceUrl: text('source_url').notNull(),
+    sourceProductId: varchar('source_product_id', { length: 255 }),
     sourceTitle: text('source_title'),
     sourceGtin: varchar('source_gtin', { length: 50 }),
+    sourceBrand: varchar('source_brand', { length: 255 }),
     sourceSku: varchar('source_sku', { length: 100 }),
     sourcePrice: decimal('source_price', { precision: 12, scale: 2 }),
     sourceCurrency: varchar('source_currency', { length: 3 }),
     sourceData: jsonb('source_data'),
 
-    similarityScore: decimal('similarity_score', { precision: 3, scale: 2 }).notNull(),
+    similarityScore: decimal('similarity_score', { precision: 5, scale: 4 }).notNull(),
     matchMethod: varchar('match_method', { length: 50 }).notNull(),
     matchConfidence: varchar('match_confidence', { length: 20 }).default('pending'),
+    matchDetails: jsonb('match_details').default({}),
     isPrimarySource: boolean('is_primary_source').default(false),
+
+    extractionSessionId: uuid('extraction_session_id').references(() => prodExtractionSessions.id),
+    specsExtracted: jsonb('specs_extracted'),
+    scrapedAt: timestamp('scraped_at', { withTimezone: true }),
 
     verifiedBy: uuid('verified_by').references(() => staffUsers.id),
     verifiedAt: timestamp('verified_at', { withTimezone: true }),
     rejectionReason: text('rejection_reason'),
+    validationNotes: text('validation_notes'),
 
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
@@ -57,6 +65,13 @@ export const prodSimilarityMatches = pgTable(
     index('idx_similarity_gtin').on(table.sourceGtin),
     index('idx_similarity_score').on(table.similarityScore),
     index('idx_similarity_pending').on(table.matchConfidence),
+    index('idx_similarity_method').on(table.matchMethod, table.matchConfidence),
+    index('idx_similarity_confirmed').on(
+      table.productId,
+      table.isPrimarySource,
+      table.matchConfidence
+    ),
+    index('idx_similarity_url').on(table.sourceUrl),
   ]
 );
 

@@ -44,6 +44,10 @@ export const DEFAULT_QUEUE_TIMEOUTS_MS: QueueTimeoutsMs = {
   'ai-batch-queue': 10 * 60_000,
   // Enrichment jobs can be long-running (external APIs + scraping).
   'pim-enrichment-queue': 10 * 60_000,
+  // Similarity search jobs hit external APIs, keep a moderate timeout.
+  'pim-similarity-search': 10 * 60_000,
+  // AI audit jobs can be slower due to model latency.
+  'pim-ai-audit': 10 * 60_000,
 } as const;
 
 export function defaultJobTimeoutMs(queueName: KnownQueueName): number {

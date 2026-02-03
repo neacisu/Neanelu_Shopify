@@ -24,6 +24,7 @@ import ProductDetailPage from './routes/app.products.$id';
 import ProductEditPage, { action as productEditAction } from './routes/app.products.$id.edit';
 import ProductsImportPage from './routes/app.products.import';
 import ProductsReviewPage from './routes/app.products.review';
+import SimilarityMatchesPage from './routes/app.similarity-matches';
 import SettingsLayout from './routes/settings';
 import SettingsIndex from './routes/settings._index';
 import SettingsGeneral from './routes/settings.general';
@@ -31,6 +32,7 @@ import SettingsApi from './routes/settings.api';
 import SettingsQueues from './routes/settings.queues';
 import SettingsOpenAi from './routes/settings.openai';
 import SettingsSerper from './routes/settings.serper';
+import SettingsXai from './routes/settings.xai';
 
 export const routes: RouteObject[] = [
   {
@@ -129,6 +131,12 @@ export const routes: RouteObject[] = [
         element: createElement(ProductsReviewPage),
       },
       {
+        id: 'similarity-matches',
+        path: 'similarity-matches',
+        handle: { title: 'Similarity Matches' },
+        element: createElement(SimilarityMatchesPage),
+      },
+      {
         id: 'settings',
         path: 'settings',
         handle: { title: 'Settings' },
@@ -168,6 +176,12 @@ export const routes: RouteObject[] = [
             path: 'serper',
             handle: { title: 'Settings - Serper' },
             element: createElement(SettingsSerper),
+          },
+          {
+            id: 'settings-xai',
+            path: 'xai',
+            handle: { title: 'Settings - xAI Grok' },
+            element: createElement(SettingsXai),
           },
         ],
       },

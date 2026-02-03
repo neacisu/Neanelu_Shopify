@@ -161,7 +161,50 @@ export function ProductDetailDrawer({
                 ? 'No enrichment sources yet.'
                 : matches.map((match) => (
                     <div key={match.id}>
-                      {match.source_title ?? match.source_url} ({match.similarity_score})
+                      <div className="text-sm text-foreground">
+                        {match.source_title ?? match.source_url}
+                      </div>
+                      <div className="text-xs text-muted">
+                        Similarity: {match.similarity_score} • {match.match_confidence}
+                      </div>
+                      <div className="mt-2 flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => {
+                            void api
+                              .postApi(`/products/review/${match.id}/confirm`, {})
+                              .then(() => {
+                                setMatches((prev) =>
+                                  prev.map((item) =>
+                                    item.id === match.id
+                                      ? { ...item, match_confidence: 'confirmed' }
+                                      : item
+                                  )
+                                );
+                              });
+                          }}
+                        >
+                          Confirm
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            void api.postApi(`/products/review/${match.id}/reject`, {}).then(() => {
+                              setMatches((prev) =>
+                                prev.map((item) =>
+                                  item.id === match.id
+                                    ? { ...item, match_confidence: 'rejected' }
+                                    : item
+                                )
+                              );
+                            });
+                          }}
+                        >
+                          Reject
+                        </Button>
+                      </div>
                     </div>
                   ))}
             </div>

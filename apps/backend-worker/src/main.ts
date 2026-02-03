@@ -16,7 +16,10 @@ import { startAiBatchWorker } from './processors/ai/worker.js';
 import { startAiBatchScheduleWorker } from './processors/ai/schedule.worker.js';
 import { startEnrichmentWorker } from './processors/enrichment/worker.js';
 import { startSerperHealthWorker } from './processors/serper/health.worker.js';
+import { startSimilaritySearchWorker } from './processors/similarity/search-and-match.worker.js';
+import { startAIAuditWorker } from './processors/similarity/ai-audit.worker.js';
 import { scheduleTokenHealthJob, closeTokenHealthQueue } from './queue/token-health-queue.js';
+import { closeSimilarityQueues } from './queue/similarity-queues.js';
 import {
   setBulkOrchestratorWorkerHandle,
   setBulkIngestWorkerHandle,
@@ -55,6 +58,8 @@ let aiBatchWorker: Awaited<ReturnType<typeof startAiBatchWorker>> | null = null;
 let aiBatchScheduleWorker: Awaited<ReturnType<typeof startAiBatchScheduleWorker>> | null = null;
 let enrichmentWorker: Awaited<ReturnType<typeof startEnrichmentWorker>> | null = null;
 let serperHealthWorker: Awaited<ReturnType<typeof startSerperHealthWorker>> | null = null;
+let similaritySearchWorker: Awaited<ReturnType<typeof startSimilaritySearchWorker>> | null = null;
+let similarityAIAuditWorker: Awaited<ReturnType<typeof startAIAuditWorker>> | null = null;
 let queueConfigListener: Awaited<ReturnType<typeof startQueueConfigListener>> | null = null;
 
 try {
@@ -166,6 +171,22 @@ try {
     timestamp: new Date().toISOString(),
   });
 
+  similaritySearchWorker = startSimilaritySearchWorker(logger);
+  logger.info({}, 'similarity search worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'similarity-search-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  similarityAIAuditWorker = startAIAuditWorker(logger);
+  logger.info({}, 'similarity AI audit worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'ai-audit-worker',
+    timestamp: new Date().toISOString(),
+  });
+
   queueConfigListener = await startQueueConfigListener(env, logger, {
     'webhook-queue': webhookWorker?.worker as unknown as { concurrency?: number },
     'sync-queue': syncWorker?.worker as unknown as { concurrency?: number },
@@ -176,6 +197,8 @@ try {
     },
     'ai-batch-queue': aiBatchWorker?.worker as unknown as { concurrency?: number },
     'pim-enrichment-queue': enrichmentWorker?.worker as unknown as { concurrency?: number },
+    'pim-similarity-search': similaritySearchWorker?.worker as unknown as { concurrency?: number },
+    'pim-ai-audit': similarityAIAuditWorker?.worker as unknown as { concurrency?: number },
   });
   logger.info({}, 'queue config listener started');
 } catch (error) {
@@ -303,6 +326,28 @@ const shutdown = async (signal: string): Promise<void> => {
       });
     }
 
+    if (similaritySearchWorker) {
+      await similaritySearchWorker.close();
+      similaritySearchWorker = null;
+      logger.info({ signal }, 'similarity search worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'similarity-search-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (similarityAIAuditWorker) {
+      await similarityAIAuditWorker.close();
+      similarityAIAuditWorker = null;
+      logger.info({ signal }, 'similarity AI audit worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'ai-audit-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     if (aiBatchScheduleWorker) {
       await aiBatchScheduleWorker.close();
       aiBatchScheduleWorker = null;
@@ -332,6 +377,7 @@ const shutdown = async (signal: string): Promise<void> => {
     }
 
     await closeTokenHealthQueue();
+    await closeSimilarityQueues();
     await server.close();
     logger.info({ signal }, 'shutdown complete');
   } catch (error) {
