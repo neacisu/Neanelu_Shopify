@@ -62,6 +62,10 @@ export const shopAiCredentials = pgTable(
       precision: 3,
       scale: 2,
     }).default('0.80'),
+    serperConnectionStatus: text('serper_connection_status').default('unknown'),
+    serperLastCheckedAt: timestamp('serper_last_checked_at', { withTimezone: true }),
+    serperLastError: text('serper_last_error'),
+    serperLastSuccessAt: timestamp('serper_last_success_at', { withTimezone: true }),
 
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),

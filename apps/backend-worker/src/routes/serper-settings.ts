@@ -5,10 +5,11 @@ import type {
   SerperSettingsResponse,
   SerperSettingsUpdateRequest,
 } from '@app/types';
-import { decryptAesGcm, encryptAesGcm, withTenantContext } from '@app/database';
-import type { FastifyInstance, FastifyPluginCallback, FastifyRequest } from 'fastify';
+import { encryptAesGcm, withTenantContext } from '@app/database';
+import type { FastifyInstance, FastifyPluginCallback, FastifyReply, FastifyRequest } from 'fastify';
 import type { SessionConfig } from '../auth/session.js';
 import { requireSession } from '../auth/session.js';
+import { runSerperHealthCheck, type SerperConnectionStatus } from '../services/serper-health.js';
 
 type SerperSettingsPluginOptions = Readonly<{
   env: AppEnv;
@@ -23,6 +24,10 @@ type SerperRow = Readonly<{
   serperCacheTtlSeconds: number | null;
   serperBudgetAlertThreshold: string | number | null;
   hasApiKey: boolean;
+  serperConnectionStatus: SerperConnectionStatus | null;
+  serperLastCheckedAt: string | null;
+  serperLastSuccessAt: string | null;
+  serperLastError: string | null;
 }>;
 
 type RequestWithSession = FastifyRequest & {
@@ -107,6 +112,10 @@ function toApiResponse(row: SerperRow | undefined, usage: { requests: number; co
     rateLimitPerSecond: row?.serperRateLimitPerSecond ?? DEFAULT_RATE_LIMIT,
     cacheTtlSeconds: row?.serperCacheTtlSeconds ?? DEFAULT_CACHE_TTL,
     budgetAlertThreshold: toNumber(row?.serperBudgetAlertThreshold) ?? DEFAULT_ALERT_THRESHOLD,
+    connectionStatus: row?.serperConnectionStatus ?? 'unknown',
+    lastCheckedAt: row?.serperLastCheckedAt ?? null,
+    lastSuccessAt: row?.serperLastSuccessAt ?? null,
+    lastError: row?.serperLastError ?? null,
     todayUsage: {
       requests: usage.requests,
       cost: usage.cost,
@@ -143,7 +152,11 @@ export const serperSettingsRoutes: FastifyPluginCallback<SerperSettingsPluginOpt
               serper_rate_limit_per_second AS "serperRateLimitPerSecond",
               serper_cache_ttl_seconds AS "serperCacheTtlSeconds",
               serper_budget_alert_threshold AS "serperBudgetAlertThreshold",
-              serper_api_key_ciphertext IS NOT NULL AS "hasApiKey"
+              serper_api_key_ciphertext IS NOT NULL AS "hasApiKey",
+              serper_connection_status AS "serperConnectionStatus",
+              serper_last_checked_at AS "serperLastCheckedAt",
+              serper_last_success_at AS "serperLastSuccessAt",
+              serper_last_error AS "serperLastError"
             FROM shop_ai_credentials
             WHERE shop_id = $1`,
             [session.shopId]
@@ -227,9 +240,11 @@ export const serperSettingsRoutes: FastifyPluginCallback<SerperSettingsPluginOpt
           const values: (string | boolean | number | Buffer | null)[] = [session.shopId];
           let idx = 2;
 
+          let nextStatus: SerperConnectionStatus | null = null;
           if (enabled !== undefined) {
             updates.push(`serper_enabled = $${idx++}`);
             values.push(enabled);
+            nextStatus = enabled ? 'pending' : 'disabled';
           }
 
           if (dailyBudget !== undefined) {
@@ -260,6 +275,7 @@ export const serperSettingsRoutes: FastifyPluginCallback<SerperSettingsPluginOpt
               updates.push(`serper_api_key_tag = NULL`);
               updates.push(`serper_key_version = $${idx++}`);
               values.push(env.encryptionKeyVersion);
+              nextStatus = enabled === false ? 'disabled' : 'missing_key';
             } else {
               const key = buildEncryptionKey(env);
               const encrypted = encryptAesGcm(Buffer.from(trimmed, 'utf-8'), key);
@@ -271,7 +287,14 @@ export const serperSettingsRoutes: FastifyPluginCallback<SerperSettingsPluginOpt
               values.push(encrypted.tag);
               updates.push(`serper_key_version = $${idx++}`);
               values.push(env.encryptionKeyVersion);
+              nextStatus = enabled === false ? 'disabled' : 'pending';
             }
+          }
+
+          if (nextStatus) {
+            updates.push(`serper_connection_status = $${idx++}`);
+            values.push(nextStatus);
+            updates.push(`serper_last_error = NULL`);
           }
 
           if (updates.length > 0) {
@@ -290,7 +313,11 @@ export const serperSettingsRoutes: FastifyPluginCallback<SerperSettingsPluginOpt
               serper_rate_limit_per_second AS "serperRateLimitPerSecond",
               serper_cache_ttl_seconds AS "serperCacheTtlSeconds",
               serper_budget_alert_threshold AS "serperBudgetAlertThreshold",
-              serper_api_key_ciphertext IS NOT NULL AS "hasApiKey"
+              serper_api_key_ciphertext IS NOT NULL AS "hasApiKey",
+              serper_connection_status AS "serperConnectionStatus",
+              serper_last_checked_at AS "serperLastCheckedAt",
+              serper_last_success_at AS "serperLastSuccessAt",
+              serper_last_error AS "serperLastError"
             FROM shop_ai_credentials
             WHERE shop_id = $1`,
             [session.shopId]
@@ -312,101 +339,58 @@ export const serperSettingsRoutes: FastifyPluginCallback<SerperSettingsPluginOpt
     }
   );
 
+  const handleHealthRequest = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    apiKeyOverride: string | null,
+    allowStoredWhenDisabled: boolean
+  ) => {
+    const session = (request as RequestWithSession).session;
+    if (!session) {
+      return reply.status(401).send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+    }
+
+    try {
+      const health = await runSerperHealthCheck({
+        shopId: session.shopId,
+        env,
+        logger,
+        apiKeyOverride,
+        allowStoredWhenDisabled,
+        persist: !apiKeyOverride,
+      });
+      return reply.send(successEnvelope(request.id, health));
+    } catch (error) {
+      logger.warn({ requestId: request.id, error }, 'Serper health check failed');
+      const health: SerperHealthResponse = {
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Serper health check failed',
+      };
+      return reply.send(successEnvelope(request.id, health));
+    }
+  };
+
   server.get(
     '/settings/serper/health',
     {
       preHandler: [requireSession(sessionConfig)],
     },
+    async (request, reply) => handleHealthRequest(request, reply, null, false)
+  );
+
+  server.post(
+    '/settings/serper/health',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
     async (request, reply) => {
-      const session = (request as RequestWithSession).session;
-      if (!session) {
-        return reply
-          .status(401)
-          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
-      }
-
-      try {
-        const row = await withTenantContext(session.shopId, async (client) => {
-          const result = await client.query<{
-            serperEnabled: boolean;
-            serperApiKeyCiphertext: Buffer | null;
-            serperApiKeyIv: Buffer | null;
-            serperApiKeyTag: Buffer | null;
-          }>(
-            `SELECT
-              serper_enabled AS "serperEnabled",
-              serper_api_key_ciphertext AS "serperApiKeyCiphertext",
-              serper_api_key_iv AS "serperApiKeyIv",
-              serper_api_key_tag AS "serperApiKeyTag"
-            FROM shop_ai_credentials
-            WHERE shop_id = $1`,
-            [session.shopId]
-          );
-          return result.rows[0];
-        });
-
-        if (!row?.serperEnabled) {
-          const response: SerperHealthResponse = { status: 'disabled' };
-          return reply.send(successEnvelope(request.id, response));
-        }
-
-        if (!row.serperApiKeyCiphertext || !row.serperApiKeyIv || !row.serperApiKeyTag) {
-          const response: SerperHealthResponse = { status: 'missing_key' };
-          return reply.send(successEnvelope(request.id, response));
-        }
-
-        const key = buildEncryptionKey(env);
-        const apiKey = decryptAesGcm(
-          row.serperApiKeyCiphertext,
-          key,
-          row.serperApiKeyIv,
-          row.serperApiKeyTag
-        );
-
-        const startedAt = Date.now();
-        const response = await fetch('https://google.serper.dev/search', {
-          method: 'POST',
-          headers: {
-            'X-API-KEY': apiKey.toString('utf-8'),
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ q: 'test', num: 1 }),
-        });
-        const responseTimeMs = Date.now() - startedAt;
-
-        if (!response.ok) {
-          const health: SerperHealthResponse = {
-            status: 'error',
-            message: `API returned ${response.status}`,
-            responseTimeMs,
-          };
-          return reply.send(successEnvelope(request.id, health));
-        }
-
-        let creditsRemaining: number | undefined;
-        try {
-          const data = (await response.json()) as { credits?: unknown };
-          if (typeof data.credits === 'number') {
-            creditsRemaining = data.credits;
-          }
-        } catch {
-          creditsRemaining = undefined;
-        }
-
-        const health: SerperHealthResponse = {
-          status: 'ok',
-          responseTimeMs,
-          ...(creditsRemaining !== undefined ? { creditsRemaining } : {}),
-        };
-        return reply.send(successEnvelope(request.id, health));
-      } catch (error) {
-        logger.warn({ requestId: request.id, error }, 'Serper health check failed');
-        const health: SerperHealthResponse = {
-          status: 'error',
-          message: error instanceof Error ? error.message : 'Serper health check failed',
-        };
-        return reply.send(successEnvelope(request.id, health));
-      }
+      const body = (request.body ?? {}) as { apiKey?: unknown; useStoredKey?: unknown };
+      const override =
+        typeof body.apiKey === 'string' && body.apiKey.trim().length > 0
+          ? body.apiKey.trim()
+          : null;
+      const allowStoredWhenDisabled = body.useStoredKey === true;
+      return handleHealthRequest(request, reply, override, allowStoredWhenDisabled);
     }
   );
 };

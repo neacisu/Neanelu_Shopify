@@ -21,6 +21,10 @@ export interface SerperSettingsResponse {
   rateLimitPerSecond: number;
   cacheTtlSeconds: number;
   budgetAlertThreshold: number;
+  connectionStatus?: 'unknown' | 'connected' | 'error' | 'disabled' | 'missing_key' | 'pending';
+  lastCheckedAt?: string | null;
+  lastSuccessAt?: string | null;
+  lastError?: string | null;
   todayUsage?: {
     requests: number;
     cost: number;

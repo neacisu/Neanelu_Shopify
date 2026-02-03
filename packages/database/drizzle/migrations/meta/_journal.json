@@ -512,6 +512,13 @@
       "when": 1770078680215,
       "tag": "0072_serper_credentials",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1770082000000,
+      "tag": "0073_serper_connection_status",
+      "breakpoints": true
     }
   ]
 }
