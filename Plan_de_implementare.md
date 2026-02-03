@@ -926,11 +926,11 @@ Obiectiv: Configurarea mediului local de dezvoltare într-un mod reproductibil �
 
     {
         "id_task": "F1.4.3",
-        "denumire_task": "Scanare rapidă de securitate pe PR (trivy fs)",
-        "descriere_task": "Include un pas de scanare rapidă a filesystem-ului sursă cu trivy (mod fs) pentru a detecta CVE majore și dependențe compromise. Scanarea completă a imaginii (trivy image/grype) și semnarea SBOM rămân în F7, dar aici prindem devreme probleme critice de supply chain.",
+        "denumire_task": "Scanare rapidă de securitate pe PR (trivy fs v0.69.0)",
+        "descriere_task": "Include un pas de scanare rapidă a filesystem-ului sursă cu trivy (mod fs, v0.69.0) pentru a detecta CVE majore și dependențe compromise. Scanarea completă a imaginii (trivy image/grype) și semnarea SBOM rămân în F7, dar aici prindem devreme probleme critice de supply chain.",
         "cale_implementare": ".github/workflows/ci-pr.yml (pas scan-trivy-fs)",
         "contextul_anterior": "Nu există încă un control automat de securitate; adăugăm o verificare lightweight înainte de livrare finală.",
-        "validare_task": "Rularea workflow-ului trebuie să afișeze raportul trivy fs; dacă există CVE critice, job-ul e marcat failed. Verifică că durata rămâne rezonabilă (<2-3 minute) folosind cache local.",
+        "validare_task": "Rularea workflow-ului trebuie să afișeze raportul trivy fs (v0.69.0); dacă există CVE critice, job-ul e marcat failed. Verifică că durata rămâne rezonabilă (<2-3 minute) folosind cache local.",
         "outcome_task": "Pipeline-ul de PR blochează dependențele cu vulnerabilități critice și semnalează devreme probleme de supply chain.",
         "restrictii_antihalucinatie": "Nu înlocui această scanare cu trivy image (mai lent) în F1; păstrează verificarea rapidă. Nu ignora CVE critice fără documentare și ticket de remediere."
     }

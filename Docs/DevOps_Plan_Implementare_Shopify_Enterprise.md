@@ -212,7 +212,7 @@ Pentru a susține volumul de 1M+ SKU și procesarea asincronă, arhitectura de p
 * Scop: prinde incompatibilități ESM/monorepo și probleme de packaging înainte de F7.  
 * Configurează un workflow GitHub Actions minimal pe PR: checkout, setup pnpm cu cache, pnpm install, pnpm lint, pnpm typecheck, pnpm test (backend cu `node --test`, frontend cu Vitest), artefacte junit/coverage.  
 * Adaugă job de smoke build Docker (multi-stage) fără publish, doar pentru a confirma că Dockerfile funcționează cu pnpm workspaces și că se construiește aplicația.  
-* Rulează scanare rapidă (ex. trivy fs) pe PR pentru a surprinde devreme CVE-uri majore; scanarea imaginii completă rămâne în F7.
+* Rulează scanare rapidă (trivy fs v0.69.0) pe PR pentru a surprinde devreme CVE-uri majore; scanarea imaginii completă rămâne în F7.
 
 ## **Faza 2: Data Layer și Schema Design (Săptămâna 2\)**
 

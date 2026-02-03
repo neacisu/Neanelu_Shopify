@@ -95,7 +95,7 @@ Sistemul va implementa exclusiv fluxul de autentificare **Offline Access Token**
 
 ### **Sub-faza 1.3: Skeleton CI/CD devreme (Week 1)**
 
-CI/CD nu se amână în Faza 7. În prima săptămână se livrează un workflow GitHub Actions pe PR cu cache pnpm, pnpm install, lint, typecheck, test (backend `node --test`, frontend Vitest) și servicii efemere Postgres/Redis pentru integrare. Se adaugă un job de smoke `docker build` (multi-stage) pentru a prinde devreme probleme de packaging/ESM în monorepo și un pas trivy fs pentru CVE critice. Publicarea imaginii, semnarea SBOM și scanarea completă a imaginii rămân în hardening-ul din Faza 7.
+CI/CD nu se amână în Faza 7. În prima săptămână se livrează un workflow GitHub Actions pe PR cu cache pnpm, pnpm install, lint, typecheck, test (backend `node --test`, frontend Vitest) și servicii efemere Postgres/Redis pentru integrare. Se adaugă un job de smoke `docker build` (multi-stage) pentru a prinde devreme probleme de packaging/ESM în monorepo și un pas trivy fs (v0.69.0) pentru CVE critice. Publicarea imaginii, semnarea SBOM și scanarea completă a imaginii rămân în hardening-ul din Faza 7.
 
 ## **3\. Faza 2: Ingestia Masivă a Datelor și Pipeline-ul Bulk Operations**
 
