@@ -123,13 +123,15 @@ export default function SettingsSerper() {
   const isConnectionTested = lastTestedKey === effectiveKey;
   const mustTestConnection = enabled || apiKeyDirty;
   const canSave = !mustTestConnection || isConnectionTested;
-  const isConnected = connectionStatus === 'connected';
+  const isConnected = connectionStatus === 'connected' && enabled && hasApiKey && !apiKeyDirty;
 
   const testConnection = async () => {
     setHealthLoading(true);
     setHealthResult(null);
     try {
       const trimmedKey = apiKeyDirty ? apiKey.trim() : '';
+      const usingOverride = trimmedKey.length > 0;
+      const usingStoredKey = !usingOverride && hasApiKey;
       let data: SerperHealthResponse;
       if (trimmedKey) {
         data = await api.postApi<SerperHealthResponse, { apiKey: string }>(
@@ -145,20 +147,22 @@ export default function SettingsSerper() {
         data = await api.getApi<SerperHealthResponse>('/settings/serper/health');
       }
       setHealthResult(data);
-      setLastCheckedAt(new Date().toISOString());
-      if (data.status === 'ok') {
-        setConnectionStatus('connected');
-        setLastError(null);
-        setLastSuccessAt(new Date().toISOString());
-      } else if (data.status === 'disabled') {
-        setConnectionStatus('disabled');
-        setLastError(null);
-      } else if (data.status === 'missing_key') {
-        setConnectionStatus('missing_key');
-        setLastError(null);
-      } else {
-        setConnectionStatus('error');
-        setLastError(data.message ?? 'Eroare conexiune');
+      if (usingStoredKey) {
+        setLastCheckedAt(new Date().toISOString());
+        if (data.status === 'ok') {
+          setConnectionStatus('connected');
+          setLastError(null);
+          setLastSuccessAt(new Date().toISOString());
+        } else if (data.status === 'disabled') {
+          setConnectionStatus('disabled');
+          setLastError(null);
+        } else if (data.status === 'missing_key') {
+          setConnectionStatus('missing_key');
+          setLastError(null);
+        } else {
+          setConnectionStatus('error');
+          setLastError(data.message ?? 'Eroare conexiune');
+        }
       }
       if (data.status === 'ok') {
         setLastTestedKey(trimmedKey ? trimmedKey : '__stored__');

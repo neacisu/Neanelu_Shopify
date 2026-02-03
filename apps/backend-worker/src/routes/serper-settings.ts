@@ -144,25 +144,38 @@ export const serperSettingsRoutes: FastifyPluginCallback<SerperSettingsPluginOpt
       }
 
       try {
-        const row = await withTenantContext(session.shopId, async (client) => {
-          const result = await client.query<SerperRow>(
-            `SELECT
-              serper_enabled AS "serperEnabled",
-              serper_daily_budget AS "serperDailyBudget",
-              serper_rate_limit_per_second AS "serperRateLimitPerSecond",
-              serper_cache_ttl_seconds AS "serperCacheTtlSeconds",
-              serper_budget_alert_threshold AS "serperBudgetAlertThreshold",
-              serper_api_key_ciphertext IS NOT NULL AS "hasApiKey",
-              serper_connection_status AS "serperConnectionStatus",
-              serper_last_checked_at AS "serperLastCheckedAt",
-              serper_last_success_at AS "serperLastSuccessAt",
-              serper_last_error AS "serperLastError"
-            FROM shop_ai_credentials
-            WHERE shop_id = $1`,
-            [session.shopId]
-          );
-          return result.rows[0];
-        });
+        const fetchRow = async () =>
+          withTenantContext(session.shopId, async (client) => {
+            const result = await client.query<SerperRow>(
+              `SELECT
+                serper_enabled AS "serperEnabled",
+                serper_daily_budget AS "serperDailyBudget",
+                serper_rate_limit_per_second AS "serperRateLimitPerSecond",
+                serper_cache_ttl_seconds AS "serperCacheTtlSeconds",
+                serper_budget_alert_threshold AS "serperBudgetAlertThreshold",
+                serper_api_key_ciphertext IS NOT NULL AS "hasApiKey",
+                serper_connection_status AS "serperConnectionStatus",
+                serper_last_checked_at AS "serperLastCheckedAt",
+                serper_last_success_at AS "serperLastSuccessAt",
+                serper_last_error AS "serperLastError"
+              FROM shop_ai_credentials
+              WHERE shop_id = $1`,
+              [session.shopId]
+            );
+            return result.rows[0];
+          });
+
+        let row = await fetchRow();
+        if (row?.serperEnabled && row.hasApiKey) {
+          await runSerperHealthCheck({
+            shopId: session.shopId,
+            env,
+            logger,
+            allowStoredWhenDisabled: true,
+            persist: true,
+          });
+          row = await fetchRow();
+        }
 
         const usage = await loadSerperUsage(session.shopId);
         const response = toApiResponse(row, usage);
