@@ -236,10 +236,10 @@ export async function runMergeFromStaging(params: {
            COALESCE(src.options, '[]'::jsonb),
            src.seo,
            src.featured_image_url,
-           src.price_range,
-           src.compare_at_price_range,
-           ${normalizeNullTimestampExpr('src.published_at')},
-           src.template_suffix,
+          src.price_range,
+          src.compare_at_price_range,
+          src.published_at,
+          src.template_suffix,
            COALESCE(src.has_only_default_variant, true),
            src.total_inventory,
            ${normalizeNullTimestampExpr("src.raw_data->>'createdAt'")},
@@ -324,6 +324,7 @@ export async function runMergeFromStaging(params: {
       });
 
       // Product media upsert (requires product + media resolution)
+      // Use DISTINCT ON to avoid "cannot affect row a second time" when staging has duplicates
       await timed('product-media.upsert', async () => {
         await client.query(
           `INSERT INTO shopify_product_media (
@@ -335,7 +336,7 @@ export async function runMergeFromStaging(params: {
             created_at,
             updated_at
           )
-          SELECT
+          SELECT DISTINCT ON (p.id, m.media_id)
             spm.shop_id,
             p.id,
             m.media_id,
@@ -354,6 +355,7 @@ export async function runMergeFromStaging(params: {
             AND spm.shop_id = $2
             AND spm.validation_status = 'valid'
             AND spm.merge_status = 'pending'
+          ORDER BY p.id, m.media_id, spm.imported_at DESC
           ON CONFLICT (product_id, media_id)
           DO UPDATE SET
             position = EXCLUDED.position,
@@ -480,6 +482,7 @@ export async function runMergeFromStaging(params: {
         );
       });
 
+      // Use DISTINCT ON to avoid "cannot affect row a second time" when staging has duplicates
       await timed('variant-media.upsert', async () => {
         await client.query(
           `INSERT INTO shopify_variant_media (
@@ -490,7 +493,7 @@ export async function runMergeFromStaging(params: {
             created_at,
             updated_at
           )
-          SELECT
+          SELECT DISTINCT ON (v.id, m.media_id)
             svm.shop_id,
             v.id,
             m.media_id,
@@ -508,6 +511,7 @@ export async function runMergeFromStaging(params: {
             AND svm.shop_id = $2
             AND svm.validation_status = 'valid'
             AND svm.merge_status = 'pending'
+          ORDER BY v.id, m.media_id, svm.imported_at DESC
           ON CONFLICT (variant_id, media_id)
           DO UPDATE SET
             position = EXCLUDED.position,
