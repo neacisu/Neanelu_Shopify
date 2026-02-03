@@ -204,10 +204,10 @@ export default function SettingsXai() {
       if (apiKeyDirty) {
         payload.apiKey = apiKey;
       }
-      const data = await api.getApi<XaiSettingsResponse>('/settings/xai', {
-        method: 'PUT',
-        body: JSON.stringify(payload),
-      });
+      const data = await api.putApi<XaiSettingsResponse, XaiSettingsUpdateRequest>(
+        '/settings/xai',
+        payload
+      );
       setHasApiKey(data.hasApiKey);
       setConnectionStatus(normalizeStatus(data.connectionStatus));
       setLastCheckedAt(coerceNullableString(data.lastCheckedAt));
@@ -235,10 +235,10 @@ export default function SettingsXai() {
         enabled: false,
         apiKey: '',
       };
-      const data = await api.getApi<XaiSettingsResponse>('/settings/xai', {
-        method: 'PUT',
-        body: JSON.stringify(payload),
-      });
+      const data = await api.putApi<XaiSettingsResponse, XaiSettingsUpdateRequest>(
+        '/settings/xai',
+        payload
+      );
       setEnabled(false);
       setHasApiKey(data.hasApiKey);
       setConnectionStatus(normalizeStatus(data.connectionStatus));

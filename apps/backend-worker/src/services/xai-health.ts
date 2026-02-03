@@ -53,7 +53,7 @@ export async function runXaiHealthCheck(params: {
     } as const;
   }
 
-  if (!row.xai_enabled && !allowStoredWhenDisabled) {
+  if (!apiKeyOverride && !row.xai_enabled && !allowStoredWhenDisabled) {
     return { status: 'disabled', checkedAt: nowIso(), message: 'xAI is disabled' } as const;
   }
 
