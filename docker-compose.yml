@@ -20,7 +20,7 @@ services:
       - --api.insecure=false
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
-      - --providers.docker.constraints=Label(`com.docker.compose.project`,`neanelu_shopify`)
+      - --providers.docker.constraints=Label(`com.docker.compose.project`,`neanelu_shopify`) || Label(`com.docker.compose.project`,`cerniq`)
       - --entrypoints.web.address=:80
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
