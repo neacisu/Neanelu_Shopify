@@ -30,6 +30,7 @@ import SettingsGeneral from './routes/settings.general';
 import SettingsApi from './routes/settings.api';
 import SettingsQueues from './routes/settings.queues';
 import SettingsOpenAi from './routes/settings.openai';
+import SettingsSerper from './routes/settings.serper';
 
 export const routes: RouteObject[] = [
   {
@@ -161,6 +162,12 @@ export const routes: RouteObject[] = [
             path: 'openai',
             handle: { title: 'Settings - OpenAI' },
             element: createElement(SettingsOpenAi),
+          },
+          {
+            id: 'settings-serper',
+            path: 'serper',
+            handle: { title: 'Settings - Serper' },
+            element: createElement(SettingsSerper),
           },
         ],
       },

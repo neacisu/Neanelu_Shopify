@@ -2,8 +2,16 @@ import type { ReactNode } from 'react';
 
 type SubmitState = 'idle' | 'loading' | 'success' | 'error';
 
-export function SubmitButton({ state, children }: { state: SubmitState; children: ReactNode }) {
-  const isDisabled = state === 'loading';
+export function SubmitButton({
+  state,
+  disabled,
+  children,
+}: {
+  state: SubmitState;
+  disabled?: boolean;
+  children: ReactNode;
+}) {
+  const isDisabled = state === 'loading' || Boolean(disabled);
 
   return (
     <button

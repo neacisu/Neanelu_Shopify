@@ -21,6 +21,7 @@ import { bulkRoutes } from '../routes/bulk.js';
 import { searchRoutes } from '../routes/search.js';
 import { productsRoutes } from '../routes/products.js';
 import { aiSettingsRoutes } from '../routes/ai-settings.js';
+import { serperSettingsRoutes } from '../routes/serper-settings.js';
 import { shopSettingsRoutes } from '../routes/shop-settings.js';
 import { connectionStatusRoutes } from '../routes/connection-status.js';
 import { webhookSettingsRoutes } from '../routes/webhook-settings.js';
@@ -266,6 +267,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await server.register(searchRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(productsRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(aiSettingsRoutes, { prefix: '/api', env, logger, sessionConfig });
+  await server.register(serperSettingsRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(shopSettingsRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(connectionStatusRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(webhookSettingsRoutes, { prefix: '/api', env, logger, sessionConfig });
@@ -280,6 +282,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await server.register(searchRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(productsRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(aiSettingsRoutes, { prefix: '', env, logger, sessionConfig });
+  await server.register(serperSettingsRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(shopSettingsRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(connectionStatusRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(webhookSettingsRoutes, { prefix: '', env, logger, sessionConfig });

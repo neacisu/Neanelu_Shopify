@@ -10,6 +10,7 @@ const tabs = [
   { label: 'API & Webhooks', value: 'api' },
   { label: 'Queues', value: 'queues' },
   { label: 'OpenAI', value: 'openai' },
+  { label: 'Serper', value: 'serper' },
 ];
 
 function resolveActiveTab(pathname: string): string {

@@ -101,6 +101,9 @@ export type AppEnv = Readonly<{
   /** Embedding dimensions (defaults to 2000 for text-embedding-3-large) */
   openAiEmbeddingDimensions: number;
 
+  /** Serper health check interval (seconds) */
+  serperHealthCheckIntervalSeconds: number;
+
   // ============================================
   // BULK DEDUP + CONSENSUS + PIM SYNC (PR-043 / F5.2.9-F5.2.10)
   // ============================================
@@ -428,6 +431,12 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     2000
   );
 
+  const serperHealthCheckIntervalSeconds = parsePositiveIntWithDefault(
+    env,
+    'SERPER_HEALTH_CHECK_INTERVAL_SECONDS',
+    3600
+  );
+
   const bulkPimSyncEnabled = parseBooleanWithDefault(env, 'BULK_PIM_SYNC_ENABLED', true);
   const bulkSemanticDedupEnabled = parseBooleanWithDefault(
     env,
@@ -516,6 +525,8 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     vectorSearchCacheTtlSeconds,
     vectorSearchQueryTimeoutMs,
     openAiEmbeddingDimensions,
+
+    serperHealthCheckIntervalSeconds,
 
     bulkPimSyncEnabled,
     bulkSemanticDedupEnabled,
