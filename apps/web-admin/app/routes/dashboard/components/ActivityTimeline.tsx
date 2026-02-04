@@ -123,7 +123,10 @@ export function ActivityTimeline() {
           onRetry={() => void query.refetch()}
         />
       ) : (
-        <div ref={containerRef} style={{ width: '100%', height: '100%' }}>
+        <div
+          ref={containerRef}
+          style={{ width: '100%', height: '100%', minHeight: 1, minWidth: 1 }}
+        >
           {isClientMounted && containerReady ? (
             <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
               <RechartsLineChart data={data} margin={{ top: 8, right: 12, bottom: 8, left: 12 }}>

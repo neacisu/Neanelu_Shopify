@@ -23,20 +23,27 @@ void mock.module('@app/database', {
     ) => {
       const client = {
         query: (sql: string) => {
-          if (sql.includes('mv_pim_enrichment_status')) {
+          if (
+            sql.includes('FROM prod_channel_mappings') &&
+            sql.includes('COUNT(DISTINCT pcm.product_id)')
+          ) {
+            return Promise.resolve({ rows: [{ total_products: '10' }] });
+          }
+          if (sql.includes('FROM prod_similarity_matches') && sql.includes('COUNT(psm.id)')) {
             return Promise.resolve({
               rows: [
                 {
-                  total_products: '10',
-                  products_with_matches: '6',
-                  products_with_specs: '4',
                   total_matches: '12',
                   confirmed_matches: '5',
                   pending_matches: '4',
                   rejected_matches: '3',
+                  products_with_matches: '6',
                 },
               ],
             });
+          }
+          if (sql.includes('FROM prod_specs_normalized')) {
+            return Promise.resolve({ rows: [{ products_with_specs: '4' }] });
           }
           if (sql.includes('mv_pim_quality_progress')) {
             return Promise.resolve({
@@ -56,7 +63,10 @@ void mock.module('@app/database', {
               ],
             });
           }
-          if (sql.includes('AVG(latency_ms)') && sql.includes('prod_extraction_sessions')) {
+          if (
+            sql.includes('AVG(response_time_ms)') &&
+            sql.includes("endpoint = 'extract-product'")
+          ) {
             return Promise.resolve({ rows: [{ avg_latency_ms: '120000' }] });
           }
           if (sql.includes('FROM api_usage_log') && sql.includes('GROUP BY api_provider')) {
@@ -115,7 +125,8 @@ void mock.module('@app/database', {
                   product_id: 'prod-1',
                   previous_level: 'silver',
                   new_level: 'golden',
-                  quality_score: '0.9',
+                  quality_score_after: '0.9',
+                  quality_score_before: '0.7',
                   trigger_reason: 'threshold_met',
                   created_at: '2026-02-04T10:00:00Z',
                 },

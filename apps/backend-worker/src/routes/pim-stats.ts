@@ -92,26 +92,51 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
 
       try {
         const data = await withTenantContext(session.shopId, async (client) => {
-          const result = await client.query<{
-            total_products: string | null;
-            products_with_matches: string | null;
-            products_with_specs: string | null;
-            total_matches: string | null;
-            confirmed_matches: string | null;
-            pending_matches: string | null;
-            rejected_matches: string | null;
-          }>(
-            `SELECT
-               COALESCE(SUM(total_products), 0) as total_products,
-               COALESCE(SUM(products_with_matches), 0) as products_with_matches,
-               COALESCE(SUM(products_with_specs), 0) as products_with_specs,
-               COALESCE(SUM(total_matches), 0) as total_matches,
-               COALESCE(SUM(confirmed_matches), 0) as confirmed_matches,
-               COALESCE(SUM(pending_matches), 0) as pending_matches,
-               COALESCE(SUM(rejected_matches), 0) as rejected_matches
-             FROM mv_pim_enrichment_status`
-          );
-          const [trendResult, avgLatencyResult, sourcePerfResult] = await Promise.all([
+          const [
+            totalsResult,
+            matchesResult,
+            specsResult,
+            trendResult,
+            avgLatencyResult,
+            sourcePerfResult,
+          ] = await Promise.all([
+            client.query<{ total_products: string }>(
+              `SELECT COUNT(DISTINCT pcm.product_id)::text as total_products
+                   FROM prod_channel_mappings pcm
+                  WHERE pcm.shop_id = $1
+                    AND pcm.channel = 'shopify'`,
+              [session.shopId]
+            ),
+            client.query<{
+              total_matches: string;
+              confirmed_matches: string;
+              pending_matches: string;
+              rejected_matches: string;
+              products_with_matches: string;
+            }>(
+              `SELECT
+                   COUNT(psm.id)::text as total_matches,
+                   COUNT(psm.id) FILTER (WHERE psm.match_confidence = 'confirmed')::text as confirmed_matches,
+                   COUNT(psm.id) FILTER (WHERE psm.match_confidence = 'pending')::text as pending_matches,
+                   COUNT(psm.id) FILTER (WHERE psm.match_confidence = 'rejected')::text as rejected_matches,
+                   COUNT(DISTINCT psm.product_id)::text as products_with_matches
+                 FROM prod_similarity_matches psm
+                 JOIN prod_channel_mappings pcm
+                   ON pcm.product_id = psm.product_id
+                  AND pcm.shop_id = $1
+                  AND pcm.channel = 'shopify'`,
+              [session.shopId]
+            ),
+            client.query<{ products_with_specs: string }>(
+              `SELECT COUNT(DISTINCT pes.product_id)::text as products_with_specs
+                   FROM prod_specs_normalized pes
+                   JOIN prod_channel_mappings pcm
+                     ON pcm.product_id = pes.product_id
+                    AND pcm.shop_id = $1
+                    AND pcm.channel = 'shopify'
+                  WHERE pes.is_current = true`,
+              [session.shopId]
+            ),
             client.query<{
               day: string;
               pending: string;
@@ -130,19 +155,28 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
                  )::date as day
                ),
                pending AS (
-                 SELECT DATE(created_at) as day, COUNT(*)::text as count
-                   FROM prod_similarity_matches
-                  WHERE match_confidence = 'pending'
-                    AND created_at >= $1
-                    AND created_at <= $2
-                  GROUP BY DATE(created_at)
+                 SELECT DATE(psm.created_at) as day, COUNT(*)::text as count
+                   FROM prod_similarity_matches psm
+                   JOIN prod_channel_mappings pcm
+                     ON pcm.product_id = psm.product_id
+                    AND pcm.shop_id = $3
+                    AND pcm.channel = 'shopify'
+                  WHERE psm.match_confidence = 'pending'
+                    AND psm.created_at >= $1
+                    AND psm.created_at <= $2
+                  GROUP BY DATE(psm.created_at)
                ),
                completed AS (
-                 SELECT DATE(created_at) as day, COUNT(*)::text as count
-                   FROM prod_extraction_sessions
-                  WHERE created_at >= $1
-                    AND created_at <= $2
-                  GROUP BY DATE(created_at)
+                 SELECT DATE(psn.created_at) as day, COUNT(*)::text as count
+                   FROM prod_specs_normalized psn
+                   JOIN prod_channel_mappings pcm
+                     ON pcm.product_id = psn.product_id
+                    AND pcm.shop_id = $3
+                    AND pcm.channel = 'shopify'
+                  WHERE psn.is_current = true
+                    AND psn.created_at >= $1
+                    AND psn.created_at <= $2
+                  GROUP BY DATE(psn.created_at)
                )
                SELECT
                  days.day::text as day,
@@ -152,14 +186,17 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
                LEFT JOIN pending ON pending.day = days.day
                LEFT JOIN completed ON completed.day = days.day
                ORDER BY days.day ASC`,
-              [from, to]
+              [from, to, session.shopId]
             ),
             client.query<{ avg_latency_ms: string | null }>(
-              `SELECT AVG(latency_ms)::text as avg_latency_ms
-                 FROM prod_extraction_sessions
-                WHERE created_at >= $1
+              `SELECT AVG(response_time_ms)::text as avg_latency_ms
+                 FROM api_usage_log
+                WHERE shop_id = $3
+                  AND api_provider = 'xai'
+                  AND endpoint = 'extract-product'
+                  AND created_at >= $1
                   AND created_at <= $2`,
-              [from, to]
+              [from, to, session.shopId]
             ),
             client.query<{
               api_provider: string;
@@ -175,20 +212,23 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
                  AVG(response_time_ms)::text as avg_latency_ms,
                  COALESCE(SUM(CASE WHEN http_status < 400 THEN 1 ELSE 0 END), 0)::text as success_count
                FROM api_usage_log
-              WHERE created_at >= $1
+              WHERE shop_id = $3
+                AND created_at >= $1
                 AND created_at <= $2
               GROUP BY api_provider`,
-              [from, to]
+              [from, to, session.shopId]
             ),
           ]);
-          const row = result.rows[0];
-          const totalProducts = Number(row?.total_products ?? 0);
-          const productsWithMatches = Number(row?.products_with_matches ?? 0);
-          const productsWithSpecs = Number(row?.products_with_specs ?? 0);
-          const totalMatches = Number(row?.total_matches ?? 0);
-          const confirmedMatches = Number(row?.confirmed_matches ?? 0);
-          const pendingMatches = Number(row?.pending_matches ?? 0);
-          const rejectedMatches = Number(row?.rejected_matches ?? 0);
+          const totalsRow = totalsResult.rows[0];
+          const matchesRow = matchesResult.rows[0];
+          const specsRow = specsResult.rows[0];
+          const totalProducts = Number(totalsRow?.total_products ?? 0);
+          const productsWithMatches = Number(matchesRow?.products_with_matches ?? 0);
+          const productsWithSpecs = Number(specsRow?.products_with_specs ?? 0);
+          const totalMatches = Number(matchesRow?.total_matches ?? 0);
+          const confirmedMatches = Number(matchesRow?.confirmed_matches ?? 0);
+          const pendingMatches = Number(matchesRow?.pending_matches ?? 0);
+          const rejectedMatches = Number(matchesRow?.rejected_matches ?? 0);
 
           const pending = Math.max(0, totalProducts - productsWithMatches);
           const inProgress = Math.max(0, productsWithMatches - productsWithSpecs);
@@ -584,11 +624,12 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
             product_id: string;
             previous_level: string | null;
             new_level: string | null;
-            quality_score: string | null;
+            quality_score_after: string | null;
+            quality_score_before: string | null;
             trigger_reason: string | null;
             created_at: string;
           }>(
-            `SELECT id, event_type, product_id, previous_level, new_level, quality_score, trigger_reason, created_at
+            `SELECT id, event_type, product_id, previous_level, new_level, quality_score_after, quality_score_before, trigger_reason, created_at
                FROM prod_quality_events
               WHERE ($1::text IS NULL OR event_type = $1)
                 AND ($2::timestamptz IS NULL OR created_at >= $2)
@@ -617,7 +658,11 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
               productId: row.product_id,
               previousLevel: row.previous_level ?? undefined,
               newLevel: row.new_level ?? undefined,
-              qualityScore: row.quality_score ? Number(row.quality_score) : 0,
+              qualityScore: row.quality_score_after
+                ? Number(row.quality_score_after)
+                : row.quality_score_before
+                  ? Number(row.quality_score_before)
+                  : 0,
               triggerReason: row.trigger_reason ?? '',
               timestamp: row.created_at,
             })),
@@ -686,11 +731,12 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
               product_id: string;
               previous_level: string | null;
               new_level: string | null;
-              quality_score: string | null;
+              quality_score_after: string | null;
+              quality_score_before: string | null;
               trigger_reason: string | null;
               created_at: string;
             }>(
-              `SELECT id, event_type, product_id, previous_level, new_level, quality_score, trigger_reason, created_at
+              `SELECT id, event_type, product_id, previous_level, new_level, quality_score_after, quality_score_before, trigger_reason, created_at
                  FROM prod_quality_events
                 WHERE created_at > $1
                 ORDER BY created_at ASC
@@ -712,7 +758,11 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
               productId: row.product_id,
               previousLevel: row.previous_level ?? undefined,
               newLevel: row.new_level ?? undefined,
-              qualityScore: row.quality_score ? Number(row.quality_score) : 0,
+              qualityScore: row.quality_score_after
+                ? Number(row.quality_score_after)
+                : row.quality_score_before
+                  ? Number(row.quality_score_before)
+                  : 0,
               triggerReason: row.trigger_reason ?? '',
               timestamp: row.created_at,
             });

@@ -37,6 +37,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - public_net
+      - cerniq_public
       - neanelu_frontend_network
     labels:
       - traefik.enable=true
@@ -450,3 +451,6 @@ networks:
   neanelu_network:
     name: neanelu_network
     driver: bridge
+  # External network for Cerniq project routing
+  cerniq_public:
+    external: true

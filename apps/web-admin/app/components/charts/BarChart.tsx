@@ -49,8 +49,8 @@ export function BarChart<TData extends Record<string, unknown>>({
   const resolvedStackId = stacked ? 'stack' : undefined;
 
   return (
-    <div style={{ width: '100%', height }}>
-      <ResponsiveContainer>
+    <div style={{ width: '100%', height, minHeight: 1, minWidth: 1 }}>
+      <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
         <RechartsBarChart
           data={Array.from(data)}
           layout={layout}
