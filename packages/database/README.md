@@ -22,10 +22,8 @@ This package owns the PostgreSQL schema, migrations, and DB utilities.
 
 ## Environment
 
-- `DATABASE_URL_MIGRATE`: preferred connection string for migrations (DDL-capable role).
-- `DATABASE_URL`: runtime connection string (least privilege role).
-- `DB_POOL_SIZE`: runtime pool size.
-- `DB_POOL_SIZE_MIGRATE`: migration pool size (recommended 1).
+- `DATABASE_URL`: single connection string (owner) used for runtime and migrations.
+- `DB_POOL_SIZE`: pool size.
 
 ## Bootstrap roles
 

@@ -1,12 +1,13 @@
 import type { LoaderFunctionArgs } from 'react-router-dom';
 import { useLoaderData } from 'react-router-dom';
-import { DollarSign } from 'lucide-react';
+import { DollarSign, TrendingDown, TrendingUp } from 'lucide-react';
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { PageHeader } from '../components/layout/page-header';
 import { Button } from '../components/ui/button';
 import { BudgetAlertsPanel } from '../components/domain/BudgetAlertsPanel';
 import { CostBreakdownChart } from '../components/domain/CostBreakdownChart';
+import { ProviderComparisonTable } from '../components/domain/ProviderComparisonTable';
 import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
 
 interface CostTrackingResponse {
@@ -34,6 +35,9 @@ type RouteLoaderData = LoaderData<typeof loader>;
 
 export default function CostTrackingPage() {
   const { costs } = useLoaderData<RouteLoaderData>();
+  const trendValue = costs.costPerGolden.trend;
+  const trendDirection = trendValue >= 0 ? 'up' : 'down';
+  const trendLabel = `${Math.abs(trendValue).toFixed(1)}%`;
 
   return (
     <div className="space-y-6">
@@ -65,8 +69,26 @@ export default function CostTrackingPage() {
           <div className="mb-2 text-xs text-muted">Cost per Golden Record</div>
           <div className="text-h3">{costs.costPerGolden.current.toFixed(2)}</div>
           <div className="text-xs text-muted">Target: {costs.costPerGolden.target.toFixed(2)}</div>
+          <div
+            className={`mt-2 inline-flex items-center gap-1 text-xs ${
+              trendDirection === 'up' ? 'text-emerald-500' : 'text-red-500'
+            }`}
+          >
+            {trendDirection === 'up' ? (
+              <TrendingUp className="h-3 w-3" />
+            ) : (
+              <TrendingDown className="h-3 w-3" />
+            )}
+            {trendLabel} vs periodă anterioară
+          </div>
         </div>
       </div>
+
+      <ProviderComparisonTable
+        today={costs.today}
+        thisWeek={costs.thisWeek}
+        thisMonth={costs.thisMonth}
+      />
 
       <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-lg border border-muted/20 bg-background p-4">

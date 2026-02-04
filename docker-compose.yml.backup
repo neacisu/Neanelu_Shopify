@@ -25,7 +25,6 @@ services:
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
       - --entrypoints.websecure.address=:443
-      - --entrypoints.websecure.http.middlewares=hsts-header@docker
       - --certificatesresolvers.${TRAEFIK_CERT_RESOLVER:?TRAEFIK_CERT_RESOLVER is required}.acme.email=${TRAEFIK_ACME_EMAIL:?TRAEFIK_ACME_EMAIL is required}
       - --certificatesresolvers.${TRAEFIK_CERT_RESOLVER:?TRAEFIK_CERT_RESOLVER is required}.acme.storage=/letsencrypt/acme.json
       - --certificatesresolvers.${TRAEFIK_CERT_RESOLVER:?TRAEFIK_CERT_RESOLVER is required}.acme.httpchallenge=true
@@ -51,11 +50,6 @@ services:
       - traefik.http.middlewares.traefik-auth.basicauth.users=${TRAEFIK_DASHBOARD_USERS:?TRAEFIK_DASHBOARD_USERS is required}
       - traefik.http.middlewares.traefik-strip.stripprefix.prefixes=/traefik
       - traefik.http.middlewares.traefik-strip.stripprefix.forceSlash=false
-      # HSTS Security Headers (applies to all HTTPS traffic)
-      - traefik.http.middlewares.hsts-header.headers.stsSeconds=31536000
-      - traefik.http.middlewares.hsts-header.headers.stsIncludeSubdomains=true
-      - traefik.http.middlewares.hsts-header.headers.stsPreload=true
-      - traefik.http.middlewares.hsts-header.headers.forceSTSHeader=true
       - traefik.http.routers.traefik.middlewares=traefik-strip,traefik-auth
     healthcheck:
       test: ['CMD-SHELL', 'nc -z 127.0.0.1 80 && nc -z 127.0.0.1 443']

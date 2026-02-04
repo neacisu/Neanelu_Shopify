@@ -17,14 +17,14 @@ const { Pool } = pg;
 const MIGRATION_LOCK_ID = 12345;
 
 async function run(): Promise<void> {
-  const databaseUrl = process.env['DATABASE_URL_MIGRATE'] ?? process.env['DATABASE_URL'];
+  const databaseUrl = process.env['DATABASE_URL'];
   if (!databaseUrl) {
-    throw new Error('Missing DATABASE_URL_MIGRATE (preferred) or DATABASE_URL');
+    throw new Error('Missing DATABASE_URL');
   }
 
   const pool = new Pool({
     connectionString: databaseUrl,
-    max: Number(process.env['DB_POOL_SIZE_MIGRATE'] ?? 1),
+    max: Number(process.env['DB_POOL_SIZE'] ?? 1),
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
   });

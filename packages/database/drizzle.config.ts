@@ -24,10 +24,9 @@ export default defineConfig({
   // PostgreSQL dialect
   dialect: 'postgresql',
 
-  // Database connection - folosește DATABASE_URL_MIGRATE pentru migrații
-  // (rol app_migrator cu privilegii DDL)
+  // Database connection - folosește DATABASE_URL (owner)
   dbCredentials: {
-    url: process.env['DATABASE_URL_MIGRATE'] ?? process.env['DATABASE_URL'] ?? '',
+    url: process.env['DATABASE_URL'] ?? '',
   },
 
   // Verbose output pentru debugging

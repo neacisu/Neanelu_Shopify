@@ -6,7 +6,7 @@ let pool: pg.Pool | null = null;
 
 export function getDbPool(): pg.Pool {
   if (pool) return pool;
-  const connectionString = process.env['DATABASE_URL'] ?? process.env['DATABASE_URL_MIGRATE'] ?? '';
+  const connectionString = process.env['DATABASE_URL'] ?? '';
   if (!connectionString) {
     throw new Error('Missing DATABASE_URL');
   }

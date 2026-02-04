@@ -540,6 +540,13 @@
       "when": 1770082003000,
       "tag": "0076_openai_connection_status",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1770241782303,
+      "tag": "0077_add_quality_milestone_event",
+      "breakpoints": true
     }
   ]
 }
