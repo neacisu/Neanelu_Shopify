@@ -15,6 +15,7 @@ export type AppEnv = Readonly<{
   maxActivePerShop: number;
   maxGlobalConcurrency: number;
   starvationTimeoutMs: number;
+  enrichmentWorkerConcurrency: number;
 
   // ============================================
   // CONCURRENCY KNOBS (Plan F5.2.8)
@@ -318,6 +319,11 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
   );
 
   const maxGlobalConcurrency = parsePositiveIntWithDefault(env, 'MAX_GLOBAL_CONCURRENCY', 50);
+  const enrichmentWorkerConcurrency = parsePositiveIntWithDefault(
+    env,
+    'ENRICHMENT_WORKER_CONCURRENCY',
+    5
+  );
   const starvationTimeoutMs = parsePositiveIntWithDefault(env, 'STARVATION_TIMEOUT_MS', 60_000);
 
   // Plan F5.2.8: per-worker concurrency knobs (best-effort at runtime).
@@ -501,6 +507,7 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     maxActivePerShop,
     maxGlobalConcurrency,
     starvationTimeoutMs,
+    enrichmentWorkerConcurrency,
 
     maxConcurrentDownloads,
     maxConcurrentCopies,

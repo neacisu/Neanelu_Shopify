@@ -1,0 +1,219 @@
+import type { LoaderFunctionArgs } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useLoaderData, useSearchParams } from 'react-router-dom';
+import type { DateRange } from 'react-day-picker';
+import { AlertCircle, Trophy, TrendingDown, TrendingUp } from 'lucide-react';
+
+import { Breadcrumbs } from '../components/layout/breadcrumbs';
+import { PageHeader } from '../components/layout/page-header';
+import { Button } from '../components/ui/button';
+import { DateRangePicker } from '../components/ui/DateRangePicker';
+import { Timeline, type TimelineEvent } from '../components/ui/Timeline';
+import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
+import { toUtcIsoRange } from '../utils/date-range';
+import { useEnrichmentStream } from '../hooks/useEnrichmentStream';
+
+interface QualityEvent {
+  id: string;
+  eventType: 'quality_promoted' | 'quality_demoted' | 'review_requested' | 'milestone_reached';
+  productId: string;
+  previousLevel?: string;
+  newLevel?: string;
+  qualityScore: number;
+  triggerReason: string;
+  timestamp: string;
+}
+
+interface QualityEventsResponse {
+  events: QualityEvent[];
+  hasMore: boolean;
+  totalCount: number;
+}
+
+export const loader = apiLoader(async (_args: LoaderFunctionArgs) => {
+  const url = new URL(_args.request.url);
+  const params = new URLSearchParams();
+  const type = url.searchParams.get('type');
+  const from = url.searchParams.get('from');
+  const to = url.searchParams.get('to');
+  const q = url.searchParams.get('q');
+  params.set('limit', url.searchParams.get('limit') ?? '50');
+  if (type && type !== 'all') params.set('type', type);
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  if (q) params.set('q', q);
+  const api = createLoaderApiClient();
+  return {
+    events: await api.getApi<QualityEventsResponse>(`/pim/events/quality?${params.toString()}`),
+  };
+});
+
+type RouteLoaderData = LoaderData<typeof loader>;
+
+function parseRangeFromParams(searchParams: URLSearchParams): DateRange | undefined {
+  const from = searchParams.get('from');
+  const to = searchParams.get('to');
+  if (!from && !to) return undefined;
+  const fromDate = from ? new Date(from) : undefined;
+  const toDate = to ? new Date(to) : undefined;
+  if (fromDate && Number.isNaN(fromDate.getTime())) return undefined;
+  if (toDate && Number.isNaN(toDate.getTime())) return undefined;
+  return { from: fromDate, to: toDate };
+}
+
+const eventIcon = (type: QualityEvent['eventType']) => {
+  switch (type) {
+    case 'quality_promoted':
+      return <TrendingUp className="h-4 w-4" />;
+    case 'quality_demoted':
+      return <TrendingDown className="h-4 w-4" />;
+    case 'review_requested':
+      return <AlertCircle className="h-4 w-4" />;
+    case 'milestone_reached':
+      return <Trophy className="h-4 w-4" />;
+    default:
+      return null;
+  }
+};
+
+export default function QualityEventsPage() {
+  const { events } = useLoaderData<RouteLoaderData>();
+  const stream = useEnrichmentStream();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const timeZone =
+    typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC';
+  const [eventType, setEventType] = useState(searchParams.get('type') ?? 'all');
+  const [query, setQuery] = useState(searchParams.get('q') ?? '');
+  const [range, setRange] = useState<DateRange | undefined>(() =>
+    parseRangeFromParams(searchParams)
+  );
+
+  useEffect(() => {
+    setEventType(searchParams.get('type') ?? 'all');
+    setQuery(searchParams.get('q') ?? '');
+    setRange(parseRangeFromParams(searchParams));
+  }, [searchParams]);
+
+  const mergedEvents = [
+    ...stream.events.map((evt, index) => ({
+      id: `stream-${index}`,
+      eventType: (evt.payload['eventType'] as QualityEvent['eventType']) ?? 'review_requested',
+      productId: typeof evt.payload['productId'] === 'string' ? evt.payload['productId'] : '',
+      previousLevel:
+        typeof evt.payload['previousLevel'] === 'string' ? evt.payload['previousLevel'] : undefined,
+      newLevel: typeof evt.payload['newLevel'] === 'string' ? evt.payload['newLevel'] : undefined,
+      qualityScore: Number(evt.payload['qualityScore'] ?? 0),
+      triggerReason:
+        typeof evt.payload['triggerReason'] === 'string' ? evt.payload['triggerReason'] : '',
+      timestamp:
+        typeof evt.payload['timestamp'] === 'string'
+          ? evt.payload['timestamp']
+          : new Date().toISOString(),
+    })),
+    ...events.events,
+  ];
+
+  const timelineEvents: TimelineEvent[] = mergedEvents.map((evt) => ({
+    id: evt.id,
+    timestamp: evt.timestamp,
+    title: evt.eventType,
+    description: evt.triggerReason,
+    icon: eventIcon(evt.eventType),
+    status: evt.eventType === 'quality_demoted' ? 'error' : 'success',
+    metadata: {
+      productId: evt.productId,
+      previousLevel: evt.previousLevel,
+      newLevel: evt.newLevel,
+      qualityScore: evt.qualityScore,
+    },
+  }));
+
+  return (
+    <div className="space-y-6">
+      <Breadcrumbs
+        items={[
+          { label: 'Dashboard', href: '/' },
+          { label: 'PIM', href: '/pim/events' },
+          { label: 'Quality Events' },
+        ]}
+      />
+
+      <PageHeader
+        title="Quality Events Timeline"
+        description="Audit trail pentru promovări, demotări și review requests."
+      />
+
+      <div className="rounded-lg border border-muted/20 bg-background p-4">
+        <div className="grid gap-3 lg:grid-cols-[200px_1fr_1fr_auto]">
+          <div>
+            <label className="text-caption text-muted">Event type</label>
+            <select
+              className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
+              value={eventType}
+              onChange={(e) => setEventType((e.target as HTMLSelectElement).value)}
+            >
+              <option value="all">All</option>
+              <option value="quality_promoted">Promoted</option>
+              <option value="quality_demoted">Demoted</option>
+              <option value="review_requested">Review requested</option>
+              <option value="milestone_reached">Milestone</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-caption text-muted">Product search</label>
+            <input
+              className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
+              placeholder="Product ID"
+              value={query}
+              onChange={(e) => setQuery((e.target as HTMLInputElement).value)}
+            />
+          </div>
+          <DateRangePicker
+            label="Date range"
+            value={range}
+            timeZone={timeZone}
+            onChange={(next) => setRange(next)}
+          />
+          <div className="flex items-end gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                const params = new URLSearchParams(searchParams);
+                if (eventType && eventType !== 'all') params.set('type', eventType);
+                else params.delete('type');
+                if (query.trim()) params.set('q', query.trim());
+                else params.delete('q');
+                const isoRange = range ? toUtcIsoRange(range, timeZone) : null;
+                if (isoRange) {
+                  params.set('from', isoRange.fromUtcIso);
+                  params.set('to', isoRange.toUtcIso);
+                } else {
+                  params.delete('from');
+                  params.delete('to');
+                }
+                setSearchParams(params, { replace: true });
+              }}
+            >
+              Apply
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setEventType('all');
+                setQuery('');
+                setRange(undefined);
+                setSearchParams(new URLSearchParams(), { replace: true });
+              }}
+            >
+              Reset
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-muted/20 bg-background p-4">
+        <Timeline events={timelineEvents} maxHeight={640} />
+      </div>
+    </div>
+  );
+}

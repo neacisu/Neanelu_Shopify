@@ -28,6 +28,7 @@ import { shopSettingsRoutes } from '../routes/shop-settings.js';
 import { connectionStatusRoutes } from '../routes/connection-status.js';
 import { webhookSettingsRoutes } from '../routes/webhook-settings.js';
 import { queueSettingsRoutes } from '../routes/queue-settings.js';
+import { pimStatsRoutes } from '../routes/pim-stats.js';
 import { setRequestIdAttribute } from '@app/logger';
 import {
   httpActiveRequests,
@@ -269,6 +270,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await server.register(searchRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(productsRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(similarityMatchesRoutes, { prefix: '/api', env, logger, sessionConfig });
+  await server.register(pimStatsRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(aiSettingsRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(serperSettingsRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(xaiSettingsRoutes, { prefix: '/api', env, logger, sessionConfig });
@@ -286,6 +288,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await server.register(searchRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(productsRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(similarityMatchesRoutes, { prefix: '', env, logger, sessionConfig });
+  await server.register(pimStatsRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(aiSettingsRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(serperSettingsRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(xaiSettingsRoutes, { prefix: '', env, logger, sessionConfig });

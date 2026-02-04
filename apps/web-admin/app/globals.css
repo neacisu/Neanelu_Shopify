@@ -9,6 +9,10 @@
   --color-muted: 100 116 139;
   --color-foreground: 15 23 42;
   --color-background: 248 250 252;
+  --color-bronze: 205 127 50;
+  --color-silver: 192 192 192;
+  --color-golden: 255 215 0;
+  --color-review: 255 107 107;
 
   /* Radius */
   --radius-sm: 6px;

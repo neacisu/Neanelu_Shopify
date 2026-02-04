@@ -65,9 +65,16 @@ function getExtractionQueue(): ExtractionQueue {
   return extractionQueue;
 }
 
-export async function enqueueSimilaritySearchJob(params: { shopId: string; productId: string }) {
+export async function enqueueSimilaritySearchJob(params: {
+  shopId: string;
+  productId: string;
+  priority?: number;
+}) {
   const queue = getSimilaritySearchQueue();
-  const job = await queue.add(SIMILARITY_SEARCH_JOB, params);
+  const { priority, ...payload } = params;
+  const job = await queue.add(SIMILARITY_SEARCH_JOB, payload, {
+    ...(priority ? { priority } : {}),
+  });
   return job.id;
 }
 

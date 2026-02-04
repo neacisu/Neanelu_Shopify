@@ -1,0 +1,741 @@
+import type { AppEnv } from '@app/config';
+import type { Logger } from '@app/logger';
+import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
+import { withTenantContext } from '@app/database';
+import type { SessionConfig } from '../auth/session.js';
+import { requireSession } from '../auth/session.js';
+
+interface PimStatsPluginOptions {
+  env: AppEnv;
+  logger: Logger;
+  sessionConfig: SessionConfig;
+}
+
+interface RequestWithSession {
+  session?: {
+    shopId: string;
+  };
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function successEnvelope<T>(requestId: string, data: T) {
+  return {
+    success: true,
+    data,
+    meta: {
+      request_id: requestId,
+      timestamp: nowIso(),
+    },
+  } as const;
+}
+
+function errorEnvelope(requestId: string, status: number, code: string, message: string) {
+  return {
+    success: false,
+    error: {
+      code,
+      message,
+    },
+    meta: {
+      request_id: requestId,
+      timestamp: nowIso(),
+    },
+    status,
+  } as const;
+}
+
+function parseIntParam(value: unknown, fallback: number, min: number, max: number): number {
+  if (typeof value !== 'string' && typeof value !== 'number') return fallback;
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(n)));
+}
+
+function parseDateParam(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
+const DEFAULT_DAILY_BUDGET = 1000;
+const DEFAULT_BUDGET_ALERT_THRESHOLD = 0.8;
+
+export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
+  server: FastifyInstance,
+  options
+) => {
+  const { logger, sessionConfig } = options;
+
+  server.get(
+    '/pim/stats/enrichment-progress',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+
+      const query = request.query as { from?: string; to?: string };
+      const now = new Date();
+      const defaultTo = now.toISOString();
+      const defaultFrom = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000).toISOString();
+      const from = parseDateParam(query.from) ?? defaultFrom;
+      const to = parseDateParam(query.to) ?? defaultTo;
+
+      try {
+        const data = await withTenantContext(session.shopId, async (client) => {
+          const result = await client.query<{
+            total_products: string | null;
+            products_with_matches: string | null;
+            products_with_specs: string | null;
+            total_matches: string | null;
+            confirmed_matches: string | null;
+            pending_matches: string | null;
+            rejected_matches: string | null;
+          }>(
+            `SELECT
+               COALESCE(SUM(total_products), 0) as total_products,
+               COALESCE(SUM(products_with_matches), 0) as products_with_matches,
+               COALESCE(SUM(products_with_specs), 0) as products_with_specs,
+               COALESCE(SUM(total_matches), 0) as total_matches,
+               COALESCE(SUM(confirmed_matches), 0) as confirmed_matches,
+               COALESCE(SUM(pending_matches), 0) as pending_matches,
+               COALESCE(SUM(rejected_matches), 0) as rejected_matches
+             FROM mv_pim_enrichment_status`
+          );
+          const [trendResult, avgLatencyResult, sourcePerfResult] = await Promise.all([
+            client.query<{
+              day: string;
+              pending: string;
+              completed: string;
+            }>(
+              `WITH params AS (
+                 SELECT
+                   date_trunc('day', $1::timestamptz) as from_day,
+                   date_trunc('day', $2::timestamptz) as to_day
+               ),
+               days AS (
+                 SELECT generate_series(
+                   (SELECT from_day FROM params),
+                   (SELECT to_day FROM params),
+                   interval '1 day'
+                 )::date as day
+               ),
+               pending AS (
+                 SELECT DATE(created_at) as day, COUNT(*)::text as count
+                   FROM prod_similarity_matches
+                  WHERE match_confidence = 'pending'
+                    AND created_at >= $1
+                    AND created_at <= $2
+                  GROUP BY DATE(created_at)
+               ),
+               completed AS (
+                 SELECT DATE(created_at) as day, COUNT(*)::text as count
+                   FROM prod_extraction_sessions
+                  WHERE created_at >= $1
+                    AND created_at <= $2
+                  GROUP BY DATE(created_at)
+               )
+               SELECT
+                 days.day::text as day,
+                 COALESCE(pending.count, '0') as pending,
+                 COALESCE(completed.count, '0') as completed
+               FROM days
+               LEFT JOIN pending ON pending.day = days.day
+               LEFT JOIN completed ON completed.day = days.day
+               ORDER BY days.day ASC`,
+              [from, to]
+            ),
+            client.query<{ avg_latency_ms: string | null }>(
+              `SELECT AVG(latency_ms)::text as avg_latency_ms
+                 FROM prod_extraction_sessions
+                WHERE created_at >= $1
+                  AND created_at <= $2`,
+              [from, to]
+            ),
+            client.query<{
+              api_provider: string;
+              total_requests: string;
+              total_cost: string;
+              avg_latency_ms: string | null;
+              success_count: string;
+            }>(
+              `SELECT
+                 api_provider,
+                 COUNT(*)::text as total_requests,
+                 COALESCE(SUM(estimated_cost), 0)::text as total_cost,
+                 AVG(response_time_ms)::text as avg_latency_ms,
+                 COALESCE(SUM(CASE WHEN http_status < 400 THEN 1 ELSE 0 END), 0)::text as success_count
+               FROM api_usage_log
+              WHERE created_at >= $1
+                AND created_at <= $2
+              GROUP BY api_provider`,
+              [from, to]
+            ),
+          ]);
+          const row = result.rows[0];
+          const totalProducts = Number(row?.total_products ?? 0);
+          const productsWithMatches = Number(row?.products_with_matches ?? 0);
+          const productsWithSpecs = Number(row?.products_with_specs ?? 0);
+          const totalMatches = Number(row?.total_matches ?? 0);
+          const confirmedMatches = Number(row?.confirmed_matches ?? 0);
+          const pendingMatches = Number(row?.pending_matches ?? 0);
+          const rejectedMatches = Number(row?.rejected_matches ?? 0);
+
+          const pending = Math.max(0, totalProducts - productsWithMatches);
+          const inProgress = Math.max(0, productsWithMatches - productsWithSpecs);
+          const successRate = totalMatches ? confirmedMatches / totalMatches : 0;
+          const avgLatencyMs = Number(avgLatencyResult.rows[0]?.avg_latency_ms ?? 0);
+          const avgProcessingTime = avgLatencyMs ? avgLatencyMs / 60000 : 0;
+          const trendPoints = trendResult.rows.map((trend) => ({
+            date: trend.day,
+            pending: Number(trend.pending ?? 0),
+            completed: Number(trend.completed ?? 0),
+          }));
+          const sourcePerformance = sourcePerfResult.rows.map((row) => {
+            const totalRequests = Number(row.total_requests ?? 0);
+            const successCount = Number(row.success_count ?? 0);
+            return {
+              provider: row.api_provider,
+              totalRequests,
+              totalCost: Number(row.total_cost ?? 0),
+              avgLatencyMs: Number(row.avg_latency_ms ?? 0),
+              successRate: totalRequests ? successCount / totalRequests : 0,
+            };
+          });
+
+          return {
+            pending,
+            inProgress,
+            completedToday: productsWithSpecs,
+            completedThisWeek: productsWithSpecs,
+            successRate,
+            avgProcessingTime,
+            pipelineStages: [
+              { id: 'pending', name: 'Pending', count: pending, status: 'active', avgDuration: 0 },
+              {
+                id: 'search',
+                name: 'Search',
+                count: productsWithMatches,
+                status: 'active',
+                avgDuration: 0,
+              },
+              {
+                id: 'ai-audit',
+                name: 'AI Audit',
+                count: pendingMatches,
+                status: pendingMatches > 0 ? 'active' : 'idle',
+                avgDuration: 0,
+              },
+              {
+                id: 'extraction',
+                name: 'Extraction',
+                count: productsWithSpecs,
+                status: productsWithSpecs > 0 ? 'active' : 'idle',
+                avgDuration: 0,
+              },
+              {
+                id: 'complete',
+                name: 'Complete',
+                count: confirmedMatches,
+                status: 'active',
+                avgDuration: 0,
+              },
+            ],
+            trendPoints,
+            trendsData: {
+              pending: trendPoints.map((point) => point.pending),
+              completed: trendPoints.map((point) => point.completed),
+            },
+            sourcePerformance,
+            totals: {
+              totalProducts,
+              productsWithMatches,
+              productsWithSpecs,
+              totalMatches,
+              confirmedMatches,
+              pendingMatches,
+              rejectedMatches,
+            },
+          };
+        });
+
+        return reply.send(successEnvelope(request.id, data));
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to load enrichment progress');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(
+              request.id,
+              500,
+              'INTERNAL_SERVER_ERROR',
+              'Failed to load enrichment progress'
+            )
+          );
+      }
+    }
+  );
+
+  server.get(
+    '/pim/stats/quality-distribution',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+
+      try {
+        const data = await withTenantContext(session.shopId, async (client) => {
+          const result = await client.query<{
+            data_quality_level: string | null;
+            product_count: string | null;
+            percentage: string | null;
+          }>(
+            `SELECT data_quality_level, product_count, percentage
+               FROM mv_pim_quality_progress`
+          );
+
+          const totals = new Map<string, { count: number; percentage: number }>();
+          for (const row of result.rows) {
+            if (!row.data_quality_level) continue;
+            totals.set(row.data_quality_level, {
+              count: Number(row.product_count ?? 0),
+              percentage: Number(row.percentage ?? 0),
+            });
+          }
+
+          const bronze = totals.get('bronze') ?? { count: 0, percentage: 0 };
+          const silver = totals.get('silver') ?? { count: 0, percentage: 0 };
+          const golden = totals.get('golden') ?? { count: 0, percentage: 0 };
+          const review = totals.get('review_needed') ?? { count: 0, percentage: 0 };
+          const total = bronze.count + silver.count + golden.count + review.count;
+
+          return {
+            bronze,
+            silver,
+            golden,
+            review,
+            total,
+            trend: [],
+          };
+        });
+
+        return reply.send(successEnvelope(request.id, data));
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to load quality distribution');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(
+              request.id,
+              500,
+              'INTERNAL_SERVER_ERROR',
+              'Failed to load quality distribution'
+            )
+          );
+      }
+    }
+  );
+
+  server.get(
+    '/pim/stats/cost-tracking',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+
+      try {
+        const data = await withTenantContext(session.shopId, async (client) => {
+          const [daily, weekly, monthly] = await Promise.all([
+            client.query<{ serper: string; xai: string }>(
+              `SELECT
+                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'serper'), 0) as serper,
+                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'xai'), 0) as xai
+               FROM api_usage_log
+              WHERE created_at >= date_trunc('day', now())
+                AND created_at < date_trunc('day', now()) + interval '1 day'`
+            ),
+            client.query<{ serper: string; xai: string }>(
+              `SELECT
+                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'serper'), 0) as serper,
+                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'xai'), 0) as xai
+               FROM api_usage_log
+              WHERE created_at >= date_trunc('week', now())
+                AND created_at < date_trunc('week', now()) + interval '7 days'`
+            ),
+            client.query<{ serper: string; xai: string }>(
+              `SELECT
+                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'serper'), 0) as serper,
+                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'xai'), 0) as xai
+               FROM api_usage_log
+              WHERE created_at >= date_trunc('month', now())
+                AND created_at < date_trunc('month', now()) + interval '1 month'`
+            ),
+          ]);
+          const lastMonth = await client.query<{ serper: string; xai: string }>(
+            `SELECT
+               COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'serper'), 0) as serper,
+               COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'xai'), 0) as xai
+             FROM api_usage_log
+            WHERE created_at >= date_trunc('month', now()) - interval '1 month'
+              AND created_at < date_trunc('month', now())`
+          );
+
+          const settings = await client.query<{
+            serper_daily_budget: number | null;
+            serper_budget_alert_threshold: number | null;
+            xai_daily_budget: number | null;
+            xai_budget_alert_threshold: number | null;
+          }>(
+            `SELECT
+               serper_daily_budget,
+               serper_budget_alert_threshold,
+               xai_daily_budget,
+               xai_budget_alert_threshold
+             FROM shop_ai_credentials
+            WHERE shop_id = $1`,
+            [session.shopId]
+          );
+          const settingsRow = settings.rows[0];
+          const serperBudget = settingsRow?.serper_daily_budget ?? DEFAULT_DAILY_BUDGET;
+          const xaiBudget = settingsRow?.xai_daily_budget ?? DEFAULT_DAILY_BUDGET;
+          const serperAlert =
+            settingsRow?.serper_budget_alert_threshold ?? DEFAULT_BUDGET_ALERT_THRESHOLD;
+          const xaiAlert =
+            settingsRow?.xai_budget_alert_threshold ?? DEFAULT_BUDGET_ALERT_THRESHOLD;
+
+          const todaySerper = Number(daily.rows[0]?.serper ?? 0);
+          const todayXai = Number(daily.rows[0]?.xai ?? 0);
+          const thisWeekSerper = Number(weekly.rows[0]?.serper ?? 0);
+          const thisWeekXai = Number(weekly.rows[0]?.xai ?? 0);
+          const thisMonthSerper = Number(monthly.rows[0]?.serper ?? 0);
+          const thisMonthXai = Number(monthly.rows[0]?.xai ?? 0);
+          const lastMonthSerper = Number(lastMonth.rows[0]?.serper ?? 0);
+          const lastMonthXai = Number(lastMonth.rows[0]?.xai ?? 0);
+
+          const dailyTotal = todaySerper + todayXai;
+          const dailyBudgetTotal = serperBudget + xaiBudget;
+          const dailyPercentage = dailyBudgetTotal ? dailyTotal / dailyBudgetTotal : 0;
+          const status =
+            dailyPercentage >= 1
+              ? 'critical'
+              : dailyPercentage >= Math.min(serperAlert, xaiAlert)
+                ? 'warning'
+                : 'ok';
+
+          const [goldenCurrent, goldenPrevious] = await Promise.all([
+            client.query<{ count: string }>(
+              `SELECT COUNT(*)::text as count
+                 FROM prod_quality_events
+                WHERE event_type = 'quality_promoted'
+                  AND new_level = 'golden'
+                  AND created_at >= date_trunc('month', now())
+                  AND created_at < date_trunc('month', now()) + interval '1 month'`
+            ),
+            client.query<{ count: string }>(
+              `SELECT COUNT(*)::text as count
+                 FROM prod_quality_events
+                WHERE event_type = 'quality_promoted'
+                  AND new_level = 'golden'
+                  AND created_at >= date_trunc('month', now()) - interval '1 month'
+                  AND created_at < date_trunc('month', now())`
+            ),
+          ]);
+          const goldenCount = Number(goldenCurrent.rows[0]?.count ?? 0);
+          const goldenPrevCount = Number(goldenPrevious.rows[0]?.count ?? 0);
+          const costPerGolden = goldenCount ? (thisMonthSerper + thisMonthXai) / goldenCount : 0;
+          const previousCostPerGolden = goldenPrevCount
+            ? (lastMonthSerper + lastMonthXai) / goldenPrevCount
+            : 0;
+          const trend = previousCostPerGolden
+            ? (costPerGolden - previousCostPerGolden) / previousCostPerGolden
+            : 0;
+
+          const breakdown = await client.query<{
+            date: string;
+            operation_type: string;
+            total_cost: string;
+          }>(
+            `SELECT
+               DATE(created_at) as date,
+               CASE
+                 WHEN api_provider = 'serper' THEN 'search'
+                 WHEN api_provider = 'xai' AND endpoint = 'ai-audit' THEN 'audit'
+                 WHEN api_provider = 'xai' AND endpoint = 'extract-product' THEN 'extraction'
+                 ELSE 'other'
+               END as operation_type,
+               SUM(estimated_cost) as total_cost
+             FROM api_usage_log
+            WHERE created_at >= now() - interval '14 days'
+            GROUP BY DATE(created_at), operation_type
+            ORDER BY DATE(created_at) ASC`
+          );
+
+          const breakdownMap = new Map<
+            string,
+            { search: number; audit: number; extraction: number }
+          >();
+          for (const row of breakdown.rows) {
+            if (row.operation_type === 'other') continue;
+            const entry = breakdownMap.get(row.date) ?? { search: 0, audit: 0, extraction: 0 };
+            if (row.operation_type === 'search') entry.search = Number(row.total_cost ?? 0);
+            if (row.operation_type === 'audit') entry.audit = Number(row.total_cost ?? 0);
+            if (row.operation_type === 'extraction') entry.extraction = Number(row.total_cost ?? 0);
+            breakdownMap.set(row.date, entry);
+          }
+
+          return {
+            today: { serper: todaySerper, xai: todayXai, total: dailyTotal },
+            thisWeek: {
+              serper: thisWeekSerper,
+              xai: thisWeekXai,
+              total: thisWeekSerper + thisWeekXai,
+            },
+            thisMonth: {
+              serper: thisMonthSerper,
+              xai: thisMonthXai,
+              total: thisMonthSerper + thisMonthXai,
+            },
+            budget: {
+              daily: dailyBudgetTotal,
+              used: dailyTotal,
+              percentage: dailyPercentage,
+              status,
+            },
+            costPerGolden: {
+              current: costPerGolden,
+              target: previousCostPerGolden,
+              trend,
+            },
+            breakdown: Array.from(breakdownMap.entries()).map(([date, entry]) => ({
+              date,
+              search: entry.search,
+              audit: entry.audit,
+              extraction: entry.extraction,
+            })),
+          };
+        });
+
+        return reply.send(successEnvelope(request.id, data));
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to load cost tracking');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(request.id, 500, 'INTERNAL_SERVER_ERROR', 'Failed to load cost tracking')
+          );
+      }
+    }
+  );
+
+  server.get(
+    '/pim/events/quality',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+
+      const query = request.query as {
+        limit?: string;
+        offset?: string;
+        type?: string;
+        from?: string;
+        to?: string;
+        q?: string;
+      };
+      const limit = parseIntParam(query.limit, 50, 1, 200);
+      const offset = parseIntParam(query.offset, 0, 0, 10_000);
+      const eventType = typeof query.type === 'string' ? query.type : null;
+      const from = parseDateParam(query.from);
+      const to = parseDateParam(query.to);
+      const search = typeof query.q === 'string' ? query.q : null;
+
+      try {
+        const data = await withTenantContext(session.shopId, async (client) => {
+          const result = await client.query<{
+            id: string;
+            event_type: string;
+            product_id: string;
+            previous_level: string | null;
+            new_level: string | null;
+            quality_score: string | null;
+            trigger_reason: string | null;
+            created_at: string;
+          }>(
+            `SELECT id, event_type, product_id, previous_level, new_level, quality_score, trigger_reason, created_at
+               FROM prod_quality_events
+              WHERE ($1::text IS NULL OR event_type = $1)
+                AND ($2::timestamptz IS NULL OR created_at >= $2)
+                AND ($3::timestamptz IS NULL OR created_at <= $3)
+                AND ($4::text IS NULL OR product_id::text ILIKE '%' || $4 || '%')
+              ORDER BY created_at DESC
+              LIMIT $5 OFFSET $6`,
+            [eventType, from, to, search, limit, offset]
+          );
+
+          const totalCountResult = await client.query<{ count: string }>(
+            `SELECT COUNT(*)::text as count
+               FROM prod_quality_events
+              WHERE ($1::text IS NULL OR event_type = $1)
+                AND ($2::timestamptz IS NULL OR created_at >= $2)
+                AND ($3::timestamptz IS NULL OR created_at <= $3)
+                AND ($4::text IS NULL OR product_id::text ILIKE '%' || $4 || '%')`,
+            [eventType, from, to, search]
+          );
+          const totalCount = Number(totalCountResult.rows[0]?.count ?? 0);
+
+          return {
+            events: result.rows.map((row) => ({
+              id: row.id,
+              eventType: row.event_type,
+              productId: row.product_id,
+              previousLevel: row.previous_level ?? undefined,
+              newLevel: row.new_level ?? undefined,
+              qualityScore: row.quality_score ? Number(row.quality_score) : 0,
+              triggerReason: row.trigger_reason ?? '',
+              timestamp: row.created_at,
+            })),
+            hasMore: offset + limit < totalCount,
+            totalCount,
+          };
+        });
+
+        return reply.send(successEnvelope(request.id, data));
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to load quality events');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(request.id, 500, 'INTERNAL_SERVER_ERROR', 'Failed to load quality events')
+          );
+      }
+    }
+  );
+
+  server.get(
+    '/pim/events/stream',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+
+      void reply.header('Content-Type', 'text/event-stream');
+      void reply.header('Cache-Control', 'no-cache, no-transform');
+      void reply.header('X-Accel-Buffering', 'no');
+
+      reply.raw.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'X-Accel-Buffering': 'no',
+      });
+
+      reply.raw.write(': connected\n\n');
+
+      let closed = false;
+      let lastSeenAt = new Date(Date.now() - 60_000).toISOString();
+
+      const sendEvent = (event: string, data: unknown) => {
+        if (closed) return;
+        reply.raw.write(`event: ${event}\n`);
+        reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+      };
+
+      const sendKeepAlive = () => {
+        if (closed) return;
+        reply.raw.write(`: ping ${Date.now()}\n\n`);
+      };
+
+      const pollEvents = async () => {
+        try {
+          const data = await withTenantContext(session.shopId, async (client) => {
+            const result = await client.query<{
+              id: string;
+              event_type: string;
+              product_id: string;
+              previous_level: string | null;
+              new_level: string | null;
+              quality_score: string | null;
+              trigger_reason: string | null;
+              created_at: string;
+            }>(
+              `SELECT id, event_type, product_id, previous_level, new_level, quality_score, trigger_reason, created_at
+                 FROM prod_quality_events
+                WHERE created_at > $1
+                ORDER BY created_at ASC
+                LIMIT 100`,
+              [lastSeenAt]
+            );
+
+            return result.rows;
+          });
+
+          if (data.length) {
+            lastSeenAt = data[data.length - 1]?.created_at ?? lastSeenAt;
+          }
+
+          for (const row of data) {
+            sendEvent('quality.event', {
+              id: row.id,
+              eventType: row.event_type,
+              productId: row.product_id,
+              previousLevel: row.previous_level ?? undefined,
+              newLevel: row.new_level ?? undefined,
+              qualityScore: row.quality_score ? Number(row.quality_score) : 0,
+              triggerReason: row.trigger_reason ?? '',
+              timestamp: row.created_at,
+            });
+          }
+        } catch (error) {
+          logger.warn({ error }, 'quality events stream poll failed');
+        }
+      };
+
+      void pollEvents();
+
+      const interval = setInterval(() => {
+        void pollEvents();
+        sendKeepAlive();
+      }, 15_000);
+
+      request.raw.on('close', () => {
+        closed = true;
+        clearInterval(interval);
+      });
+
+      reply.hijack();
+    }
+  );
+  return Promise.resolve();
+};

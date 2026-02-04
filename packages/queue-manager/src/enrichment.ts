@@ -8,6 +8,7 @@ type EnrichmentJobPayload = Readonly<{
   productIds: string[];
   triggeredBy: BulkJobTriggeredBy;
   requestedAt: number;
+  priority?: 1 | 2 | 3;
 }>;
 
 import {
@@ -94,17 +95,20 @@ export async function enqueueEnrichmentJob(
       'queue.group.id': normalizedShopId,
       'shop.id': normalizedShopId,
       'enrichment.product_count': payload.productIds.length,
+      'enrichment.priority': payload.priority ?? 3,
     },
   });
 
   try {
     await otelContext.with(trace.setSpan(otelContext.active(), span), async () => {
+      const bullmqPriority = (payload.priority ?? 3) * 10;
       await queue.add(
         ENRICHMENT_JOB_NAME,
         { ...payload, shopId: normalizedShopId },
         {
           jobId: `pim-enrichment__${normalizedShopId}__${payload.requestedAt}`,
-          group: { id: normalizedShopId, priority: 10 },
+          group: { id: normalizedShopId, priority: bullmqPriority },
+          priority: bullmqPriority,
           ...(telemetry ? { telemetry } : {}),
         }
       );

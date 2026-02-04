@@ -14,3 +14,6 @@ export * from './xai-credentials.js';
 export * from './xai-rate-limiter.js';
 export * from './xai-cost-tracker.js';
 export * from './xai-extractor.js';
+export * from './enrichment-dedup.js';
+export * from './enrichment-priority.js';
+export * from './enrichment-orchestrator.js';

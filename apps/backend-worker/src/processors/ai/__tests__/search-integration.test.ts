@@ -150,6 +150,7 @@ const env = {
   serperHealthCheckIntervalSeconds: 3600,
   openAiHealthCheckIntervalSeconds: 3600,
   xaiHealthCheckIntervalSeconds: 3600,
+  enrichmentWorkerConcurrency: 5,
   bulkPimSyncEnabled: true,
   bulkSemanticDedupEnabled: true,
   bulkConsensusEnabled: true,

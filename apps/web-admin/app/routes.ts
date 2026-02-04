@@ -25,6 +25,12 @@ import ProductEditPage, { action as productEditAction } from './routes/app.produ
 import ProductsImportPage from './routes/app.products.import';
 import ProductsReviewPage from './routes/app.products.review';
 import SimilarityMatchesPage from './routes/app.similarity-matches';
+import EnrichmentDashboardPage, {
+  loader as enrichmentDashboardLoader,
+} from './routes/app.pim.enrichment';
+import QualityProgressPage, { loader as qualityProgressLoader } from './routes/app.pim.quality';
+import CostTrackingPage, { loader as costTrackingLoader } from './routes/app.pim.costs';
+import QualityEventsPage, { loader as qualityEventsLoader } from './routes/app.pim.events';
 import SettingsLayout from './routes/settings';
 import SettingsIndex from './routes/settings._index';
 import SettingsGeneral from './routes/settings.general';
@@ -135,6 +141,34 @@ export const routes: RouteObject[] = [
         path: 'similarity-matches',
         handle: { title: 'Similarity Matches' },
         element: createElement(SimilarityMatchesPage),
+      },
+      {
+        id: 'pim-enrichment',
+        path: 'pim/enrichment',
+        loader: enrichmentDashboardLoader,
+        handle: { title: 'PIM - Enrichment' },
+        element: createElement(EnrichmentDashboardPage),
+      },
+      {
+        id: 'pim-quality',
+        path: 'pim/quality',
+        loader: qualityProgressLoader,
+        handle: { title: 'PIM - Quality Progress' },
+        element: createElement(QualityProgressPage),
+      },
+      {
+        id: 'pim-costs',
+        path: 'pim/costs',
+        loader: costTrackingLoader,
+        handle: { title: 'PIM - Cost Tracking' },
+        element: createElement(CostTrackingPage),
+      },
+      {
+        id: 'pim-events',
+        path: 'pim/events',
+        loader: qualityEventsLoader,
+        handle: { title: 'PIM - Quality Events' },
+        element: createElement(QualityEventsPage),
       },
       {
         id: 'settings',

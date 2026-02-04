@@ -50,6 +50,10 @@ export function AppShell({
       { to: '/ingestion', label: 'Ingestion', icon: Workflow },
       { to: '/search', label: 'Search', icon: Search },
       { to: '/products', label: 'Products', icon: Package },
+      { to: '/pim/enrichment', label: 'PIM - Enrichment', icon: Workflow },
+      { to: '/pim/quality', label: 'PIM - Quality', icon: LayoutDashboard },
+      { to: '/pim/costs', label: 'PIM - Costs', icon: Cpu },
+      { to: '/pim/events', label: 'PIM - Events', icon: Search },
       { to: '/products/review', label: 'Review Queue', icon: Workflow },
       {
         to: '/similarity-matches',
