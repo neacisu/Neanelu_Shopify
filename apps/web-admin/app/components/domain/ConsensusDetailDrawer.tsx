@@ -47,6 +47,7 @@ type ConsensusDetailDrawerProps = Readonly<{
   isOpen: boolean;
   onClose: () => void;
   onRecompute?: () => void;
+  isRecomputing?: boolean;
   onExport?: () => void;
   onViewProduct?: () => void;
   onResolveConflict?: (attributeName: string, value: unknown) => void;
@@ -81,6 +82,7 @@ export function ConsensusDetailDrawer({
   isOpen,
   onClose,
   onRecompute,
+  isRecomputing,
   onExport,
   onViewProduct,
   onResolveConflict,
@@ -179,8 +181,13 @@ export function ConsensusDetailDrawer({
             <Button size="sm" variant="ghost" onClick={onClose}>
               Close
             </Button>
-            <Button size="sm" variant="secondary" onClick={onRecompute} disabled={!onRecompute}>
-              Recompute
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={onRecompute}
+              disabled={!onRecompute || isRecomputing}
+            >
+              {isRecomputing ? 'Recompute...' : 'Recompute'}
             </Button>
             <Button size="sm" variant="ghost" onClick={onExport} disabled={!onExport}>
               Export

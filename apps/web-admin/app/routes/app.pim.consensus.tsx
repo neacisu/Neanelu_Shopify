@@ -10,6 +10,7 @@ import { ConsensusProductsTable } from '../components/domain/ConsensusProductsTa
 import { ConsensusSourcesChart } from '../components/domain/ConsensusSourcesChart';
 import { ConsensusDetailDrawer } from '../components/domain/ConsensusDetailDrawer';
 import { DonutChart } from '../components/charts/DonutChart';
+import { toast } from 'sonner';
 import { useConsensusStats } from '../hooks/use-consensus-stats';
 import { useConsensusProducts } from '../hooks/use-consensus-products';
 import { useConsensusStream } from '../hooks/use-consensus-stream';
@@ -20,6 +21,7 @@ export default function PimConsensusPage() {
   const [tab, setTab] = useState<'all' | 'pending' | 'conflicts'>('all');
   const [selected, setSelected] = useState<ConsensusProductItem | null>(null);
   const [detail, setDetail] = useState<ConsensusDetail | null>(null);
+  const [recomputing, setRecomputing] = useState(false);
   const statsQuery = useConsensusStats();
   const productsQuery = useConsensusProducts();
   const stream = useConsensusStream();
@@ -28,14 +30,13 @@ export default function PimConsensusPage() {
   const [searchParams] = useSearchParams();
 
   const products = productsQuery.data?.items ?? [];
-  const sourcesChartData = useMemo(
-    () =>
-      products.map((item) => ({
-        source: item.title,
-        trustScore: item.qualityScore ?? 0,
-      })),
-    [products]
-  );
+  const sourcesChartData = useMemo(() => {
+    if (!detail) return [];
+    return detail.sources.map((source) => ({
+      source: source.sourceName,
+      trustScore: source.trustScore,
+    }));
+  }, [detail]);
 
   const conflictDistribution = useMemo(() => {
     const stats = statsQuery.data;
@@ -50,8 +51,11 @@ export default function PimConsensusPage() {
 
   useEffect(() => {
     void statsQuery.run();
-    void productsQuery.run();
-  }, [statsQuery, productsQuery]);
+  }, [statsQuery]);
+
+  useEffect(() => {
+    void productsQuery.run({ status: tab });
+  }, [productsQuery, tab]);
 
   useEffect(() => {
     const productId = searchParams.get('productId');
@@ -70,7 +74,10 @@ export default function PimConsensusPage() {
     void api
       .getApi<ConsensusDetail>(`/products/${selected.productId}/consensus/details`)
       .then((data) => setDetail(data))
-      .catch(() => setDetail(null));
+      .catch((error) => {
+        setDetail(null);
+        toast.error(error instanceof Error ? error.message : 'Nu pot încărca detaliile consensus.');
+      });
   }, [api, selected]);
 
   const handleSelect = (item: ConsensusProductItem) => {
@@ -104,7 +111,14 @@ export default function PimConsensusPage() {
           <div className="mb-2 text-xs text-muted">Real-time consensus events</div>
           <div className="max-h-64 space-y-2 overflow-y-auto text-xs text-muted">
             {stream.events.slice(0, 10).map((event, idx) => (
-              <div key={`${event.type}-${idx}`}>{event.type}</div>
+              <div key={`${event.type}-${idx}`} className="flex flex-col gap-1">
+                <span className="font-medium text-foreground">{event.type}</span>
+                {event.payload ? (
+                  <span className="text-[11px] text-muted">
+                    {JSON.stringify(event.payload).slice(0, 120)}
+                  </span>
+                ) : null}
+              </div>
             ))}
             {stream.events.length === 0 ? <div>No events yet.</div> : null}
           </div>
@@ -145,11 +159,27 @@ export default function PimConsensusPage() {
           isOpen={Boolean(selected)}
           onClose={() => setSelected(null)}
           onRecompute={() =>
-            void api.postApi(`/products/${selected.productId}/consensus`, {}).then(() => {
-              void statsQuery.run();
-              void productsQuery.run();
-            })
+            (() => {
+              setRecomputing(true);
+              void api
+                .postApi(`/products/${selected.productId}/consensus`, {})
+                .then(() => {
+                  void statsQuery.run();
+                  void productsQuery.run({ status: tab });
+                  return api.getApi<ConsensusDetail>(
+                    `/products/${selected.productId}/consensus/details`
+                  );
+                })
+                .then((data) => setDetail(data))
+                .catch((error) => {
+                  toast.error(
+                    error instanceof Error ? error.message : 'Recompute eșuat pentru consensus.'
+                  );
+                })
+                .finally(() => setRecomputing(false));
+            })()
           }
+          isRecomputing={recomputing}
           onExport={() => {
             void api
               .getJson<unknown>(`/products/${selected.productId}/consensus/export`)
@@ -166,7 +196,7 @@ export default function PimConsensusPage() {
               });
           }}
           onViewProduct={() => void navigate(`/products/${selected.productId}`)}
-          onResolveConflict={(attributeName, value) => {
+          onResolveConflict={(attributeName: string, value: unknown) => {
             void api
               .postApi(`/products/${selected.productId}/conflicts/${attributeName}/resolve`, {
                 value,

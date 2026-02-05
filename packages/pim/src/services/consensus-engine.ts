@@ -32,6 +32,23 @@ function voteWeight(vote: AttributeVote): number {
   return vote.trustScore * vote.similarityScore;
 }
 
+function parseNumericValue(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === 'string') {
+    const cleaned = value.replace(/[^0-9.-]/g, '');
+    if (!cleaned.trim()) return null;
+    const parsed = Number.parseFloat(cleaned);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function isNumericValue(value: unknown): boolean {
+  return parseNumericValue(value) !== null;
+}
+
 export function groupSpecsByAttribute(matches: MatchWithSource[]): Map<string, AttributeVote[]> {
   const grouped = new Map<string, AttributeVote[]>();
   for (const match of matches) {
@@ -54,7 +71,89 @@ export function groupSpecsByAttribute(matches: MatchWithSource[]): Map<string, A
   return grouped;
 }
 
-export function computeWinner(
+function computeNumericWinner(
+  attributeName: string,
+  votes: AttributeVote[],
+  options: { minVotes: number; conflictThreshold: number }
+): { winner: AttributeVote | null; conflict: ConflictItem | null } {
+  const numericVotes = votes
+    .map((vote) => {
+      const numericValue = parseNumericValue(vote.value);
+      return numericValue === null ? null : { vote, numericValue };
+    })
+    .filter((entry): entry is { vote: AttributeVote; numericValue: number } => Boolean(entry));
+
+  if (numericVotes.length < options.minVotes) {
+    return {
+      winner: null,
+      conflict: {
+        attributeName,
+        values: votes,
+        weightDifference: 0,
+        requiresHumanReview: true,
+        reason: 'insufficient_sources',
+        autoResolveDisabled: true,
+      },
+    };
+  }
+
+  let weightedSum = 0;
+  let totalWeight = 0;
+  for (const entry of numericVotes) {
+    const weight = voteWeight(entry.vote);
+    weightedSum += entry.numericValue * weight;
+    totalWeight += weight;
+  }
+
+  if (totalWeight <= 0) {
+    return {
+      winner: null,
+      conflict: {
+        attributeName,
+        values: votes,
+        weightDifference: 0,
+        requiresHumanReview: true,
+        reason: 'zero_weight',
+        autoResolveDisabled: true,
+      },
+    };
+  }
+
+  const averageValue = weightedSum / totalWeight;
+  const sortedByWeight = [...numericVotes].sort((a, b) => voteWeight(b.vote) - voteWeight(a.vote));
+  const top = sortedByWeight[0]?.vote ?? null;
+  const runner = sortedByWeight[1]?.vote ?? null;
+  const topWeight = top ? voteWeight(top) : 0;
+  const runnerWeight = runner ? voteWeight(runner) : 0;
+  const weightDifference = topWeight - runnerWeight;
+
+  const maxAbsDiff = Math.max(
+    ...numericVotes.map((entry) => Math.abs(entry.numericValue - averageValue))
+  );
+  const denominator = Math.max(Math.abs(averageValue), 1);
+  const diffRatio = maxAbsDiff / denominator;
+
+  if (diffRatio > options.conflictThreshold) {
+    return {
+      winner: top ? { ...top, value: averageValue } : null,
+      conflict: {
+        attributeName,
+        values: votes,
+        weightDifference,
+        requiresHumanReview: true,
+        reason: 'numeric_spread',
+        autoResolveDisabled: true,
+      },
+    };
+  }
+
+  return {
+    winner: top ? { ...top, value: averageValue } : null,
+    conflict: null,
+  };
+}
+
+function computeCategoricWinner(
   attributeName: string,
   votes: AttributeVote[],
   options: { minVotes: number; conflictThreshold: number }
@@ -68,6 +167,7 @@ export function computeWinner(
         weightDifference: 0,
         requiresHumanReview: true,
         reason: 'no_votes',
+        autoResolveDisabled: true,
       },
     };
   }
@@ -95,6 +195,7 @@ export function computeWinner(
         weightDifference: 0,
         requiresHumanReview: true,
         reason: 'insufficient_sources',
+        autoResolveDisabled: true,
       },
     };
   }
@@ -113,11 +214,24 @@ export function computeWinner(
         weightDifference,
         requiresHumanReview: true,
         reason: 'close_vote',
+        autoResolveDisabled: true,
       },
     };
   }
 
   return { winner: top.votes[0] ?? null, conflict: null };
+}
+
+export function computeWinner(
+  attributeName: string,
+  votes: AttributeVote[],
+  options: { minVotes: number; conflictThreshold: number }
+): { winner: AttributeVote | null; conflict: ConflictItem | null } {
+  const hasOnlyNumeric = votes.length > 0 && votes.every((vote) => isNumericValue(vote.value));
+  if (hasOnlyNumeric) {
+    return computeNumericWinner(attributeName, votes, options);
+  }
+  return computeCategoricWinner(attributeName, votes, options);
 }
 
 export function detectConflicts(attributeVotes: Map<string, AttributeVote[]>): ConflictItem[] {
@@ -139,20 +253,23 @@ export async function checkManualCorrections(params: {
   productId: string;
 }): Promise<Set<string>> {
   const { client, productId } = params;
-  const masterResult = await client.query<{
-    needs_review: boolean;
-    review_notes: string | null;
-  }>('SELECT needs_review, review_notes FROM prod_master WHERE id = $1 LIMIT 1', [productId]);
-  const master = masterResult.rows[0];
-  if (!master?.needs_review || !master.review_notes) {
-    return new Set();
-  }
-  const specsResult = await client.query<{ specs: Record<string, unknown> }>(
-    'SELECT specs FROM prod_specs_normalized WHERE product_id = $1 AND is_current = true LIMIT 1',
+  const provenanceResult = await client.query<{
+    provenance: Record<string, { manuallyEdited?: boolean }> | null;
+  }>(
+    'SELECT provenance FROM prod_specs_normalized WHERE product_id = $1 AND is_current = true LIMIT 1',
     [productId]
   );
-  const specs = specsResult.rows[0]?.specs ?? {};
-  return new Set(Object.keys(specs));
+  const provenance = provenanceResult.rows[0]?.provenance;
+  if (!provenance || typeof provenance !== 'object') {
+    return new Set();
+  }
+  const manualFields = new Set<string>();
+  for (const [field, meta] of Object.entries(provenance)) {
+    if (meta && typeof meta === 'object' && meta.manuallyEdited === true) {
+      manualFields.add(field);
+    }
+  }
+  return manualFields;
 }
 
 export async function mergeWithExistingSpecs(params: {
@@ -200,11 +317,22 @@ export async function computeConsensus(params: {
     const isCritical = CONSENSUS_CONFIG.CRITICAL_FIELDS.includes(
       attributeName as (typeof CONSENSUS_CONFIG.CRITICAL_FIELDS)[number]
     );
+    if (isCritical && votes.length < CONSENSUS_CONFIG.MIN_VOTES) {
+      conflicts.push({
+        attributeName,
+        values: votes,
+        weightDifference: 0,
+        requiresHumanReview: true,
+        reason: 'single_source_critical_field',
+        autoResolveDisabled: true,
+      });
+      continue;
+    }
     const result = computeWinner(attributeName, votes, {
       minVotes: isCritical ? CONSENSUS_CONFIG.MIN_VOTES : 1,
       conflictThreshold: CONSENSUS_CONFIG.CONFLICT_THRESHOLD,
     });
-    if (result.winner) {
+    if (result.winner && !result.conflict) {
       consensusSpecs[attributeName] = result.winner.value;
       provenance[attributeName] = {
         attributeName,

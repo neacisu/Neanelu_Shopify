@@ -2,7 +2,7 @@ import type { Logger } from '@app/logger';
 import { loadEnv } from '@app/config';
 import { configFromEnv, createWorker, withJobTelemetryContext } from '@app/queue-manager';
 import { withTenantContext } from '@app/database';
-import { computeConsensus, mergeWithExistingSpecs } from '@app/pim';
+import { computeConsensus, mergeWithExistingSpecs, CONSENSUS_CONFIG } from '@app/pim';
 import {
   CONSENSUS_JOB_BATCH,
   CONSENSUS_JOB_RECOMPUTE,
@@ -42,7 +42,7 @@ type ConsensuResult = Readonly<{
   qualityScore: number;
   qualityBreakdown: Record<string, unknown>;
   sourceCount: number;
-  conflicts: unknown[];
+  conflicts: Readonly<{ attributeName: string; autoResolveDisabled?: boolean }>[];
   needsReview: boolean;
   skippedDueToManualCorrection: string[];
 }>;
@@ -117,11 +117,39 @@ export function startConsensusWorker(logger: Logger): ConsensusWorkerHandle {
 async function processSingleConsensus(payload: ConsensusJobPayload, logger: Logger): Promise<void> {
   await withTenantContext(payload.shopId, async (client) => {
     const result = await computeConsensusSafe({ client, productId: payload.productId });
+    const blockedAttributes = new Set(
+      result.conflicts
+        .filter((conflict) => conflict.autoResolveDisabled)
+        .map((conflict) => conflict.attributeName)
+    );
+    const filteredConsensusSpecs = Object.fromEntries(
+      Object.entries(result.consensusSpecs).filter(([key]) => !blockedAttributes.has(key))
+    );
+    const filteredProvenance = Object.fromEntries(
+      Object.entries(result.provenance).filter(([key]) => !blockedAttributes.has(key))
+    );
+
+    const criticalConflicts = result.conflicts.filter(
+      (conflict) =>
+        conflict.autoResolveDisabled &&
+        CONSENSUS_CONFIG.CRITICAL_FIELDS.includes(
+          conflict.attributeName as (typeof CONSENSUS_CONFIG.CRITICAL_FIELDS)[number]
+        )
+    );
+    if (criticalConflicts.length > 0) {
+      logger.warn(
+        {
+          productId: payload.productId,
+          conflicts: criticalConflicts.map((conflict) => conflict.attributeName),
+        },
+        'Critical fields blocked from consensus due to conflicts'
+      );
+    }
     const merged = await mergeWithExistingSpecsSafe({
       client: client as DbClient,
       productId: payload.productId,
-      consensusSpecs: result.consensusSpecs,
-      provenance: result.provenance,
+      consensusSpecs: filteredConsensusSpecs,
+      provenance: filteredProvenance,
     });
 
     const needsReview = result.needsReview;
@@ -141,7 +169,7 @@ async function processSingleConsensus(payload: ConsensusJobPayload, logger: Logg
       client,
       productId: payload.productId,
       specs: merged.merged,
-      provenance: result.provenance,
+      provenance: filteredProvenance,
       needsReview,
       reviewReason,
     });

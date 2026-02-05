@@ -13,6 +13,11 @@ export function useConsensusProducts() {
       search.set('status', params.status);
     }
     const suffix = search.toString() ? `?${search.toString()}` : '';
-    return api.getApi<{ items: ConsensusProductItem[] }>(`/pim/consensus/products${suffix}`);
+    return api.getApi<{
+      items: ConsensusProductItem[];
+      total: number;
+      page: number;
+      limit: number;
+    }>(`/pim/consensus/products${suffix}`);
   });
 }

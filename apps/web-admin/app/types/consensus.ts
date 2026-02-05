@@ -22,6 +22,7 @@ export type ConflictDetails = Readonly<{
   weightDifference: number;
   requiresHumanReview: boolean;
   reason: string;
+  autoResolveDisabled: boolean;
   values: readonly {
     value: unknown;
     sourceName: string;

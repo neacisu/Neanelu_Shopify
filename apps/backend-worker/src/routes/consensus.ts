@@ -38,6 +38,7 @@ type ConsensusConflict = Readonly<{
   weightDifference: number;
   requiresHumanReview: boolean;
   reason: string;
+  autoResolveDisabled: boolean;
   values: Readonly<{
     value: unknown;
     sourceName: string;
@@ -145,6 +146,7 @@ async function buildConsensusDetails(params: { client: DbClient; productId: stri
     weightDifference: conflict.weightDifference,
     requiresHumanReview: conflict.requiresHumanReview,
     reason: conflict.reason,
+    autoResolveDisabled: conflict.autoResolveDisabled,
     values: conflict.values.map((vote) => ({
       value: vote.value,
       sourceName: vote.sourceName,
@@ -339,64 +341,107 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
           .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'missing_value'));
       }
 
-      await withTenantContext(session.shopId, async (client) => {
-        const current = await client.query<{ specs: Record<string, unknown>; provenance: unknown }>(
-          `SELECT specs, provenance
+      try {
+        await withTenantContext(session.shopId, async (client) => {
+          const consensus = await computeConsensusSafe({ client, productId });
+          const targetConflict = consensus.conflicts.find(
+            (conflict) => conflict.attributeName === field
+          );
+          if (!targetConflict) {
+            throw new Error(`no_conflict_for_field:${field}`);
+          }
+          const conflictValues = new Set(
+            targetConflict.values.map((vote) => JSON.stringify(vote.value ?? null))
+          );
+          if (!conflictValues.has(JSON.stringify(body.value ?? null))) {
+            throw new Error(`invalid_conflict_value:${field}`);
+          }
+
+          const current = await client.query<{
+            specs: Record<string, unknown>;
+            provenance: unknown;
+          }>(
+            `SELECT specs, provenance
+             FROM prod_specs_normalized
+            WHERE product_id = $1
+              AND is_current = true
+            LIMIT 1`,
+            [productId]
+          );
+          const currentSpecs = current.rows[0]?.specs ?? {};
+          const currentProvenance =
+            current.rows[0]?.provenance && typeof current.rows[0]?.provenance === 'object'
+              ? (current.rows[0]?.provenance as Record<string, Record<string, unknown>>)
+              : {};
+          const nextSpecs = { ...currentSpecs, [field]: body.value };
+          const existingProvenance = currentProvenance[field] ?? {};
+          const nextProvenance = {
+            ...currentProvenance,
+            [field]: {
+              ...(typeof existingProvenance === 'object' && existingProvenance !== null
+                ? existingProvenance
+                : {}),
+              manuallyEdited: true,
+              resolvedAt: new Date().toISOString(),
+            },
+          };
+
+          const versionRes = await client.query<{ id: string; version: number }>(
+            `SELECT id, version
            FROM prod_specs_normalized
           WHERE product_id = $1
             AND is_current = true
           LIMIT 1`,
-          [productId]
-        );
-        const currentSpecs = current.rows[0]?.specs ?? {};
-        const currentProvenance = current.rows[0]?.provenance ?? {};
-        const nextSpecs = { ...currentSpecs, [field]: body.value };
-        const nextProvenance = currentProvenance;
+            [productId]
+          );
+          const currentId = versionRes.rows[0]?.id ?? null;
+          const currentVersion = Number(versionRes.rows[0]?.version ?? 0);
+          const nextVersion = currentVersion > 0 ? currentVersion + 1 : 1;
 
-        const versionRes = await client.query<{ id: string; version: number }>(
-          `SELECT id, version
-           FROM prod_specs_normalized
-          WHERE product_id = $1
-            AND is_current = true
-          LIMIT 1`,
-          [productId]
-        );
-        const currentId = versionRes.rows[0]?.id ?? null;
-        const currentVersion = Number(versionRes.rows[0]?.version ?? 0);
-        const nextVersion = currentVersion > 0 ? currentVersion + 1 : 1;
-
-        if (currentId) {
-          await client.query(
-            `UPDATE prod_specs_normalized
+          if (currentId) {
+            await client.query(
+              `UPDATE prod_specs_normalized
               SET is_current = false, updated_at = now()
             WHERE id = $1`,
-            [currentId]
-          );
-        }
+              [currentId]
+            );
+          }
 
-        await client.query(
-          `INSERT INTO prod_specs_normalized (
-           product_id,
-           specs,
-           raw_specs,
-           provenance,
-           version,
-           is_current,
-           needs_review,
-           review_reason,
-           created_at,
-           updated_at
-         )
-         VALUES ($1, $2::jsonb, NULL, $3::jsonb, $4, true, false, $5, now(), now())`,
-          [
-            productId,
-            JSON.stringify(nextSpecs),
-            JSON.stringify(nextProvenance),
-            nextVersion,
-            'manual_resolution',
-          ]
-        );
-      });
+          await client.query(
+            `INSERT INTO prod_specs_normalized (
+             product_id,
+             specs,
+             raw_specs,
+             provenance,
+             version,
+             is_current,
+             needs_review,
+             review_reason,
+             created_at,
+             updated_at
+           )
+           VALUES ($1, $2::jsonb, NULL, $3::jsonb, $4, true, false, $5, now(), now())`,
+            [
+              productId,
+              JSON.stringify(nextSpecs),
+              JSON.stringify(nextProvenance),
+              nextVersion,
+              'manual_resolution',
+            ]
+          );
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'conflict_resolution_failed';
+        if (message.startsWith('no_conflict_for_field')) {
+          return reply.status(400).send(errorEnvelope(request.id, 400, 'BAD_REQUEST', message));
+        }
+        if (message.startsWith('invalid_conflict_value')) {
+          return reply.status(400).send(errorEnvelope(request.id, 400, 'BAD_REQUEST', message));
+        }
+        return reply
+          .status(500)
+          .send(errorEnvelope(request.id, 500, 'INTERNAL_ERROR', 'resolve_failed'));
+      }
 
       return reply.send(successEnvelope(request.id, { resolved: true }));
     }
@@ -495,9 +540,11 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
         .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
     }
 
-    const status = String(
-      (request.query as { status?: string | null }).status ?? 'all'
-    ).toLowerCase();
+    const query = request.query as { status?: string | null; page?: string; limit?: string };
+    const status = String(query.status ?? 'all').toLowerCase();
+    const page = Number(query.page ?? '1');
+    const limit = Math.min(Math.max(Number(query.limit ?? '50'), 1), 200);
+    const offset = (Number.isFinite(page) && page > 0 ? page - 1 : 0) * limit;
 
     const items = await withTenantContext(session.shopId, async (client) => {
       const rows = await client.query<{
@@ -508,6 +555,7 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
         conflicts_count: string | null;
         last_computed_at: string | null;
         consensus_status: string;
+        total_count: string;
       }>(
         `WITH source_counts AS (
            SELECT product_id, COUNT(*)::text as source_count
@@ -554,14 +602,15 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
            LEFT JOIN conflicts cf ON cf.product_id = pm.id
            WHERE sc.product_id IS NOT NULL OR cs.product_id IS NOT NULL
          )
-         SELECT *
-           FROM base
-          WHERE ($1 = 'all' OR consensus_status = $1)
-          ORDER BY last_computed_at DESC NULLS LAST, source_count::int DESC, title ASC`,
-        [status]
+        SELECT *, COUNT(*) OVER()::text as total_count
+          FROM base
+         WHERE ($1 = 'all' OR consensus_status = $1)
+         ORDER BY last_computed_at DESC NULLS LAST, source_count::int DESC, title ASC
+         LIMIT $2 OFFSET $3`,
+        [status, limit, offset]
       );
 
-      return rows.rows.map((row) => ({
+      const mapped = rows.rows.map((row) => ({
         productId: row.product_id,
         title: row.title ?? 'Untitled product',
         sourceCount: Number(row.source_count ?? 0),
@@ -574,9 +623,17 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
         conflictsCount: Number(row.conflicts_count ?? 0),
         lastComputedAt: row.last_computed_at,
       }));
+      const total = rows.rows[0]?.total_count ? Number(rows.rows[0].total_count) : 0;
+
+      return {
+        items: mapped,
+        total,
+        page,
+        limit,
+      };
     });
 
-    return reply.send(successEnvelope(request.id, { items }));
+    return reply.send(successEnvelope(request.id, items));
   });
 
   fastify.get('/pim/consensus/stream', requireAdminSession, async (request, reply) => {

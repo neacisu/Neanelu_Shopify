@@ -30,6 +30,7 @@ export type ConflictItem = Readonly<{
   weightDifference: number;
   requiresHumanReview: boolean;
   reason: string;
+  autoResolveDisabled: boolean;
 }>;
 
 export type QualityBreakdown = Readonly<{

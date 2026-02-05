@@ -103,6 +103,7 @@ void mock.module('@app/pim', {
             weightDifference: 0.1,
             requiresHumanReview: true,
             reason: 'Close match',
+            autoResolveDisabled: true,
             values: [
               {
                 value: 'red',
