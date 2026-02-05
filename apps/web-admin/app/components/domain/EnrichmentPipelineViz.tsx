@@ -5,7 +5,7 @@ export type PipelineStage = Readonly<{
   name: string;
   count: number;
   status: 'idle' | 'active' | 'bottleneck';
-  avgDuration: number;
+  avgDuration: number | null;
 }>;
 
 export type EnrichmentPipelineVizProps = Readonly<{
@@ -53,7 +53,7 @@ export function EnrichmentPipelineViz({ stages }: EnrichmentPipelineVizProps) {
               <div className="text-xs font-medium uppercase tracking-wide">{stage.name}</div>
               <div className="text-h5">{stage.count}</div>
               <div className="text-[11px] opacity-80">
-                Avg: {stage.avgDuration ? `${stage.avgDuration}m` : 'n/a'}
+                Avg: {stage.avgDuration != null ? `${stage.avgDuration}m` : 'n/a'}
               </div>
             </div>
           </div>

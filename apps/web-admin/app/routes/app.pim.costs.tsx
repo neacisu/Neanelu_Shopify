@@ -18,10 +18,13 @@ interface CostTrackingResponse {
     daily: number;
     used: number;
     percentage: number;
-    status: 'ok' | 'warning' | 'critical';
-  };
-  costPerGolden: { current: number; target: number; trend: number };
+    status: 'ok' | 'warning' | 'critical' | null;
+    warningThreshold: number | null;
+    criticalThreshold: number | null;
+  } | null;
+  costPerGolden: { current: number | null; target: number | null; trend: number | null };
   breakdown: { date: string; search: number; audit: number; extraction: number }[];
+  breakdownRange: { from: string; to: string } | null;
 }
 
 export const loader = apiLoader(async (_args: LoaderFunctionArgs) => {
@@ -36,8 +39,8 @@ type RouteLoaderData = LoaderData<typeof loader>;
 export default function CostTrackingPage() {
   const { costs } = useLoaderData<RouteLoaderData>();
   const trendValue = costs.costPerGolden.trend;
-  const trendDirection = trendValue >= 0 ? 'up' : 'down';
-  const trendLabel = `${Math.abs(trendValue).toFixed(1)}%`;
+  const trendDirection = trendValue != null && trendValue >= 0 ? 'up' : 'down';
+  const trendLabel = trendValue != null ? `${Math.abs(trendValue).toFixed(1)}%` : null;
 
   return (
     <div className="space-y-6">
@@ -67,20 +70,29 @@ export default function CostTrackingPage() {
 
         <div className="rounded-lg border border-muted/20 bg-background p-4">
           <div className="mb-2 text-xs text-muted">Cost per Golden Record</div>
-          <div className="text-h3">{costs.costPerGolden.current.toFixed(2)}</div>
-          <div className="text-xs text-muted">Target: {costs.costPerGolden.target.toFixed(2)}</div>
-          <div
-            className={`mt-2 inline-flex items-center gap-1 text-xs ${
-              trendDirection === 'up' ? 'text-emerald-500' : 'text-red-500'
-            }`}
-          >
-            {trendDirection === 'up' ? (
-              <TrendingUp className="h-3 w-3" />
-            ) : (
-              <TrendingDown className="h-3 w-3" />
-            )}
-            {trendLabel} vs periodă anterioară
+          <div className="text-h3">
+            {costs.costPerGolden.current != null ? costs.costPerGolden.current.toFixed(2) : 'N/A'}
           </div>
+          <div className="text-xs text-muted">
+            Target:{' '}
+            {costs.costPerGolden.target != null ? costs.costPerGolden.target.toFixed(2) : 'N/A'}
+          </div>
+          {trendLabel ? (
+            <div
+              className={`mt-2 inline-flex items-center gap-1 text-xs ${
+                trendDirection === 'up' ? 'text-emerald-500' : 'text-red-500'
+              }`}
+            >
+              {trendDirection === 'up' ? (
+                <TrendingUp className="h-3 w-3" />
+              ) : (
+                <TrendingDown className="h-3 w-3" />
+              )}
+              {trendLabel} vs periodă anterioară
+            </div>
+          ) : (
+            <div className="mt-2 text-xs text-muted">Trend indisponibil</div>
+          )}
         </div>
       </div>
 

@@ -61,9 +61,6 @@ function parseDateParam(value: unknown): string | null {
   return parsed.toISOString();
 }
 
-const DEFAULT_DAILY_BUDGET = 1000;
-const DEFAULT_BUDGET_ALERT_THRESHOLD = 0.8;
-
 export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
   server: FastifyInstance,
   options
@@ -84,21 +81,53 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
       }
 
       const query = request.query as { from?: string; to?: string };
-      const now = new Date();
-      const defaultTo = now.toISOString();
-      const defaultFrom = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000).toISOString();
-      const from = parseDateParam(query.from) ?? defaultFrom;
-      const to = parseDateParam(query.to) ?? defaultTo;
+      const parsedFrom = parseDateParam(query.from);
+      const parsedTo = parseDateParam(query.to);
 
       try {
         const data = await withTenantContext(session.shopId, async (client) => {
+          const rangeResult = await client.query<{
+            min_date: string | null;
+            max_date: string | null;
+          }>(
+            `SELECT
+               MIN(created_at)::timestamptz as min_date,
+               MAX(created_at)::timestamptz as max_date
+             FROM (
+               SELECT psm.created_at
+                 FROM prod_similarity_matches psm
+                 JOIN prod_channel_mappings pcm
+                   ON pcm.product_id = psm.product_id
+                  AND pcm.shop_id = $1
+                  AND pcm.channel = 'shopify'
+               UNION ALL
+               SELECT psn.created_at
+                 FROM prod_specs_normalized psn
+                 JOIN prod_channel_mappings pcm
+                   ON pcm.product_id = psn.product_id
+                  AND pcm.shop_id = $1
+                  AND pcm.channel = 'shopify'
+               UNION ALL
+               SELECT aul.created_at
+                 FROM api_usage_log aul
+                WHERE aul.shop_id = $1
+             ) as dates`,
+            [session.shopId]
+          );
+          const rangeRow = rangeResult.rows[0];
+          const nowIso = new Date().toISOString();
+          const from = parsedFrom ?? rangeRow?.min_date ?? nowIso;
+          const to = parsedTo ?? rangeRow?.max_date ?? nowIso;
           const [
             totalsResult,
             matchesResult,
             specsResult,
+            completedTodayResult,
+            completedWeekResult,
             trendResult,
             avgLatencyResult,
             sourcePerfResult,
+            stageDurationResult,
           ] = await Promise.all([
             client.query<{ total_products: string }>(
               `SELECT COUNT(DISTINCT pcm.product_id)::text as total_products
@@ -135,6 +164,30 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
                     AND pcm.shop_id = $1
                     AND pcm.channel = 'shopify'
                   WHERE pes.is_current = true`,
+              [session.shopId]
+            ),
+            client.query<{ completed_today: string }>(
+              `SELECT COUNT(DISTINCT pes.product_id)::text as completed_today
+                 FROM prod_specs_normalized pes
+                 JOIN prod_channel_mappings pcm
+                   ON pcm.product_id = pes.product_id
+                  AND pcm.shop_id = $1
+                  AND pcm.channel = 'shopify'
+                WHERE pes.is_current = true
+                  AND pes.created_at >= date_trunc('day', now())
+                  AND pes.created_at < date_trunc('day', now()) + interval '1 day'`,
+              [session.shopId]
+            ),
+            client.query<{ completed_week: string }>(
+              `SELECT COUNT(DISTINCT pes.product_id)::text as completed_week
+                 FROM prod_specs_normalized pes
+                 JOIN prod_channel_mappings pcm
+                   ON pcm.product_id = pes.product_id
+                  AND pcm.shop_id = $1
+                  AND pcm.channel = 'shopify'
+                WHERE pes.is_current = true
+                  AND pes.created_at >= date_trunc('week', now())
+                  AND pes.created_at < date_trunc('week', now()) + interval '7 days'`,
               [session.shopId]
             ),
             client.query<{
@@ -218,6 +271,15 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
               GROUP BY api_provider`,
               [from, to, session.shopId]
             ),
+            client.query<{ api_provider: string; endpoint: string | null; avg_ms: string | null }>(
+              `SELECT api_provider, endpoint, AVG(response_time_ms)::text as avg_ms
+                 FROM api_usage_log
+                WHERE shop_id = $3
+                  AND created_at >= $1
+                  AND created_at <= $2
+                GROUP BY api_provider, endpoint`,
+              [from, to, session.shopId]
+            ),
           ]);
           const totalsRow = totalsResult.rows[0];
           const matchesRow = matchesResult.rows[0];
@@ -234,7 +296,30 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
           const inProgress = Math.max(0, productsWithMatches - productsWithSpecs);
           const successRate = totalMatches ? confirmedMatches / totalMatches : 0;
           const avgLatencyMs = Number(avgLatencyResult.rows[0]?.avg_latency_ms ?? 0);
-          const avgProcessingTime = avgLatencyMs ? avgLatencyMs / 60000 : 0;
+          const avgProcessingTime = avgLatencyMs ? avgLatencyMs / 60000 : null;
+          const completedToday = Number(completedTodayResult.rows[0]?.completed_today ?? 0);
+          const completedThisWeek = Number(completedWeekResult.rows[0]?.completed_week ?? 0);
+          const stageDurations = new Map<string, number>();
+          for (const row of stageDurationResult.rows) {
+            if (row.api_provider === 'serper') {
+              const value = Number(row.avg_ms ?? 0);
+              if (value) stageDurations.set('search', value / 60000);
+              continue;
+            }
+            if (row.api_provider === 'xai' && row.endpoint === 'ai-audit') {
+              const value = Number(row.avg_ms ?? 0);
+              if (value) stageDurations.set('ai-audit', value / 60000);
+              continue;
+            }
+            if (row.api_provider === 'xai' && row.endpoint === 'extract-product') {
+              const value = Number(row.avg_ms ?? 0);
+              if (value) stageDurations.set('extraction', value / 60000);
+            }
+          }
+          const stageAvg = (key: string) => {
+            const value = stageDurations.get(key);
+            return value ? Math.round(value * 10) / 10 : null;
+          };
           const trendPoints = trendResult.rows.map((trend) => ({
             date: trend.day,
             pending: Number(trend.pending ?? 0),
@@ -255,39 +340,45 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
           return {
             pending,
             inProgress,
-            completedToday: productsWithSpecs,
-            completedThisWeek: productsWithSpecs,
+            completedToday,
+            completedThisWeek,
             successRate,
             avgProcessingTime,
             pipelineStages: [
-              { id: 'pending', name: 'Pending', count: pending, status: 'active', avgDuration: 0 },
+              {
+                id: 'pending',
+                name: 'Pending',
+                count: pending,
+                status: pending > 0 ? 'active' : 'idle',
+                avgDuration: null,
+              },
               {
                 id: 'search',
                 name: 'Search',
                 count: productsWithMatches,
-                status: 'active',
-                avgDuration: 0,
+                status: productsWithMatches > 0 ? 'active' : 'idle',
+                avgDuration: stageAvg('search'),
               },
               {
                 id: 'ai-audit',
                 name: 'AI Audit',
                 count: pendingMatches,
                 status: pendingMatches > 0 ? 'active' : 'idle',
-                avgDuration: 0,
+                avgDuration: stageAvg('ai-audit'),
               },
               {
                 id: 'extraction',
                 name: 'Extraction',
                 count: productsWithSpecs,
                 status: productsWithSpecs > 0 ? 'active' : 'idle',
-                avgDuration: 0,
+                avgDuration: stageAvg('extraction'),
               },
               {
                 id: 'complete',
                 name: 'Complete',
                 count: confirmedMatches,
-                status: 'active',
-                avgDuration: 0,
+                status: confirmedMatches > 0 ? 'active' : 'idle',
+                avgDuration: null,
               },
             ],
             trendPoints,
@@ -295,6 +386,7 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
               pending: trendPoints.map((point) => point.pending),
               completed: trendPoints.map((point) => point.completed),
             },
+            trendRange: rangeRow?.min_date && rangeRow?.max_date ? { from, to } : null,
             sourcePerformance,
             totals: {
               totalProducts,
@@ -338,6 +430,10 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
           .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
       }
 
+      const query = request.query as { from?: string; to?: string };
+      const from = parseDateParam(query.from);
+      const to = parseDateParam(query.to);
+
       try {
         const data = await withTenantContext(session.shopId, async (client) => {
           const result = await client.query<{
@@ -348,6 +444,80 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
             `SELECT data_quality_level, product_count, percentage
                FROM mv_pim_quality_progress`
           );
+          const rangeResult = await client.query<{
+            min_date: string | null;
+            max_date: string | null;
+          }>(
+            `SELECT
+               MIN(qe.created_at)::timestamptz as min_date,
+               MAX(qe.created_at)::timestamptz as max_date
+             FROM prod_quality_events qe
+             JOIN prod_channel_mappings pcm
+               ON pcm.product_id = qe.product_id
+              AND pcm.shop_id = $1
+              AND pcm.channel = 'shopify'`,
+            [session.shopId]
+          );
+          const rangeRow = rangeResult.rows[0];
+          const rangeFrom = from ?? rangeRow?.min_date ?? null;
+          const rangeTo = to ?? rangeRow?.max_date ?? null;
+          const trend: {
+            date: string;
+            bronze: number;
+            silver: number;
+            golden: number;
+            review: number;
+          }[] =
+            rangeFrom && rangeTo
+              ? (
+                  await client.query<{
+                    day: string;
+                    bronze: string | null;
+                    silver: string | null;
+                    golden: string | null;
+                    review: string | null;
+                  }>(
+                    `WITH days AS (
+                       SELECT generate_series(
+                         date_trunc('day', $1::timestamptz),
+                         date_trunc('day', $2::timestamptz),
+                         interval '1 day'
+                       )::date as day
+                     ),
+                     agg AS (
+                       SELECT
+                         DATE(qe.created_at) as day,
+                         qe.new_level,
+                         COUNT(*)::text as count
+                       FROM prod_quality_events qe
+                       JOIN prod_channel_mappings pcm
+                         ON pcm.product_id = qe.product_id
+                        AND pcm.shop_id = $3
+                        AND pcm.channel = 'shopify'
+                       WHERE qe.created_at >= $1
+                         AND qe.created_at <= $2
+                       GROUP BY DATE(qe.created_at), qe.new_level
+                     )
+                     SELECT
+                       days.day::text as day,
+                       COALESCE(MAX(agg.count) FILTER (WHERE agg.new_level = 'bronze'), '0') as bronze,
+                       COALESCE(MAX(agg.count) FILTER (WHERE agg.new_level = 'silver'), '0') as silver,
+                       COALESCE(MAX(agg.count) FILTER (WHERE agg.new_level = 'golden'), '0') as golden,
+                       COALESCE(MAX(agg.count) FILTER (WHERE agg.new_level = 'review_needed'), '0') as review
+                     FROM days
+                     LEFT JOIN agg ON agg.day = days.day
+                     GROUP BY days.day
+                     ORDER BY days.day ASC`,
+                    [rangeFrom, rangeTo, session.shopId]
+                  )
+                ).rows.map((row) => ({
+                  date: row.day,
+                  bronze: Number(row.bronze ?? 0),
+                  silver: Number(row.silver ?? 0),
+                  golden: Number(row.golden ?? 0),
+                  review: Number(row.review ?? 0),
+                }))
+              : [];
 
           const totals = new Map<string, { count: number; percentage: number }>();
           for (const row of result.rows) {
@@ -370,7 +540,8 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
             golden,
             review,
             total,
-            trend: [],
+            trend,
+            trendRange: rangeFrom && rangeTo ? { from: rangeFrom, to: rangeTo } : null,
           };
         });
 
@@ -403,6 +574,10 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
           .status(401)
           .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
       }
+
+      const query = request.query as { from?: string; to?: string };
+      const from = parseDateParam(query.from);
+      const to = parseDateParam(query.to);
 
       try {
         const data = await withTenantContext(session.shopId, async (client) => {
@@ -457,12 +632,10 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
             [session.shopId]
           );
           const settingsRow = settings.rows[0];
-          const serperBudget = settingsRow?.serper_daily_budget ?? DEFAULT_DAILY_BUDGET;
-          const xaiBudget = settingsRow?.xai_daily_budget ?? DEFAULT_DAILY_BUDGET;
-          const serperAlert =
-            settingsRow?.serper_budget_alert_threshold ?? DEFAULT_BUDGET_ALERT_THRESHOLD;
-          const xaiAlert =
-            settingsRow?.xai_budget_alert_threshold ?? DEFAULT_BUDGET_ALERT_THRESHOLD;
+          const serperBudget = settingsRow?.serper_daily_budget ?? null;
+          const xaiBudget = settingsRow?.xai_daily_budget ?? null;
+          const serperAlert = settingsRow?.serper_budget_alert_threshold ?? null;
+          const xaiAlert = settingsRow?.xai_budget_alert_threshold ?? null;
 
           const todaySerper = Number(daily.rows[0]?.serper ?? 0);
           const todayXai = Number(daily.rows[0]?.xai ?? 0);
@@ -474,14 +647,20 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
           const lastMonthXai = Number(lastMonth.rows[0]?.xai ?? 0);
 
           const dailyTotal = todaySerper + todayXai;
-          const dailyBudgetTotal = serperBudget + xaiBudget;
-          const dailyPercentage = dailyBudgetTotal ? dailyTotal / dailyBudgetTotal : 0;
+          const hasBudget =
+            serperBudget != null && xaiBudget != null && serperAlert != null && xaiAlert != null;
+          const dailyBudgetTotal = hasBudget ? serperBudget + xaiBudget : null;
+          const dailyPercentage =
+            hasBudget && dailyBudgetTotal ? dailyTotal / dailyBudgetTotal : null;
+          const warningThreshold = hasBudget ? Math.min(serperAlert, xaiAlert) : null;
           const status =
-            dailyPercentage >= 1
-              ? 'critical'
-              : dailyPercentage >= Math.min(serperAlert, xaiAlert)
-                ? 'warning'
-                : 'ok';
+            dailyPercentage == null || warningThreshold == null
+              ? null
+              : dailyPercentage >= 1
+                ? 'critical'
+                : dailyPercentage >= warningThreshold
+                  ? 'warning'
+                  : 'ok';
 
           const [goldenCurrent, goldenPrevious] = await Promise.all([
             client.query<{ count: string }>(
@@ -503,20 +682,37 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
           ]);
           const goldenCount = Number(goldenCurrent.rows[0]?.count ?? 0);
           const goldenPrevCount = Number(goldenPrevious.rows[0]?.count ?? 0);
-          const costPerGolden = goldenCount ? (thisMonthSerper + thisMonthXai) / goldenCount : 0;
+          const costPerGolden = goldenCount ? (thisMonthSerper + thisMonthXai) / goldenCount : null;
           const previousCostPerGolden = goldenPrevCount
             ? (lastMonthSerper + lastMonthXai) / goldenPrevCount
-            : 0;
-          const trend = previousCostPerGolden
-            ? (costPerGolden - previousCostPerGolden) / previousCostPerGolden
-            : 0;
+            : null;
+          const trend =
+            previousCostPerGolden && costPerGolden != null
+              ? (costPerGolden - previousCostPerGolden) / previousCostPerGolden
+              : null;
 
-          const breakdown = await client.query<{
-            date: string;
-            operation_type: string;
-            total_cost: string;
+          const breakdownRange = await client.query<{
+            min_date: string | null;
+            max_date: string | null;
           }>(
             `SELECT
+               MIN(created_at)::timestamptz as min_date,
+               MAX(created_at)::timestamptz as max_date
+             FROM api_usage_log
+            WHERE shop_id = $1`,
+            [session.shopId]
+          );
+          const rangeRow = breakdownRange.rows[0];
+          const rangeFrom = from ?? rangeRow?.min_date ?? null;
+          const rangeTo = to ?? rangeRow?.max_date ?? null;
+          const breakdown =
+            rangeFrom && rangeTo
+              ? await client.query<{
+                  date: string;
+                  operation_type: string;
+                  total_cost: string;
+                }>(
+                  `SELECT
                DATE(created_at) as date,
                CASE
                  WHEN api_provider = 'serper' THEN 'search'
@@ -526,10 +722,14 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
                END as operation_type,
                SUM(estimated_cost) as total_cost
              FROM api_usage_log
-            WHERE created_at >= now() - interval '14 days'
+            WHERE shop_id = $3
+              AND created_at >= $1
+              AND created_at <= $2
             GROUP BY DATE(created_at), operation_type
-            ORDER BY DATE(created_at) ASC`
-          );
+            ORDER BY DATE(created_at) ASC`,
+                  [rangeFrom, rangeTo, session.shopId]
+                )
+              : { rows: [] };
 
           const breakdownMap = new Map<
             string,
@@ -556,12 +756,17 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
               xai: thisMonthXai,
               total: thisMonthSerper + thisMonthXai,
             },
-            budget: {
-              daily: dailyBudgetTotal,
-              used: dailyTotal,
-              percentage: dailyPercentage,
-              status,
-            },
+            budget:
+              hasBudget && dailyBudgetTotal != null && dailyPercentage != null
+                ? {
+                    daily: dailyBudgetTotal,
+                    used: dailyTotal,
+                    percentage: dailyPercentage,
+                    status,
+                    warningThreshold,
+                    criticalThreshold: 1,
+                  }
+                : null,
             costPerGolden: {
               current: costPerGolden,
               target: previousCostPerGolden,
@@ -573,6 +778,7 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
               audit: entry.audit,
               extraction: entry.extraction,
             })),
+            breakdownRange: rangeFrom && rangeTo ? { from: rangeFrom, to: rangeTo } : null,
           };
         });
 
@@ -662,8 +868,8 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
                 ? Number(row.quality_score_after)
                 : row.quality_score_before
                   ? Number(row.quality_score_before)
-                  : 0,
-              triggerReason: row.trigger_reason ?? '',
+                  : null,
+              triggerReason: row.trigger_reason ?? null,
               timestamp: row.created_at,
             })),
             hasMore: offset + limit < totalCount,
@@ -762,8 +968,8 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
                 ? Number(row.quality_score_after)
                 : row.quality_score_before
                   ? Number(row.quality_score_before)
-                  : 0,
-              triggerReason: row.trigger_reason ?? '',
+                  : null,
+              triggerReason: row.trigger_reason ?? null,
               timestamp: row.created_at,
             });
           }

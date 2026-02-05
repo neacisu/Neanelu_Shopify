@@ -9,6 +9,22 @@ vi.mock('sonner', () => ({
   toast: () => undefined,
 }));
 
+vi.mock('../lib/api-client', () => ({
+  createApiClient: () => ({
+    getApi: (path: string) => {
+      if (path === '/dashboard/summary') {
+        return Promise.resolve({
+          totalProducts: 100,
+          activeBulkRuns: 2,
+          apiErrorRate: 0.01,
+          apiLatencyP95Ms: 120,
+        });
+      }
+      return Promise.reject(new Error(`Unexpected API path: ${path}`));
+    },
+  }),
+}));
+
 describe('offline gate', () => {
   it('renders Offline page when navigator is offline', async () => {
     const original = Object.getOwnPropertyDescriptor(window.navigator, 'onLine');

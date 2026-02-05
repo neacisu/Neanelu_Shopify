@@ -42,6 +42,12 @@ void mock.module('@app/database', {
               ],
             });
           }
+          if (sql.includes('completed_today')) {
+            return Promise.resolve({ rows: [{ completed_today: '2' }] });
+          }
+          if (sql.includes('completed_week')) {
+            return Promise.resolve({ rows: [{ completed_week: '3' }] });
+          }
           if (sql.includes('FROM prod_specs_normalized')) {
             return Promise.resolve({ rows: [{ products_with_specs: '4' }] });
           }
@@ -52,6 +58,21 @@ void mock.module('@app/database', {
                 { data_quality_level: 'silver', product_count: '3', percentage: '30' },
                 { data_quality_level: 'golden', product_count: '2', percentage: '20' },
                 { data_quality_level: 'review_needed', product_count: '1', percentage: '10' },
+              ],
+            });
+          }
+          if (sql.includes('MIN(qe.created_at)') && sql.includes('prod_quality_events')) {
+            return Promise.resolve({ rows: [{ min_date: '2026-02-01', max_date: '2026-02-04' }] });
+          }
+          if (
+            sql.includes('new_level') &&
+            sql.includes('prod_quality_events') &&
+            sql.includes('generate_series')
+          ) {
+            return Promise.resolve({
+              rows: [
+                { day: '2026-02-03', bronze: '2', silver: '1', golden: '0', review: '0' },
+                { day: '2026-02-04', bronze: '1', silver: '0', golden: '1', review: '0' },
               ],
             });
           }
@@ -68,6 +89,18 @@ void mock.module('@app/database', {
             sql.includes("endpoint = 'extract-product'")
           ) {
             return Promise.resolve({ rows: [{ avg_latency_ms: '120000' }] });
+          }
+          if (
+            sql.includes('AVG(response_time_ms)') &&
+            sql.includes('GROUP BY api_provider, endpoint')
+          ) {
+            return Promise.resolve({
+              rows: [
+                { api_provider: 'serper', endpoint: 'search', avg_ms: '3000' },
+                { api_provider: 'xai', endpoint: 'ai-audit', avg_ms: '10000' },
+                { api_provider: 'xai', endpoint: 'extract-product', avg_ms: '60000' },
+              ],
+            });
           }
           if (sql.includes('FROM api_usage_log') && sql.includes('GROUP BY api_provider')) {
             return Promise.resolve({
@@ -106,6 +139,9 @@ void mock.module('@app/database', {
           }
           if (sql.includes('FROM prod_quality_events') && sql.includes('COUNT')) {
             return Promise.resolve({ rows: [{ count: '2' }] });
+          }
+          if (sql.includes('MIN(created_at)') && sql.includes('FROM api_usage_log')) {
+            return Promise.resolve({ rows: [{ min_date: '2026-02-01', max_date: '2026-02-04' }] });
           }
           if (sql.includes('FROM api_usage_log') && sql.includes('operation_type')) {
             return Promise.resolve({

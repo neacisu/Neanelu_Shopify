@@ -1,5 +1,6 @@
 import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
+import { withTenantContext } from '@app/database';
 import { configFromEnv, createQueue, createRedisConnection } from '@app/queue-manager';
 import type {
   DashboardActivityResponse,
@@ -28,6 +29,13 @@ const DASHBOARD_QUEUE_NAMES = [
   'bulk-queue',
   'ai-batch-queue',
 ] as const;
+
+type DashboardSummaryResponse = Readonly<{
+  totalProducts: number;
+  activeBulkRuns: number;
+  apiErrorRate: number | null;
+  apiLatencyP95Ms: number | null;
+}>;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -180,6 +188,78 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
   });
 
   const requireAdminSession = { preHandler: requireSession(sessionConfig) } as const;
+
+  server.get('/dashboard/summary', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      void reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+      return;
+    }
+
+    const now = new Date();
+    const since = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+
+    const summary = await withTenantContext(session.shopId, async (client) => {
+      const [productsResult, activeBulkRunsResult, apiTotalsResult, apiLatencyResult] =
+        await Promise.all([
+          client.query<{ total_products: string }>(
+            `SELECT COUNT(*)::text as total_products
+               FROM shopify_products
+              WHERE shop_id = $1`,
+            [session.shopId]
+          ),
+          client.query<{ active_runs: string }>(
+            `SELECT COUNT(*)::text as active_runs
+               FROM bulk_runs
+              WHERE shop_id = $1
+                AND status IN ('pending', 'running')`,
+            [session.shopId]
+          ),
+          client.query<{ total_count: string; error_count: string }>(
+            `SELECT
+                 COALESCE(SUM(request_count), 0)::text as total_count,
+                 COALESCE(
+                   SUM(CASE WHEN http_status >= 400 THEN request_count ELSE 0 END),
+                   0
+                 )::text as error_count
+               FROM api_usage_log
+              WHERE shop_id = $1
+                AND created_at >= $2`,
+            [session.shopId, since]
+          ),
+          client.query<{ p95_ms: number | null }>(
+            `SELECT
+                 percentile_cont(0.95) WITHIN GROUP (ORDER BY response_time_ms) as p95_ms
+               FROM api_usage_log
+              WHERE shop_id = $1
+                AND created_at >= $2
+                AND response_time_ms IS NOT NULL`,
+            [session.shopId, since]
+          ),
+        ]);
+
+      const totalProducts = Number(productsResult.rows[0]?.total_products ?? 0);
+      const activeBulkRuns = Number(activeBulkRunsResult.rows[0]?.active_runs ?? 0);
+
+      const totalCount = Number(apiTotalsResult.rows[0]?.total_count ?? 0);
+      const errorCount = Number(apiTotalsResult.rows[0]?.error_count ?? 0);
+      const apiErrorRate = totalCount > 0 ? errorCount / totalCount : null;
+
+      const apiLatencyP95MsRaw = apiLatencyResult.rows[0]?.p95_ms;
+      const apiLatencyP95Ms = typeof apiLatencyP95MsRaw === 'number' ? apiLatencyP95MsRaw : null;
+
+      return {
+        totalProducts,
+        activeBulkRuns,
+        apiErrorRate,
+        apiLatencyP95Ms,
+      } satisfies DashboardSummaryResponse;
+    });
+
+    void reply.status(200).send(successEnvelope(request.id, summary));
+  });
 
   server.get('/dashboard/activity', requireAdminSession, async (request, reply) => {
     const days = parseIntParam((request.query as { days?: unknown }).days, 7, 1, 30);

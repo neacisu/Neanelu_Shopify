@@ -1,8 +1,3 @@
-const providerLabels: Record<string, string> = {
-  serper: 'Serper',
-  xai: 'xAI',
-};
-
 export type SourcePerformanceRow = Readonly<{
   provider: string;
   totalRequests: number;
@@ -44,7 +39,7 @@ export function SourcePerformanceTable({ rows }: SourcePerformanceTableProps) {
             ) : (
               rows.map((row) => (
                 <tr key={row.provider} className="border-t border-muted/20">
-                  <td className="px-3 py-2">{providerLabels[row.provider] ?? row.provider}</td>
+                  <td className="px-3 py-2">{row.provider}</td>
                   <td className="px-3 py-2 text-right">{row.totalRequests}</td>
                   <td className="px-3 py-2 text-right">{Math.round(row.avgLatencyMs)} ms</td>
                   <td className="px-3 py-2 text-right">{formatPercent(row.successRate)}</td>

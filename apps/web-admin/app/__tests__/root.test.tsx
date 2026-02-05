@@ -11,6 +11,22 @@ vi.mock('sonner', () => ({
   toast: (...args: unknown[]) => toastMock(...args),
 }));
 
+vi.mock('../lib/api-client', () => ({
+  createApiClient: () => ({
+    getApi: (path: string) => {
+      if (path === '/dashboard/summary') {
+        return Promise.resolve({
+          totalProducts: 100,
+          activeBulkRuns: 2,
+          apiErrorRate: 0.01,
+          apiLatencyP95Ms: 120,
+        });
+      }
+      return Promise.reject(new Error(`Unexpected API path: ${path}`));
+    },
+  }),
+}));
+
 describe('Root side-effects', () => {
   it('injects Polaris CDN script only once', async () => {
     document.head.innerHTML = '';

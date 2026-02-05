@@ -22,7 +22,7 @@ interface EnrichmentStage {
   name: string;
   count: number;
   status: 'idle' | 'active' | 'bottleneck';
-  avgDuration: number;
+  avgDuration: number | null;
 }
 
 interface EnrichmentProgressResponse {
@@ -31,9 +31,9 @@ interface EnrichmentProgressResponse {
   completedToday: number;
   completedThisWeek: number;
   successRate: number;
-  avgProcessingTime: number;
+  avgProcessingTime: number | null;
   pipelineStages: EnrichmentStage[];
-  trendPoints?: { date: string; pending: number; completed: number }[];
+  trendPoints: { date: string; pending: number; completed: number }[];
   trendsData: {
     pending: number[];
     completed: number[];
@@ -83,24 +83,25 @@ export default function EnrichmentDashboardPage() {
   const timeZone =
     typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC';
   const selectedRange = useMemo(() => parseRangeFromParams(searchParams), [searchParams]);
-  const trendPoints = progress.trendPoints?.length
-    ? progress.trendPoints
-    : progress.trendsData.pending.map((pending, index) => ({
-        date: `Day ${index + 1}`,
-        pending,
-        completed: progress.trendsData.completed[index] ?? 0,
-      }));
-
-  const events: TimelineEvent[] = stream.events.map((evt, index) => ({
-    id: `${evt.type}-${index}`,
-    timestamp: (evt.payload['timestamp'] as string) ?? new Date().toISOString(),
-    title:
-      typeof evt.payload['eventType'] === 'string' ? evt.payload['eventType'] : 'Enrichment event',
-    description:
-      typeof evt.payload['triggerReason'] === 'string' ? evt.payload['triggerReason'] : '',
-    status: evt.type === 'quality.event' ? 'info' : 'neutral',
-    metadata: evt.payload,
-  }));
+  const events: TimelineEvent[] = stream.events.flatMap((evt) => {
+    const id = typeof evt.payload['id'] === 'string' ? evt.payload['id'] : null;
+    const timestamp =
+      typeof evt.payload['timestamp'] === 'string' ? evt.payload['timestamp'] : null;
+    const eventType =
+      typeof evt.payload['eventType'] === 'string' ? evt.payload['eventType'] : null;
+    if (!id || !timestamp || !eventType) return [];
+    const description =
+      typeof evt.payload['triggerReason'] === 'string' ? evt.payload['triggerReason'] : undefined;
+    const event: TimelineEvent = {
+      id,
+      timestamp,
+      title: eventType,
+      ...(description ? { description } : {}),
+      status: evt.type === 'quality.event' ? 'info' : 'neutral',
+      metadata: evt.payload,
+    };
+    return [event];
+  });
 
   return (
     <div className="space-y-6">
@@ -165,7 +166,7 @@ export default function EnrichmentDashboardPage() {
             <div className="mb-2 text-xs text-muted">Pipeline stages</div>
             <EnrichmentPipelineViz stages={progress.pipelineStages} />
           </div>
-          <EnrichmentProgressChart data={trendPoints} />
+          <EnrichmentProgressChart data={progress.trendPoints} />
           <SourcePerformanceTable rows={progress.sourcePerformance ?? []} />
         </div>
         <div className="rounded-lg border border-muted/20 bg-background p-4">

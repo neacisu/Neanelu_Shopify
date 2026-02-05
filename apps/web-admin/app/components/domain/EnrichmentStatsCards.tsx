@@ -34,7 +34,6 @@ export function EnrichmentStatsCards({ stats }: EnrichmentStatsCardsProps) {
       <div className="rounded-lg border border-muted/20 bg-background p-4">
         <div className="flex items-center justify-between text-xs text-muted">
           <span>In progress</span>
-          <Sparkline data={pendingTrend} color="#3b82f6" />
         </div>
         <div className="text-h5">{stats.inProgress}</div>
       </div>

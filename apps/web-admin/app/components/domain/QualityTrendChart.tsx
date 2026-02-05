@@ -9,12 +9,15 @@ export type QualityTrendPoint = Readonly<{
 
 export type QualityTrendChartProps = Readonly<{
   data: readonly QualityTrendPoint[];
+  rangeLabel?: string;
 }>;
 
-export function QualityTrendChart({ data }: QualityTrendChartProps) {
+export function QualityTrendChart({ data, rangeLabel }: QualityTrendChartProps) {
   return (
     <div className="rounded-lg border border-muted/20 bg-background p-4">
-      <div className="mb-2 text-xs text-muted">Quality trend (30 days)</div>
+      <div className="mb-2 text-xs text-muted">
+        {rangeLabel ? `Quality trend (${rangeLabel})` : 'Quality trend'}
+      </div>
       <LineChart
         data={data}
         xAxisKey="date"

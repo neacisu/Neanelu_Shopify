@@ -19,8 +19,8 @@ interface QualityEvent {
   productId: string;
   previousLevel?: string;
   newLevel?: string;
-  qualityScore: number;
-  triggerReason: string;
+  qualityScore: number | null;
+  triggerReason: string | null;
   timestamp: string;
 }
 
@@ -37,7 +37,8 @@ export const loader = apiLoader(async (_args: LoaderFunctionArgs) => {
   const from = url.searchParams.get('from');
   const to = url.searchParams.get('to');
   const q = url.searchParams.get('q');
-  params.set('limit', url.searchParams.get('limit') ?? '50');
+  const limit = url.searchParams.get('limit');
+  if (limit) params.set('limit', limit);
   if (type && type !== 'all') params.set('type', type);
   if (from) params.set('from', from);
   if (to) params.set('to', to);
@@ -95,38 +96,62 @@ export default function QualityEventsPage() {
   }, [searchParams]);
 
   const mergedEvents = [
-    ...stream.events.map((evt, index) => ({
-      id: `stream-${index}`,
-      eventType: (evt.payload['eventType'] as QualityEvent['eventType']) ?? 'review_requested',
-      productId: typeof evt.payload['productId'] === 'string' ? evt.payload['productId'] : '',
-      previousLevel:
-        typeof evt.payload['previousLevel'] === 'string' ? evt.payload['previousLevel'] : undefined,
-      newLevel: typeof evt.payload['newLevel'] === 'string' ? evt.payload['newLevel'] : undefined,
-      qualityScore: Number(evt.payload['qualityScore'] ?? 0),
-      triggerReason:
-        typeof evt.payload['triggerReason'] === 'string' ? evt.payload['triggerReason'] : '',
-      timestamp:
-        typeof evt.payload['timestamp'] === 'string'
-          ? evt.payload['timestamp']
-          : new Date().toISOString(),
-    })),
+    ...stream.events
+      .map((evt) => {
+        const id = typeof evt.payload['id'] === 'string' ? evt.payload['id'] : null;
+        const eventType =
+          typeof evt.payload['eventType'] === 'string'
+            ? (evt.payload['eventType'] as QualityEvent['eventType'])
+            : null;
+        const productId =
+          typeof evt.payload['productId'] === 'string' ? evt.payload['productId'] : null;
+        const timestamp =
+          typeof evt.payload['timestamp'] === 'string' ? evt.payload['timestamp'] : null;
+        if (!id || !eventType || !timestamp || !productId) return null;
+        const previousLevel =
+          typeof evt.payload['previousLevel'] === 'string'
+            ? evt.payload['previousLevel']
+            : undefined;
+        const newLevel =
+          typeof evt.payload['newLevel'] === 'string' ? evt.payload['newLevel'] : undefined;
+        return {
+          id,
+          eventType,
+          productId,
+          ...(previousLevel ? { previousLevel } : {}),
+          ...(newLevel ? { newLevel } : {}),
+          qualityScore:
+            typeof evt.payload['qualityScore'] === 'number'
+              ? evt.payload['qualityScore']
+              : typeof evt.payload['qualityScore'] === 'string'
+                ? Number(evt.payload['qualityScore'])
+                : null,
+          triggerReason:
+            typeof evt.payload['triggerReason'] === 'string' ? evt.payload['triggerReason'] : null,
+          timestamp,
+        } satisfies QualityEvent;
+      })
+      .filter((evt): evt is QualityEvent => evt !== null),
     ...events.events,
   ];
 
-  const timelineEvents: TimelineEvent[] = mergedEvents.map((evt) => ({
-    id: evt.id,
-    timestamp: evt.timestamp,
-    title: evt.eventType,
-    description: evt.triggerReason,
-    icon: eventIcon(evt.eventType),
-    status: evt.eventType === 'quality_demoted' ? 'error' : 'success',
-    metadata: {
-      productId: evt.productId,
-      previousLevel: evt.previousLevel,
-      newLevel: evt.newLevel,
-      qualityScore: evt.qualityScore,
-    },
-  }));
+  const timelineEvents: TimelineEvent[] = mergedEvents.map((evt) => {
+    const description = evt.triggerReason ?? undefined;
+    return {
+      id: evt.id,
+      timestamp: evt.timestamp,
+      title: evt.eventType,
+      ...(description ? { description } : {}),
+      icon: eventIcon(evt.eventType),
+      status: evt.eventType === 'quality_demoted' ? 'error' : 'success',
+      metadata: {
+        productId: evt.productId,
+        previousLevel: evt.previousLevel,
+        newLevel: evt.newLevel,
+        qualityScore: evt.qualityScore ?? 'n/a',
+      },
+    };
+  });
 
   return (
     <div className="space-y-6">

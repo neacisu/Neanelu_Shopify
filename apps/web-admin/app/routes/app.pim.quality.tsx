@@ -18,6 +18,7 @@ interface QualityDistributionResponse {
   review: { count: number; percentage: number };
   total: number;
   trend: { date: string; bronze: number; silver: number; golden: number }[];
+  trendRange: { from: string; to: string } | null;
 }
 
 interface ProductListItem {
@@ -51,10 +52,15 @@ export default function QualityProgressPage() {
     loading,
   } = useApiRequest((level: string) =>
     api.getApi<ProductsResponse>(
-      `/products?qualityLevel=${encodeURIComponent(level)}&limit=5&sortBy=updated_at&sortOrder=desc`
+      `/products?qualityLevel=${encodeURIComponent(level)}&sortBy=updated_at&sortOrder=desc`
     )
   );
   const selectedLevel = searchParams.get('level');
+  const rangeLabel = quality.trendRange
+    ? `${new Date(quality.trendRange.from).toLocaleDateString()} → ${new Date(
+        quality.trendRange.to
+      ).toLocaleDateString()}`
+    : undefined;
 
   useEffect(() => {
     if (!selectedLevel) return;
@@ -98,7 +104,7 @@ export default function QualityProgressPage() {
           }}
         />
 
-        <QualityTrendChart data={quality.trend} />
+        <QualityTrendChart data={quality.trend} {...(rangeLabel ? { rangeLabel } : {})} />
       </div>
 
       <div className="rounded-lg border border-muted/20 bg-background p-4">
