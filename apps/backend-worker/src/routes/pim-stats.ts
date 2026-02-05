@@ -912,12 +912,17 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
         return;
       }
 
+      if (!connection?.socket) {
+        logger.warn({ reason: 'missing_socket' }, 'pim events ws connection missing socket');
+        return;
+      }
+      const socket = connection.socket;
       let closed = false;
       let lastSeenAt = new Date(Date.now() - 60_000).toISOString();
 
       const sendEvent = (event: string, data: unknown) => {
-        if (closed || connection.socket.readyState !== 1) return;
-        connection.socket.send(JSON.stringify({ event, data }));
+        if (closed || socket.readyState !== 1) return;
+        socket.send(JSON.stringify({ event, data }));
       };
 
       const pollEvents = async () => {
@@ -973,13 +978,13 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
       void pollEvents();
 
       const interval = setInterval(() => {
-        if (connection.socket.readyState !== 1) {
+        if (socket.readyState !== 1) {
           closed = true;
           clearInterval(interval);
           return;
         }
         void pollEvents();
-        connection.socket.ping();
+        socket.ping();
       }, 15_000);
 
       const onClose = () => {
@@ -987,8 +992,8 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
         clearInterval(interval);
       };
 
-      connection.socket.on('close', onClose);
-      connection.socket.on('error', onClose);
+      socket.on('close', onClose);
+      socket.on('error', onClose);
     }
   );
   return Promise.resolve();

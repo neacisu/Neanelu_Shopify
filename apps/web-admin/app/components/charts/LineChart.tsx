@@ -44,6 +44,7 @@ export function LineChart<TData extends Record<string, unknown>>({
   tooltipProps,
   tooltipContent,
 }: LineChartProps<TData>) {
+  const safeHeight = Math.max(1, height);
   const palette = [
     chartColors.blue,
     chartColors.green,
@@ -54,8 +55,8 @@ export function LineChart<TData extends Record<string, unknown>>({
   ] as const;
 
   return (
-    <div style={{ width: '100%', height, minHeight: 1, minWidth: 1 }}>
-      <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+    <div style={{ width: '100%', height: safeHeight, minHeight: safeHeight, minWidth: 1 }}>
+      <ResponsiveContainer width="100%" height={safeHeight} minWidth={1} minHeight={safeHeight}>
         <RechartsLineChart
           data={Array.from(data)}
           margin={{ top: 8, right: 12, bottom: 8, left: 12 }}

@@ -33,9 +33,10 @@ export function PieChart({
   centerLabel,
   innerRadius,
 }: PieChartProps) {
+  const safeHeight = Math.max(1, height);
   return (
-    <div style={{ width: '100%', height, minHeight: 1, minWidth: 1 }}>
-      <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+    <div style={{ width: '100%', height: safeHeight, minHeight: safeHeight, minWidth: 1 }}>
+      <ResponsiveContainer width="100%" height={safeHeight} minWidth={1} minHeight={safeHeight}>
         <RechartsPieChart>
           <ChartTooltip content={tooltipContent} {...tooltipProps} />
 

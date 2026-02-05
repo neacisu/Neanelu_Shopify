@@ -46,11 +46,12 @@ export function BarChart<TData extends Record<string, unknown>>({
   tooltipProps,
   tooltipContent,
 }: BarChartProps<TData>) {
+  const safeHeight = Math.max(1, height);
   const resolvedStackId = stacked ? 'stack' : undefined;
 
   return (
-    <div style={{ width: '100%', height, minHeight: 1, minWidth: 1 }}>
-      <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+    <div style={{ width: '100%', height: safeHeight, minHeight: safeHeight, minWidth: 1 }}>
+      <ResponsiveContainer width="100%" height={safeHeight} minWidth={1} minHeight={safeHeight}>
         <RechartsBarChart
           data={Array.from(data)}
           layout={layout}
