@@ -5,7 +5,9 @@ import { randomUUID } from 'node:crypto';
 import { pool } from '@app/database';
 import { computeConsensus } from '../../../../../../packages/pim/src/services/consensus-engine.js';
 
-void describe('consensus integration', () => {
+const shouldSkip = !process.env['DATABASE_URL'];
+
+void describe('consensus integration', { skip: shouldSkip }, () => {
   const ids: {
     productId?: string;
     sourceIds: string[];
