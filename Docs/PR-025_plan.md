@@ -9,7 +9,7 @@ Queue Monitor UI at `/app/queues` for:
 - Jobs list (filters/search/pagination/bulk actions)
 - Workers status
 - Job detail view (large payload safe)
-- Realtime updates (SSE)
+- Realtime updates (WebSocket)
 
 ## Source of truth
 
@@ -30,7 +30,7 @@ These items are required to claim PR-025 is complete end-to-end:
   - The distribution should come from the current queue snapshot (the same data used for the overview table), not from the time-series metrics endpoint.
 
 - Workers UX must be stable without manual refresh
-  - When the Workers tab is active, auto-refresh workers at a small interval (5s) and also refresh on `worker.*` SSE events.
+- When the Workers tab is active, auto-refresh workers at a small interval (5s) and also refresh on `worker.*` WebSocket events.
   - Worker status labels should be human friendly (“Online”/“Offline”).
 
 - Job detail view must cover debugging basics safely
@@ -50,15 +50,15 @@ These items are required to claim PR-025 is complete end-to-end:
   - `GET /api/queues/:name/jobs/:id`
   - Job actions: retry/promote/delete + batch actions
   - Workers: `GET /api/queues/workers`
-  - Realtime: `GET /api/queues/stream` (SSE)
-- SSE emits:
+- Realtime: `GET /api/queues/ws` (WebSocket)
+- WebSocket emits:
   - `queues.snapshot`
   - `job.started`, `job.completed`, `job.failed`
   - `worker.online`, `worker.offline`
 
 ### Frontend (`apps/web-admin`)
 
-- Queue stream hook: `app/hooks/use-queue-stream.ts` (fetch-based SSE + backoff)
+- Queue stream hook: `app/hooks/use-queue-stream.ts` (WebSocket + backoff)
 - Deps installed:
   - `recharts` (charts)
   - `react-window` (virtualization)
@@ -117,7 +117,7 @@ These items are required to claim PR-025 is complete end-to-end:
 
 ### 6) Realtime (F4.5.5)
 
-- Subscribe to `/api/queues/stream` via `useQueueStream`.
+- Subscribe to `/api/queues/ws` via `useQueueStream`.
 - Apply updates:
   - `queues.snapshot` updates the overview table
   - `job.*` triggers a debounced jobs refresh when viewing Jobs tab
@@ -128,7 +128,7 @@ These items are required to claim PR-025 is complete end-to-end:
 - Run `pnpm -w run ci`.
 - Manual dev check:
   - Start stack and open `/app/queues`
-  - Verify live badge and SSE reconnect behavior
+  - Verify live badge and WebSocket reconnect behavior
   - Verify job actions and batch limits
   - Verify delete confirmation flows
   - Verify status distribution chart updates when selecting a queue
@@ -145,9 +145,9 @@ These items are required to claim PR-025 is complete end-to-end:
   - Job detail timeline section renders for a job
 - Manual check in dev:
   - No console errors in `/app/queues`.
-  - SSE reconnect works (toggle backend container / refresh network).
+  - WebSocket reconnect works (toggle backend container / refresh network).
 
 ## Notes / Constraints
 
 - React Router is configured with basename `/app`, so routes should be written without hardcoding `/app`.
-- SSE is consumed via `fetch` streaming (not `EventSource`) to support `Authorization` headers when needed.
+- WebSocket should include auth context; prefer cookie or `token` query param when needed.

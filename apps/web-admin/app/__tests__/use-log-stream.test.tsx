@@ -1,7 +1,11 @@
-import { act, renderHook } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { useLogStream } from '../hooks/use-log-stream';
+
+vi.mock('../lib/session-auth', () => ({
+  getSessionToken: () => Promise.resolve('test-token'),
+}));
 
 let originalWebSocket: typeof WebSocket | undefined;
 
@@ -53,7 +57,7 @@ afterEach(() => {
 });
 
 describe('useLogStream', () => {
-  it('builds endpoint with shopId + levels and buffers entries', () => {
+  it('builds endpoint with shopId + levels and buffers entries', async () => {
     originalWebSocket = global.WebSocket;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (global as any).WebSocket = MockWebSocket;
@@ -68,11 +72,16 @@ describe('useLogStream', () => {
       })
     );
 
+    await waitFor(() => {
+      expect(MockWebSocket.instances.length).toBeGreaterThan(0);
+    });
+
     const instance = MockWebSocket.instances[0];
     expect(instance).toBeDefined();
     if (!instance) throw new Error('Missing WebSocket instance');
     expect(instance.url).toContain('shopId=shop-1');
     expect(instance.url).toContain('levels=info%2Cerror');
+    expect(instance.url).toContain('token=test-token');
 
     act(() => {
       instance.emitOpen();

@@ -214,8 +214,21 @@ export function getSessionFromAuthorizationHeader(
   const [scheme, token] = auth.split(' ');
   if (scheme !== 'Bearer' || !token) return null;
 
-  const session = token.split('.').length === 3 ? verifyShopifySessionToken(token, config) : null;
+  return resolveSessionFromToken(token, config);
+}
 
+function getSessionFromQueryParam(
+  request: FastifyRequest,
+  config: SessionConfig
+): SessionData | null {
+  const query = request.query as { token?: unknown } | undefined;
+  const token = query?.token;
+  if (typeof token !== 'string' || !token.length) return null;
+  return resolveSessionFromToken(token, config);
+}
+
+function resolveSessionFromToken(token: string, config: SessionConfig): SessionData | null {
+  const session = token.split('.').length === 3 ? verifyShopifySessionToken(token, config) : null;
   const fallback = session ?? verifySessionToken(token, config.secret);
   if (!fallback) return null;
 
@@ -229,7 +242,11 @@ export function getSessionFromRequest(
   request: FastifyRequest,
   config: SessionConfig
 ): SessionData | null {
-  return getSessionFromAuthorizationHeader(request, config) ?? getSession(request, config);
+  return (
+    getSessionFromAuthorizationHeader(request, config) ??
+    getSessionFromQueryParam(request, config) ??
+    getSession(request, config)
+  );
 }
 
 /**

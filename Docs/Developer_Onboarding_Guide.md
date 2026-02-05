@@ -175,6 +175,23 @@ Pentru webhooks Shopify pe domeniu public:
 
 Dacă portul 65000 este ocupat local, setează `BACKEND_HOST_PORT` în `.env`.
 
+### Pasul 5.1: WebSocket + HTTP/2 (Traefik/Proxy)
+
+Pentru stream‑uri realtime (loguri/queue/evente), aplicația folosește WebSocket. Dacă traficul trece prin Traefik sau un edge proxy:
+
+- WebSocket upgrade trebuie permis (Upgrade/Connection).
+- HTTP/2 este OK, dar proxy‑ul trebuie să suporte WS peste H2 fără buffering agresiv.
+- Cookie‑urile de sesiune trebuie propagate la handshake; altfel poți folosi token în query:
+  - exemplu: `wss://manager.neanelu.ro/api/queues/ws?token=<session_token>`
+- Setează timeouts de idle suficient de mari (minim 60s) pentru conexiuni WS.
+
+Verificare rapidă:
+
+```bash
+# rulează doar dacă ai token valid
+wscat -c "wss://manager.neanelu.ro/api/queues/ws?token=<session_token>"
+```
+
 ### Pasul 6: Pornire Infrastructură Docker
 
 ```bash

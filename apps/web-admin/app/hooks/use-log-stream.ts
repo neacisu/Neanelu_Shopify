@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { LogEntry, LogLevel } from '../types/log';
+import { getSessionToken } from '../lib/session-auth';
 
 const DEFAULT_BUFFER_SIZE = 1000;
 const MIN_RECONNECT_MS = 1000;
 const MAX_RECONNECT_MS = 30_000;
+const MAX_RETRIES = 10;
 
 function toLogLevel(value: unknown): LogLevel {
   if (value === 'debug' || value === 'info' || value === 'warn' || value === 'error') return value;
@@ -114,10 +116,12 @@ export function useLogStream(options: UseLogStreamOptions): LogStreamState {
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectDelayRef = useRef(MIN_RECONNECT_MS);
+  const reconnectCountRef = useRef(0);
   const onEventRef = useRef(onEvent);
   const rateWindowRef = useRef<number>(0);
   const rateCountRef = useRef<number>(0);
   const connectRef = useRef<() => void>(() => undefined);
+  const connectIdRef = useRef(0);
 
   useEffect(() => {
     onEventRef.current = onEvent;
@@ -143,6 +147,11 @@ export function useLogStream(options: UseLogStreamOptions): LogStreamState {
     if (!enabled || paused) return;
 
     clearReconnectTimer();
+    if (reconnectCountRef.current >= MAX_RETRIES) {
+      setError('stream_unavailable');
+      return;
+    }
+    reconnectCountRef.current += 1;
     const delay = reconnectDelayRef.current;
     reconnectDelayRef.current = Math.min(reconnectDelayRef.current * 2, MAX_RECONNECT_MS);
 
@@ -158,70 +167,76 @@ export function useLogStream(options: UseLogStreamOptions): LogStreamState {
 
     disconnect();
     setError(null);
+    const connectId = (connectIdRef.current += 1);
+    void (async () => {
+      const token = await getSessionToken();
+      if (connectIdRef.current !== connectId) return;
+      const url = new URL(resolvedEndpoint, window.location.origin);
+      if (token) url.searchParams.set('token', token);
+      url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+      const socket = new WebSocket(url.toString());
+      socketRef.current = socket;
 
-    const url = new URL(resolvedEndpoint, window.location.origin);
-    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(url.toString());
-    socketRef.current = socket;
+      socket.addEventListener('open', () => {
+        reconnectDelayRef.current = MIN_RECONNECT_MS;
+        reconnectCountRef.current = 0;
+        setConnected(true);
+        setError(null);
+      });
 
-    socket.addEventListener('open', () => {
-      reconnectDelayRef.current = MIN_RECONNECT_MS;
-      setConnected(true);
-      setError(null);
-    });
+      socket.addEventListener('message', (event) => {
+        try {
+          const parsed = JSON.parse(String(event.data)) as { event?: string; data?: unknown };
+          const payload = parsed && 'data' in parsed ? parsed.data : parsed;
+          let entries = normalizeLogPayload(payload);
+          if (entries.length === 0) return;
 
-    socket.addEventListener('message', (event) => {
-      try {
-        const parsed = JSON.parse(String(event.data)) as { event?: string; data?: unknown };
-        const payload = parsed && 'data' in parsed ? parsed.data : parsed;
-        let entries = normalizeLogPayload(payload);
-        if (entries.length === 0) return;
+          const nowSec = Math.floor(Date.now() / 1000);
+          if (rateWindowRef.current !== nowSec) {
+            rateWindowRef.current = nowSec;
+            rateCountRef.current = 0;
+          }
 
-        const nowSec = Math.floor(Date.now() / 1000);
-        if (rateWindowRef.current !== nowSec) {
-          rateWindowRef.current = nowSec;
-          rateCountRef.current = 0;
+          const remaining = Math.max(0, maxEventsPerSecond - rateCountRef.current);
+          if (remaining <= 0) return;
+          if (entries.length > remaining) {
+            entries = entries.slice(entries.length - remaining);
+          }
+
+          rateCountRef.current += entries.length;
+
+          setLogs((prev) => {
+            const next = [...prev, ...entries];
+            return next.length > bufferSize ? next.slice(-bufferSize) : next;
+          });
+
+          onEventRef.current?.(entries);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'invalid_log_payload');
         }
+      });
 
-        const remaining = Math.max(0, maxEventsPerSecond - rateCountRef.current);
-        if (remaining <= 0) return;
-        if (entries.length > remaining) {
-          entries = entries.slice(entries.length - remaining);
-        }
+      let disconnecting = false;
+      const handleClose = () => {
+        if (disconnecting) return;
+        disconnecting = true;
+        setConnected(false);
+        setError('stream_disconnected');
+        scheduleReconnect();
+      };
 
-        rateCountRef.current += entries.length;
+      const handleError = () => {
+        if (disconnecting) return;
+        disconnecting = true;
+        setConnected(false);
+        setError('stream_disconnected');
+        socket.close();
+        scheduleReconnect();
+      };
 
-        setLogs((prev) => {
-          const next = [...prev, ...entries];
-          return next.length > bufferSize ? next.slice(-bufferSize) : next;
-        });
-
-        onEventRef.current?.(entries);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'invalid_log_payload');
-      }
-    });
-
-    let disconnecting = false;
-    const handleClose = () => {
-      if (disconnecting) return;
-      disconnecting = true;
-      setConnected(false);
-      setError('stream_disconnected');
-      scheduleReconnect();
-    };
-
-    const handleError = () => {
-      if (disconnecting) return;
-      disconnecting = true;
-      setConnected(false);
-      setError('stream_disconnected');
-      socket.close();
-      scheduleReconnect();
-    };
-
-    socket.addEventListener('error', handleError);
-    socket.addEventListener('close', handleClose);
+      socket.addEventListener('error', handleError);
+      socket.addEventListener('close', handleClose);
+    })();
   }, [bufferSize, disconnect, enabled, paused, resolvedEndpoint, scheduleReconnect]);
 
   useEffect(() => {

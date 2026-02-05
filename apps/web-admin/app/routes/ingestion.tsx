@@ -879,7 +879,7 @@ export default function IngestionPage() {
                 onPause={logStream.pause}
                 onResume={logStream.resume}
                 onClear={logStream.clear}
-                transport="sse"
+                transport="websocket"
                 maxEventsPerSecond={50}
                 bufferSize={1000}
                 {...(currentRun ? { endpoint: `/api/bulk/${currentRun.id}/logs/ws` } : {})}
@@ -928,7 +928,7 @@ export default function IngestionPage() {
               onPause={logStream.pause}
               onResume={logStream.resume}
               onClear={logStream.clear}
-              transport="sse"
+              transport="websocket"
               maxEventsPerSecond={50}
               bufferSize={1000}
               {...(currentRun ? { endpoint: `/api/bulk/${currentRun.id}/logs/ws` } : {})}

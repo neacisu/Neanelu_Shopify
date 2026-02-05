@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { getSessionToken } from '../lib/session-auth';
+
 export type EnrichmentStreamEvent = Readonly<{
   type: string;
   payload: Record<string, unknown>;
@@ -9,6 +11,8 @@ export type UseEnrichmentStreamOptions = Readonly<{
   enabled?: boolean;
 }>;
 
+const MAX_RETRIES = 10;
+
 export function useEnrichmentStream(options: UseEnrichmentStreamOptions = {}) {
   const { enabled = true } = options;
   const [events, setEvents] = useState<EnrichmentStreamEvent[]>([]);
@@ -17,6 +21,7 @@ export function useEnrichmentStream(options: UseEnrichmentStreamOptions = {}) {
   const retryRef = useRef(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const connectIdRef = useRef(0);
 
   useEffect(() => {
     if (!enabled) return;
@@ -24,6 +29,10 @@ export function useEnrichmentStream(options: UseEnrichmentStreamOptions = {}) {
 
     const scheduleReconnect = () => {
       if (timeoutRef.current) return;
+      if (retryRef.current >= MAX_RETRIES) {
+        setError('stream_unavailable');
+        return;
+      }
       retryRef.current += 1;
       const delay = Math.min(30_000, 1000 * 2 ** Math.min(retryRef.current - 1, 6));
       timeoutRef.current = setTimeout(() => {
@@ -50,31 +59,37 @@ export function useEnrichmentStream(options: UseEnrichmentStreamOptions = {}) {
 
     const connect = () => {
       socketRef.current?.close();
-      const url = new URL('/api/pim/events/ws', window.location.origin);
-      url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-      const socket = new WebSocket(url.toString());
-      socketRef.current = socket;
+      const connectId = (connectIdRef.current += 1);
+      void (async () => {
+        const token = await getSessionToken();
+        if (closed || connectIdRef.current !== connectId) return;
+        const url = new URL('/api/pim/events/ws', window.location.origin);
+        if (token) url.searchParams.set('token', token);
+        url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+        const socket = new WebSocket(url.toString());
+        socketRef.current = socket;
 
-      socket.addEventListener('message', handleMessage);
-      socket.addEventListener('open', () => {
-        if (closed) return;
-        retryRef.current = 0;
-        setConnected(true);
-        setError(null);
-      });
-      socket.addEventListener('error', () => {
-        if (closed) return;
-        setConnected(false);
-        setError('Stream connection error');
-        socket.close();
-        scheduleReconnect();
-      });
-      socket.addEventListener('close', () => {
-        if (closed) return;
-        setConnected(false);
-        setError('Stream connection error');
-        scheduleReconnect();
-      });
+        socket.addEventListener('message', handleMessage);
+        socket.addEventListener('open', () => {
+          if (closed) return;
+          retryRef.current = 0;
+          setConnected(true);
+          setError(null);
+        });
+        socket.addEventListener('error', () => {
+          if (closed) return;
+          setConnected(false);
+          setError('Stream connection error');
+          socket.close();
+          scheduleReconnect();
+        });
+        socket.addEventListener('close', () => {
+          if (closed) return;
+          setConnected(false);
+          setError('Stream connection error');
+          scheduleReconnect();
+        });
+      })();
     };
 
     connect();

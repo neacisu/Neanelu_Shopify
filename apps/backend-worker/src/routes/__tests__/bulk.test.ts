@@ -223,8 +223,21 @@ void describe('Bulk Routes', { concurrency: 1 }, () => {
     runId?: string;
     logger: Logger;
     pollIntervalMs?: number;
+    heartbeatIntervalMs?: number;
   }) => void;
   let streamBulkLogsWsFn: StreamBulkLogsWs;
+
+  const createTestLogger = (): Logger => {
+    const testLogger = {
+      debug: () => undefined,
+      info: () => undefined,
+      warn: () => undefined,
+      error: () => undefined,
+      fatal: () => undefined,
+      child: () => testLogger,
+    } as Logger;
+    return testLogger;
+  };
 
   beforeEach(async () => {
     logStep('beforeEach:start');
@@ -394,17 +407,7 @@ void describe('Bulk Routes', { concurrency: 1 }, () => {
       connection,
       shopId: 'shop-1',
       runId: 'run-1',
-      logger: (() => {
-        const testLogger = {
-          debug: () => undefined,
-          info: () => undefined,
-          warn: () => undefined,
-          error: () => undefined,
-          fatal: () => undefined,
-          child: () => testLogger,
-        } as Logger;
-        return testLogger;
-      })(),
+      logger: createTestLogger(),
       pollIntervalMs: 10,
     });
 
@@ -428,6 +431,46 @@ void describe('Bulk Routes', { concurrency: 1 }, () => {
     };
     assert.equal(payload.event, 'logs');
     assert.ok(Array.isArray(payload.data?.logs));
+  });
+
+  void test('streamBulkLogsWs sends periodic heartbeat pings', async () => {
+    let pingCount = 0;
+    const handlers: Record<'close' | 'error', (() => void)[]> = { close: [], error: [] };
+    const connection = {
+      socket: {
+        readyState: 1,
+        send: () => undefined,
+        ping: () => {
+          pingCount += 1;
+        },
+        close: () => {
+          connection.socket.readyState = 3;
+          handlers.close.forEach((handler) => handler());
+        },
+        on: (event: 'close' | 'error', listener: () => void) => {
+          handlers[event].push(listener);
+        },
+      },
+    };
+
+    const request = {
+      query: {},
+    } as FastifyRequest;
+
+    streamBulkLogsWsFn({
+      request,
+      connection,
+      shopId: 'shop-1',
+      runId: 'run-1',
+      logger: createTestLogger(),
+      pollIntervalMs: 1000,
+      heartbeatIntervalMs: 10,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    connection.socket.close();
+
+    assert.ok(pingCount > 0);
   });
 
   void test('POST /bulk/upload enqueues ingest from uploaded file', async () => {

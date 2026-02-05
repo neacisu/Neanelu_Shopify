@@ -3,6 +3,10 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 import { useQueueStream } from '../hooks/use-queue-stream';
 
+vi.mock('../lib/session-auth', () => ({
+  getSessionToken: () => Promise.resolve('test-token'),
+}));
+
 function Harness(props: { onEvent: (e: unknown) => void }) {
   const { connected, error } = useQueueStream({
     enabled: true,
@@ -79,10 +83,15 @@ describe('useQueueStream (websocket)', () => {
     const events: unknown[] = [];
     const view = render(<Harness onEvent={(e) => events.push(e)} />);
 
+    await waitFor(() => {
+      expect(MockWebSocket.instances.length).toBeGreaterThan(0);
+    });
+
     const instance = MockWebSocket.instances[0];
     expect(instance).toBeDefined();
     if (!instance) throw new Error('Missing WebSocket instance');
     expect(instance.url).toContain('/api/queues/ws');
+    expect(instance.url).toContain('token=test-token');
 
     act(() => {
       instance.emitOpen();
@@ -113,6 +122,10 @@ describe('useQueueStream (websocket)', () => {
 
   it('exposes error state when websocket errors', async () => {
     render(<Harness onEvent={() => undefined} />);
+
+    await waitFor(() => {
+      expect(MockWebSocket.instances.length).toBeGreaterThan(0);
+    });
 
     const instance = MockWebSocket.instances[0];
     if (!instance) throw new Error('Missing WebSocket instance');

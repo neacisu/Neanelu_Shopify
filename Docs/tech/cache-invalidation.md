@@ -29,7 +29,7 @@ export async function action({ request }: ActionArgs) {
 }
 ```
 
-### 2. După Evenimente (Polling / SSE)
+### 2. După Evenimente (Polling / WebSocket)
 
 Când `usePolling` detectează o schimbare (ex: Job status `completed`), putem invalida liste conexe.
 

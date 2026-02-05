@@ -304,8 +304,17 @@ export const streamBulkLogsWs = (params: {
   runId?: string;
   logger: Logger;
   pollIntervalMs?: number;
+  heartbeatIntervalMs?: number;
 }): void => {
-  const { request, connection, shopId, runId, logger, pollIntervalMs = 2000 } = params;
+  const {
+    request,
+    connection,
+    shopId,
+    runId,
+    logger,
+    pollIntervalMs = 2000,
+    heartbeatIntervalMs = 15_000,
+  } = params;
   const query = request.query as { levels?: unknown } | undefined;
   const levelsRaw = query?.levels;
   const levels =
@@ -410,8 +419,6 @@ export const streamBulkLogsWs = (params: {
         }
         windowCount += limited.length;
         send({ logs: limited });
-      } else if (connection.socket.readyState === 1) {
-        connection.socket.ping();
       }
     } catch (error) {
       logger.warn({ error }, 'bulk logs ws poll failed');
@@ -428,8 +435,17 @@ export const streamBulkLogsWs = (params: {
     void poll();
   }, pollIntervalMs);
 
+  const heartbeat = setInterval(() => {
+    if (connection.socket.readyState !== 1) {
+      clearInterval(heartbeat);
+      return;
+    }
+    connection.socket.ping();
+  }, heartbeatIntervalMs);
+
   const onClose = () => {
     clearInterval(interval);
+    clearInterval(heartbeat);
   };
 
   connection.socket.on('close', onClose);

@@ -1871,7 +1871,7 @@ Obiectiv: Server HTTP, OAuth offline complet, webhooks ingress cu enqueue minim,
     {
         "id_task": "F3.8.6",
         "denumire_task": "Cache Invalidation strategy",
-        "descriere_task": "Când invalidăm cache-ul? După mutations, după SSE events, manual refresh. Document strategy per resource type. Implementare cu revalidate (RR7) sau queryClient.invalidate (TanStack).",
+        "descriere_task": "Când invalidăm cache-ul? După mutations, după WebSocket events, manual refresh. Document strategy per resource type. Implementare cu revalidate (RR7) sau queryClient.invalidate (TanStack).",
         "cale_implementare": "/apps/web-admin/app/lib/cache-strategy.ts + documentație",
         "contextul_anterior": "Loaders, actions, polling gata. Cache strategy unifică comportamentul.",
         "validare_task": "După mutation → lista se actualizează fără page refresh. Documentație existentă.",
@@ -2372,8 +2372,8 @@ Obiectiv: BullMQ Pro + fairness multi-tenant + rate limiting distribuit Shopify 
     },
     {
         "id_task": "F4.5.5",
-        "denumire_task": "Queue: WebSocket/SSE pentru real-time updates",
-        "descriere_task": "Implementează conectare WebSocket sau SSE la /api/queues/stream pentru actualizări live. Elimină nevoia de polling pentru status updates. Implementează reconnect logic cu exponential backoff (1s, 2s, 4s, max 30s). Event handlers pentru: job.started, job.completed, job.failed, worker.online, worker.offline.",
+        "denumire_task": "Queue: WebSocket pentru real-time updates",
+        "descriere_task": "Implementează conectare WebSocket la /api/queues/ws pentru actualizări live. Elimină nevoia de polling pentru status updates. Implementează reconnect logic cu exponential backoff (1s, 2s, 4s, max 30s). Event handlers pentru: job.started, job.completed, job.failed, worker.online, worker.offline.",
         "cale_implementare": "/apps/web-admin/app/hooks/use-queue-stream.ts + /apps/web-admin/app/routes/app.queues.tsx",
         "contextul_anterior": "Backend F4.4 expune stream endpoint. Frontend folosește polling ineficient.",
         "validare_task": "Statusurile se actualizează instant fără refresh manual. Reconectare automată după disconnect.",
@@ -2756,13 +2756,13 @@ Obiectiv: Bulk Operations complet (query + mutation) + streaming JSONL + COPY î
     },
     {
         "id_task": "F5.5.4",
-        "denumire_task": "Ingestion: SSE stream pentru live log output",
-        "descriere_task": "Conectare la /api/ingestion/:id/logs/stream folosind EventSource API. Append logs în LogConsole în timp real. Auto-scroll to bottom cu detecție user scroll (pause auto-scroll când utilizatorul scrollează manual). Buton Pause/Resume pentru stream. Reconnect automat la disconnect.",
+        "denumire_task": "Ingestion: WebSocket stream pentru live log output",
+        "descriere_task": "Conectare la /api/ingestion/:id/logs/ws folosind WebSocket. Append logs în LogConsole în timp real. Auto-scroll to bottom cu detecție user scroll (pause auto-scroll când utilizatorul scrollează manual). Buton Pause/Resume pentru stream. Reconnect automat la disconnect.",
         "cale_implementare": "/apps/web-admin/app/hooks/use-log-stream.ts + /apps/web-admin/app/components/domain/log-console.tsx",
-        "contextul_anterior": "LogConsole component gata (F5.5.3). Backend SSE endpoint presupus gata.",
+        "contextul_anterior": "LogConsole component gata (F5.5.3). Backend WebSocket endpoint presupus gata.",
         "validare_task": "Logurile apar în timp real fără page refresh. Auto-scroll funcționează. Pause/Resume funcțional.",
         "outcome_task": "Experiență live pentru monitorizare ingestie.",
-        "restrictii_antihalucinatie": "Nu folosiți polling - SSE obligatoriu. Gestionați cleanup la unmount."
+        "restrictii_antihalucinatie": "Nu folosiți polling - WebSocket obligatoriu. Gestionați cleanup la unmount."
     },
     {
         "id_task": "F5.5.5",
@@ -2810,11 +2810,11 @@ Obiectiv: Bulk Operations complet (query + mutation) + streaming JSONL + COPY î
     ```JSON
     {
         "id_task": "F5.5.9",
-        "denumire_task": "LogConsole component cu transport SSE și trace correlation",
-        "descriere_task": "**CONFORM Problems & Fixes.md - Gap 2.4:** Extinde LogConsole:\n\n**Props Interface:**\n```typescript\ninterface LogConsoleProps {\n  transport: 'sse' | 'websocket' | 'polling';\n  endpoint: string; // /api/logs/stream\n  shopId?: string;\n  levels?: ('debug' | 'info' | 'warn' | 'error')[];\n  onTraceClick?: (traceId: string) => void;\n  jaegerBaseUrl?: string;\n  maxEventsPerSecond?: number; // default: 50\n  bufferSize?: number; // default: 1000\n}\n```\n\n**Backend endpoint:**\n```typescript\n// GET /api/logs/stream?shopId={uuid}&levels=warn,error\nfastify.get('/api/logs/stream', async (request, reply) => {\n  reply.raw.setHeader('Content-Type', 'text/event-stream');\n  reply.raw.setHeader('Cache-Control', 'no-cache');\n  // Stream logs via SSE with filtering\n});\n```",
+        "denumire_task": "LogConsole component cu transport WebSocket și trace correlation",
+        "descriere_task": "**CONFORM Problems & Fixes.md - Gap 2.4:** Extinde LogConsole:\n\n**Props Interface:**\n```typescript\ninterface LogConsoleProps {\n  transport: 'sse' | 'websocket' | 'polling';\n  endpoint: string; // /api/logs/ws\n  shopId?: string;\n  levels?: ('debug' | 'info' | 'warn' | 'error')[];\n  onTraceClick?: (traceId: string) => void;\n  jaegerBaseUrl?: string;\n  maxEventsPerSecond?: number; // default: 50\n  bufferSize?: number; // default: 1000\n}\n```\n\n**Backend endpoint:**\n```typescript\n// GET /api/logs/ws?shopId={uuid}&levels=warn,error\nfastify.get('/api/logs/ws', { websocket: true }, (connection, request) => {\n  // Stream logs via WebSocket with filtering\n});\n```",
         "cale_implementare": "/apps/web-admin/app/components/domain/LogConsole.tsx + /apps/backend-worker/src/routes/logs.ts",
         "contextul_anterior": "F5.5.3 menționează LogStream dar fără specificații transport.",
-        "validare_task": "1. SSE connection funcționează\n2. Filtrare pe levels\n3. Click pe traceId deschide Jaeger",
+        "validare_task": "1. WebSocket connection funcționează\n2. Filtrare pe levels\n3. Click pe traceId deschide Jaeger",
         "outcome_task": "Frontend poate afișa loguri în timp real cu trace correlation.",
         "restrictii_antihalucinatie": "Filtrare OBLIGATORIE pe shopId. Rate limiting max 50 events/sec."
     }
@@ -3879,12 +3879,12 @@ Obiectiv: hardening, build/publish, deploy, migrații, alerte, DR, Securitate Su
     {
         "id_task": "F7.8.2",
         "denumire_task": "Real-time Hooks",
-        "descriere_task": "Hooks pentru actualizări real-time:\n\n**useLiveQueue(queueName):** SSE connection pentru queue status updates. Auto-reconnect on disconnect.\n\n**useLiveMetrics(endpoint):** Polling pentru metrics la interval configurable.\n\n**useLiveSync(shopId):** SSE pentru sync progress notifications.\n\nToate hooks au cleanup pe unmount și error handling.",
+        "descriere_task": "Hooks pentru actualizări real-time:\n\n**useLiveQueue(queueName):** WebSocket connection pentru queue status updates. Auto-reconnect on disconnect.\n\n**useLiveMetrics(endpoint):** Polling pentru metrics la interval configurable.\n\n**useLiveSync(shopId):** WebSocket pentru sync progress notifications.\n\nToate hooks au cleanup pe unmount și error handling.",
         "cale_implementare": "/apps/web-admin/app/hooks/useLiveQueue.ts, useLiveMetrics.ts, useLiveSync.ts",
         "contextul_anterior": "useJobPolling există (F3.5), dar lipsesc alte real-time hooks.",
-        "validare_task": "SSE connection stabilă. Updates primite în <100ms.",
+        "validare_task": "WebSocket connection stabilă. Updates primite în <100ms.",
         "outcome_task": "Real-time experience pentru monitoring.",
-        "restrictii_antihalucinatie": "SSE > WebSocket pentru unidirectional updates.",
+        "restrictii_antihalucinatie": "WebSocket > SSE pentru unidirectional updates.",
         "prioritate": "P1"
     },
     {
@@ -4301,9 +4301,9 @@ Obiectiv: Extensii specifice care nu sunt strict necesare pentru MVP dar îmbun�
 
 #### F4.5: Queue UI
 
-| PR #   | Branch             | Tasks                                            | Dependențe     |
-| ------ | ------------------ | ------------------------------------------------ | -------------- |
-| PR-025 | `pr/F4.5-queue-ui` | F4.5.1-F4.5.8 (Metrici, Jobs List, Workers, SSE) | PR-024, PR-019 |
+| PR #   | Branch             | Tasks                                                  | Dependențe     |
+| ------ | ------------------ | ------------------------------------------------------ | -------------- |
+| PR-025 | `pr/F4.5-queue-ui` | F4.5.1-F4.5.8 (Metrici, Jobs List, Workers, WebSocket) | PR-024, PR-019 |
 
 **Sprint 4 Deliverables:**
 
