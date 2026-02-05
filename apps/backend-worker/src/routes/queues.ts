@@ -669,11 +669,16 @@ export const queueRoutes: FastifyPluginAsync<QueueAdminPluginOptions> = (
     '/queues/ws',
     { ...requireAdminSession, websocket: true },
     (connection: WsConnection) => {
+      if (!connection?.socket) {
+        logger.warn({ reason: 'missing_socket' }, 'queues ws connection missing socket');
+        return;
+      }
+      const socket = connection.socket;
       let closed = false;
 
       const sendEvent = (event: string, data: unknown) => {
-        if (closed || connection.socket.readyState !== 1) return;
-        connection.socket.send(JSON.stringify({ event, data }));
+        if (closed || socket.readyState !== 1) return;
+        socket.send(JSON.stringify({ event, data }));
       };
 
       const unsubscribe = onQueueStreamEvent((evt: QueueStreamEvent) => {
@@ -706,14 +711,14 @@ export const queueRoutes: FastifyPluginAsync<QueueAdminPluginOptions> = (
       void sendSnapshot();
 
       const interval = setInterval(() => {
-        if (connection.socket.readyState !== 1) {
+        if (socket.readyState !== 1) {
           closed = true;
           clearInterval(interval);
           unsubscribe();
           return;
         }
         void sendSnapshot();
-        connection.socket.ping();
+        socket.ping();
       }, 15_000);
 
       const onClose = () => {
@@ -722,8 +727,8 @@ export const queueRoutes: FastifyPluginAsync<QueueAdminPluginOptions> = (
         unsubscribe();
       };
 
-      connection.socket.on('close', onClose);
-      connection.socket.on('error', onClose);
+      socket.on('close', onClose);
+      socket.on('error', onClose);
     }
   );
 
