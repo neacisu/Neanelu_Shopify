@@ -269,25 +269,6 @@ void describe('smoke: bulk poller (terminal failure + partialDataUrl + retries e
       await sleep(100);
     }
 
-    const pollerQ = pollerQueue;
-    assert.ok(pollerQ, 'poller queue should be initialized');
-    const pollerJob = await pollerQ.getJob(`bulk-poller__${bulkRunId}`);
-    const pollerState = pollerJob ? await pollerJob.getState() : null;
-    if (status !== 'completed') {
-      if (!pollerJob || pollerState === 'completed') {
-        t.skip(
-          'Bulk poller completed but bulk_runs updates not visible in current DB. ' +
-            'Likely DATABASE_URL mismatch between worker and test.'
-        );
-        return;
-      }
-      t.skip(
-        'Bulk poller did not complete within smoke window. ' +
-          'Likely DB/worker mismatch or slow integration environment.'
-      );
-      return;
-    }
-
     assert.equal(status, 'completed');
     assert.equal(resultUrl, MOCK_PARTIAL_URL);
     assert.equal(partialDataUrl, MOCK_PARTIAL_URL);

@@ -234,16 +234,10 @@ void describe('smoke: bulk orchestrator (enqueue → DB → poller scheduled)', 
 
     const { withTenantContext } = await import('@app/database');
 
-    const bulkQ = bulkQueue;
-    assert.ok(bulkQ, 'bulk queue should be initialized');
-
     const pollerQ = pollerQueue;
     assert.ok(pollerQ, 'poller queue should be initialized');
 
     await cleanupBulkRuns(shopId);
-
-    const idempotencyKey = `smoke-${randomUUID()}`;
-    const orchestratorJobId = `bulk-orchestrator__${shopId}__${idempotencyKey}`;
 
     await enqueueBulkOrchestratorJob({
       shopId,
@@ -252,24 +246,13 @@ void describe('smoke: bulk orchestrator (enqueue → DB → poller scheduled)', 
       graphqlQuery: `query {
         products(first: 1) { edges { node { id } } }
       }`,
-      idempotencyKey,
       triggeredBy: 'system',
       requestedAt: Date.now(),
     });
 
-    const deadline = Date.now() + 20_000;
-
-    let sawRunning = false;
+    const deadline = Date.now() + 12_000;
 
     while (Date.now() < deadline) {
-      const orchJob = await bulkQ.getJob(orchestratorJobId);
-      if (orchJob) {
-        const state = await orchJob.getState();
-        if (state === 'failed') {
-          assert.fail(`Bulk orchestrator job failed: ${orchJob.failedReason ?? 'unknown_reason'}`);
-        }
-      }
-
       const row = await withTenantContext(shopId, async (client) => {
         const res = await client.query<{
           id: string;
@@ -287,12 +270,12 @@ void describe('smoke: bulk orchestrator (enqueue → DB → poller scheduled)', 
         );
         return res.rows[0] ?? null;
       });
+
       if (row?.status === 'failed') {
         assert.fail(`Bulk orchestrator marked run failed: ${row.error_message ?? 'unknown'}`);
       }
 
       if (row?.status === 'running' && row.shopify_operation_id === MOCK_SHOPIFY_OPERATION_ID) {
-        sawRunning = true;
         assert.equal(row.shopify_operation_id, MOCK_SHOPIFY_OPERATION_ID);
 
         const pollerJob = await pollerQ.getJob(`bulk-poller__${row.id}`);
@@ -304,19 +287,7 @@ void describe('smoke: bulk orchestrator (enqueue → DB → poller scheduled)', 
       await sleep(200);
     }
 
-    const counts = await bulkQ.getJobCounts('wait', 'delayed', 'active', 'completed', 'failed');
-    const completedCount = Number(counts['completed'] ?? 0);
-    if (!sawRunning && completedCount > 0) {
-      t.skip(
-        'Bulk orchestrator completed but bulk_runs row not visible in current DB. ' +
-          'Likely DATABASE_URL mismatch between worker and test.'
-      );
-      return;
-    }
-    assert.fail(
-      `Timed out waiting for bulk orchestrator to persist a running bulk_runs row ` +
-        `jobId=${orchestratorJobId} counts=${JSON.stringify(counts)}`
-    );
+    assert.fail('Timed out waiting for bulk orchestrator to persist a running bulk_runs row');
   });
 
   void it('delays the job when the bulk lock is held (no DB writes)', async (t) => {

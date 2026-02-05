@@ -227,9 +227,6 @@ void describe('smoke: bulk poller (enqueue → poll → bulk_runs completed + ar
       return;
     }
 
-    const pollerQ = pollerQueue;
-    assert.ok(pollerQ, 'poller queue should be initialized');
-
     const { enqueueBulkPollerJob } = await import('@app/queue-manager');
     await enqueueBulkPollerJob({
       shopId,
@@ -280,16 +277,6 @@ void describe('smoke: bulk poller (enqueue → poll → bulk_runs completed + ar
       shopifyRootObjectCount = row?.shopify_root_object_count ?? null;
       if (resultUrl && partialDataUrl && cursorPartial) break;
       await sleep(100);
-    }
-
-    const pollerJob = await pollerQ.getJob(`bulk-poller__${bulkRunId}`);
-    const pollerState = pollerJob ? await pollerJob.getState() : null;
-    if (!resultUrl && (!pollerJob || pollerState === 'completed')) {
-      t.skip(
-        'Bulk poller completed but bulk_runs updates not visible in current DB. ' +
-          'Likely DATABASE_URL mismatch between worker and test.'
-      );
-      return;
     }
 
     assert.ok(status && status !== 'failed');
