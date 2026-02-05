@@ -16,7 +16,7 @@ export function useEnrichmentStream(options: UseEnrichmentStreamOptions = {}) {
   const [error, setError] = useState<string | null>(null);
   const retryRef = useRef(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const sourceRef = useRef<EventSource | null>(null);
+  const socketRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
@@ -36,41 +36,53 @@ export function useEnrichmentStream(options: UseEnrichmentStreamOptions = {}) {
       if (closed) return;
       try {
         const raw = typeof evt.data === 'string' ? evt.data : String(evt.data);
-        const payload = JSON.parse(raw) as Record<string, unknown>;
-        setEvents((prev) => [{ type: evt.type || 'message', payload }, ...prev].slice(0, 200));
+        const parsed = JSON.parse(raw) as { event?: string; data?: unknown };
+        const eventType = typeof parsed.event === 'string' ? parsed.event : 'message';
+        const payload =
+          parsed && typeof parsed.data === 'object' && parsed.data !== null
+            ? (parsed.data as Record<string, unknown>)
+            : (parsed as unknown as Record<string, unknown>);
+        setEvents((prev) => [{ type: eventType, payload }, ...prev].slice(0, 200));
       } catch {
         // ignore malformed payloads
       }
     };
 
     const connect = () => {
-      sourceRef.current?.close();
-      const source = new EventSource('/api/pim/events/stream');
-      sourceRef.current = source;
+      socketRef.current?.close();
+      const url = new URL('/api/pim/events/ws', window.location.origin);
+      url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+      const socket = new WebSocket(url.toString());
+      socketRef.current = socket;
 
-      source.addEventListener('quality.event', handleMessage);
-      source.addEventListener('message', handleMessage);
-      source.onopen = () => {
+      socket.addEventListener('message', handleMessage);
+      socket.addEventListener('open', () => {
         if (closed) return;
         retryRef.current = 0;
         setConnected(true);
         setError(null);
-      };
-      source.onerror = () => {
+      });
+      socket.addEventListener('error', () => {
         if (closed) return;
         setConnected(false);
         setError('Stream connection error');
-        source.close();
+        socket.close();
         scheduleReconnect();
-      };
+      });
+      socket.addEventListener('close', () => {
+        if (closed) return;
+        setConnected(false);
+        setError('Stream connection error');
+        scheduleReconnect();
+      });
     };
 
     connect();
 
     return () => {
       closed = true;
-      sourceRef.current?.close();
-      sourceRef.current = null;
+      socketRef.current?.close();
+      socketRef.current = null;
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;

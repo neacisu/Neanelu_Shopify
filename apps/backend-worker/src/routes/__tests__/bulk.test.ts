@@ -1,10 +1,11 @@
 import { test, describe, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import http from 'node:http';
 import FormData from 'form-data';
 import Fastify from 'fastify';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import fastifyMultipart from '@fastify/multipart';
+import fastifyWebsocket from '@fastify/websocket';
+import type { Logger } from '@app/logger';
 import { randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import * as os from 'node:os';
@@ -204,17 +205,36 @@ void mock.module('@app/database', {
   },
 });
 
-void describe('Bulk Routes', () => {
+void describe('Bulk Routes', { concurrency: 1 }, () => {
   let app: FastifyInstance;
   let bulkRoutes: unknown;
+  type StreamBulkLogsWs = (params: {
+    request: FastifyRequest;
+    connection: {
+      socket: {
+        readyState: number;
+        send: (data: string) => void;
+        ping: () => void;
+        close: () => void;
+        on: (event: 'close' | 'error', listener: () => void) => void;
+      };
+    };
+    shopId: string;
+    runId?: string;
+    logger: Logger;
+    pollIntervalMs?: number;
+  }) => void;
+  let streamBulkLogsWsFn: StreamBulkLogsWs;
 
   beforeEach(async () => {
     logStep('beforeEach:start');
     const module = await import('../bulk.js');
     bulkRoutes = (module as { bulkRoutes: unknown }).bulkRoutes;
+    streamBulkLogsWsFn = (module as { streamBulkLogsWs: StreamBulkLogsWs }).streamBulkLogsWs;
 
     app = Fastify();
     await app.register(fastifyMultipart);
+    await app.register(fastifyWebsocket);
     await app.register(
       bulkRoutes as never,
       {
@@ -345,41 +365,69 @@ void describe('Bulk Routes', () => {
     assert.equal(del.statusCode, 200);
   });
 
-  void test('GET /bulk/:id/logs/stream emits event stream', async () => {
-    logStep('listen:start');
-    const address = await app.listen({ port: 0, host: '127.0.0.1' });
-    const url = new URL('/bulk/run-1/logs/stream', address);
-    logStep(`listen:ready ${url.toString()}`);
-
-    await new Promise<void>((resolve, reject) => {
-      logStep('http:request:start');
-      const req = http.request(
-        {
-          method: 'GET',
-          hostname: url.hostname,
-          port: url.port,
-          path: url.pathname,
-          headers: { Accept: 'text/event-stream' },
+  void test('GET /bulk/:id/logs/ws emits websocket payload', async () => {
+    const messages: string[] = [];
+    const handlers: Record<'close' | 'error', (() => void)[]> = { close: [], error: [] };
+    const connection = {
+      socket: {
+        readyState: 1,
+        send: (data: string) => {
+          messages.push(data);
         },
-        (res) => {
-          logStep(`http:response status=${res.statusCode ?? 0}`);
-          assert.equal(res.statusCode, 200);
-          res.setEncoding('utf8');
-          res.on('data', (chunk) => {
-            if (typeof chunk === 'string' && chunk.length > 0) {
-              logStep('http:response:data');
-              req.destroy();
-              resolve();
-            }
-          });
-        }
-      );
-      req.on('error', reject);
-      req.end();
+        ping: () => undefined,
+        close: () => {
+          connection.socket.readyState = 3;
+          handlers.close.forEach((handler) => handler());
+        },
+        on: (event: 'close' | 'error', listener: () => void) => {
+          handlers[event].push(listener);
+        },
+      },
+    };
+
+    const request = {
+      query: {},
+    } as FastifyRequest;
+
+    streamBulkLogsWsFn({
+      request,
+      connection,
+      shopId: 'shop-1',
+      runId: 'run-1',
+      logger: (() => {
+        const testLogger = {
+          debug: () => undefined,
+          info: () => undefined,
+          warn: () => undefined,
+          error: () => undefined,
+          fatal: () => undefined,
+          child: () => testLogger,
+        } as Logger;
+        return testLogger;
+      })(),
+      pollIntervalMs: 10,
     });
 
-    logStep('listen:close');
-    await app.close();
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('ws_timeout'));
+      }, 1000);
+      const interval = setInterval(() => {
+        if (messages.length > 0) {
+          clearTimeout(timeout);
+          clearInterval(interval);
+          resolve();
+        }
+      }, 10);
+    });
+
+    connection.socket.close();
+    const payload = JSON.parse(messages[0] ?? '{}') as {
+      event?: string;
+      data?: { logs?: unknown[] };
+    };
+    assert.equal(payload.event, 'logs');
+    assert.ok(Array.isArray(payload.data?.logs));
   });
 
   void test('POST /bulk/upload enqueues ingest from uploaded file', async () => {

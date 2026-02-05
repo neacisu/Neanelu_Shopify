@@ -393,7 +393,7 @@ export default function IngestionPage() {
   }, [api, hasShopifyOperation, isActive]);
 
   const logStream = useLogStream({
-    endpoint: currentRun ? `/api/bulk/${currentRun.id}/logs/stream` : '',
+    endpoint: currentRun ? `/api/bulk/${currentRun.id}/logs/ws` : '',
     enabled: Boolean(currentRun && isActive),
     maxEventsPerSecond: 50,
   });
@@ -882,7 +882,7 @@ export default function IngestionPage() {
                 transport="sse"
                 maxEventsPerSecond={50}
                 bufferSize={1000}
-                {...(currentRun ? { endpoint: `/api/bulk/${currentRun.id}/logs/stream` } : {})}
+                {...(currentRun ? { endpoint: `/api/bulk/${currentRun.id}/logs/ws` } : {})}
               />
             ) : (
               <div className="rounded-md border border-dashed p-4 text-caption text-muted">
@@ -931,7 +931,7 @@ export default function IngestionPage() {
               transport="sse"
               maxEventsPerSecond={50}
               bufferSize={1000}
-              {...(currentRun ? { endpoint: `/api/bulk/${currentRun.id}/logs/stream` } : {})}
+              {...(currentRun ? { endpoint: `/api/bulk/${currentRun.id}/logs/ws` } : {})}
             />
           </div>
         </PolarisCard>

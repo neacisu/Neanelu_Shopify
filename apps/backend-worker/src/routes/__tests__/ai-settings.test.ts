@@ -1,4 +1,4 @@
-import { beforeEach, describe, it, mock } from 'node:test';
+import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
@@ -260,6 +260,14 @@ void describe('AI Settings Routes', () => {
         sessionConfig: {},
       } as never
     );
+  });
+
+  afterEach(async () => {
+    if (app?.server.listening) {
+      await app.close();
+    } else if (app) {
+      await app.close();
+    }
   });
 
   void it('returns defaults when no row exists', async () => {

@@ -1,6 +1,6 @@
 import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
-import type { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from 'fastify';
 import type { MultipartFile } from '@fastify/multipart';
 import { withTenantContext } from '@app/database';
 import { randomUUID } from 'node:crypto';
@@ -88,6 +88,16 @@ type BulkRoutesOptions = Readonly<{
   env: AppEnv;
   logger: Logger;
   sessionConfig: SessionConfig;
+}>;
+
+type WsConnection = Readonly<{
+  socket: {
+    readyState: number;
+    send: (data: string) => void;
+    ping: () => void;
+    close: (code?: number, reason?: string) => void;
+    on: (event: 'close' | 'error', listener: () => void) => void;
+  };
 }>;
 
 type BulkRunRow = Readonly<{
@@ -287,122 +297,151 @@ function buildBulkOperationNodeQuery(): string {
 }`;
 }
 
+export const streamBulkLogsWs = (params: {
+  request: FastifyRequest;
+  connection: WsConnection;
+  shopId: string;
+  runId?: string;
+  logger: Logger;
+  pollIntervalMs?: number;
+}): void => {
+  const { request, connection, shopId, runId, logger, pollIntervalMs = 2000 } = params;
+  const query = request.query as { levels?: unknown } | undefined;
+  const levelsRaw = query?.levels;
+  const levels =
+    typeof levelsRaw === 'string'
+      ? new Set(
+          levelsRaw
+            .split(',')
+            .map((v) => v.trim())
+            .filter((v) => v.length)
+        )
+      : null;
+
+  let lastTs = new Date(0);
+  let windowStart = Math.floor(Date.now() / 1000);
+  let windowCount = 0;
+
+  const send = (payload: unknown) => {
+    if (connection.socket.readyState !== 1) return;
+    connection.socket.send(JSON.stringify({ event: 'logs', data: payload }));
+  };
+
+  const poll = async () => {
+    if (connection.socket.readyState !== 1) {
+      return;
+    }
+    try {
+      const entries = await withTenantContext(shopId, async (client) => {
+        const steps = await client.query<{
+          step_name: string;
+          status: string;
+          error_message: string | null;
+          created_at: Date;
+        }>(
+          runId
+            ? `SELECT step_name, status, error_message, created_at
+           FROM bulk_steps
+           WHERE bulk_run_id = $1
+             AND created_at > $2
+           ORDER BY created_at ASC
+           LIMIT 50`
+            : `SELECT step_name, status, error_message, created_at
+           FROM bulk_steps
+           WHERE created_at > $1
+           ORDER BY created_at ASC
+           LIMIT 100`,
+          runId ? [runId, lastTs] : [lastTs]
+        );
+
+        const errors = await client.query<{
+          error_message: string;
+          error_type: string;
+          created_at: Date;
+        }>(
+          runId
+            ? `SELECT error_message, error_type, created_at
+           FROM bulk_errors
+           WHERE bulk_run_id = $1
+             AND created_at > $2
+           ORDER BY created_at ASC
+           LIMIT 50`
+            : `SELECT error_message, error_type, created_at
+           FROM bulk_errors
+           WHERE created_at > $1
+           ORDER BY created_at ASC
+           LIMIT 100`,
+          runId ? [runId, lastTs] : [lastTs]
+        );
+
+        const logs = [
+          ...steps.rows.map((row) => ({
+            timestamp: row.created_at.toISOString(),
+            level: row.status === 'failed' ? 'error' : 'info',
+            message: row.error_message ?? `Step ${row.step_name} ${row.status}`,
+            stepName: row.step_name,
+          })),
+          ...errors.rows.map((row) => ({
+            timestamp: row.created_at.toISOString(),
+            level: 'error',
+            message: `${row.error_type}: ${row.error_message}`,
+          })),
+        ]
+          .filter((entry) => (levels ? levels.has(entry.level) : true))
+          .sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0));
+
+        return logs;
+      });
+
+      if (entries.length) {
+        const nowSec = Math.floor(Date.now() / 1000);
+        if (nowSec !== windowStart) {
+          windowStart = nowSec;
+          windowCount = 0;
+        }
+        const remaining = Math.max(0, 50 - windowCount);
+        if (remaining <= 0) return;
+        const limited =
+          entries.length > remaining ? entries.slice(entries.length - remaining) : entries;
+
+        const last = limited[limited.length - 1];
+        if (last?.timestamp) {
+          lastTs = new Date(last.timestamp);
+        }
+        windowCount += limited.length;
+        send({ logs: limited });
+      } else if (connection.socket.readyState === 1) {
+        connection.socket.ping();
+      }
+    } catch (error) {
+      logger.warn({ error }, 'bulk logs ws poll failed');
+    }
+  };
+
+  void poll();
+
+  const interval = setInterval(() => {
+    if (connection.socket.readyState !== 1) {
+      clearInterval(interval);
+      return;
+    }
+    void poll();
+  }, pollIntervalMs);
+
+  const onClose = () => {
+    clearInterval(interval);
+  };
+
+  connection.socket.on('close', onClose);
+  connection.socket.on('error', onClose);
+};
+
 export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
   server: FastifyInstance,
   opts
 ): Promise<void> => {
   const { sessionConfig, env, logger } = opts;
   const requireAdminSession = { preHandler: requireSession(sessionConfig) } as const;
-
-  const streamBulkLogs = (params: {
-    request: FastifyRequest;
-    reply: FastifyReply;
-    shopId: string;
-    runId: string;
-  }): void => {
-    const { request, reply, shopId, runId } = params;
-    const levelsRaw = (request.query as { levels?: unknown }).levels;
-    const levels =
-      typeof levelsRaw === 'string'
-        ? new Set(
-            levelsRaw
-              .split(',')
-              .map((v) => v.trim())
-              .filter((v) => v.length)
-          )
-        : null;
-
-    reply.raw.setHeader('Content-Type', 'text/event-stream');
-    reply.raw.setHeader('Cache-Control', 'no-cache');
-    reply.raw.setHeader('Connection', 'keep-alive');
-    reply.raw.flushHeaders();
-
-    let lastTs = new Date(0);
-    let windowStart = Math.floor(Date.now() / 1000);
-    let windowCount = 0;
-
-    const send = (payload: unknown) => {
-      reply.raw.write(`data: ${JSON.stringify(payload)}\n\n`);
-    };
-
-    const interval = setInterval(() => {
-      void (async () => {
-        const entries = await withTenantContext(shopId, async (client) => {
-          const steps = await client.query<{
-            step_name: string;
-            status: string;
-            error_message: string | null;
-            created_at: Date;
-          }>(
-            `SELECT step_name, status, error_message, created_at
-           FROM bulk_steps
-           WHERE bulk_run_id = $1
-             AND created_at > $2
-           ORDER BY created_at ASC
-           LIMIT 50`,
-            [runId, lastTs]
-          );
-
-          const errors = await client.query<{
-            error_message: string;
-            error_type: string;
-            created_at: Date;
-          }>(
-            `SELECT error_message, error_type, created_at
-           FROM bulk_errors
-           WHERE bulk_run_id = $1
-             AND created_at > $2
-           ORDER BY created_at ASC
-           LIMIT 50`,
-            [runId, lastTs]
-          );
-
-          const logs = [
-            ...steps.rows.map((row) => ({
-              timestamp: row.created_at.toISOString(),
-              level: row.status === 'failed' ? 'error' : 'info',
-              message: row.error_message ?? `Step ${row.step_name} ${row.status}`,
-              stepName: row.step_name,
-            })),
-            ...errors.rows.map((row) => ({
-              timestamp: row.created_at.toISOString(),
-              level: 'error',
-              message: `${row.error_type}: ${row.error_message}`,
-            })),
-          ]
-            .filter((entry) => (levels ? levels.has(entry.level) : true))
-            .sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0));
-
-          return logs;
-        });
-
-        if (entries.length) {
-          const nowSec = Math.floor(Date.now() / 1000);
-          if (nowSec !== windowStart) {
-            windowStart = nowSec;
-            windowCount = 0;
-          }
-          const remaining = Math.max(0, 50 - windowCount);
-          if (remaining <= 0) return;
-          const limited =
-            entries.length > remaining ? entries.slice(entries.length - remaining) : entries;
-
-          const last = limited[limited.length - 1];
-          if (last?.timestamp) {
-            lastTs = new Date(last.timestamp);
-          }
-          windowCount += limited.length;
-          send({ logs: limited });
-        } else {
-          reply.raw.write(': heartbeat\n\n');
-        }
-      })();
-    }, 2000);
-
-    request.raw.on('close', () => {
-      clearInterval(interval);
-    });
-  };
 
   server.get('/bulk', requireAdminSession, async (request, reply) => {
     const session = getSessionFromRequest(request, sessionConfig);
@@ -1057,151 +1096,59 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
     void reply.status(200).send(successEnvelope(request.id, { errors }));
   });
 
-  server.get('/bulk/:id/logs/stream', requireAdminSession, async (request, reply) => {
-    const session = getSessionFromRequest(request, sessionConfig);
-    if (!session) {
-      void reply
-        .status(401)
-        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
-      return;
+  server.get(
+    '/bulk/:id/logs/ws',
+    { ...requireAdminSession, websocket: true },
+    (connection: WsConnection, request) => {
+      const session = getSessionFromRequest(request, sessionConfig);
+      if (!session) {
+        connection.socket.close(1008, 'Session required');
+        return;
+      }
+
+      const id = (request.params as { id?: unknown }).id;
+      if (!isNonEmptyString(id)) {
+        connection.socket.close(1008, 'Missing id');
+        return;
+      }
+
+      streamBulkLogsWs({ request, connection, shopId: session.shopId, runId: id, logger });
     }
+  );
 
-    const id = (request.params as { id?: unknown }).id;
-    if (!isNonEmptyString(id)) {
-      void reply.status(400).send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing id'));
-      return;
+  server.get(
+    '/ingestion/:id/logs/ws',
+    { ...requireAdminSession, websocket: true },
+    (connection: WsConnection, request) => {
+      const session = getSessionFromRequest(request, sessionConfig);
+      if (!session) {
+        connection.socket.close(1008, 'Session required');
+        return;
+      }
+
+      const id = (request.params as { id?: unknown }).id;
+      if (!isNonEmptyString(id)) {
+        connection.socket.close(1008, 'Missing id');
+        return;
+      }
+
+      streamBulkLogsWs({ request, connection, shopId: session.shopId, runId: id, logger });
     }
+  );
 
-    streamBulkLogs({ request, reply, shopId: session.shopId, runId: id });
-  });
+  server.get(
+    '/logs/ws',
+    { ...requireAdminSession, websocket: true },
+    (connection: WsConnection, request) => {
+      const session = getSessionFromRequest(request, sessionConfig);
+      if (!session) {
+        connection.socket.close(1008, 'Session required');
+        return;
+      }
 
-  server.get('/ingestion/:id/logs/stream', requireAdminSession, async (request, reply) => {
-    const session = getSessionFromRequest(request, sessionConfig);
-    if (!session) {
-      void reply
-        .status(401)
-        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
-      return;
+      streamBulkLogsWs({ request, connection, shopId: session.shopId, logger });
     }
-
-    const id = (request.params as { id?: unknown }).id;
-    if (!isNonEmptyString(id)) {
-      void reply.status(400).send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing id'));
-      return;
-    }
-
-    streamBulkLogs({ request, reply, shopId: session.shopId, runId: id });
-  });
-
-  server.get('/logs/stream', requireAdminSession, async (request, reply) => {
-    const session = getSessionFromRequest(request, sessionConfig);
-    if (!session) {
-      void reply
-        .status(401)
-        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
-      return;
-    }
-
-    const levelsRaw = (request.query as { levels?: unknown }).levels;
-    const levels =
-      typeof levelsRaw === 'string'
-        ? new Set(
-            levelsRaw
-              .split(',')
-              .map((v) => v.trim())
-              .filter((v) => v.length)
-          )
-        : null;
-
-    reply.raw.setHeader('Content-Type', 'text/event-stream');
-    reply.raw.setHeader('Cache-Control', 'no-cache');
-    reply.raw.setHeader('Connection', 'keep-alive');
-    reply.raw.flushHeaders();
-
-    let lastTs = new Date(0);
-    let windowStart = Math.floor(Date.now() / 1000);
-    let windowCount = 0;
-
-    const send = (payload: unknown) => {
-      reply.raw.write(`data: ${JSON.stringify(payload)}\n\n`);
-    };
-
-    const interval = setInterval(() => {
-      void (async () => {
-        const entries = await withTenantContext(session.shopId, async (client) => {
-          const steps = await client.query<{
-            step_name: string;
-            status: string;
-            error_message: string | null;
-            created_at: Date;
-          }>(
-            `SELECT step_name, status, error_message, created_at
-           FROM bulk_steps
-           WHERE created_at > $1
-           ORDER BY created_at ASC
-           LIMIT 100`,
-            [lastTs]
-          );
-
-          const errors = await client.query<{
-            error_message: string;
-            error_type: string;
-            created_at: Date;
-          }>(
-            `SELECT error_message, error_type, created_at
-           FROM bulk_errors
-           WHERE created_at > $1
-           ORDER BY created_at ASC
-           LIMIT 100`,
-            [lastTs]
-          );
-
-          const logs = [
-            ...steps.rows.map((row) => ({
-              timestamp: row.created_at.toISOString(),
-              level: row.status === 'failed' ? 'error' : 'info',
-              message: row.error_message ?? `Step ${row.step_name} ${row.status}`,
-              stepName: row.step_name,
-            })),
-            ...errors.rows.map((row) => ({
-              timestamp: row.created_at.toISOString(),
-              level: 'error',
-              message: `${row.error_type}: ${row.error_message}`,
-            })),
-          ]
-            .filter((entry) => (levels ? levels.has(entry.level) : true))
-            .sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0));
-
-          return logs;
-        });
-
-        if (entries.length) {
-          const nowSec = Math.floor(Date.now() / 1000);
-          if (nowSec !== windowStart) {
-            windowStart = nowSec;
-            windowCount = 0;
-          }
-          const remaining = Math.max(0, 50 - windowCount);
-          if (remaining <= 0) return;
-          const limited =
-            entries.length > remaining ? entries.slice(entries.length - remaining) : entries;
-
-          const last = limited[limited.length - 1];
-          if (last?.timestamp) {
-            lastTs = new Date(last.timestamp);
-          }
-          windowCount += limited.length;
-          send({ logs: limited });
-        } else {
-          reply.raw.write(': heartbeat\n\n');
-        }
-      })();
-    }, 2000);
-
-    request.raw.on('close', () => {
-      clearInterval(interval);
-    });
-  });
+  );
 
   server.get('/bulk/schedules', requireAdminSession, async (request, reply) => {
     const session = getSessionFromRequest(request, sessionConfig);

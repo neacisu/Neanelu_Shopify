@@ -111,7 +111,7 @@ export function useLogStream(options: UseLogStreamOptions): LogStreamState {
   const [error, setError] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
 
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectDelayRef = useRef(MIN_RECONNECT_MS);
   const onEventRef = useRef(onEvent);
@@ -132,9 +132,9 @@ export function useLogStream(options: UseLogStreamOptions): LogStreamState {
 
   const disconnect = useCallback(() => {
     clearReconnectTimer();
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
+    if (socketRef.current) {
+      socketRef.current.close();
+      socketRef.current = null;
     }
     setConnected(false);
   }, [clearReconnectTimer]);
@@ -159,18 +159,21 @@ export function useLogStream(options: UseLogStreamOptions): LogStreamState {
     disconnect();
     setError(null);
 
-    const es = new EventSource(resolvedEndpoint, { withCredentials: true });
-    eventSourceRef.current = es;
+    const url = new URL(resolvedEndpoint, window.location.origin);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    const socket = new WebSocket(url.toString());
+    socketRef.current = socket;
 
-    es.onopen = () => {
+    socket.addEventListener('open', () => {
       reconnectDelayRef.current = MIN_RECONNECT_MS;
       setConnected(true);
       setError(null);
-    };
+    });
 
-    es.onmessage = (event) => {
+    socket.addEventListener('message', (event) => {
       try {
-        const payload = JSON.parse(String(event.data)) as unknown;
+        const parsed = JSON.parse(String(event.data)) as { event?: string; data?: unknown };
+        const payload = parsed && 'data' in parsed ? parsed.data : parsed;
         let entries = normalizeLogPayload(payload);
         if (entries.length === 0) return;
 
@@ -197,14 +200,28 @@ export function useLogStream(options: UseLogStreamOptions): LogStreamState {
       } catch (err) {
         setError(err instanceof Error ? err.message : 'invalid_log_payload');
       }
-    };
+    });
 
-    es.onerror = () => {
+    let disconnecting = false;
+    const handleClose = () => {
+      if (disconnecting) return;
+      disconnecting = true;
       setConnected(false);
       setError('stream_disconnected');
-      es.close();
       scheduleReconnect();
     };
+
+    const handleError = () => {
+      if (disconnecting) return;
+      disconnecting = true;
+      setConnected(false);
+      setError('stream_disconnected');
+      socket.close();
+      scheduleReconnect();
+    };
+
+    socket.addEventListener('error', handleError);
+    socket.addEventListener('close', handleClose);
   }, [bufferSize, disconnect, enabled, paused, resolvedEndpoint, scheduleReconnect]);
 
   useEffect(() => {

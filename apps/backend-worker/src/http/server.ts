@@ -4,6 +4,7 @@ import type { Logger } from '@app/logger';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import fastifyMultipart from '@fastify/multipart';
+import fastifyWebsocket from '@fastify/websocket';
 import { createClient } from 'redis';
 import { randomUUID } from 'node:crypto';
 import { isShopifyApiConfigValid } from '@app/config';
@@ -98,6 +99,9 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       fileSize: 200 * 1024 * 1024,
     },
   });
+
+  // Register WebSocket support for realtime streams
+  await server.register(fastifyWebsocket);
 
   // Register routes
   // OAuth routes are registered via registerAuthRoutes below

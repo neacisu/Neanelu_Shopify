@@ -13,6 +13,15 @@ type QueueAdminPluginOptions = Readonly<{
   sessionConfig: SessionConfig;
 }>;
 
+type WsConnection = Readonly<{
+  socket: {
+    readyState: number;
+    send: (data: string) => void;
+    ping: () => void;
+    on: (event: 'close' | 'error', listener: () => void) => void;
+  };
+}>;
+
 type QueueSummary = Readonly<{
   name: string;
   waiting: number;
@@ -656,80 +665,67 @@ export const queueRoutes: FastifyPluginAsync<QueueAdminPluginOptions> = (
     );
   });
 
-  server.get('/queues/stream', requireAdminSession, async (request, reply) => {
-    // SSE stream: queue snapshots every 15 seconds.
-    // For HTTP/2 compatibility, don't set Connection header (it's a connection-level concern in H2)
-    void reply.header('Content-Type', 'text/event-stream');
-    void reply.header('Cache-Control', 'no-cache, no-transform');
-    void reply.header('X-Accel-Buffering', 'no'); // Disable nginx/traefik buffering
+  server.get(
+    '/queues/ws',
+    { ...requireAdminSession, websocket: true },
+    (connection: WsConnection) => {
+      let closed = false;
 
-    // Mark as raw response to prevent Fastify from closing the stream
-    reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
-      'X-Accel-Buffering': 'no',
-    });
+      const sendEvent = (event: string, data: unknown) => {
+        if (closed || connection.socket.readyState !== 1) return;
+        connection.socket.send(JSON.stringify({ event, data }));
+      };
 
-    // Flush headers with a comment (SSE keepalive)
-    reply.raw.write(': connected\n\n');
+      const unsubscribe = onQueueStreamEvent((evt: QueueStreamEvent) => {
+        if (closed) return;
+        const { type, ...data } = evt;
+        sendEvent(type, data);
+      });
 
-    let closed = false;
+      const sendSnapshot = async () => {
+        try {
+          const [queues, readiness] = await Promise.all([
+            listQueueSummaries(env),
+            import('../runtime/worker-registry.js').then((m) => m.getWorkerReadiness()),
+          ]);
 
-    const sendEvent = (event: string, data: unknown) => {
-      if (closed) return;
-      reply.raw.write(`event: ${event}\n`);
-      reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
-    };
+          sendEvent('queues.snapshot', {
+            timestamp: nowIso(),
+            queues,
+            workers: {
+              webhookWorkerOk: readiness.webhookWorkerOk,
+              tokenHealthWorkerOk: readiness.tokenHealthWorkerOk,
+              aiBatchWorkerOk: readiness.aiBatchWorkerOk,
+            },
+          });
+        } catch (error) {
+          logger.warn({ error }, 'queues ws snapshot failed');
+        }
+      };
 
-    const sendKeepAlive = () => {
-      if (closed) return;
-      reply.raw.write(`: ping ${Date.now()}\n\n`);
-    };
-
-    const unsubscribe = onQueueStreamEvent((evt: QueueStreamEvent) => {
-      if (closed) return;
-      const { type, ...data } = evt;
-      sendEvent(type, data);
-    });
-
-    const sendSnapshot = async () => {
-      try {
-        const [queues, readiness] = await Promise.all([
-          listQueueSummaries(env),
-          import('../runtime/worker-registry.js').then((m) => m.getWorkerReadiness()),
-        ]);
-
-        sendEvent('queues.snapshot', {
-          timestamp: nowIso(),
-          queues,
-          workers: {
-            webhookWorkerOk: readiness.webhookWorkerOk,
-            tokenHealthWorkerOk: readiness.tokenHealthWorkerOk,
-            aiBatchWorkerOk: readiness.aiBatchWorkerOk,
-          },
-        });
-      } catch (error) {
-        logger.warn({ error }, 'queues stream snapshot failed');
-      }
-    };
-
-    // Initial snapshot and periodic drift correction.
-    void sendSnapshot();
-
-    const interval = setInterval(() => {
       void sendSnapshot();
-      sendKeepAlive();
-    }, 15_000);
 
-    request.raw.on('close', () => {
-      closed = true;
-      clearInterval(interval);
-      unsubscribe();
-    });
+      const interval = setInterval(() => {
+        if (connection.socket.readyState !== 1) {
+          closed = true;
+          clearInterval(interval);
+          unsubscribe();
+          return;
+        }
+        void sendSnapshot();
+        connection.socket.ping();
+      }, 15_000);
 
-    // Prevent Fastify from ending the response - we manage it manually
-    reply.hijack();
-  });
+      const onClose = () => {
+        closed = true;
+        clearInterval(interval);
+        unsubscribe();
+      };
+
+      connection.socket.on('close', onClose);
+      connection.socket.on('error', onClose);
+    }
+  );
 
   return Promise.resolve();
 };

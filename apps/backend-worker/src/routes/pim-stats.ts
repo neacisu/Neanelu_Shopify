@@ -17,6 +17,16 @@ interface RequestWithSession {
   };
 }
 
+type WsConnection = Readonly<{
+  socket: {
+    readyState: number;
+    send: (data: string) => void;
+    ping: () => void;
+    close: (code?: number, reason?: string) => void;
+    on: (event: 'close' | 'error', listener: () => void) => void;
+  };
+}>;
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -890,42 +900,24 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
   );
 
   server.get(
-    '/pim/events/stream',
+    '/pim/events/ws',
     {
       preHandler: [requireSession(sessionConfig)],
+      websocket: true,
     },
-    async (request, reply) => {
+    (connection: WsConnection, request) => {
       const session = (request as RequestWithSession).session;
       if (!session) {
-        return reply
-          .status(401)
-          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+        connection.socket.close(1008, 'Unauthorized');
+        return;
       }
-
-      void reply.header('Content-Type', 'text/event-stream');
-      void reply.header('Cache-Control', 'no-cache, no-transform');
-      void reply.header('X-Accel-Buffering', 'no');
-
-      reply.raw.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache, no-transform',
-        'X-Accel-Buffering': 'no',
-      });
-
-      reply.raw.write(': connected\n\n');
 
       let closed = false;
       let lastSeenAt = new Date(Date.now() - 60_000).toISOString();
 
       const sendEvent = (event: string, data: unknown) => {
-        if (closed) return;
-        reply.raw.write(`event: ${event}\n`);
-        reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
-      };
-
-      const sendKeepAlive = () => {
-        if (closed) return;
-        reply.raw.write(`: ping ${Date.now()}\n\n`);
+        if (closed || connection.socket.readyState !== 1) return;
+        connection.socket.send(JSON.stringify({ event, data }));
       };
 
       const pollEvents = async () => {
@@ -974,23 +966,29 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
             });
           }
         } catch (error) {
-          logger.warn({ error }, 'quality events stream poll failed');
+          logger.warn({ error }, 'quality events ws poll failed');
         }
       };
 
       void pollEvents();
 
       const interval = setInterval(() => {
+        if (connection.socket.readyState !== 1) {
+          closed = true;
+          clearInterval(interval);
+          return;
+        }
         void pollEvents();
-        sendKeepAlive();
+        connection.socket.ping();
       }, 15_000);
 
-      request.raw.on('close', () => {
+      const onClose = () => {
         closed = true;
         clearInterval(interval);
-      });
+      };
 
-      reply.hijack();
+      connection.socket.on('close', onClose);
+      connection.socket.on('error', onClose);
     }
   );
   return Promise.resolve();
