@@ -329,7 +329,7 @@ export async function computeConsensus(params: {
       continue;
     }
     const result = computeWinner(attributeName, votes, {
-      minVotes: isCritical ? CONSENSUS_CONFIG.MIN_VOTES : 1,
+      minVotes: CONSENSUS_CONFIG.MIN_VOTES,
       conflictThreshold: CONSENSUS_CONFIG.CONFLICT_THRESHOLD,
     });
     if (result.winner && !result.conflict) {
