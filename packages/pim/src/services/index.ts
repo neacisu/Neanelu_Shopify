@@ -21,3 +21,4 @@ export * from './consensus-config.js';
 export * from './quality-scorer.js';
 export * from './specs-parser.js';
 export * from './consensus-engine.js';
+export * from './quality-promoter.js';

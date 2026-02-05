@@ -1,8 +1,9 @@
 import type { LoaderFunctionArgs } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLoaderData, useSearchParams } from 'react-router-dom';
 import type { DateRange } from 'react-day-picker';
 import { AlertCircle, Trophy, TrendingDown, TrendingUp } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { PageHeader } from '../components/layout/page-header';
@@ -88,6 +89,7 @@ export default function QualityEventsPage() {
   const [range, setRange] = useState<DateRange | undefined>(() =>
     parseRangeFromParams(searchParams)
   );
+  const seenToastIds = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     setEventType(searchParams.get('type') ?? 'all');
@@ -95,45 +97,69 @@ export default function QualityEventsPage() {
     setRange(parseRangeFromParams(searchParams));
   }, [searchParams]);
 
-  const mergedEvents = [
-    ...stream.events
-      .map((evt) => {
-        const id = typeof evt.payload['id'] === 'string' ? evt.payload['id'] : null;
-        const eventType =
-          typeof evt.payload['eventType'] === 'string'
-            ? (evt.payload['eventType'] as QualityEvent['eventType'])
-            : null;
-        const productId =
-          typeof evt.payload['productId'] === 'string' ? evt.payload['productId'] : null;
-        const timestamp =
-          typeof evt.payload['timestamp'] === 'string' ? evt.payload['timestamp'] : null;
-        if (!id || !eventType || !timestamp || !productId) return null;
-        const previousLevel =
-          typeof evt.payload['previousLevel'] === 'string'
-            ? evt.payload['previousLevel']
-            : undefined;
-        const newLevel =
-          typeof evt.payload['newLevel'] === 'string' ? evt.payload['newLevel'] : undefined;
-        return {
-          id,
-          eventType,
-          productId,
-          ...(previousLevel ? { previousLevel } : {}),
-          ...(newLevel ? { newLevel } : {}),
-          qualityScore:
-            typeof evt.payload['qualityScore'] === 'number'
-              ? evt.payload['qualityScore']
-              : typeof evt.payload['qualityScore'] === 'string'
-                ? Number(evt.payload['qualityScore'])
-                : null,
-          triggerReason:
-            typeof evt.payload['triggerReason'] === 'string' ? evt.payload['triggerReason'] : null,
-          timestamp,
-        } satisfies QualityEvent;
-      })
-      .filter((evt): evt is QualityEvent => evt !== null),
-    ...events.events,
-  ];
+  const streamEvents: QualityEvent[] = stream.events.flatMap((evt) => {
+    if (evt.type !== 'quality.event') return [];
+    const id = typeof evt.payload['id'] === 'string' ? evt.payload['id'] : null;
+    const eventType =
+      typeof evt.payload['eventType'] === 'string'
+        ? (evt.payload['eventType'] as QualityEvent['eventType'])
+        : null;
+    const productId =
+      typeof evt.payload['productId'] === 'string' ? evt.payload['productId'] : null;
+    const timestamp =
+      typeof evt.payload['timestamp'] === 'string' ? evt.payload['timestamp'] : null;
+    if (!id || !eventType || !timestamp || !productId) return [];
+    const previousLevel =
+      typeof evt.payload['previousLevel'] === 'string' ? evt.payload['previousLevel'] : undefined;
+    const newLevel =
+      typeof evt.payload['newLevel'] === 'string' ? evt.payload['newLevel'] : undefined;
+    const qualityScore =
+      typeof evt.payload['qualityScore'] === 'number'
+        ? evt.payload['qualityScore']
+        : typeof evt.payload['qualityScore'] === 'string'
+          ? Number(evt.payload['qualityScore'])
+          : null;
+    const triggerReason =
+      typeof evt.payload['triggerReason'] === 'string' ? evt.payload['triggerReason'] : null;
+    const qualityEvent: QualityEvent = {
+      id,
+      eventType,
+      productId,
+      ...(previousLevel ? { previousLevel } : {}),
+      ...(newLevel ? { newLevel } : {}),
+      qualityScore,
+      triggerReason,
+      timestamp,
+    };
+    return [qualityEvent];
+  });
+
+  const mergedEvents = [...streamEvents, ...events.events];
+
+  useEffect(() => {
+    for (const evt of stream.events) {
+      if (evt.type !== 'quality.event') continue;
+      const id = typeof evt.payload['id'] === 'string' ? evt.payload['id'] : null;
+      if (!id || seenToastIds.current.has(id)) continue;
+      seenToastIds.current.add(id);
+
+      const eventType =
+        typeof evt.payload['eventType'] === 'string'
+          ? (evt.payload['eventType'] as QualityEvent['eventType'])
+          : null;
+      const newLevel = typeof evt.payload['newLevel'] === 'string' ? evt.payload['newLevel'] : '';
+
+      if (eventType === 'quality_promoted') {
+        toast.success(`Product promoted to ${newLevel}!`, {
+          duration: 5000,
+          icon: newLevel === 'golden' ? '🏆' : '⬆️',
+        });
+      }
+      if (eventType === 'quality_demoted') {
+        toast.warning(`Product demoted to ${newLevel}`, { duration: 5000 });
+      }
+    }
+  }, [stream.events]);
 
   const timelineEvents: TimelineEvent[] = mergedEvents.map((evt) => {
     const description = evt.triggerReason ?? undefined;

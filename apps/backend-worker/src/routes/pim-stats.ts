@@ -843,9 +843,10 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
             quality_score_after: string | null;
             quality_score_before: string | null;
             trigger_reason: string | null;
+            trigger_details: Record<string, unknown> | null;
             created_at: string;
           }>(
-            `SELECT id, event_type, product_id, previous_level, new_level, quality_score_after, quality_score_before, trigger_reason, created_at
+            `SELECT id, event_type, product_id, previous_level, new_level, quality_score_after, quality_score_before, trigger_reason, trigger_details, created_at
                FROM prod_quality_events
               WHERE ($1::text IS NULL OR event_type = $1)
                 AND ($2::timestamptz IS NULL OR created_at >= $2)
@@ -880,6 +881,7 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
                   ? Number(row.quality_score_before)
                   : null,
               triggerReason: row.trigger_reason ?? null,
+              triggerDetails: row.trigger_details ?? null,
               timestamp: row.created_at,
             })),
             hasMore: offset + limit < totalCount,
@@ -937,9 +939,10 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
               quality_score_after: string | null;
               quality_score_before: string | null;
               trigger_reason: string | null;
+              trigger_details: Record<string, unknown> | null;
               created_at: string;
             }>(
-              `SELECT id, event_type, product_id, previous_level, new_level, quality_score_after, quality_score_before, trigger_reason, created_at
+              `SELECT id, event_type, product_id, previous_level, new_level, quality_score_after, quality_score_before, trigger_reason, trigger_details, created_at
                  FROM prod_quality_events
                 WHERE created_at > $1
                 ORDER BY created_at ASC
@@ -967,6 +970,7 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
                   ? Number(row.quality_score_before)
                   : null,
               triggerReason: row.trigger_reason ?? null,
+              triggerDetails: row.trigger_details ?? null,
               timestamp: row.created_at,
             });
           }

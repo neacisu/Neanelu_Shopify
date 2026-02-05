@@ -1,8 +1,14 @@
 import type { Logger } from '@app/logger';
+import type { QualityLevelChangeResult } from '@app/pim';
 import { loadEnv } from '@app/config';
 import { configFromEnv, createWorker, withJobTelemetryContext } from '@app/queue-manager';
 import { withTenantContext } from '@app/database';
-import { computeConsensus, mergeWithExistingSpecs, CONSENSUS_CONFIG } from '@app/pim';
+import {
+  applyQualityLevelChange,
+  computeConsensus,
+  mergeWithExistingSpecs,
+  CONSENSUS_CONFIG,
+} from '@app/pim';
 import {
   CONSENSUS_JOB_BATCH,
   CONSENSUS_JOB_RECOMPUTE,
@@ -61,6 +67,14 @@ const mergeWithExistingSpecsSafe = mergeWithExistingSpecs as unknown as (params:
   consensusSpecs: Record<string, unknown>;
   provenance: Record<string, AttributeProvenance>;
 }) => Promise<{ merged: Record<string, unknown>; skipped: string[] }>;
+const applyQualityLevelChangeSafe = applyQualityLevelChange as unknown as (params: {
+  client: DbClient;
+  productId: string;
+  qualityScore: number;
+  sourceCount: number;
+  consensusSpecs: Record<string, unknown>;
+  trigger: string;
+}) => Promise<QualityLevelChangeResult>;
 
 export interface ConsensusWorkerHandle {
   worker: { close: () => Promise<void>; isRunning?: () => boolean };
@@ -173,6 +187,27 @@ async function processSingleConsensus(payload: ConsensusJobPayload, logger: Logg
       needsReview,
       reviewReason,
     });
+
+    const promotionResult = await applyQualityLevelChangeSafe({
+      client: client as DbClient,
+      productId: payload.productId,
+      qualityScore: result.qualityScore,
+      sourceCount: result.sourceCount,
+      consensusSpecs: filteredConsensusSpecs,
+      trigger: payload.trigger,
+    });
+
+    if (promotionResult.changed) {
+      logger.info(
+        {
+          productId: payload.productId,
+          from: promotionResult.previousLevel,
+          to: promotionResult.newLevel,
+          qualityScore: result.qualityScore,
+        },
+        'Quality level changed after consensus'
+      );
+    }
 
     if (merged.skipped.length > 0) {
       logger.info(

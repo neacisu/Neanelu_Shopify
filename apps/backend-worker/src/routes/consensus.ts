@@ -2,7 +2,16 @@ import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
 import type { FastifyInstance, FastifyPluginCallback } from 'fastify';
 import { withTenantContext } from '@app/database';
-import { computeConsensus, parseExtractedSpecs } from '@app/pim';
+import type { QualityLevel } from '@app/types';
+import {
+  computeConsensus,
+  computeMissingRequirements,
+  evaluatePromotion,
+  getRecentEvents,
+  logQualityEvent,
+  parseExtractedSpecs,
+  PROMOTION_THRESHOLDS,
+} from '@app/pim';
 import { enqueueConsensusBatchJob, enqueueConsensusJob } from '../queue/consensus-queue.js';
 import type { SessionConfig } from '../auth/session.js';
 import { getSessionFromRequest, requireSession } from '../auth/session.js';
@@ -251,6 +260,217 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
       trigger: 'manual',
     });
     return reply.send(successEnvelope(request.id, { jobId }));
+  });
+
+  fastify.post('/products/:id/quality-level', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      return reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+    }
+
+    const productId = String((request.params as { id: string }).id);
+    const body = (request.body ?? {}) as { level?: string; reason?: string };
+    const allowedLevels: QualityLevel[] = ['bronze', 'silver', 'golden', 'review_needed'];
+
+    if (!body.level || !allowedLevels.includes(body.level as QualityLevel)) {
+      return reply
+        .status(400)
+        .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'invalid_quality_level'));
+    }
+
+    const result = await withTenantContext(session.shopId, async (client) => {
+      const currentResult = await client.query<{
+        data_quality_level: QualityLevel;
+        quality_score: number | null;
+      }>(
+        `SELECT data_quality_level, quality_score
+           FROM prod_master
+          WHERE id = $1`,
+        [productId]
+      );
+      const currentRow = currentResult.rows[0];
+      if (!currentRow) {
+        return null;
+      }
+
+      const currentLevel = currentRow.data_quality_level;
+      const newLevel = body.level as QualityLevel;
+      const levelOrder: Record<QualityLevel, number> = {
+        review_needed: 0,
+        bronze: 1,
+        silver: 2,
+        golden: 3,
+      };
+
+      if (newLevel === currentLevel) {
+        return {
+          changed: false,
+          previousLevel: currentLevel,
+          newLevel,
+        };
+      }
+
+      await client.query(
+        `UPDATE prod_master
+           SET data_quality_level = $2,
+               promoted_to_silver_at = CASE
+                 WHEN $2 IN ('silver', 'golden') THEN COALESCE(promoted_to_silver_at, now())
+                 ELSE NULL
+               END,
+               promoted_to_golden_at = CASE
+                 WHEN $2 = 'golden' THEN COALESCE(promoted_to_golden_at, now())
+                 ELSE NULL
+               END,
+               last_quality_check = now(),
+               updated_at = now()
+         WHERE id = $1`,
+        [productId, newLevel]
+      );
+
+      const eventType =
+        levelOrder[newLevel] >= levelOrder[currentLevel] ? 'quality_promoted' : 'quality_demoted';
+
+      await logQualityEvent({
+        client,
+        productId,
+        eventType,
+        previousLevel: currentLevel,
+        newLevel,
+        qualityScoreBefore: currentRow.quality_score,
+        qualityScoreAfter: currentRow.quality_score ?? 0,
+        triggerReason: body.reason ?? 'manual_override',
+      });
+
+      return {
+        changed: true,
+        previousLevel: currentLevel,
+        newLevel,
+      };
+    });
+
+    if (!result) {
+      return reply
+        .status(404)
+        .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'product_not_found'));
+    }
+
+    return reply.send(successEnvelope(request.id, result));
+  });
+
+  fastify.get('/products/:id/quality-level', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      return reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+    }
+
+    const productId = String((request.params as { id: string }).id);
+
+    const result = await withTenantContext(session.shopId, async (client) => {
+      const productResult = await client.query<{
+        data_quality_level: QualityLevel;
+        quality_score: number | null;
+        quality_score_breakdown: Record<string, unknown> | null;
+        needs_review: boolean;
+        promoted_to_silver_at: string | null;
+        promoted_to_golden_at: string | null;
+      }>(
+        `SELECT data_quality_level,
+                quality_score,
+                quality_score_breakdown,
+                needs_review,
+                promoted_to_silver_at,
+                promoted_to_golden_at
+           FROM prod_master
+          WHERE id = $1`,
+        [productId]
+      );
+      const product = productResult.rows[0];
+      if (!product) {
+        return null;
+      }
+
+      const sourceCountResult = await client.query<{ source_count: number }>(
+        `SELECT COUNT(*)::int as source_count
+           FROM prod_similarity_matches
+          WHERE product_id = $1
+            AND match_confidence = 'confirmed'
+            AND specs_extracted IS NOT NULL`,
+        [productId]
+      );
+      const sourceCount = sourceCountResult.rows[0]?.source_count ?? 0;
+
+      const specsResult = await client.query<{ specs: Record<string, unknown> | null }>(
+        `SELECT specs
+           FROM prod_specs_normalized
+          WHERE product_id = $1
+            AND is_current = true
+          LIMIT 1`,
+        [productId]
+      );
+      const consensusSpecs = specsResult.rows[0]?.specs ?? {};
+      const specsCount = Object.keys(consensusSpecs ?? {}).length;
+
+      const promotion = evaluatePromotion({
+        currentLevel: product.data_quality_level,
+        qualityScore: product.quality_score ?? 0,
+        sourceCount,
+        consensusSpecs,
+      });
+
+      const missingRequirements = computeMissingRequirements({
+        currentLevel: product.data_quality_level,
+        qualityScore: product.quality_score ?? 0,
+        sourceCount,
+        consensusSpecs,
+      });
+
+      const nextLevel: QualityLevel | null =
+        product.data_quality_level === 'bronze'
+          ? 'silver'
+          : product.data_quality_level === 'silver'
+            ? 'golden'
+            : null;
+      const nextThreshold =
+        nextLevel === 'silver'
+          ? PROMOTION_THRESHOLDS.bronze_to_silver.minQualityScore
+          : nextLevel === 'golden'
+            ? PROMOTION_THRESHOLDS.silver_to_golden.minQualityScore
+            : null;
+
+      const recentEvents = await getRecentEvents(productId, 5, client);
+
+      return {
+        currentLevel: product.data_quality_level,
+        qualityScore: product.quality_score,
+        qualityScoreBreakdown: product.quality_score_breakdown,
+        sourceCount,
+        specsCount,
+        eligibleForPromotion: promotion.eligible,
+        nextLevel,
+        nextThreshold,
+        thresholds: {
+          silver: PROMOTION_THRESHOLDS.bronze_to_silver.minQualityScore,
+          golden: PROMOTION_THRESHOLDS.silver_to_golden.minQualityScore,
+        },
+        missingRequirements,
+        promotedToSilverAt: product.promoted_to_silver_at,
+        promotedToGoldenAt: product.promoted_to_golden_at,
+        needsReview: product.needs_review,
+        recentEvents,
+      };
+    });
+
+    if (!result) {
+      return reply
+        .status(404)
+        .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'product_not_found'));
+    }
+
+    return reply.send(successEnvelope(request.id, result));
   });
 
   fastify.get('/products/:id/consensus/details', requireAdminSession, async (request, reply) => {

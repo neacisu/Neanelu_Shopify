@@ -1,5 +1,9 @@
 import { getDbPool } from '../db.js';
 
+type DbClient = Readonly<{
+  query: <T = unknown>(sql: string, values?: readonly unknown[]) => Promise<{ rows: T[] }>;
+}>;
+
 export type QualityEvent = Readonly<{
   id: string;
   productId: string;
@@ -18,6 +22,7 @@ export type QualityEvent = Readonly<{
 }>;
 
 export async function logQualityEvent(params: {
+  client?: DbClient;
   productId: string;
   eventType: 'quality_promoted' | 'quality_demoted' | 'review_requested' | 'milestone_reached';
   previousLevel: string | null;
@@ -29,8 +34,8 @@ export async function logQualityEvent(params: {
   triggeredBy?: string | null;
   jobId?: string;
 }): Promise<string> {
-  const pool = getDbPool();
-  const result = await pool.query<{ id: string }>(
+  const db = params.client ?? getDbPool();
+  const result = await db.query<{ id: string }>(
     `INSERT INTO prod_quality_events (
        product_id,
        event_type,
@@ -67,9 +72,13 @@ export async function logQualityEvent(params: {
   return row.id;
 }
 
-export async function getRecentEvents(productId: string, limit = 20): Promise<QualityEvent[]> {
-  const pool = getDbPool();
-  const result = await pool.query<QualityEvent>(
+export async function getRecentEvents(
+  productId: string,
+  limit = 20,
+  client?: DbClient
+): Promise<QualityEvent[]> {
+  const db = client ?? getDbPool();
+  const result = await db.query<QualityEvent>(
     `SELECT
        id,
        product_id as "productId",

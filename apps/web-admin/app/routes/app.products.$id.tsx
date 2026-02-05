@@ -9,9 +9,11 @@ import { PageHeader } from '../components/layout/page-header';
 import { Timeline } from '../components/ui/Timeline';
 import { JsonViewer } from '../components/ui/JsonViewer';
 import { Button } from '../components/ui/button';
+import { PromotionEligibilityCard } from '../components/domain/PromotionEligibilityCard';
 import { ShopifyAdminLink } from '../components/domain/ShopifyAdminLink';
 import { QualityLevelBadge } from '../components/domain/QualityLevelBadge';
 import { useApiClient } from '../hooks/use-api';
+import { useQualityLevel } from '../hooks/use-quality-level';
 
 export default function ProductDetailPage() {
   const location = useLocation();
@@ -46,6 +48,15 @@ export default function ProductDetailPage() {
   const historyRef = useRef<HTMLDivElement | null>(null);
   const aiRef = useRef<HTMLDivElement | null>(null);
   const [loading, setLoading] = useState(true);
+  const qualityLevel = useQualityLevel(product?.id ?? null);
+  const runQualityLevel = qualityLevel.run;
+  const recentlyPromoted = useMemo(() => {
+    const promotedAt =
+      qualityLevel.data?.promotedToGoldenAt ?? qualityLevel.data?.promotedToSilverAt ?? null;
+    if (!promotedAt) return false;
+    const promotedTime = new Date(promotedAt).getTime();
+    return Date.now() - promotedTime < 24 * 60 * 60 * 1000;
+  }, [qualityLevel.data?.promotedToGoldenAt, qualityLevel.data?.promotedToSilverAt]);
 
   const breadcrumbs = useMemo(
     () => [
@@ -65,6 +76,13 @@ export default function ProductDetailPage() {
       .then((data) => setProduct(data))
       .finally(() => setLoading(false));
   }, [api, params.id]);
+
+  useEffect(() => {
+    if (!product?.id) return;
+    void runQualityLevel().catch(() => {
+      toast.error('Failed to load quality promotion data');
+    });
+  }, [product?.id, runQualityLevel]);
 
   useEffect(() => {
     if (!product) return;
@@ -142,6 +160,20 @@ export default function ProductDetailPage() {
     void navigate(`/products/${product.id}/edit`);
   };
 
+  const handleManualPromote = async (level: string) => {
+    if (!product) return;
+    const confirmed = window.confirm(`Promote product to ${level}?`);
+    if (!confirmed) return;
+    try {
+      await api.postApi(`/products/${product.id}/quality-level`, { level });
+      toast.success(`Product promoted to ${level}`);
+      await runQualityLevel();
+    } catch (error) {
+      console.error('Manual promotion failed', error);
+      toast.error('Manual promotion failed');
+    }
+  };
+
   if (loading || !product) {
     return <div className="text-sm text-muted">Loading...</div>;
   }
@@ -193,10 +225,44 @@ export default function ProductDetailPage() {
             <div className="text-sm text-muted">Vendor: {product.vendor ?? '-'}</div>
             <div className="text-sm text-muted">Handle: {product.handle}</div>
             <div className="flex items-center gap-2">
-              <QualityLevelBadge level={product.pim?.qualityLevel ?? null} />
+              <QualityLevelBadge
+                level={product.pim?.qualityLevel ?? null}
+                recentlyPromoted={recentlyPromoted}
+              />
               <span className="text-xs text-muted">Score: {product.pim?.qualityScore ?? '-'}</span>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section className="rounded-lg border bg-background p-4">
+        <div className="text-sm font-semibold">Quality & Promotion</div>
+        <div className="mt-3">
+          {qualityLevel.loading ? (
+            <div className="text-xs text-muted">Loading promotion data...</div>
+          ) : qualityLevel.error ? (
+            <div className="text-xs text-muted">Failed to load promotion data.</div>
+          ) : qualityLevel.data ? (
+            <PromotionEligibilityCard
+              productId={product.id}
+              currentLevel={qualityLevel.data.currentLevel}
+              qualityScore={qualityLevel.data.qualityScore}
+              sourceCount={qualityLevel.data.sourceCount}
+              specsCount={qualityLevel.data.specsCount}
+              eligibleForPromotion={qualityLevel.data.eligibleForPromotion}
+              nextLevel={qualityLevel.data.nextLevel}
+              nextThreshold={qualityLevel.data.nextThreshold}
+              thresholds={qualityLevel.data.thresholds}
+              missingRequirements={qualityLevel.data.missingRequirements}
+              promotedToSilverAt={qualityLevel.data.promotedToSilverAt}
+              promotedToGoldenAt={qualityLevel.data.promotedToGoldenAt}
+              onPromote={(level) => {
+                void handleManualPromote(level);
+              }}
+            />
+          ) : (
+            <div className="text-xs text-muted">Promotion data unavailable.</div>
+          )}
         </div>
       </section>
 

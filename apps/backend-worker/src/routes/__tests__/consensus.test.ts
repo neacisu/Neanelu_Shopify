@@ -79,6 +79,19 @@ void mock.module('@app/database', {
 
 void mock.module('@app/pim', {
   namedExports: {
+    PROMOTION_THRESHOLDS: {
+      bronze_to_silver: {
+        minQualityScore: 0.6,
+        minSources: 2,
+        requiredFields: ['brand', 'category'],
+      },
+      silver_to_golden: {
+        minQualityScore: 0.85,
+        minSources: 3,
+        requiredFields: ['gtin', 'brand', 'mpn', 'category'],
+        minSpecsCount: 5,
+      },
+    },
     computeConsensus: () =>
       Promise.resolve({
         consensusSpecs: { color: 'red' },
@@ -117,6 +130,14 @@ void mock.module('@app/pim', {
         needsReview: true,
         skippedDueToManualCorrection: [],
       }),
+    computeMissingRequirements: () => [],
+    evaluatePromotion: () => ({
+      eligible: false,
+      targetLevel: 'bronze',
+      reason: 'requirements_not_met',
+    }),
+    getRecentEvents: () => Promise.resolve([]),
+    logQualityEvent: () => Promise.resolve('event-1'),
     parseExtractedSpecs: (value: unknown) => {
       const input = value as Record<string, { value: unknown }>;
       const entries = Object.entries(input ?? {}).map(([key, spec]) => [key, spec] as const);
