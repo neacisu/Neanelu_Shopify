@@ -30,6 +30,7 @@ export function ChartContainer(props: ChartContainerProps) {
     emptyState,
     children,
   } = props;
+  const safeHeight = Math.max(height, 1);
 
   return (
     <PolarisCard className={`p-4 ${className ?? ''}`.trim()}>
@@ -41,7 +42,10 @@ export function ChartContainer(props: ChartContainerProps) {
         {actions ? <div className="shrink-0">{actions}</div> : null}
       </div>
 
-      <div className="mt-3" style={{ width: '100%', height }}>
+      <div
+        className="mt-3"
+        style={{ width: '100%', height: safeHeight, minHeight: 1, minWidth: 1 }}
+      >
         {loading ? <div className="text-sm text-muted">Loading…</div> : null}
         {error ? <div className="text-sm text-red-600">{error}</div> : null}
         {!loading && !error && empty

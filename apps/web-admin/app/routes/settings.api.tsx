@@ -225,9 +225,10 @@ export default function SettingsApi() {
         <WebhookTester
           topics={webhookConfig.requiredTopics}
           onTest={(topic) =>
-            api.getApi<{ success: boolean; latencyMs?: number; error?: string }>(
-              `/settings/webhooks/test?topic=${encodeURIComponent(topic)}`
-            )
+            api.postApi<
+              { success: boolean; latencyMs?: number; error?: string },
+              { topic: string }
+            >('/settings/webhooks/test', { topic })
           }
           disabled={webhookRefreshLoading}
         />
