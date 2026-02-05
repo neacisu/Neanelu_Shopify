@@ -1,4 +1,5 @@
 import { getDbPool } from '../db.js';
+import type { MatchWithSource } from '../types/consensus.js';
 
 export type ProdSimilarityMatch = Readonly<{
   id: string;
@@ -452,6 +453,73 @@ export async function findPendingMatches(limit = 200): Promise<ProdSimilarityMat
     ORDER BY created_at ASC
     LIMIT $1`,
     [limit]
+  );
+  return result.rows;
+}
+
+export async function getConfirmedMatchesWithSources(
+  productId: string
+): Promise<MatchWithSource[]> {
+  const pool = getDbPool();
+  const result = await pool.query<MatchWithSource>(
+    `SELECT
+       psm.id as "matchId",
+       psm.product_id as "productId",
+       psm.source_id as "sourceId",
+       ps.name as "sourceName",
+       psm.source_url as "sourceUrl",
+       psm.similarity_score::numeric as "similarityScore",
+       psm.specs_extracted as "specsExtracted",
+       COALESCE(ps.trust_score, 0.5)::numeric as "trustScore",
+       psm.extraction_session_id as "extractionSessionId",
+       psm.match_confidence as "matchConfidence",
+       psm.created_at as "createdAt"
+     FROM prod_similarity_matches psm
+     LEFT JOIN prod_sources ps ON ps.id = psm.source_id
+    WHERE psm.product_id = $1
+      AND psm.match_confidence = 'confirmed'
+      AND psm.specs_extracted IS NOT NULL
+    ORDER BY psm.similarity_score DESC`,
+    [productId]
+  );
+  return result.rows;
+}
+
+export async function countMatchesBySource(productId: string): Promise<Map<string, number>> {
+  const pool = getDbPool();
+  const result = await pool.query<{ source_name: string; count: string }>(
+    `SELECT COALESCE(ps.name, 'unknown') as source_name, COUNT(*)::text as count
+       FROM prod_similarity_matches psm
+       LEFT JOIN prod_sources ps ON ps.id = psm.source_id
+      WHERE psm.product_id = $1
+        AND psm.match_confidence = 'confirmed'
+      GROUP BY ps.name`,
+    [productId]
+  );
+  return new Map(result.rows.map((row) => [row.source_name, Number(row.count)]));
+}
+
+export async function getMatchesWithExtractedSpecs(productId: string): Promise<MatchWithSource[]> {
+  const pool = getDbPool();
+  const result = await pool.query<MatchWithSource>(
+    `SELECT
+       psm.id as "matchId",
+       psm.product_id as "productId",
+       psm.source_id as "sourceId",
+       ps.name as "sourceName",
+       psm.source_url as "sourceUrl",
+       psm.similarity_score::numeric as "similarityScore",
+       psm.specs_extracted as "specsExtracted",
+       COALESCE(ps.trust_score, 0.5)::numeric as "trustScore",
+       psm.extraction_session_id as "extractionSessionId",
+       psm.match_confidence as "matchConfidence",
+       psm.created_at as "createdAt"
+     FROM prod_similarity_matches psm
+     LEFT JOIN prod_sources ps ON ps.id = psm.source_id
+    WHERE psm.product_id = $1
+      AND psm.specs_extracted IS NOT NULL
+    ORDER BY psm.similarity_score DESC`,
+    [productId]
   );
   return result.rows;
 }

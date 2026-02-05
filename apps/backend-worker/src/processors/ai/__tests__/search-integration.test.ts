@@ -29,6 +29,14 @@ void mock.module('@app/queue-manager', {
       quit: () => Promise.resolve(undefined),
       on: () => undefined,
     }),
+    configFromEnv: (env: { redisUrl?: string; bullmqProToken?: string }) => ({
+      redisUrl: env.redisUrl ?? 'redis://localhost:6379',
+      bullmqProToken: env.bullmqProToken ?? 'test-token',
+    }),
+    createQueue: () => ({
+      add: () => Promise.resolve({ id: 'test-job' }),
+      close: () => Promise.resolve(),
+    }),
   },
 });
 
@@ -154,6 +162,7 @@ const env = {
   bulkPimSyncEnabled: true,
   bulkSemanticDedupEnabled: true,
   bulkConsensusEnabled: true,
+  bulkExternalConsensusEnabled: true,
   bulkDedupeHighThreshold: 0.9,
   bulkDedupeNeedsReviewThreshold: 0.85,
   bulkDedupeMaxResults: 10,

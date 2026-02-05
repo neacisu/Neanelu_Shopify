@@ -5,6 +5,7 @@ import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { PageHeader } from '../components/layout/page-header';
 import { Button } from '../components/ui/button';
 import { HITLReviewQueue } from '../components/domain/HITLReviewQueue';
+import { ValueComparisonPanel } from '../components/domain/ValueComparisonPanel';
 import { useApiClient } from '../hooks/use-api';
 
 type ReviewMatchItem = Readonly<{
@@ -165,10 +166,10 @@ export default function ProductsReviewPage() {
               <div className="text-xs text-muted">
                 {item.field_path} • Confidence: {item.confidence_score ?? '-'}
               </div>
-              <div className="mt-2 text-xs text-muted">
-                Current: {JSON.stringify(item.current_value)} → Proposed:{' '}
-                {JSON.stringify(item.proposed_value)}
-              </div>
+              <ValueComparisonPanel
+                currentValue={item.current_value}
+                proposedValue={item.proposed_value}
+              />
               <div className="mt-3 flex items-center gap-2">
                 <Button
                   size="sm"

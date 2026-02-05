@@ -9,6 +9,7 @@ import {
   enqueueBulkOrchestratorJob,
   enqueueEnrichmentJob,
 } from '@app/queue-manager';
+import { enqueueConsensusJob } from '../queue/consensus-queue.js';
 import type { BulkOrchestratorJobPayload, EnrichmentJobPayload } from '@app/types';
 import type { ProductDetail, ProductVariantDetail } from '@app/types';
 import type { SessionConfig } from '../auth/session.js';
@@ -1590,15 +1591,25 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
       return;
     }
 
-    await withTenantContext(session.shopId, async (client) => {
-      await client.query(
+    const productId = await withTenantContext(session.shopId, async (client) => {
+      const result = await client.query<{ product_id: string }>(
         `UPDATE prod_similarity_matches
          SET match_confidence = 'confirmed',
              verified_at = now()
-         WHERE id = $1`,
+         WHERE id = $1
+         RETURNING product_id`,
         [id]
       );
+      return result.rows[0]?.product_id ?? null;
     });
+
+    if (productId) {
+      await enqueueConsensusJob({
+        shopId: session.shopId,
+        productId,
+        trigger: 'match_confirmed',
+      });
+    }
 
     void reply.status(200).send(successEnvelope(request.id, { ok: true }));
   });

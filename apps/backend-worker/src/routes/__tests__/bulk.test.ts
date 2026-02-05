@@ -46,6 +46,14 @@ void mock.module(orchestratorPath, {
 void mock.module('@app/queue-manager', {
   namedExports: {
     enqueueBulkIngestJob: () => Promise.resolve(undefined),
+    configFromEnv: (env: { redisUrl?: string; bullmqProToken?: string }) => ({
+      redisUrl: env.redisUrl ?? 'redis://localhost:6379',
+      bullmqProToken: env.bullmqProToken ?? 'test-token',
+    }),
+    createQueue: () => ({
+      add: () => Promise.resolve({ id: 'test-job' }),
+      close: () => Promise.resolve(undefined),
+    }),
   },
 });
 

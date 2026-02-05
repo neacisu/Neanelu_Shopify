@@ -4,7 +4,7 @@ import { withTenantContext } from '@app/database';
 import { OTEL_ATTR, type Logger } from '@app/logger';
 import { getShopOpenAiConfig } from '../../../runtime/openai-config.js';
 
-import { applyConsensusToProdMaster } from '../consensus.js';
+import { enqueueConsensusJob } from '../../../queue/consensus-queue.js';
 import { createSuspiciousDedupeCluster } from '../deduplication.js';
 import { isFeatureFlagEnabled } from '../feature-flags.js';
 import { insertBulkError } from '../state-machine.js';
@@ -31,12 +31,6 @@ type SimilarProductRow = Readonly<{
   title: string | null;
   brand: string | null;
 }>;
-
-function parseShopifyUpdatedAt(value: string | null): Date {
-  if (!value) return new Date();
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? new Date() : d;
-}
 
 export async function runPimSyncFromBulkRun(params: {
   shopId: string;
@@ -166,20 +160,10 @@ export async function runPimSyncFromBulkRun(params: {
       existingMappingsByExternalId.set(p.shopify_gid, matchId);
 
       if (consensusEnabled) {
-        await applyConsensusToProdMaster({
-          client,
+        await enqueueConsensusJob({
+          shopId: params.shopId,
           productId: matchId,
-          incoming: {
-            canonicalTitle: normalizeText(p.title),
-            brand: normalizeText(p.vendor) || null,
-            gtin,
-          },
-          incomingSource: {
-            sourceId,
-            sourceType: 'bulk_import',
-            confidence: 0.8,
-            timestamp: parseShopifyUpdatedAt(p.updated_at_shopify),
-          },
+          trigger: 'batch',
         });
       }
     }
@@ -272,20 +256,10 @@ export async function runPimSyncFromBulkRun(params: {
             existingMappingsByExternalId.set(item.shopify_gid, decision.productId);
 
             if (consensusEnabled) {
-              await applyConsensusToProdMaster({
-                client,
+              await enqueueConsensusJob({
+                shopId: params.shopId,
                 productId: decision.productId,
-                incoming: {
-                  canonicalTitle: normalizeText(item.title),
-                  brand: normalizeText(item.vendor) || null,
-                  gtin: normalizeText(item.gtin) || null,
-                },
-                incomingSource: {
-                  sourceId,
-                  sourceType: 'bulk_import',
-                  confidence: 0.8,
-                  timestamp: parseShopifyUpdatedAt(item.updated_at_shopify),
-                },
+                trigger: 'batch',
               });
             }
 
@@ -363,20 +337,10 @@ export async function runPimSyncFromBulkRun(params: {
           });
 
           if (consensusEnabled) {
-            await applyConsensusToProdMaster({
-              client,
+            await enqueueConsensusJob({
+              shopId: params.shopId,
               productId: newId,
-              incoming: {
-                canonicalTitle: normalizeText(item.title),
-                brand: normalizeText(item.vendor) || null,
-                gtin,
-              },
-              incomingSource: {
-                sourceId,
-                sourceType: 'bulk_import',
-                confidence: 0.8,
-                timestamp: parseShopifyUpdatedAt(item.updated_at_shopify),
-              },
+              trigger: 'batch',
             });
           }
         }
@@ -410,20 +374,10 @@ export async function runPimSyncFromBulkRun(params: {
       });
 
       if (consensusEnabled) {
-        await applyConsensusToProdMaster({
-          client,
+        await enqueueConsensusJob({
+          shopId: params.shopId,
           productId: createdId,
-          incoming: {
-            canonicalTitle: normalizeText(p.title),
-            brand: normalizeText(p.vendor) || null,
-            gtin: normalizeText(p.gtin) || null,
-          },
-          incomingSource: {
-            sourceId,
-            sourceType: 'bulk_import',
-            confidence: 0.8,
-            timestamp: parseShopifyUpdatedAt(p.updated_at_shopify),
-          },
+          trigger: 'batch',
         });
       }
     }

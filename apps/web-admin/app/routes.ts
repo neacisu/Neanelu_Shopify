@@ -31,6 +31,7 @@ import EnrichmentDashboardPage, {
 import QualityProgressPage, { loader as qualityProgressLoader } from './routes/app.pim.quality';
 import CostTrackingPage, { loader as costTrackingLoader } from './routes/app.pim.costs';
 import QualityEventsPage, { loader as qualityEventsLoader } from './routes/app.pim.events';
+import PimConsensusPage from './routes/app.pim.consensus';
 import SettingsLayout from './routes/settings';
 import SettingsIndex from './routes/settings._index';
 import SettingsGeneral from './routes/settings.general';
@@ -169,6 +170,12 @@ export const routes: RouteObject[] = [
         loader: qualityEventsLoader,
         handle: { title: 'PIM - Quality Events' },
         element: createElement(QualityEventsPage),
+      },
+      {
+        id: 'pim-consensus',
+        path: 'pim/consensus',
+        handle: { title: 'PIM - Consensus' },
+        element: createElement(PimConsensusPage),
       },
       {
         id: 'settings',

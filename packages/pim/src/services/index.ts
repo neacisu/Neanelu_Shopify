@@ -17,3 +17,7 @@ export * from './xai-extractor.js';
 export * from './enrichment-dedup.js';
 export * from './enrichment-priority.js';
 export * from './enrichment-orchestrator.js';
+export * from './consensus-config.js';
+export * from './quality-scorer.js';
+export * from './specs-parser.js';
+export * from './consensus-engine.js';

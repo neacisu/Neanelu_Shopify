@@ -21,6 +21,7 @@ import { startXaiHealthWorker } from './processors/xai/health.worker.js';
 import { startSimilaritySearchWorker } from './processors/similarity/search-and-match.worker.js';
 import { startAIAuditWorker } from './processors/similarity/ai-audit.worker.js';
 import { startExtractionWorker } from './processors/pim/extraction.worker.js';
+import { startConsensusWorker } from './processors/pim/consensus.worker.js';
 import { scheduleTokenHealthJob, closeTokenHealthQueue } from './queue/token-health-queue.js';
 import { closeSimilarityQueues } from './queue/similarity-queues.js';
 import {
@@ -66,6 +67,7 @@ let xaiHealthWorker: Awaited<ReturnType<typeof startXaiHealthWorker>> | null = n
 let similaritySearchWorker: Awaited<ReturnType<typeof startSimilaritySearchWorker>> | null = null;
 let similarityAIAuditWorker: Awaited<ReturnType<typeof startAIAuditWorker>> | null = null;
 let extractionWorker: Awaited<ReturnType<typeof startExtractionWorker>> | null = null;
+let consensusWorker: Awaited<ReturnType<typeof startConsensusWorker>> | null = null;
 let queueConfigListener: Awaited<ReturnType<typeof startQueueConfigListener>> | null = null;
 
 try {
@@ -217,6 +219,14 @@ try {
     timestamp: new Date().toISOString(),
   });
 
+  consensusWorker = startConsensusWorker(logger);
+  logger.info({}, 'pim consensus worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'pim-consensus-worker',
+    timestamp: new Date().toISOString(),
+  });
+
   queueConfigListener = await startQueueConfigListener(env, logger, {
     'webhook-queue': webhookWorker?.worker as unknown as { concurrency?: number },
     'sync-queue': syncWorker?.worker as unknown as { concurrency?: number },
@@ -230,6 +240,7 @@ try {
     'pim-similarity-search': similaritySearchWorker?.worker as unknown as { concurrency?: number },
     'pim-ai-audit': similarityAIAuditWorker?.worker as unknown as { concurrency?: number },
     'pim-extraction': extractionWorker?.worker as unknown as { concurrency?: number },
+    'pim-consensus': consensusWorker?.worker as unknown as { concurrency?: number },
   });
   logger.info({}, 'queue config listener started');
 } catch (error) {
@@ -386,6 +397,17 @@ const shutdown = async (signal: string): Promise<void> => {
       emitQueueStreamEvent({
         type: 'worker.offline',
         workerId: 'pim-extraction-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (consensusWorker) {
+      await consensusWorker.close();
+      consensusWorker = null;
+      logger.info({ signal }, 'pim consensus worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'pim-consensus-worker',
         timestamp: new Date().toISOString(),
       });
     }

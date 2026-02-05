@@ -10,6 +10,7 @@ import {
   enqueueExtractionJob,
   enqueueSimilaritySearchJob,
 } from '../queue/similarity-queues.js';
+import { enqueueConsensusJob } from '../queue/consensus-queue.js';
 
 type SimilarityMatchesPluginOptions = Readonly<{
   env: AppEnv;
@@ -603,8 +604,8 @@ export const similarityMatchesRoutes: FastifyPluginCallback<SimilarityMatchesPlu
           .send(errorEnvelope(request.id, 409, 'INVALID_STATE', 'Invalid confidence transition'));
       }
 
-      await withTenantContext(session.shopId, async (client) => {
-        await client.query(
+      const productId = await withTenantContext(session.shopId, async (client) => {
+        const result = await client.query<{ product_id: string }>(
           `UPDATE prod_similarity_matches
             SET match_confidence = $1,
                 rejection_reason = $2,
@@ -619,10 +620,20 @@ export const similarityMatchesRoutes: FastifyPluginCallback<SimilarityMatchesPlu
                AND sp.shop_id = $4
              WHERE pcm.shop_id = $4
                AND pcm.channel = 'shopify'
-            )`,
+            )
+          RETURNING product_id`,
           [body.confidence, body.rejectionReason ?? null, matchId, session.shopId]
         );
+        return result.rows[0]?.product_id ?? null;
       });
+
+      if (body.confidence === 'confirmed' && productId) {
+        await enqueueConsensusJob({
+          shopId: session.shopId,
+          productId,
+          trigger: 'match_confirmed',
+        });
+      }
 
       return reply.status(200).send(successEnvelope(request.id, { updated: true }));
     }

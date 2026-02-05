@@ -12,6 +12,7 @@ import {
 } from '@app/pim';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
 import { loadXAICredentials } from '../../services/xai-credentials.js';
+import { enqueueConsensusJob } from '../../queue/consensus-queue.js';
 
 const warnLogger = (logger: Logger) =>
   logger as Logger & {
@@ -279,6 +280,14 @@ export function startExtractionWorker(logger: Logger): ExtractionWorkerHandle {
                 specsExtracted: extractedSpecs,
                 extractionSessionId: session.id,
               });
+
+              if (match.product_id) {
+                await enqueueConsensusJob({
+                  shopId: payload.shopId,
+                  productId: match.product_id,
+                  trigger: 'extraction_complete',
+                });
+              }
             }
           } finally {
             clearWorkerCurrentJob('pim-extraction-worker', jobId);

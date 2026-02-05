@@ -34,22 +34,35 @@ export function HITLReviewQueue({ matches, onReview, onSkip }: HITLReviewQueuePr
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (!current) return;
-      if (event.key.toLowerCase() === 'c') {
+      const key = event.key.toLowerCase();
+      if (['1', '2', '3', '4', '5'].includes(key)) {
+        const nextIndex = Number(key) - 1;
+        if (!Number.isNaN(nextIndex) && nextIndex < matches.length) {
+          setIndex(nextIndex);
+        }
+      }
+      if (key === 'u') {
+        setIndex((prev) => Math.max(prev - 1, 0));
+      }
+      if (key === 'd') {
+        window.open(current.source_url, '_blank', 'noopener,noreferrer');
+      }
+      if (key === 'c') {
         onReview(current.id, 'confirm', notes.trim() || undefined);
         setNotes('');
         setIndex((prev) => Math.min(prev + 1, matches.length - 1));
       }
-      if (event.key.toLowerCase() === 'r') {
+      if (key === 'r') {
         onReview(current.id, 'reject', notes.trim() || undefined);
         setNotes('');
         setIndex((prev) => Math.min(prev + 1, matches.length - 1));
       }
-      if (event.key.toLowerCase() === 's') {
+      if (key === 's') {
         onSkip(current.id);
         setNotes('');
         setIndex((prev) => Math.min(prev + 1, matches.length - 1));
       }
-      if (event.key.toLowerCase() === 'n') {
+      if (key === 'n') {
         notesRef.current?.focus();
       }
     };
@@ -75,6 +88,9 @@ export function HITLReviewQueue({ matches, onReview, onSkip }: HITLReviewQueuePr
       </div>
       <div className="mt-2 text-xs text-muted">
         Progress: {index + 1} / {matches.length} ({progress}%)
+      </div>
+      <div className="mt-1 text-[11px] text-muted">
+        Shortcuts: 1-5 select • C confirm • R reject • S skip • U undo • D details • N notes
       </div>
       <div className="mt-3 text-sm text-muted">{current.source_title ?? current.source_url}</div>
       <div className="mt-3 text-xs text-muted">

@@ -1,12 +1,16 @@
 import type { ProductDetail } from '@app/types';
 import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { Button } from '../ui/button';
 import { JsonViewer } from '../ui/JsonViewer';
 import { QualityLevelBadge } from './QualityLevelBadge';
 import { ShopifyAdminLink } from './ShopifyAdminLink';
 import { useApiClient } from '../../hooks/use-api';
+import { ConsensusStatusBadge } from './ConsensusStatusBadge';
+import { ConflictIndicator } from './ConflictIndicator';
+import { QualityScoreBreakdown } from './QualityScoreBreakdown';
 
 type ProductDetailDrawerProps = Readonly<{
   open: boolean;
@@ -25,6 +29,7 @@ export function ProductDetailDrawer({
 }: ProductDetailDrawerProps) {
   if (!open || !product) return null;
   const api = useApiClient();
+  const navigate = useNavigate();
   const [variants, setVariants] = useState(product.variants);
   const [matches, setMatches] = useState<
     {
@@ -47,6 +52,17 @@ export function ProductDetailDrawer({
   const [similarProducts, setSimilarProducts] = useState<
     { id: string; title: string; similarity: number }[]
   >([]);
+  const [consensus, setConsensus] = useState<{
+    qualityScore: number;
+    qualityBreakdown: {
+      completeness: number;
+      accuracy: number;
+      consistency: number;
+      sourceWeight: number;
+    };
+    sourceCount: number;
+    conflicts: { attributeName: string }[];
+  } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -67,6 +83,20 @@ export function ProductDetailDrawer({
         `/products/search?q=${encodeURIComponent(product.title)}&limit=5&threshold=0.7`
       )
       .then((data) => setSimilarProducts(data.results))
+      .catch(() => undefined);
+    void api
+      .getApi<{
+        qualityScore: number;
+        qualityBreakdown: {
+          completeness: number;
+          accuracy: number;
+          consistency: number;
+          sourceWeight: number;
+        };
+        sourceCount: number;
+        conflicts: { attributeName: string }[];
+      }>(`/products/${product.id}/consensus`)
+      .then((data) => setConsensus(data))
       .catch(() => undefined);
   }, [api, open, product.id]);
 
@@ -117,6 +147,35 @@ export function ProductDetailDrawer({
             <div className="mt-2 flex items-center gap-3">
               <QualityLevelBadge level={product.pim?.qualityLevel ?? null} />
               <div className="text-sm text-muted">Score: {product.pim?.qualityScore ?? '-'}</div>
+            </div>
+          </div>
+
+          <div className="rounded-md border bg-muted/5 p-3">
+            <div className="text-xs font-semibold text-muted">Consensus Status</div>
+            <div className="mt-2 flex items-center gap-3">
+              <ConsensusStatusBadge
+                status={
+                  consensus?.conflicts?.length
+                    ? 'conflicts'
+                    : consensus?.sourceCount
+                      ? 'computed'
+                      : 'pending'
+                }
+              />
+              <ConflictIndicator count={consensus?.conflicts?.length ?? 0} />
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void navigate(`/pim/consensus?productId=${product.id}`)}
+              >
+                View details
+              </Button>
+            </div>
+            <div className="mt-3">
+              <QualityScoreBreakdown
+                breakdown={consensus?.qualityBreakdown ?? null}
+                score={consensus?.qualityScore ?? null}
+              />
             </div>
           </div>
 

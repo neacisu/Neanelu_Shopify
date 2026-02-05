@@ -1,0 +1,635 @@
+import type { AppEnv } from '@app/config';
+import type { Logger } from '@app/logger';
+import type { FastifyInstance, FastifyPluginCallback } from 'fastify';
+import { withTenantContext } from '@app/database';
+import { computeConsensus, parseExtractedSpecs } from '@app/pim';
+import { enqueueConsensusBatchJob, enqueueConsensusJob } from '../queue/consensus-queue.js';
+import type { SessionConfig } from '../auth/session.js';
+import { getSessionFromRequest, requireSession } from '../auth/session.js';
+
+type ConsensusRoutesOptions = Readonly<{
+  env: AppEnv;
+  logger: Logger;
+  sessionConfig: SessionConfig;
+}>;
+
+type DbClient = Readonly<{
+  query: <T = unknown>(sql: string, values?: readonly unknown[]) => Promise<{ rows: T[] }>;
+}>;
+
+type ConsensuResult = Readonly<{
+  consensusSpecs: Record<string, unknown>;
+  provenance: Record<string, ConsensusProvenance>;
+  qualityScore: number;
+  qualityBreakdown: {
+    completeness?: number;
+    accuracy?: number;
+    consistency?: number;
+    sourceWeight?: number;
+  };
+  sourceCount: number;
+  conflicts: ConsensusConflict[];
+  needsReview: boolean;
+  skippedDueToManualCorrection: string[];
+}>;
+
+type ConsensusConflict = Readonly<{
+  attributeName: string;
+  weightDifference: number;
+  requiresHumanReview: boolean;
+  reason: string;
+  values: Readonly<{
+    value: unknown;
+    sourceName: string;
+    trustScore: number;
+    similarityScore: number;
+  }>[];
+}>;
+
+type ConsensusProvenance = Readonly<{
+  attributeName: string;
+  sourceName: string;
+  resolvedAt: string;
+}>;
+
+type DetailSourceRow = Readonly<{
+  match_id: string;
+  source_id: string | null;
+  source_name: string | null;
+  source_url: string;
+  similarity_score: number;
+  trust_score: number;
+  match_confidence: string;
+  specs_extracted: Record<string, unknown> | null;
+  created_at: string;
+}>;
+
+type AttributeVote = Readonly<{
+  value: unknown;
+  attributeName: string;
+  sourceId: string;
+  sourceName: string;
+  trustScore: number;
+  similarityScore: number;
+  matchId: string;
+  extractedAt: Date;
+  confidence?: number;
+}>;
+
+async function buildConsensusDetails(params: { client: DbClient; productId: string }) {
+  const consensus = await computeConsensusSafe({
+    client: params.client,
+    productId: params.productId,
+  });
+
+  const sourcesResult = await params.client.query<DetailSourceRow>(
+    `SELECT
+       psm.id as match_id,
+       psm.source_id as source_id,
+       ps.name as source_name,
+       psm.source_url as source_url,
+       psm.similarity_score::numeric as similarity_score,
+       COALESCE(ps.trust_score, 0.5)::numeric as trust_score,
+       psm.match_confidence as match_confidence,
+       psm.specs_extracted as specs_extracted,
+       psm.created_at as created_at
+     FROM prod_similarity_matches psm
+     LEFT JOIN prod_sources ps ON ps.id = psm.source_id
+    WHERE psm.product_id = $1
+      AND psm.match_confidence = 'confirmed'
+      AND psm.specs_extracted IS NOT NULL
+    ORDER BY psm.similarity_score DESC`,
+    [params.productId]
+  );
+
+  const votesByAttribute = new Map<string, AttributeVote[]>();
+  for (const row of sourcesResult.rows) {
+    const parsed = parseExtractedSpecs(row.specs_extracted);
+    for (const [attributeName, spec] of parsed.entries()) {
+      const list = votesByAttribute.get(attributeName) ?? [];
+      list.push({
+        value: spec.value,
+        attributeName,
+        sourceId: row.source_id ?? 'unknown',
+        sourceName: row.source_name ?? 'unknown',
+        trustScore: Number(row.trust_score),
+        similarityScore: Number(row.similarity_score),
+        matchId: row.match_id,
+        extractedAt: new Date(row.created_at),
+      });
+      votesByAttribute.set(attributeName, list);
+    }
+  }
+
+  const results = Object.entries(consensus.consensusSpecs).map(([attribute, value]) => {
+    const votes = votesByAttribute.get(attribute) ?? [];
+    const confidenceVotes = votes.filter(
+      (vote) => typeof vote.confidence === 'number'
+    ) as (AttributeVote & { confidence: number })[];
+    const confidence =
+      confidenceVotes.length > 0
+        ? confidenceVotes.reduce((sum, vote) => sum + vote.confidence, 0) / confidenceVotes.length
+        : 0;
+    const valueLabel = typeof value === 'string' ? value : JSON.stringify(value ?? null);
+
+    return {
+      attribute,
+      value: valueLabel,
+      sourcesCount: votes.length,
+      confidence,
+    };
+  });
+
+  const conflicts = consensus.conflicts.map((conflict) => ({
+    attributeName: conflict.attributeName,
+    weightDifference: conflict.weightDifference,
+    requiresHumanReview: conflict.requiresHumanReview,
+    reason: conflict.reason,
+    values: conflict.values.map((vote) => ({
+      value: vote.value,
+      sourceName: vote.sourceName,
+      trustScore: vote.trustScore,
+      similarityScore: vote.similarityScore,
+    })),
+  }));
+
+  const provenance = Object.values(consensus.provenance).map((entry) => ({
+    attributeName: entry.attributeName,
+    sourceName: entry.sourceName,
+    resolvedAt: entry.resolvedAt,
+  }));
+
+  const sources = sourcesResult.rows.map((row) => ({
+    sourceName: row.source_name ?? row.source_url,
+    trustScore: Number(row.trust_score),
+    similarityScore: Number(row.similarity_score),
+    status: row.match_confidence,
+  }));
+
+  const votes = Object.fromEntries(
+    Array.from(votesByAttribute.entries()).map(([attributeName, votesForAttr]) => [
+      attributeName,
+      votesForAttr.map((vote) => ({
+        value: vote.value,
+        attributeName: vote.attributeName,
+        sourceName: vote.sourceName,
+        trustScore: vote.trustScore,
+        similarityScore: vote.similarityScore,
+        matchId: vote.matchId,
+      })),
+    ])
+  );
+
+  return {
+    productId: params.productId,
+    qualityScore: consensus.qualityScore,
+    qualityBreakdown: consensus.qualityBreakdown,
+    conflictsCount: consensus.conflicts.length,
+    sources,
+    results,
+    conflicts,
+    provenance,
+    votesByAttribute: votes,
+  };
+}
+
+const computeConsensusSafe = computeConsensus as unknown as (params: {
+  client: DbClient;
+  productId: string;
+}) => Promise<ConsensuResult>;
+
+function errorEnvelope(requestId: string, status: number, code: string, message: string) {
+  return {
+    success: false,
+    error: { code, message, status },
+    meta: { request_id: requestId, timestamp: new Date().toISOString() },
+  };
+}
+
+function successEnvelope<T>(requestId: string, data: T) {
+  return {
+    success: true,
+    data,
+    meta: { request_id: requestId, timestamp: new Date().toISOString() },
+  } as const;
+}
+
+export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
+  fastify: FastifyInstance,
+  opts
+) => {
+  const { sessionConfig } = opts;
+  const requireAdminSession = { preHandler: requireSession(sessionConfig) } as const;
+
+  fastify.get('/products/:id/consensus', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      return reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+    }
+    const productId = String((request.params as { id: string }).id);
+    const result = await withTenantContext(session.shopId, (client) =>
+      computeConsensusSafe({ client, productId })
+    );
+    return reply.send(successEnvelope(request.id, result));
+  });
+
+  fastify.post('/products/:id/consensus', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      return reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+    }
+    const productId = String((request.params as { id: string }).id);
+    const jobId = await enqueueConsensusJob({
+      shopId: session.shopId,
+      productId,
+      trigger: 'manual',
+    });
+    return reply.send(successEnvelope(request.id, { jobId }));
+  });
+
+  fastify.get('/products/:id/consensus/details', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      return reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+    }
+
+    const productId = String((request.params as { id: string }).id);
+
+    const details = await withTenantContext(session.shopId, async (client) => {
+      return await buildConsensusDetails({ client, productId });
+    });
+
+    return reply.send(successEnvelope(request.id, details));
+  });
+
+  fastify.get('/products/:id/consensus/export', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      return reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+    }
+
+    const productId = String((request.params as { id: string }).id);
+    const format = String((request.query as { format?: string }).format ?? 'json').toLowerCase();
+
+    const details = await withTenantContext(session.shopId, async (client) => {
+      return await buildConsensusDetails({ client, productId });
+    });
+
+    if (format === 'csv') {
+      const rows = details.results.map((row) => ({
+        attribute: row.attribute,
+        value: row.value,
+        sourcesCount: row.sourcesCount,
+        confidence: row.confidence,
+      }));
+      const header = 'attribute,value,sourcesCount,confidence';
+      const body = rows
+        .map(
+          (row) =>
+            `${row.attribute.replaceAll(',', ' ')},${String(row.value).replaceAll(',', ' ')},${
+              row.sourcesCount
+            },${row.confidence}`
+        )
+        .join('\n');
+      reply.header('Content-Type', 'text/csv');
+      return reply.send(`${header}\n${body}`);
+    }
+
+    return reply.send(successEnvelope(request.id, details));
+  });
+
+  fastify.get('/products/:id/conflicts', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      return reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+    }
+    const productId = String((request.params as { id: string }).id);
+    const result = await withTenantContext(session.shopId, (client) =>
+      computeConsensusSafe({ client, productId })
+    );
+    return reply.send(successEnvelope(request.id, { conflicts: result.conflicts }));
+  });
+
+  fastify.post(
+    '/products/:id/conflicts/:field/resolve',
+    requireAdminSession,
+    async (request, reply) => {
+      const session = getSessionFromRequest(request, sessionConfig);
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+      }
+      const productId = String((request.params as { id: string }).id);
+      const field = String((request.params as { field: string }).field);
+      const body = (request.body ?? {}) as { value?: unknown };
+      if (typeof body.value === 'undefined') {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'missing_value'));
+      }
+
+      await withTenantContext(session.shopId, async (client) => {
+        const current = await client.query<{ specs: Record<string, unknown>; provenance: unknown }>(
+          `SELECT specs, provenance
+           FROM prod_specs_normalized
+          WHERE product_id = $1
+            AND is_current = true
+          LIMIT 1`,
+          [productId]
+        );
+        const currentSpecs = current.rows[0]?.specs ?? {};
+        const currentProvenance = current.rows[0]?.provenance ?? {};
+        const nextSpecs = { ...currentSpecs, [field]: body.value };
+        const nextProvenance = currentProvenance;
+
+        const versionRes = await client.query<{ id: string; version: number }>(
+          `SELECT id, version
+           FROM prod_specs_normalized
+          WHERE product_id = $1
+            AND is_current = true
+          LIMIT 1`,
+          [productId]
+        );
+        const currentId = versionRes.rows[0]?.id ?? null;
+        const currentVersion = Number(versionRes.rows[0]?.version ?? 0);
+        const nextVersion = currentVersion > 0 ? currentVersion + 1 : 1;
+
+        if (currentId) {
+          await client.query(
+            `UPDATE prod_specs_normalized
+              SET is_current = false, updated_at = now()
+            WHERE id = $1`,
+            [currentId]
+          );
+        }
+
+        await client.query(
+          `INSERT INTO prod_specs_normalized (
+           product_id,
+           specs,
+           raw_specs,
+           provenance,
+           version,
+           is_current,
+           needs_review,
+           review_reason,
+           created_at,
+           updated_at
+         )
+         VALUES ($1, $2::jsonb, NULL, $3::jsonb, $4, true, false, $5, now(), now())`,
+          [
+            productId,
+            JSON.stringify(nextSpecs),
+            JSON.stringify(nextProvenance),
+            nextVersion,
+            'manual_resolution',
+          ]
+        );
+      });
+
+      return reply.send(successEnvelope(request.id, { resolved: true }));
+    }
+  );
+
+  fastify.post('/consensus/batch', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      return reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+    }
+    const body = (request.body ?? {}) as { productIds?: string[] };
+    if (!body.productIds?.length) {
+      return reply
+        .status(400)
+        .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'missing_product_ids'));
+    }
+    const jobId = await enqueueConsensusBatchJob({
+      shopId: session.shopId,
+      productIds: body.productIds,
+    });
+    return reply.send(successEnvelope(request.id, { jobId }));
+  });
+
+  fastify.get('/pim/stats/consensus', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      return reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+    }
+    const stats = await withTenantContext(session.shopId, async (client) => {
+      const [consensusCount, conflictCount, avgQuality, pendingCount, avgSources, resolvedToday] =
+        await Promise.all([
+          client.query<{ count: string }>(
+            `SELECT COUNT(DISTINCT product_id) as count
+             FROM prod_specs_normalized
+            WHERE is_current = true`
+          ),
+          client.query<{ count: string }>(
+            `SELECT COUNT(*) as count
+             FROM prod_specs_normalized
+            WHERE is_current = true
+              AND needs_review = true`
+          ),
+          client.query<{ avg: string | null }>(
+            `SELECT AVG(quality_score) as avg
+             FROM prod_master
+            WHERE quality_score IS NOT NULL`
+          ),
+          client.query<{ count: string }>(
+            `SELECT COUNT(DISTINCT psm.product_id) as count
+             FROM prod_similarity_matches psm
+             LEFT JOIN prod_specs_normalized psn
+               ON psn.product_id = psm.product_id AND psn.is_current = true
+            WHERE psm.match_confidence = 'confirmed'
+              AND psm.specs_extracted IS NOT NULL
+              AND psn.id IS NULL`
+          ),
+          client.query<{ avg: string | null }>(
+            `SELECT AVG(source_count)::text as avg
+             FROM (
+               SELECT COUNT(*) as source_count
+                 FROM prod_similarity_matches
+                WHERE match_confidence = 'confirmed'
+                GROUP BY product_id
+             ) as counts`
+          ),
+          client.query<{ count: string }>(
+            `SELECT COUNT(*) as count
+             FROM prod_specs_normalized
+            WHERE is_current = true
+              AND needs_review = false
+              AND created_at::date = CURRENT_DATE`
+          ),
+        ]);
+
+      return {
+        productsWithConsensus: Number(consensusCount.rows[0]?.count ?? 0),
+        pendingConsensus: Number(pendingCount.rows[0]?.count ?? 0),
+        productsWithConflicts: Number(conflictCount.rows[0]?.count ?? 0),
+        resolvedToday: Number(resolvedToday.rows[0]?.count ?? 0),
+        avgSourcesPerProduct: Number(avgSources.rows[0]?.avg ?? 0),
+        avgQualityScore: Number(avgQuality.rows[0]?.avg ?? 0),
+      };
+    });
+    return reply.send(successEnvelope(request.id, stats));
+  });
+
+  fastify.get('/pim/consensus/products', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      return reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+    }
+
+    const status = String(
+      (request.query as { status?: string | null }).status ?? 'all'
+    ).toLowerCase();
+
+    const items = await withTenantContext(session.shopId, async (client) => {
+      const rows = await client.query<{
+        product_id: string;
+        title: string | null;
+        source_count: string;
+        quality_score: number | null;
+        conflicts_count: string | null;
+        last_computed_at: string | null;
+        consensus_status: string;
+      }>(
+        `WITH source_counts AS (
+           SELECT product_id, COUNT(*)::text as source_count
+             FROM prod_similarity_matches
+            WHERE match_confidence = 'confirmed'
+              AND specs_extracted IS NOT NULL
+            GROUP BY product_id
+         ),
+         current_specs AS (
+           SELECT product_id, needs_review, provenance, updated_at
+             FROM prod_specs_normalized
+            WHERE is_current = true
+         ),
+         conflicts AS (
+           SELECT cs.product_id,
+                  COALESCE(
+                    (
+                      SELECT COUNT(*)
+                        FROM jsonb_each(COALESCE(cs.provenance, '{}'::jsonb)) AS entries
+                       WHERE (entries.value->>'conflictDetected')::boolean = true
+                    ),
+                    0
+                  )::text as conflicts_count
+             FROM current_specs cs
+         ),
+         base AS (
+           SELECT
+             pm.id as product_id,
+             pm.canonical_title as title,
+             COALESCE(sc.source_count, '0') as source_count,
+             pm.quality_score as quality_score,
+             COALESCE(cf.conflicts_count, '0') as conflicts_count,
+             cs.updated_at as last_computed_at,
+             CASE
+               WHEN cs.product_id IS NULL AND COALESCE(sc.source_count, '0') <> '0' THEN 'pending'
+               WHEN cs.product_id IS NULL THEN 'pending'
+               WHEN cs.needs_review = true THEN 'conflicts'
+               WHEN pm.needs_review = true THEN 'manual_review'
+               ELSE 'computed'
+             END as consensus_status
+           FROM prod_master pm
+           LEFT JOIN source_counts sc ON sc.product_id = pm.id
+           LEFT JOIN current_specs cs ON cs.product_id = pm.id
+           LEFT JOIN conflicts cf ON cf.product_id = pm.id
+           WHERE sc.product_id IS NOT NULL OR cs.product_id IS NOT NULL
+         )
+         SELECT *
+           FROM base
+          WHERE ($1 = 'all' OR consensus_status = $1)
+          ORDER BY last_computed_at DESC NULLS LAST, source_count::int DESC, title ASC`,
+        [status]
+      );
+
+      return rows.rows.map((row) => ({
+        productId: row.product_id,
+        title: row.title ?? 'Untitled product',
+        sourceCount: Number(row.source_count ?? 0),
+        consensusStatus: row.consensus_status as
+          | 'pending'
+          | 'computed'
+          | 'conflicts'
+          | 'manual_review',
+        qualityScore: row.quality_score,
+        conflictsCount: Number(row.conflicts_count ?? 0),
+        lastComputedAt: row.last_computed_at,
+      }));
+    });
+
+    return reply.send(successEnvelope(request.id, { items }));
+  });
+
+  fastify.get('/pim/consensus/stream', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      return reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+    }
+    reply.raw.setHeader('Content-Type', 'text/event-stream');
+    reply.raw.setHeader('Cache-Control', 'no-cache');
+    reply.raw.setHeader('Connection', 'keep-alive');
+    reply.raw.flushHeaders?.();
+
+    let lastSeen = new Date();
+    const sendEvent = (event: string, data: unknown) => {
+      reply.raw.write(`event: ${event}\n`);
+      reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    sendEvent('consensus.init', { timestamp: new Date().toISOString() });
+
+    const interval = setInterval(() => {
+      void withTenantContext(session.shopId, async (client) => {
+        const result = await client.query<{
+          id: string;
+          event_type: string;
+          product_id: string;
+          new_level: string;
+          created_at: string;
+        }>(
+          `SELECT id, event_type, product_id, new_level, created_at
+             FROM prod_quality_events
+            WHERE created_at > $1
+            ORDER BY created_at ASC
+            LIMIT 50`,
+          [lastSeen.toISOString()]
+        );
+        if (result.rows.length > 0) {
+          lastSeen = new Date(result.rows[result.rows.length - 1]?.created_at ?? lastSeen);
+          for (const row of result.rows) {
+            sendEvent('consensus.event', row);
+          }
+        } else {
+          sendEvent('consensus.heartbeat', { timestamp: new Date().toISOString() });
+        }
+      });
+    }, 5000);
+
+    request.raw.on('close', () => {
+      clearInterval(interval);
+    });
+
+    return reply;
+  });
+};

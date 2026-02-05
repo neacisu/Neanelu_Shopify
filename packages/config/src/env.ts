@@ -117,6 +117,7 @@ export type AppEnv = Readonly<{
   bulkPimSyncEnabled: boolean;
   bulkSemanticDedupEnabled: boolean;
   bulkConsensusEnabled: boolean;
+  bulkExternalConsensusEnabled: boolean;
 
   /** Similarity thresholds; can be overridden per shop via settings. */
   bulkDedupeHighThreshold: number;
@@ -466,6 +467,11 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     true
   );
   const bulkConsensusEnabled = parseBooleanWithDefault(env, 'BULK_CONSENSUS_ENABLED', true);
+  const bulkExternalConsensusEnabled = parseBooleanWithDefault(
+    env,
+    'BULK_EXTERNAL_CONSENSUS_ENABLED',
+    false
+  );
 
   const bulkDedupeHighThreshold = parseSimilarityThreshold(env, 'BULK_DEDUPE_HIGH_THRESHOLD', 0.95);
   const bulkDedupeSuspiciousThreshold = parseSimilarityThreshold(
@@ -556,6 +562,7 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     bulkPimSyncEnabled,
     bulkSemanticDedupEnabled,
     bulkConsensusEnabled,
+    bulkExternalConsensusEnabled,
     bulkDedupeHighThreshold,
     bulkDedupeSuspiciousThreshold,
     bulkDedupeNeedsReviewThreshold,

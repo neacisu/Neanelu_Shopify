@@ -18,5 +18,7 @@ export * from './content/index.js';
 export * from './services/index.js';
 
 // Repositories module exports
-export * from './repositories/extraction-sessions.js';
-export * from './repositories/similarity-matches.js';
+export * from './repositories/index.js';
+
+// Types module exports
+export * from './types/consensus.js';

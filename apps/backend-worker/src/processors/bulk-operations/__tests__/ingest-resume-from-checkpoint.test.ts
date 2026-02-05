@@ -113,6 +113,10 @@ async function installBaseMocks(params: {
         enqueueBulkOrchestratorJob: () => Promise.resolve(undefined),
         enqueueBulkIngestJob: () => Promise.resolve(undefined),
         configFromEnv: (_env: unknown) => ({ connection: { url: 'redis://localhost:6379/0' } }),
+        createQueue: () => ({
+          add: () => Promise.resolve({ id: 'test-job' }),
+          close: () => Promise.resolve(undefined),
+        }),
         withJobTelemetryContext: async (_job: unknown, fn: () => Promise<unknown>) => fn(),
         enqueueDlqEntry: () => Promise.resolve(undefined),
         createWorker: (

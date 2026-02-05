@@ -101,6 +101,10 @@ await (async () => {
         configFromEnv: (_env: unknown) => ({
           connection: { url: 'redis://localhost:6379/0' },
         }),
+        createQueue: () => ({
+          add: () => Promise.resolve({ id: 'test-job' }),
+          close: () => Promise.resolve(undefined),
+        }),
         enqueueBulkMutationReconcileJob: (payload: unknown) => {
           reconcileCalls.push(payload);
           return Promise.resolve(undefined);
