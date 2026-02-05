@@ -4,7 +4,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { getDbPool } from '../db.js';
 import { computeConsensus, mergeWithExistingSpecs } from '../services/consensus-engine.js';
 
-describe('consensus-engine', () => {
+const shouldSkip = !process.env['DATABASE_URL'];
+
+describe('consensus-engine', { skip: shouldSkip }, () => {
   const pool = getDbPool();
   const ids: { productId?: string; sourceIds: string[]; matchIds: string[] } = {
     sourceIds: [],

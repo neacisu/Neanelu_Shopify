@@ -10,7 +10,9 @@ import {
 } from '../services/quality-scorer.js';
 import { getConfirmedMatchesWithSources } from '../repositories/similarity-matches.js';
 
-describe('quality-scorer', () => {
+const shouldSkip = !process.env['DATABASE_URL'];
+
+describe('quality-scorer', { skip: shouldSkip }, () => {
   const pool = getDbPool();
   const ids: {
     taxonomyId?: string;
