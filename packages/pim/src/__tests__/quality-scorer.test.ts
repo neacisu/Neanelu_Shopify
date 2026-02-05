@@ -13,7 +13,7 @@ import { getConfirmedMatchesWithSources } from '../repositories/similarity-match
 const shouldSkip = !process.env['DATABASE_URL'];
 
 describe('quality-scorer', { skip: shouldSkip }, () => {
-  const pool = getDbPool();
+  let pool: ReturnType<typeof getDbPool> | null = null;
   const ids: {
     taxonomyId?: string;
     productId?: string;
@@ -22,6 +22,10 @@ describe('quality-scorer', { skip: shouldSkip }, () => {
   } = { sourceIds: [], matchIds: [] };
 
   beforeAll(async () => {
+    if (shouldSkip) {
+      return;
+    }
+    pool = getDbPool();
     const taxonomyRes = await pool.query<{ id: string }>(
       `INSERT INTO prod_taxonomy (name, slug, attribute_schema, created_at, updated_at)
        VALUES ($1, $2, $3::jsonb, now(), now())
@@ -135,6 +139,9 @@ describe('quality-scorer', { skip: shouldSkip }, () => {
   });
 
   afterAll(async () => {
+    if (!pool) {
+      return;
+    }
     if (ids.matchIds.length > 0) {
       await pool.query(`DELETE FROM prod_similarity_matches WHERE id = ANY($1::uuid[])`, [
         ids.matchIds,
@@ -152,11 +159,11 @@ describe('quality-scorer', { skip: shouldSkip }, () => {
   });
 
   it('calculează corect completeness și scorul de calitate', async () => {
-    const result = await computeConsensus({ client: pool, productId: ids.productId! });
+    const result = await computeConsensus({ client: pool!, productId: ids.productId! });
     const matches = await getConfirmedMatchesWithSources(ids.productId!);
     const votes = groupSpecsByAttribute(matches);
     const requiredFields = await getRequiredFieldsForTaxonomy({
-      client: pool,
+      client: pool!,
       taxonomyId: ids.taxonomyId!,
     });
     const breakdown = computeQualityBreakdown({

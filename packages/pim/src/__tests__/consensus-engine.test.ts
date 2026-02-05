@@ -7,13 +7,17 @@ import { computeConsensus, mergeWithExistingSpecs } from '../services/consensus-
 const shouldSkip = !process.env['DATABASE_URL'];
 
 describe('consensus-engine', { skip: shouldSkip }, () => {
-  const pool = getDbPool();
+  let pool: ReturnType<typeof getDbPool> | null = null;
   const ids: { productId?: string; sourceIds: string[]; matchIds: string[] } = {
     sourceIds: [],
     matchIds: [],
   };
 
   beforeAll(async () => {
+    if (shouldSkip) {
+      return;
+    }
+    pool = getDbPool();
     const productRes = await pool.query<{ id: string }>(
       `INSERT INTO prod_master (internal_sku, canonical_title)
        VALUES ($1, $2)
@@ -109,6 +113,9 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
   });
 
   afterAll(async () => {
+    if (!pool) {
+      return;
+    }
     if (ids.matchIds.length > 0) {
       await pool.query(`DELETE FROM prod_similarity_matches WHERE id = ANY($1::uuid[])`, [
         ids.matchIds,
@@ -123,7 +130,7 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
   });
 
   it('alege castigatorul ponderat pentru atribute non-critice', async () => {
-    const result = await computeConsensus({ client: pool, productId: ids.productId! });
+    const result = await computeConsensus({ client: pool!, productId: ids.productId! });
     expect(result.consensusSpecs['category']).toBeUndefined();
     expect(result.needsReview).toBe(true);
     expect(result.conflicts.length).toBeGreaterThan(0);
@@ -134,7 +141,7 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
     const sourceIds: string[] = [];
     const matchIds: string[] = [];
     try {
-      const productRes = await pool.query<{ id: string }>(
+      const productRes = await pool!.query<{ id: string }>(
         `INSERT INTO prod_master (internal_sku, canonical_title)
          VALUES ($1, $2)
          RETURNING id`,
@@ -146,19 +153,19 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
       }
       productIds.push(productId);
 
-      const sourceA = await pool.query<{ id: string }>(
+      const sourceA = await pool!.query<{ id: string }>(
         `INSERT INTO prod_sources (name, source_type, trust_score, is_active, created_at, updated_at)
          VALUES ($1, 'scraping', 0.90, true, now(), now())
          RETURNING id`,
         [`test-num-source-a-${randomUUID()}`]
       );
-      const sourceB = await pool.query<{ id: string }>(
+      const sourceB = await pool!.query<{ id: string }>(
         `INSERT INTO prod_sources (name, source_type, trust_score, is_active, created_at, updated_at)
          VALUES ($1, 'scraping', 0.60, true, now(), now())
          RETURNING id`,
         [`test-num-source-b-${randomUUID()}`]
       );
-      const sourceC = await pool.query<{ id: string }>(
+      const sourceC = await pool!.query<{ id: string }>(
         `INSERT INTO prod_sources (name, source_type, trust_score, is_active, created_at, updated_at)
          VALUES ($1, 'scraping', 0.80, true, now(), now())
          RETURNING id`,
@@ -172,7 +179,7 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
       }
       sourceIds.push(sourceAId, sourceBId, sourceCId);
 
-      const matchA = await pool.query<{ id: string }>(
+      const matchA = await pool!.query<{ id: string }>(
         `INSERT INTO prod_similarity_matches (
            product_id,
            source_id,
@@ -198,7 +205,7 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
           }),
         ]
       );
-      const matchB = await pool.query<{ id: string }>(
+      const matchB = await pool!.query<{ id: string }>(
         `INSERT INTO prod_similarity_matches (
            product_id,
            source_id,
@@ -224,7 +231,7 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
           }),
         ]
       );
-      const matchC = await pool.query<{ id: string }>(
+      const matchC = await pool!.query<{ id: string }>(
         `INSERT INTO prod_similarity_matches (
            product_id,
            source_id,
@@ -258,22 +265,22 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
       }
       matchIds.push(matchAId, matchBId, matchCId);
 
-      const result = await computeConsensus({ client: pool, productId });
+      const result = await computeConsensus({ client: pool!, productId });
       const price = result.consensusSpecs['price'];
       expect(typeof price).toBe('number');
       expect(price as number).toBeCloseTo(109.57, 2);
       expect(result.consensusSpecs['brand']).toBe('Brand-A');
     } finally {
       if (matchIds.length > 0) {
-        await pool.query(`DELETE FROM prod_similarity_matches WHERE id = ANY($1::uuid[])`, [
+        await pool!.query(`DELETE FROM prod_similarity_matches WHERE id = ANY($1::uuid[])`, [
           matchIds,
         ]);
       }
       if (productIds.length > 0) {
-        await pool.query(`DELETE FROM prod_master WHERE id = ANY($1::uuid[])`, [productIds]);
+        await pool!.query(`DELETE FROM prod_master WHERE id = ANY($1::uuid[])`, [productIds]);
       }
       if (sourceIds.length > 0) {
-        await pool.query(`DELETE FROM prod_sources WHERE id = ANY($1::uuid[])`, [sourceIds]);
+        await pool!.query(`DELETE FROM prod_sources WHERE id = ANY($1::uuid[])`, [sourceIds]);
       }
     }
   });
@@ -283,7 +290,7 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
     const sourceIds: string[] = [];
     const matchIds: string[] = [];
     try {
-      const productRes = await pool.query<{ id: string }>(
+      const productRes = await pool!.query<{ id: string }>(
         `INSERT INTO prod_master (internal_sku, canonical_title)
          VALUES ($1, $2)
          RETURNING id`,
@@ -295,7 +302,7 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
       }
       productIds.push(productId);
 
-      const source = await pool.query<{ id: string }>(
+      const source = await pool!.query<{ id: string }>(
         `INSERT INTO prod_sources (name, source_type, trust_score, is_active, created_at, updated_at)
          VALUES ($1, 'scraping', 0.90, true, now(), now())
          RETURNING id`,
@@ -307,7 +314,7 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
       }
       sourceIds.push(sourceId);
 
-      const match = await pool.query<{ id: string }>(
+      const match = await pool!.query<{ id: string }>(
         `INSERT INTO prod_similarity_matches (
            product_id,
            source_id,
@@ -338,7 +345,7 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
       }
       matchIds.push(matchId);
 
-      const result = await computeConsensus({ client: pool, productId });
+      const result = await computeConsensus({ client: pool!, productId });
       expect(result.consensusSpecs['brand']).toBeUndefined();
       expect(
         result.conflicts.some(
@@ -348,15 +355,15 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
       ).toBe(true);
     } finally {
       if (matchIds.length > 0) {
-        await pool.query(`DELETE FROM prod_similarity_matches WHERE id = ANY($1::uuid[])`, [
+        await pool!.query(`DELETE FROM prod_similarity_matches WHERE id = ANY($1::uuid[])`, [
           matchIds,
         ]);
       }
       if (productIds.length > 0) {
-        await pool.query(`DELETE FROM prod_master WHERE id = ANY($1::uuid[])`, [productIds]);
+        await pool!.query(`DELETE FROM prod_master WHERE id = ANY($1::uuid[])`, [productIds]);
       }
       if (sourceIds.length > 0) {
-        await pool.query(`DELETE FROM prod_sources WHERE id = ANY($1::uuid[])`, [sourceIds]);
+        await pool!.query(`DELETE FROM prod_sources WHERE id = ANY($1::uuid[])`, [sourceIds]);
       }
     }
   });
@@ -364,7 +371,7 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
   it('respecta manual corrections granular in mergeWithExistingSpecs', async () => {
     const productIds: string[] = [];
     try {
-      const productRes = await pool.query<{ id: string }>(
+      const productRes = await pool!.query<{ id: string }>(
         `INSERT INTO prod_master (internal_sku, canonical_title)
          VALUES ($1, $2)
          RETURNING id`,
@@ -376,7 +383,7 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
       }
       productIds.push(productId);
 
-      await pool.query(
+      await pool!.query(
         `INSERT INTO prod_specs_normalized (
           product_id,
           specs,
@@ -399,7 +406,7 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
       );
 
       const merged = await mergeWithExistingSpecs({
-        client: pool,
+        client: pool!,
         productId,
         consensusSpecs: { brand: 'ConsensusBrand', category: 'ConsensusCategory' },
         provenance: {},
@@ -410,10 +417,10 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
       expect(merged.skipped).toContain('brand');
     } finally {
       if (productIds.length > 0) {
-        await pool.query(`DELETE FROM prod_specs_normalized WHERE product_id = ANY($1::uuid[])`, [
+        await pool!.query(`DELETE FROM prod_specs_normalized WHERE product_id = ANY($1::uuid[])`, [
           productIds,
         ]);
-        await pool.query(`DELETE FROM prod_master WHERE id = ANY($1::uuid[])`, [productIds]);
+        await pool!.query(`DELETE FROM prod_master WHERE id = ANY($1::uuid[])`, [productIds]);
       }
     }
   });
@@ -423,7 +430,7 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
     const sourceIds: string[] = [];
     const matchIds: string[] = [];
     try {
-      const productRes = await pool.query<{ id: string }>(
+      const productRes = await pool!.query<{ id: string }>(
         `INSERT INTO prod_master (internal_sku, canonical_title)
          VALUES ($1, $2)
          RETURNING id`,
@@ -435,13 +442,13 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
       }
       productIds.push(productId);
 
-      const sourceA = await pool.query<{ id: string }>(
+      const sourceA = await pool!.query<{ id: string }>(
         `INSERT INTO prod_sources (name, source_type, trust_score, is_active, created_at, updated_at)
          VALUES ($1, 'scraping', 1.0, true, now(), now())
          RETURNING id`,
         [`test-auto-source-a-${randomUUID()}`]
       );
-      const sourceB = await pool.query<{ id: string }>(
+      const sourceB = await pool!.query<{ id: string }>(
         `INSERT INTO prod_sources (name, source_type, trust_score, is_active, created_at, updated_at)
          VALUES ($1, 'scraping', 0.9, true, now(), now())
          RETURNING id`,
@@ -454,7 +461,7 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
       }
       sourceIds.push(sourceAId, sourceBId);
 
-      const matchA = await pool.query<{ id: string }>(
+      const matchA = await pool!.query<{ id: string }>(
         `INSERT INTO prod_similarity_matches (
            product_id,
            source_id,
@@ -477,7 +484,7 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
           JSON.stringify({ category: 'Cat-A' }),
         ]
       );
-      const matchB = await pool.query<{ id: string }>(
+      const matchB = await pool!.query<{ id: string }>(
         `INSERT INTO prod_similarity_matches (
            product_id,
            source_id,
@@ -507,7 +514,7 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
       }
       matchIds.push(matchAId, matchBId);
 
-      const result = await computeConsensus({ client: pool, productId });
+      const result = await computeConsensus({ client: pool!, productId });
       expect(result.consensusSpecs['category']).toBeUndefined();
       expect(
         result.conflicts.some(
@@ -516,15 +523,15 @@ describe('consensus-engine', { skip: shouldSkip }, () => {
       ).toBe(true);
     } finally {
       if (matchIds.length > 0) {
-        await pool.query(`DELETE FROM prod_similarity_matches WHERE id = ANY($1::uuid[])`, [
+        await pool!.query(`DELETE FROM prod_similarity_matches WHERE id = ANY($1::uuid[])`, [
           matchIds,
         ]);
       }
       if (productIds.length > 0) {
-        await pool.query(`DELETE FROM prod_master WHERE id = ANY($1::uuid[])`, [productIds]);
+        await pool!.query(`DELETE FROM prod_master WHERE id = ANY($1::uuid[])`, [productIds]);
       }
       if (sourceIds.length > 0) {
-        await pool.query(`DELETE FROM prod_sources WHERE id = ANY($1::uuid[])`, [sourceIds]);
+        await pool!.query(`DELETE FROM prod_sources WHERE id = ANY($1::uuid[])`, [sourceIds]);
       }
     }
   });
