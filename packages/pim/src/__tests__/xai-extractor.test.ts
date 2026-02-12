@@ -11,6 +11,10 @@ vi.mock('../services/xai-cost-tracker.js', () => ({
   trackXaiCost: vi.fn(() => Promise.resolve()),
 }));
 
+vi.mock('../services/budget-guard.js', () => ({
+  enforceBudget: vi.fn(() => Promise.resolve()),
+}));
+
 const credentials = {
   apiKey: 'xai-test',
   baseUrl: 'https://api.x.ai/v1',

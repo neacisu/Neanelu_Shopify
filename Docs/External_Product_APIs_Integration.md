@@ -560,3 +560,23 @@ GROUP BY DATE(created_at), api_provider;
 | Version | Date       | Changes                             |
 |---------|------------|-------------------------------------|
 | 1.0     | 2025-12-29 | Initial documentation pentru Gap #3 |
+
+---
+
+## F8.4.7 - API Cost Tracking and Budget Alerts
+
+Implemented scope:
+
+- Unified usage logging in `api_usage_log` for `serper`, `xai`, `openai`.
+- Per-shop budget settings in `shop_ai_credentials` including:
+  - `serper_daily_budget`, `serper_budget_alert_threshold`
+  - `xai_daily_budget`, `xai_budget_alert_threshold`
+  - `openai_daily_budget`, `openai_budget_alert_threshold`, `openai_items_daily_budget`
+- Unified budget status view: `v_api_budget_status`.
+- Application-level budget enforcement (`BudgetGuard`) with hard-stop at 100%.
+- Daily auto-resume scheduler for enrichment queue.
+- Weekly summary generation with in-app notifications (`pim_notifications`) and optional webhook.
+- Admin endpoints for:
+  - budget status
+  - queue pause/resume
+  - budget updates

@@ -3,7 +3,8 @@ import { normalizeGTIN, validateGTINChecksum } from '../utils/gtin-validator.js'
 import type { HTMLContentProvider } from './html-content-provider.js';
 import type { XAICredentials } from './xai-credentials.js';
 import { acquireXaiRateLimit } from './xai-rate-limiter.js';
-import { checkXaiDailyBudget, trackXaiCost } from './xai-cost-tracker.js';
+import { trackXaiCost } from './xai-cost-tracker.js';
+import { enforceBudget } from './budget-guard.js';
 
 export const XAI_EXTRACTOR_AGENT_VERSION = 'xai-extractor-v1.0';
 export const XAI_CONFIDENCE_THRESHOLD = 0.8;
@@ -33,13 +34,14 @@ export type ExtractionResult = Readonly<{
 export class XaiExtractorService {
   async extractProductFromHTML(params: ExtractionParams): Promise<ExtractionResult> {
     const { html, sourceUrl, shopId, credentials, matchId, productId } = params;
-    const budget = await checkXaiDailyBudget(shopId);
-    if (budget.exceeded) {
+    try {
+      await enforceBudget({ provider: 'xai', shopId });
+    } catch (error) {
       return {
         success: false,
         tokensUsed: { input: 0, output: 0 },
         latencyMs: 0,
-        error: 'Daily xAI budget exceeded',
+        error: error instanceof Error ? error.message : 'Daily xAI budget exceeded',
       };
     }
 

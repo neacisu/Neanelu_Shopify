@@ -101,6 +101,12 @@ export type AppEnv = Readonly<{
   vectorSearchQueryTimeoutMs: number;
   /** Embedding dimensions (defaults to 2000 for text-embedding-3-large) */
   openAiEmbeddingDimensions: number;
+  /** OpenAI embedding cost reference (USD per 1M tokens) */
+  openAiEmbeddingCostPer1MTokens: number;
+  /** Serper daily budget fallback (request count) */
+  serperDailyBudget: number;
+  /** Serper budget warning threshold fallback (0-1) */
+  serperBudgetAlertThreshold: number;
 
   /** Serper health check interval (seconds) */
   serperHealthCheckIntervalSeconds: number;
@@ -108,6 +114,10 @@ export type AppEnv = Readonly<{
   openAiHealthCheckIntervalSeconds: number;
   /** xAI health check interval (seconds) */
   xaiHealthCheckIntervalSeconds: number;
+  /** Optional webhook endpoint for weekly PIM cost summaries */
+  pimWeeklySummaryWebhookUrl?: string;
+  /** Optional HMAC secret used to sign weekly summary webhooks */
+  pimWeeklySummaryWebhookSecret?: string;
 
   // ============================================
   // BULK DEDUP + CONSENSUS + PIM SYNC (PR-043 / F5.2.9-F5.2.10)
@@ -441,6 +451,31 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     'OPENAI_EMBEDDING_DIMENSIONS',
     2000
   );
+  const openAiEmbeddingCostPer1MTokens = parseFloatWithDefault(
+    env,
+    'OPENAI_EMBEDDING_COST_PER_1M_TOKENS',
+    0.02
+  );
+  if (openAiEmbeddingCostPer1MTokens <= 0) {
+    throw new Error(
+      `Invalid OPENAI_EMBEDDING_COST_PER_1M_TOKENS: expected > 0, got ${String(
+        openAiEmbeddingCostPer1MTokens
+      )}`
+    );
+  }
+  const serperDailyBudget = parsePositiveIntWithDefault(env, 'SERPER_DAILY_BUDGET', 1000);
+  const serperBudgetAlertThreshold = parseFloatWithDefault(
+    env,
+    'SERPER_BUDGET_ALERT_THRESHOLD',
+    0.8
+  );
+  if (serperBudgetAlertThreshold < 0 || serperBudgetAlertThreshold > 1) {
+    throw new Error(
+      `Invalid SERPER_BUDGET_ALERT_THRESHOLD: expected between 0 and 1, got ${String(
+        serperBudgetAlertThreshold
+      )}`
+    );
+  }
 
   const serperHealthCheckIntervalSeconds = parsePositiveIntWithDefault(
     env,
@@ -459,6 +494,8 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     'XAI_HEALTH_CHECK_INTERVAL_SECONDS',
     3600
   );
+  const pimWeeklySummaryWebhookUrl = optionalString(env, 'PIM_WEEKLY_SUMMARY_WEBHOOK_URL');
+  const pimWeeklySummaryWebhookSecret = optionalString(env, 'PIM_WEEKLY_SUMMARY_WEBHOOK_SECRET');
 
   const bulkPimSyncEnabled = parseBooleanWithDefault(env, 'BULK_PIM_SYNC_ENABLED', true);
   const bulkSemanticDedupEnabled = parseBooleanWithDefault(
@@ -554,10 +591,15 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     vectorSearchCacheTtlSeconds,
     vectorSearchQueryTimeoutMs,
     openAiEmbeddingDimensions,
+    openAiEmbeddingCostPer1MTokens,
+    serperDailyBudget,
+    serperBudgetAlertThreshold,
 
     serperHealthCheckIntervalSeconds,
     openAiHealthCheckIntervalSeconds,
     xaiHealthCheckIntervalSeconds,
+    ...(pimWeeklySummaryWebhookUrl ? { pimWeeklySummaryWebhookUrl } : {}),
+    ...(pimWeeklySummaryWebhookSecret ? { pimWeeklySummaryWebhookSecret } : {}),
 
     bulkPimSyncEnabled,
     bulkSemanticDedupEnabled,

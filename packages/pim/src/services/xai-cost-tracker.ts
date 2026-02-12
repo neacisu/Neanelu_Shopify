@@ -1,7 +1,8 @@
 import { getDbPool } from '../db.js';
+import { COST_CONSTANTS, trackCost } from './cost-tracker.js';
 
-const XAI_COST_PER_1M_INPUT = 0.2;
-const XAI_COST_PER_1M_OUTPUT = 0.5;
+const XAI_COST_PER_1M_INPUT = COST_CONSTANTS.xai.costPer1MInput;
+const XAI_COST_PER_1M_OUTPUT = COST_CONSTANTS.xai.costPer1MOutput;
 
 export type XaiBudgetStatus = Readonly<{
   used: number;
@@ -30,39 +31,24 @@ export async function trackXaiCost(params: TrackXaiCostParams): Promise<void> {
     (params.tokensInput / 1_000_000) * XAI_COST_PER_1M_INPUT +
     (params.tokensOutput / 1_000_000) * XAI_COST_PER_1M_OUTPUT;
 
-  const pool = getDbPool();
-  await pool.query(
-    `INSERT INTO api_usage_log (
-       api_provider,
-       endpoint,
-       request_count,
-       tokens_input,
-       tokens_output,
-       estimated_cost,
-       http_status,
-       response_time_ms,
-       job_id,
-       product_id,
-       shop_id,
-       error_message,
-       metadata,
-       created_at
-     )
-     VALUES ('xai', $1, 1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())`,
-    [
-      params.endpoint,
-      params.tokensInput,
-      params.tokensOutput,
-      estimatedCost,
-      params.httpStatus,
-      params.responseTimeMs,
-      params.jobId ?? null,
-      params.productId ?? null,
-      params.shopId ?? null,
-      params.errorMessage ?? null,
-      JSON.stringify({ matchId: params.matchId }),
-    ]
-  );
+  await trackCost({
+    provider: 'xai',
+    operation: params.endpoint === 'ai-audit' ? 'audit' : 'extraction',
+    endpoint: params.endpoint,
+    requestCount: 1,
+    tokensInput: params.tokensInput,
+    tokensOutput: params.tokensOutput,
+    estimatedCost,
+    httpStatus: params.httpStatus,
+    responseTimeMs: params.responseTimeMs,
+    ...(params.jobId ? { jobId: params.jobId } : {}),
+    ...(params.productId ? { productId: params.productId } : {}),
+    ...(params.shopId ? { shopId: params.shopId } : {}),
+    ...(params.errorMessage ? { errorMessage: params.errorMessage } : {}),
+    metadata: {
+      ...(params.matchId ? { matchId: params.matchId } : {}),
+    },
+  });
 }
 
 export async function checkXaiDailyBudget(shopId: string): Promise<XaiBudgetStatus> {

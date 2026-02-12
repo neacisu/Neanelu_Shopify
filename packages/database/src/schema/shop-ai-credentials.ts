@@ -62,6 +62,12 @@ export const shopAiCredentials = pgTable(
     openaiLastCheckedAt: timestamp('openai_last_checked_at', { withTimezone: true }),
     openaiLastError: text('openai_last_error'),
     openaiLastSuccessAt: timestamp('openai_last_success_at', { withTimezone: true }),
+    openaiDailyBudget: numeric('openai_daily_budget', { precision: 10, scale: 2 }).default('10.00'),
+    openaiBudgetAlertThreshold: numeric('openai_budget_alert_threshold', {
+      precision: 3,
+      scale: 2,
+    }).default('0.80'),
+    openaiItemsDailyBudget: integer('openai_items_daily_budget').default(100000),
 
     serperEnabled: boolean('serper_enabled').notNull().default(false),
     serperDailyBudget: integer('serper_daily_budget').default(1000),

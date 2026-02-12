@@ -3,7 +3,13 @@ import { loadEnv } from '@app/config';
 import { configFromEnv, createWorker, withJobTelemetryContext } from '@app/queue-manager';
 import { withTenantContext } from '@app/database';
 import type { ExternalProductSearchResult } from '@app/types';
-import { searchProductByGTIN, searchProductByMPN, searchProductByTitle } from '@app/pim';
+import {
+  BudgetExceededError,
+  enforceBudget,
+  searchProductByGTIN,
+  searchProductByMPN,
+  searchProductByTitle,
+} from '@app/pim';
 import { SimilarityMatchService } from '@app/pim';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
 import { enqueueAIAuditJob } from '../../queue/similarity-queues.js';
@@ -87,6 +93,18 @@ export function startSimilaritySearchWorker(logger: Logger): SimilaritySearchWor
             const service = new SimilarityMatchService();
             let results: ExternalProductSearchResult[] = [];
             let matchMethod = 'title_fuzzy';
+            try {
+              await enforceBudget({ provider: 'serper', shopId: payload.shopId });
+            } catch (error) {
+              if (error instanceof BudgetExceededError) {
+                logger.warn(
+                  { shopId: payload.shopId, error: error.message },
+                  'Serper budget exceeded; skipping external similarity search'
+                );
+                return;
+              }
+              throw error;
+            }
             if (product.gtin) {
               results = await searchProductByGTIN(product.gtin, product.product_id);
               matchMethod = 'gtin_exact';

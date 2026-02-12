@@ -1,6 +1,6 @@
 import { SerperResponseSchema } from '../schemas/serper-search.js';
 import { getCachedResult, getSerperRateLimiter, setCachedResult } from './serper-rate-limiter.js';
-import { BudgetExceededError, checkDailyBudget, trackSerperCost } from './serper-cost-tracker.js';
+import { trackSerperCost } from './serper-cost-tracker.js';
 import { storeRawHarvest } from './raw-harvest-storage.js';
 import { hasEnoughConfirmedMatches } from '../repositories/similarity-matches.js';
 import type { ExternalProductSearchResult, SerperSearchOptions } from '../types/external-search.js';
@@ -57,11 +57,6 @@ async function executeSearch(
   const apiKey = process.env['SERPER_API_KEY'];
   if (!apiKey) {
     throw new Error('SERPER_API_KEY is not configured');
-  }
-
-  const budgetStatus = await checkDailyBudget();
-  if (budgetStatus.exceeded) {
-    throw new BudgetExceededError('Daily Serper API budget exceeded');
   }
 
   const cacheKey = buildCacheKey(options);

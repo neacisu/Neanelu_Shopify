@@ -547,6 +547,13 @@
       "when": 1770241782303,
       "tag": "0077_add_quality_milestone_event",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1770300000000,
+      "tag": "0078_openai_budgets_and_pim_notifications",
+      "breakpoints": true
     }
   ]
 }

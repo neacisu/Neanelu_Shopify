@@ -57,6 +57,7 @@ void mock.module('@app/queue-manager', {
     enqueueBulkOrchestratorJob: () => Promise.resolve(),
     enqueueEnrichmentJob: () => Promise.resolve(),
     enqueueBulkIngestJob: () => Promise.resolve(),
+    ENRICHMENT_QUEUE_NAME: 'pim-enrichment-queue',
     WEBHOOK_QUEUE_NAME: 'webhooks',
     cleanupWebhookJobsForShopDomain: () => Promise.resolve(),
   },

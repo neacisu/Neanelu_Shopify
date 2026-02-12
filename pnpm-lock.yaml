@@ -331,6 +331,9 @@ importers:
 
   packages/pim:
     dependencies:
+      '@app/config':
+        specifier: workspace:*
+        version: link:../config
       '@app/database':
         specifier: workspace:*
         version: link:../database

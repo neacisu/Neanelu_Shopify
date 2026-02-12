@@ -243,3 +243,25 @@ receivers:
     pagerduty_configs:
       - service_key: '${PAGERDUTY_KEY}'
 ```
+
+---
+
+## 6. PIM Budget Alerts (F8.4.7)
+
+Prometheus rules file:
+
+- `docker/prometheus/rules/pim-cost-alerts.yml`
+
+Implemented alerts:
+
+- `PimApiBudgetWarning` (`pim_api_budget_usage_ratio >= 0.8`)
+- `PimApiBudgetExceeded` (`pim_api_budget_usage_ratio >= 1`)
+- `PimApiCostSpike` (`increase(pim_api_cost_total[1h]) > 50`)
+- `PimApiErrorRateHigh` (`pim_api_errors_total / pim_api_requests_total > 10%`)
+- `PimEnrichmentQueuePausedTooLong` (budget pause event persisted too long)
+
+All PIM budget alerts include:
+
+- `severity`
+- `team`
+- `runbook_url` -> `Docs/runbooks/pim-api-budget-exceeded.md`
