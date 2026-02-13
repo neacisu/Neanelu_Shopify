@@ -25,6 +25,8 @@ import ProductEditPage, { action as productEditAction } from './routes/app.produ
 import ProductsImportPage from './routes/app.products.import';
 import ProductsReviewPage from './routes/app.products.review';
 import SimilarityMatchesPage from './routes/app.similarity-matches';
+import PimLayout from './routes/app.pim';
+import PimOverviewPage, { loader as pimOverviewLoader } from './routes/app.pim._index';
 import EnrichmentDashboardPage, {
   loader as enrichmentDashboardLoader,
 } from './routes/app.pim.enrichment';
@@ -144,38 +146,53 @@ export const routes: RouteObject[] = [
         element: createElement(SimilarityMatchesPage),
       },
       {
-        id: 'pim-enrichment',
-        path: 'pim/enrichment',
-        loader: enrichmentDashboardLoader,
-        handle: { title: 'PIM - Enrichment' },
-        element: createElement(EnrichmentDashboardPage),
-      },
-      {
-        id: 'pim-quality',
-        path: 'pim/quality',
-        loader: qualityProgressLoader,
-        handle: { title: 'PIM - Quality Progress' },
-        element: createElement(QualityProgressPage),
-      },
-      {
-        id: 'pim-costs',
-        path: 'pim/costs',
-        loader: costTrackingLoader,
-        handle: { title: 'PIM - Cost Tracking' },
-        element: createElement(CostTrackingPage),
-      },
-      {
-        id: 'pim-events',
-        path: 'pim/events',
-        loader: qualityEventsLoader,
-        handle: { title: 'PIM - Quality Events' },
-        element: createElement(QualityEventsPage),
-      },
-      {
-        id: 'pim-consensus',
-        path: 'pim/consensus',
-        handle: { title: 'PIM - Consensus' },
-        element: createElement(PimConsensusPage),
+        id: 'pim-layout',
+        path: 'pim',
+        handle: { title: 'PIM' },
+        element: createElement(PimLayout),
+        children: [
+          {
+            id: 'pim-index',
+            index: true,
+            loader: pimOverviewLoader,
+            handle: { title: 'PIM - Overview' },
+            element: createElement(PimOverviewPage),
+          },
+          {
+            id: 'pim-enrichment',
+            path: 'enrichment',
+            loader: enrichmentDashboardLoader,
+            handle: { title: 'PIM - Enrichment' },
+            element: createElement(EnrichmentDashboardPage),
+          },
+          {
+            id: 'pim-quality',
+            path: 'quality',
+            loader: qualityProgressLoader,
+            handle: { title: 'PIM - Quality Progress' },
+            element: createElement(QualityProgressPage),
+          },
+          {
+            id: 'pim-costs',
+            path: 'costs',
+            loader: costTrackingLoader,
+            handle: { title: 'PIM - Cost Tracking' },
+            element: createElement(CostTrackingPage),
+          },
+          {
+            id: 'pim-events',
+            path: 'events',
+            loader: qualityEventsLoader,
+            handle: { title: 'PIM - Quality Events' },
+            element: createElement(QualityEventsPage),
+          },
+          {
+            id: 'pim-consensus',
+            path: 'consensus',
+            handle: { title: 'PIM - Consensus' },
+            element: createElement(PimConsensusPage),
+          },
+        ],
       },
       {
         id: 'settings',

@@ -12,6 +12,7 @@ const queueState = {
   resumed: false,
   pausedByName: new Set<string>(),
 };
+const queryLog: string[] = [];
 
 const sessionPath = new URL('../../auth/session.js', import.meta.url).href;
 void mock.module(sessionPath, {
@@ -82,6 +83,7 @@ void mock.module('@app/database', {
     ) => {
       const client = {
         query: (sql: string) => {
+          queryLog.push(sql);
           if (
             sql.includes('FROM prod_channel_mappings') &&
             sql.includes('COUNT(DISTINCT pcm.product_id)')
@@ -113,10 +115,92 @@ void mock.module('@app/database', {
           if (sql.includes('mv_pim_quality_progress')) {
             return Promise.resolve({
               rows: [
-                { data_quality_level: 'bronze', product_count: '4', percentage: '40' },
-                { data_quality_level: 'silver', product_count: '3', percentage: '30' },
-                { data_quality_level: 'golden', product_count: '2', percentage: '20' },
-                { data_quality_level: 'review_needed', product_count: '1', percentage: '10' },
+                {
+                  data_quality_level: 'bronze',
+                  product_count: '4',
+                  percentage: '40',
+                  avg_quality_score: '0.55',
+                  needs_review_count: '0',
+                  promoted_to_silver_24h: '1',
+                  promoted_to_golden_24h: '0',
+                  promoted_to_silver_7d: '2',
+                  promoted_to_golden_7d: '0',
+                  last_update: '2026-02-04T09:55:00Z',
+                  refreshed_at: '2026-02-04T10:00:00Z',
+                },
+                {
+                  data_quality_level: 'silver',
+                  product_count: '3',
+                  percentage: '30',
+                  avg_quality_score: '0.72',
+                  needs_review_count: '0',
+                  promoted_to_silver_24h: '0',
+                  promoted_to_golden_24h: '1',
+                  promoted_to_silver_7d: '1',
+                  promoted_to_golden_7d: '1',
+                  last_update: '2026-02-04T09:55:00Z',
+                  refreshed_at: '2026-02-04T10:00:00Z',
+                },
+                {
+                  data_quality_level: 'golden',
+                  product_count: '2',
+                  percentage: '20',
+                  avg_quality_score: '0.91',
+                  needs_review_count: '0',
+                  promoted_to_silver_24h: '0',
+                  promoted_to_golden_24h: '1',
+                  promoted_to_silver_7d: '0',
+                  promoted_to_golden_7d: '2',
+                  last_update: '2026-02-04T09:55:00Z',
+                  refreshed_at: '2026-02-04T10:00:00Z',
+                },
+                {
+                  data_quality_level: 'review_needed',
+                  product_count: '1',
+                  percentage: '10',
+                  avg_quality_score: '0.3',
+                  needs_review_count: '1',
+                  promoted_to_silver_24h: '0',
+                  promoted_to_golden_24h: '0',
+                  promoted_to_silver_7d: '0',
+                  promoted_to_golden_7d: '0',
+                  last_update: '2026-02-04T09:55:00Z',
+                  refreshed_at: '2026-02-04T10:00:00Z',
+                },
+              ],
+            });
+          }
+          if (sql.includes('FROM mv_pim_source_performance')) {
+            return Promise.resolve({
+              rows: [
+                {
+                  source_type: 'SUPPLIER',
+                  source_name: 'Supplier A',
+                  total_harvests: '10',
+                  successful_harvests: '8',
+                  pending_harvests: '1',
+                  failed_harvests: '1',
+                  success_rate: '80',
+                  trust_score: '0.8',
+                  is_active: true,
+                  last_harvest_at: '2026-02-04T08:00:00Z',
+                  refreshed_at: '2026-02-04T10:00:00Z',
+                },
+              ],
+            });
+          }
+          if (sql.includes('FROM mv_pim_enrichment_status')) {
+            return Promise.resolve({
+              rows: [
+                {
+                  data_quality_level: 'bronze',
+                  channel: 'shopify',
+                  product_count: '10',
+                  synced_count: '6',
+                  sync_rate: '60',
+                  avg_quality_score: '0.62',
+                  refreshed_at: '2026-02-04T10:00:00Z',
+                },
               ],
             });
           }
@@ -295,6 +379,7 @@ void describe('pim-stats routes', () => {
   });
 
   void test('GET /pim/stats/quality-distribution returns distribution data', async () => {
+    queryLog.length = 0;
     const server = await createServer();
     try {
       const response = await server.inject({
@@ -305,10 +390,93 @@ void describe('pim-stats routes', () => {
       assert.equal(response.statusCode, 200);
       const body: {
         success: boolean;
-        data: { total: number };
+        data: {
+          total: number;
+          needsReviewCount: number;
+          lastUpdate: string | null;
+          refreshedAt: string | null;
+          promotions: { toGolden24h: number };
+        };
       } = response.json();
       assert.equal(body.success, true);
       assert.equal(body.data.total, 10);
+      assert.equal(body.data.needsReviewCount, 1);
+      assert.equal(body.data.promotions.toGolden24h, 2);
+      assert.equal(body.data.lastUpdate, '2026-02-04T09:55:00Z');
+      assert.equal(body.data.refreshedAt, '2026-02-04T10:00:00Z');
+      assert.equal(
+        queryLog.some(
+          (sql) =>
+            sql.includes('FROM mv_pim_quality_progress') && sql.includes('WHERE shop_id = $1')
+        ),
+        true
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
+  void test('GET /pim/stats/source-performance returns source stats from MV', async () => {
+    queryLog.length = 0;
+    const server = await createServer();
+    try {
+      const response = await server.inject({
+        method: 'GET',
+        url: '/pim/stats/source-performance',
+      });
+      assert.equal(response.statusCode, 200);
+      const body: {
+        success: boolean;
+        data: {
+          sources: { sourceName: string; successfulHarvests: number }[];
+          refreshedAt: string | null;
+        };
+      } = response.json();
+      assert.equal(body.success, true);
+      assert.equal(body.data.sources.length, 1);
+      assert.equal(body.data.sources[0]?.sourceName, 'Supplier A');
+      assert.equal(body.data.sources[0]?.successfulHarvests, 8);
+      assert.equal(body.data.refreshedAt, '2026-02-04T10:00:00Z');
+      assert.equal(
+        queryLog.some(
+          (sql) =>
+            sql.includes('FROM mv_pim_source_performance') && sql.includes('WHERE shop_id = $1')
+        ),
+        true
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
+  void test('GET /pim/stats/enrichment-sync returns sync stats from MV', async () => {
+    queryLog.length = 0;
+    const server = await createServer();
+    try {
+      const response = await server.inject({
+        method: 'GET',
+        url: '/pim/stats/enrichment-sync',
+      });
+      assert.equal(response.statusCode, 200);
+      const body: {
+        success: boolean;
+        data: {
+          syncStatus: { dataQualityLevel: string; syncRate: number }[];
+          refreshedAt: string | null;
+        };
+      } = response.json();
+      assert.equal(body.success, true);
+      assert.equal(body.data.syncStatus.length, 1);
+      assert.equal(body.data.syncStatus[0]?.dataQualityLevel, 'bronze');
+      assert.equal(body.data.syncStatus[0]?.syncRate, 60);
+      assert.equal(body.data.refreshedAt, '2026-02-04T10:00:00Z');
+      assert.equal(
+        queryLog.some(
+          (sql) =>
+            sql.includes('FROM mv_pim_enrichment_status') && sql.includes('WHERE shop_id = $1')
+        ),
+        true
+      );
     } finally {
       await server.close();
     }

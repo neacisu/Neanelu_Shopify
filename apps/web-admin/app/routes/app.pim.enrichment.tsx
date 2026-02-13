@@ -1,11 +1,9 @@
 import type { LoaderFunctionArgs } from 'react-router-dom';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useLoaderData, useRevalidator, useSearchParams } from 'react-router-dom';
 import type { DateRange } from 'react-day-picker';
 import { RefreshCw } from 'lucide-react';
 
-import { Breadcrumbs } from '../components/layout/breadcrumbs';
-import { PageHeader } from '../components/layout/page-header';
 import { Button } from '../components/ui/button';
 import { DateRangePicker } from '../components/ui/DateRangePicker';
 import { Timeline, type TimelineEvent } from '../components/ui/Timeline';
@@ -13,6 +11,7 @@ import { EnrichmentPipelineViz } from '../components/domain/EnrichmentPipelineVi
 import { EnrichmentProgressChart } from '../components/domain/EnrichmentProgressChart';
 import { SourcePerformanceTable } from '../components/domain/SourcePerformanceTable';
 import { EnrichmentStatsCards } from '../components/domain/EnrichmentStatsCards';
+import { DataFreshnessIndicator } from '../components/domain/DataFreshnessIndicator';
 import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
 import { toUtcIsoRange } from '../utils/date-range';
 import { useEnrichmentStream } from '../hooks/useEnrichmentStream';
@@ -38,13 +37,22 @@ interface EnrichmentProgressResponse {
     pending: number[];
     completed: number[];
   };
-  sourcePerformance?: {
-    provider: string;
-    totalRequests: number;
-    totalCost: number;
-    avgLatencyMs: number;
+}
+
+interface SourcePerformanceResponse {
+  sources: {
+    sourceName: string;
+    sourceType: string;
+    totalHarvests: number;
+    successfulHarvests: number;
+    pendingHarvests: number;
+    failedHarvests: number;
     successRate: number;
+    trustScore: number;
+    isActive: boolean;
+    lastHarvestAt: string | null;
   }[];
+  refreshedAt: string | null;
 }
 
 export const loader = apiLoader(async (_args: LoaderFunctionArgs) => {
@@ -59,6 +67,7 @@ export const loader = apiLoader(async (_args: LoaderFunctionArgs) => {
     progress: await api.getApi<EnrichmentProgressResponse>(
       `/pim/stats/enrichment-progress${params.toString() ? `?${params.toString()}` : ''}`
     ),
+    sourcePerformance: await api.getApi<SourcePerformanceResponse>('/pim/stats/source-performance'),
   };
 });
 
@@ -76,7 +85,7 @@ function parseRangeFromParams(searchParams: URLSearchParams): DateRange | undefi
 }
 
 export default function EnrichmentDashboardPage() {
-  const { progress } = useLoaderData<RouteLoaderData>();
+  const { progress, sourcePerformance } = useLoaderData<RouteLoaderData>();
   const revalidator = useRevalidator();
   const stream = useEnrichmentStream();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -103,52 +112,46 @@ export default function EnrichmentDashboardPage() {
     return [event];
   });
 
+  useEffect(() => {
+    const id = setInterval(() => {
+      void revalidator.revalidate();
+    }, 120_000);
+    return () => clearInterval(id);
+  }, [revalidator]);
+
   return (
     <div className="space-y-6">
-      <Breadcrumbs
-        items={[
-          { label: 'Dashboard', href: '/' },
-          { label: 'PIM', href: '/pim/enrichment' },
-          { label: 'Enrichment' },
-        ]}
-      />
-
-      <PageHeader
-        title="Enrichment Pipeline"
-        description="Monitorizează progresul pipeline-ului de enrichment."
-        actions={
-          <div className="flex flex-wrap items-end gap-3">
-            <DateRangePicker
-              label="Date range"
-              value={selectedRange}
-              timeZone={timeZone}
-              onChange={(next) => {
-                const params = new URLSearchParams(searchParams);
-                const range = next ? toUtcIsoRange(next, timeZone) : null;
-                if (range) {
-                  params.set('from', range.fromUtcIso);
-                  params.set('to', range.toUtcIso);
-                } else {
-                  params.delete('from');
-                  params.delete('to');
-                }
-                setSearchParams(params, { replace: true });
-              }}
-            />
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                void revalidator.revalidate();
-              }}
-              disabled={revalidator.state === 'loading'}
-            >
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Refresh
-            </Button>
-          </div>
-        }
-      />
+      <div className="flex flex-wrap items-end gap-3">
+        <DateRangePicker
+          label="Date range"
+          value={selectedRange}
+          timeZone={timeZone}
+          onChange={(next) => {
+            const params = new URLSearchParams(searchParams);
+            const range = next ? toUtcIsoRange(next, timeZone) : null;
+            if (range) {
+              params.set('from', range.fromUtcIso);
+              params.set('to', range.toUtcIso);
+            } else {
+              params.delete('from');
+              params.delete('to');
+            }
+            setSearchParams(params, { replace: true });
+          }}
+        />
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => {
+            void revalidator.revalidate();
+          }}
+          disabled={revalidator.state === 'loading'}
+        >
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Refresh
+        </Button>
+        <DataFreshnessIndicator refreshedAt={sourcePerformance.refreshedAt} label="Source data" />
+      </div>
 
       <EnrichmentStatsCards
         stats={{
@@ -167,7 +170,7 @@ export default function EnrichmentDashboardPage() {
             <EnrichmentPipelineViz stages={progress.pipelineStages} />
           </div>
           <EnrichmentProgressChart data={progress.trendPoints} />
-          <SourcePerformanceTable rows={progress.sourcePerformance ?? []} />
+          <SourcePerformanceTable rows={sourcePerformance.sources} />
         </div>
         <div className="rounded-lg border border-muted/20 bg-background p-4">
           <div className="mb-2 text-xs text-muted">Recent activity</div>

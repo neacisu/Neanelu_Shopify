@@ -48,7 +48,7 @@ export function QualityDistributionChart({
       <DonutChart
         data={data}
         showLegend
-        centerLabel={<span className="text-sm font-medium">{total}</span>}
+        centerLabel={total}
         onSliceClick={(slice) => {
           const level = slice.name.toLowerCase() as keyof QualityDistribution;
           onSliceClick?.(level);

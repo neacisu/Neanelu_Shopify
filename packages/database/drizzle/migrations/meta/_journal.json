@@ -554,6 +554,13 @@
       "when": 1770300000000,
       "tag": "0078_openai_budgets_and_pim_notifications",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1770980400000,
+      "tag": "0079_pim_mvs_tenant_aware",
+      "breakpoints": true
     }
   ]
 }

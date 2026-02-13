@@ -49,7 +49,7 @@ export function EnrichmentStatsCards({ stats }: EnrichmentStatsCardsProps) {
       <div className="rounded-lg border border-muted/20 bg-background p-4">
         <div className="text-xs text-muted">Success rate</div>
         <div className="mt-2">
-          <GaugeChart value={successPct} max={100} />
+          <GaugeChart value={successPct} max={100} ariaLabel="Success rate" />
         </div>
       </div>
     </div>

@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
-import { Breadcrumbs } from '../components/layout/breadcrumbs';
-import { PageHeader } from '../components/layout/page-header';
 import { Button } from '../components/ui/button';
 import { Tabs } from '../components/ui/tabs';
 import { ConsensusStatsCards } from '../components/domain/ConsensusStatsCards';
@@ -10,6 +8,8 @@ import { ConsensusProductsTable } from '../components/domain/ConsensusProductsTa
 import { ConsensusSourcesChart } from '../components/domain/ConsensusSourcesChart';
 import { ConsensusDetailDrawer } from '../components/domain/ConsensusDetailDrawer';
 import { DonutChart } from '../components/charts/DonutChart';
+import { DashboardSkeleton } from '../components/patterns/DashboardSkeleton';
+import { ErrorState } from '../components/patterns/error-state';
 import { toast } from 'sonner';
 import { useConsensusStats } from '../hooks/use-consensus-stats';
 import { useConsensusProducts } from '../hooks/use-consensus-products';
@@ -58,6 +58,14 @@ export default function PimConsensusPage() {
   }, [productsQuery, tab]);
 
   useEffect(() => {
+    const id = setInterval(() => {
+      void statsQuery.run();
+      void productsQuery.run({ status: tab });
+    }, 120_000);
+    return () => clearInterval(id);
+  }, [productsQuery, statsQuery, tab]);
+
+  useEffect(() => {
     const productId = searchParams.get('productId');
     if (!productId || products.length === 0) return;
     const found = products.find((item) => item.productId === productId);
@@ -86,23 +94,21 @@ export default function PimConsensusPage() {
 
   return (
     <div className="space-y-6">
-      <Breadcrumbs
-        items={[
-          { label: 'Dashboard', href: '/app' },
-          { label: 'PIM', href: '/app/pim' },
-          { label: 'Consensus', href: '/app/pim/consensus' },
-        ]}
-      />
-      <PageHeader
-        title="Consensus Engine"
-        description="Consensus status, conflicts and provenance across sources."
-        actions={
-          <Button onClick={() => void statsQuery.run()} size="sm">
-            Refresh
-          </Button>
-        }
-      />
+      <div className="flex justify-end">
+        <Button onClick={() => void statsQuery.run()} size="sm">
+          Refresh
+        </Button>
+      </div>
 
+      {statsQuery.loading && !statsQuery.data ? <DashboardSkeleton rows={1} columns={3} /> : null}
+      {statsQuery.error && !statsQuery.data ? (
+        <ErrorState
+          message="Nu pot incarca statisticile consensus."
+          onRetry={() => {
+            void statsQuery.run();
+          }}
+        />
+      ) : null}
       {statsQuery.data ? <ConsensusStatsCards stats={statsQuery.data} /> : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -139,6 +145,14 @@ export default function PimConsensusPage() {
             { value: 'conflicts', label: 'Conflicts' },
           ]}
         />
+        {productsQuery.error ? (
+          <ErrorState
+            message="Nu pot incarca lista de produse consensus."
+            onRetry={() => {
+              void productsQuery.run({ status: tab });
+            }}
+          />
+        ) : null}
         {tab === 'all' ? <ConsensusProductsTable items={products} onSelect={handleSelect} /> : null}
         {tab === 'pending' ? (
           <ConsensusProductsTable

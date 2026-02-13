@@ -1,24 +1,33 @@
 import type { LoaderFunctionArgs } from 'react-router-dom';
-import { Link, useLoaderData, useSearchParams } from 'react-router-dom';
+import { Link, useLoaderData, useRevalidator, useSearchParams } from 'react-router-dom';
 import { useEffect, useMemo } from 'react';
-import { Download, Trophy } from 'lucide-react';
+import { RefreshCw, Trophy } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { Breadcrumbs } from '../components/layout/breadcrumbs';
-import { PageHeader } from '../components/layout/page-header';
 import { Button } from '../components/ui/button';
 import { QualityDistributionChart } from '../components/domain/QualityDistributionChart';
 import { QualityTrendChart } from '../components/domain/QualityTrendChart';
+import { PromotionRateCard } from '../components/domain/PromotionRateCard';
+import { DataFreshnessIndicator } from '../components/domain/DataFreshnessIndicator';
+import { DashboardSkeleton } from '../components/patterns/DashboardSkeleton';
 import { useApiClient, useApiRequest } from '../hooks/use-api';
 import { useEnrichmentStream } from '../hooks/useEnrichmentStream';
 import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
 
 interface QualityDistributionResponse {
-  bronze: { count: number; percentage: number };
-  silver: { count: number; percentage: number };
-  golden: { count: number; percentage: number };
-  review: { count: number; percentage: number };
+  bronze: { count: number; percentage: number; avgQualityScore: number | null };
+  silver: { count: number; percentage: number; avgQualityScore: number | null };
+  golden: { count: number; percentage: number; avgQualityScore: number | null };
+  review: { count: number; percentage: number; avgQualityScore: number | null };
   total: number;
+  needsReviewCount: number;
+  promotions: {
+    toSilver24h: number;
+    toGolden24h: number;
+    toSilver7d: number;
+    toGolden7d: number;
+  };
+  refreshedAt: string | null;
   trend: { date: string; bronze: number; silver: number; golden: number }[];
   trendRange: { from: string; to: string } | null;
 }
@@ -55,6 +64,7 @@ type RouteLoaderData = LoaderData<typeof loader>;
 
 export default function QualityProgressPage() {
   const { quality } = useLoaderData<RouteLoaderData>();
+  const revalidator = useRevalidator();
   const [searchParams, setSearchParams] = useSearchParams();
   const api = useApiClient();
   const stream = useEnrichmentStream();
@@ -85,6 +95,13 @@ export default function QualityProgressPage() {
   useEffect(() => {
     void runEvents().catch(() => undefined);
   }, [runEvents]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      void revalidator.revalidate();
+    }, 120_000);
+    return () => clearInterval(id);
+  }, [revalidator]);
 
   useEffect(() => {
     for (const evt of stream.events) {
@@ -140,26 +157,25 @@ export default function QualityProgressPage() {
     return null;
   }, [eventsData, stream.events]);
 
+  if (revalidator.state === 'loading') {
+    return <DashboardSkeleton rows={2} columns={2} variant="chart" />;
+  }
+
   return (
     <div className="space-y-6">
-      <Breadcrumbs
-        items={[
-          { label: 'Dashboard', href: '/' },
-          { label: 'PIM', href: '/pim/quality' },
-          { label: 'Quality Progress' },
-        ]}
-      />
-
-      <PageHeader
-        title="Quality Progress"
-        description="Distribuția și evoluția nivelurilor bronze/silver/golden."
-        actions={
-          <Button variant="secondary" size="sm">
-            <Download className="mr-2 h-4 w-4" />
-            Export
-          </Button>
-        }
-      />
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => {
+            void revalidator.revalidate();
+          }}
+        >
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Refresh
+        </Button>
+        <DataFreshnessIndicator refreshedAt={quality.refreshedAt} label="Quality data" />
+      </div>
 
       {latestMilestoneEvent?.milestone ? (
         <div className="flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4">
@@ -179,42 +195,100 @@ export default function QualityProgressPage() {
       ) : null}
 
       <div className="grid gap-4 lg:grid-cols-[1fr_2fr]">
-        <QualityDistributionChart
-          total={quality.total}
-          distribution={{
-            bronze: quality.bronze.count,
-            silver: quality.silver.count,
-            golden: quality.golden.count,
-            review: quality.review.count,
-          }}
-          onSliceClick={(level) => {
-            const params = new URLSearchParams(searchParams);
-            params.set('level', level);
-            setSearchParams(params, { replace: true });
-          }}
-        />
+        <div role="region" aria-label="Quality distribution">
+          <QualityDistributionChart
+            total={quality.total}
+            distribution={{
+              bronze: quality.bronze.count,
+              silver: quality.silver.count,
+              golden: quality.golden.count,
+              review: quality.review.count,
+            }}
+            onSliceClick={(level) => {
+              const params = new URLSearchParams(searchParams);
+              params.set('level', level);
+              setSearchParams(params, { replace: true });
+            }}
+          />
+        </div>
 
         <QualityTrendChart data={quality.trend} {...(rangeLabel ? { rangeLabel } : {})} />
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-5" aria-live="polite">
+        <PromotionRateCard label="To Silver (24h)" value={quality.promotions.toSilver24h} />
+        <PromotionRateCard
+          label="To Golden (24h)"
+          value={quality.promotions.toGolden24h}
+          variant="success"
+        />
+        <PromotionRateCard label="To Silver (7d)" value={quality.promotions.toSilver7d} />
+        <PromotionRateCard
+          label="To Golden (7d)"
+          value={quality.promotions.toGolden7d}
+          variant="success"
+        />
+        <PromotionRateCard
+          label="Needs Review"
+          value={quality.needsReviewCount}
+          variant="warning"
+        />
       </div>
 
       <div className="rounded-lg border border-muted/20 bg-background p-4">
         <div className="mb-2 text-xs text-muted">Quality levels summary</div>
         <div className="grid gap-4 md:grid-cols-4">
-          <div className="rounded-md border border-muted/20 p-3">
+          <div
+            className="rounded-md border border-muted/20 p-3"
+            aria-label="Bronze quality summary"
+          >
             <div className="text-xs text-muted">Bronze</div>
             <div className="text-h5">{quality.bronze.count}</div>
+            <div className="text-xs text-muted">
+              Avg:{' '}
+              {quality.bronze.avgQualityScore != null
+                ? quality.bronze.avgQualityScore.toFixed(2)
+                : 'N/A'}
+            </div>
           </div>
-          <div className="rounded-md border border-muted/20 p-3">
+          <div
+            className="rounded-md border border-muted/20 p-3"
+            aria-label="Silver quality summary"
+          >
             <div className="text-xs text-muted">Silver</div>
             <div className="text-h5">{quality.silver.count}</div>
+            <div className="text-xs text-muted">
+              Avg:{' '}
+              {quality.silver.avgQualityScore != null
+                ? quality.silver.avgQualityScore.toFixed(2)
+                : 'N/A'}
+            </div>
           </div>
-          <div className="rounded-md border border-muted/20 p-3">
+          <div
+            className="rounded-md border border-muted/20 p-3"
+            aria-label="Golden quality summary"
+          >
             <div className="text-xs text-muted">Golden</div>
             <div className="text-h5">{quality.golden.count}</div>
+            <div className="text-xs text-muted">
+              Avg:{' '}
+              {quality.golden.avgQualityScore != null
+                ? quality.golden.avgQualityScore.toFixed(2)
+                : 'N/A'}
+            </div>
           </div>
-          <div className="rounded-md border border-muted/20 p-3">
+          <div
+            className="rounded-md border border-muted/20 p-3"
+            aria-label="Review quality summary"
+          >
             <div className="text-xs text-muted">Review needed</div>
             <div className="text-h5">{quality.review.count}</div>
+            <div className="text-xs text-muted">
+              Avg:{' '}
+              {quality.review.avgQualityScore != null
+                ? quality.review.avgQualityScore.toFixed(2)
+                : 'N/A'}
+            </div>
           </div>
         </div>
       </div>

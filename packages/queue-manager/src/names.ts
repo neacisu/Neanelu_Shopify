@@ -11,6 +11,7 @@ export const QUEUE_NAMES = [
   'pim-ai-audit',
   'pim-extraction',
   'pim-consensus',
+  'pim-mv-refresh-queue',
 ] as const;
 
 export type KnownQueueName = (typeof QUEUE_NAMES)[number];
