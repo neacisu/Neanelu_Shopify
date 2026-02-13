@@ -2046,10 +2046,11 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
             }>(
               `SELECT id, status, method, started_at::text, completed_at::text, created_at::text, target_urls
                FROM scraper_runs
-               WHERE COALESCE(completed_at, started_at, created_at) > $1::timestamptz
+               WHERE shop_id = $1
+                 AND COALESCE(completed_at, started_at, created_at) > $2::timestamptz
                ORDER BY COALESCE(completed_at, started_at, created_at) ASC
                LIMIT 100`,
-              [lastSeenAt]
+              [session.shopId, lastSeenAt]
             );
             return result.rows;
           });
