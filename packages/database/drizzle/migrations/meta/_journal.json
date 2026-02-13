@@ -568,6 +568,20 @@
       "when": 1771209600000,
       "tag": "0080_quality_webhook_config",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1771315200000,
+      "tag": "0081_pr064_scraper_enhancements",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1771401600000,
+      "tag": "0082_scraper_shop_isolation_and_settings",
+      "breakpoints": true
     }
   ]
 }
