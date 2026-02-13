@@ -1,0 +1,68 @@
+groups:
+  - name: pim-cost-alerts
+    interval: 30s
+    rules:
+      - alert: PimApiBudgetWarning
+        expr: max by (provider) (pim_api_budget_usage_ratio) >= 0.8
+        for: 5m
+        labels:
+          severity: warning
+          team: pim
+        annotations:
+          summary: 'PIM API budget warning for {{ $labels.provider }}'
+          description: 'Budget usage reached {{ $value | humanizePercentage }} for provider {{ $labels.provider }}.'
+          runbook_url: 'https://docs.neanelu.local/runbooks/pim-api-budget-exceeded'
+
+      - alert: PimApiBudgetExceeded
+        expr: max by (provider) (pim_api_budget_usage_ratio) >= 1
+        for: 2m
+        labels:
+          severity: critical
+          team: pim
+        annotations:
+          summary: 'PIM API budget exceeded for {{ $labels.provider }}'
+          description: 'Budget usage exceeded 100% for provider {{ $labels.provider }}.'
+          runbook_url: 'https://docs.neanelu.local/runbooks/pim-api-budget-exceeded'
+
+      - alert: PimApiCostSpike
+        expr: increase(pim_api_cost_total[1h]) > 50
+        for: 10m
+        labels:
+          severity: warning
+          team: pim
+        annotations:
+          summary: 'PIM API cost spike detected'
+          description: 'External API costs increased by more than $50 over the last hour.'
+          runbook_url: 'https://docs.neanelu.local/runbooks/pim-api-budget-exceeded'
+
+      - alert: PimApiErrorRateHigh
+        expr: |
+          (
+            sum(increase(pim_api_errors_total[10m]))
+            /
+            clamp_min(sum(increase(pim_api_requests_total[10m])), 1)
+          ) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          team: pim
+        annotations:
+          summary: 'PIM API error rate is high'
+          description: 'Error rate for external APIs exceeded 10% over the last 10 minutes.'
+          runbook_url: 'https://docs.neanelu.local/runbooks/pim-api-budget-exceeded'
+
+      - alert: PimEnrichmentQueuePausedTooLong
+        expr: |
+          (
+            sum(increase(pim_api_queue_paused_total{trigger="budget_enforcement"}[2h]))
+            -
+            sum(increase(pim_api_queue_resumed_total[2h]))
+          ) > 0
+        for: 2h
+        labels:
+          severity: critical
+          team: pim
+        annotations:
+          summary: 'Cost-sensitive queues paused due to budget for too long'
+          description: 'Budget policy paused one or more cost-sensitive queues and no recovery happened for over 2h.'
+          runbook_url: 'https://docs.neanelu.local/runbooks/pim-api-budget-exceeded'

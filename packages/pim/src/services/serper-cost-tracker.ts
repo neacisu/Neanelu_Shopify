@@ -1,6 +1,8 @@
 import { getDbPool } from '../db.js';
+import { loadEnv } from '@app/config';
+import { COST_CONSTANTS, trackCost } from './cost-tracker.js';
 
-const SERPER_COST_PER_REQUEST = 0.001;
+const SERPER_COST_PER_REQUEST = COST_CONSTANTS.serper.costPerRequest;
 
 export type BudgetStatus = Readonly<{
   used: number;
@@ -13,6 +15,7 @@ export type BudgetStatus = Readonly<{
 
 export type TrackSerperCostParams = Readonly<{
   endpoint: string;
+  shopId?: string;
   httpStatus: number;
   responseTimeMs: number;
   productId?: string;
@@ -28,38 +31,25 @@ export class BudgetExceededError extends Error {
 }
 
 export async function trackSerperCost(params: TrackSerperCostParams): Promise<void> {
-  const pool = getDbPool();
-  await pool.query(
-    `INSERT INTO api_usage_log (
-       api_provider,
-       endpoint,
-       request_count,
-       estimated_cost,
-       http_status,
-       response_time_ms,
-       job_id,
-       product_id,
-       error_message,
-       metadata,
-       created_at
-     )
-     VALUES ('serper', $1, 1, $2, $3, $4, $5, $6, $7, $8, now())`,
-    [
-      params.endpoint,
-      SERPER_COST_PER_REQUEST,
-      params.httpStatus,
-      params.responseTimeMs,
-      params.jobId ?? null,
-      params.productId ?? null,
-      params.errorMessage ?? null,
-      JSON.stringify({}),
-    ]
-  );
+  await trackCost({
+    provider: 'serper',
+    operation: 'search',
+    endpoint: params.endpoint,
+    ...(params.shopId ? { shopId: params.shopId } : {}),
+    requestCount: 1,
+    estimatedCost: SERPER_COST_PER_REQUEST,
+    httpStatus: params.httpStatus,
+    responseTimeMs: params.responseTimeMs,
+    ...(params.jobId ? { jobId: params.jobId } : {}),
+    ...(params.productId ? { productId: params.productId } : {}),
+    ...(params.errorMessage ? { errorMessage: params.errorMessage } : {}),
+  });
 }
 
 export async function checkDailyBudget(): Promise<BudgetStatus> {
-  const dailyLimit = Number(process.env['SERPER_DAILY_BUDGET'] ?? 1000);
-  const alertThreshold = Number(process.env['SERPER_BUDGET_ALERT_THRESHOLD'] ?? 0.8);
+  const env = loadEnv();
+  const dailyLimit = env.serperDailyBudget;
+  const alertThreshold = env.serperBudgetAlertThreshold;
 
   const pool = getDbPool();
   const result = await pool.query<{ used: string }>(
@@ -89,7 +79,8 @@ export async function getDailySerperUsage(): Promise<{
   cost: number;
   percentUsed: number;
 }> {
-  const dailyLimit = Number(process.env['SERPER_DAILY_BUDGET'] ?? 1000);
+  const env = loadEnv();
+  const dailyLimit = env.serperDailyBudget;
   const pool = getDbPool();
   const result = await pool.query<{ requests: string; cost: string }>(
     `SELECT

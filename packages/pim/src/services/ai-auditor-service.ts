@@ -1,6 +1,7 @@
 import { AIAuditResponseSchema } from '../schemas/ai-audit.js';
 import { acquireXaiRateLimit } from './xai-rate-limiter.js';
-import { checkXaiDailyBudget, trackXaiCost } from './xai-cost-tracker.js';
+import { trackXaiCost } from './xai-cost-tracker.js';
+import { enforceBudget } from './budget-guard.js';
 import type { XAICredentials } from './xai-credentials.js';
 
 export type AIAuditDecision = 'approve' | 'reject' | 'escalate_to_human';
@@ -39,10 +40,7 @@ export type AIAuditParams = Readonly<{
 
 export class AIAuditorService {
   async auditMatch(params: AIAuditParams): Promise<AIAuditResult> {
-    const budget = await checkXaiDailyBudget(params.shopId);
-    if (budget.exceeded) {
-      throw new Error('Daily xAI budget exceeded');
-    }
+    await enforceBudget({ provider: 'xai', shopId: params.shopId });
 
     await acquireXaiRateLimit({
       shopId: params.shopId,

@@ -23,11 +23,12 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@app/config": "workspace:*",
     "@app/database": "workspace:*",
     "@app/logger": "workspace:*",
     "ioredis": "^5.8.2",

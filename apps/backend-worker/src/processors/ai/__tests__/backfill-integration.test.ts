@@ -51,6 +51,15 @@ await (async () => {
   );
 
   await Promise.resolve(
+    mock.module('@app/pim', {
+      namedExports: {
+        BudgetExceededError: class BudgetExceededError extends Error {},
+        enforceBudget: () => Promise.resolve(),
+      },
+    })
+  );
+
+  await Promise.resolve(
     mock.module('@app/database', {
       namedExports: {
         decryptAesGcm: () => Buffer.from(''),

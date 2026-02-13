@@ -40,6 +40,8 @@ export const DEFAULT_QUEUE_TIMEOUTS_MS: QueueTimeoutsMs = {
   'bulk-poller-queue': 5 * 60_000,
   // Reconcile can involve downloading and parsing large JSONL files.
   'bulk-mutation-reconcile-queue': 30 * 60_000,
+  // Bulk ingest jobs can trigger costly downstream processing.
+  'bulk-ingest-queue': 15 * 60_000,
   // AI batch work tends to be longer.
   'ai-batch-queue': 10 * 60_000,
   // Enrichment jobs can be long-running (external APIs + scraping).
@@ -48,6 +50,10 @@ export const DEFAULT_QUEUE_TIMEOUTS_MS: QueueTimeoutsMs = {
   'pim-similarity-search': 10 * 60_000,
   // AI audit jobs can be slower due to model latency.
   'pim-ai-audit': 10 * 60_000,
+  // Extraction jobs can include large HTML payloads and external model calls.
+  'pim-extraction': 10 * 60_000,
+  // Consensus is CPU-bound and DB-heavy but should stay bounded.
+  'pim-consensus': 10 * 60_000,
 } as const;
 
 export function defaultJobTimeoutMs(queueName: KnownQueueName): number {

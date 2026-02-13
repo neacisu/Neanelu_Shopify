@@ -8,6 +8,7 @@ import { OpenAiBatchManager, createEmbeddingsProvider } from '@app/ai-engine';
 import type { Logger } from '@app/logger';
 import { enqueueAiBatchBackfillJob, enqueueAiBatchPollerJob } from '@app/queue-manager';
 import type { AiBatchBackfillJobPayload } from '@app/types';
+import { BudgetExceededError, enforceBudget } from '@app/pim';
 import { getShopOpenAiConfig } from '../../runtime/openai-config.js';
 
 import {
@@ -144,6 +145,27 @@ export async function runAiBatchBackfill(params: {
       const dimensions = env.openAiEmbeddingDimensions ?? provider.model.dimensions;
 
       const chunkSize = payload.chunkSize ?? env.openAiBatchMaxItems;
+      try {
+        await enforceBudget({ provider: 'openai', shopId: payload.shopId });
+      } catch (error) {
+        if (error instanceof BudgetExceededError) {
+          logger.warn(
+            { shopId: payload.shopId, error: error.message },
+            'OpenAI budget exceeded; delaying backfill until next day'
+          );
+          await withAiSpan(AI_SPAN_NAMES.ENQUEUE, { 'ai.shop_id': payload.shopId }, async () =>
+            enqueueAiBatchBackfillJob(
+              {
+                ...payload,
+                requestedAt: Date.now(),
+              },
+              { delayMs: msUntilNextDay(new Date()) }
+            )
+          );
+          return;
+        }
+        throw error;
+      }
       const budget = await getDailyEmbeddingBudget({
         shopId: payload.shopId,
         dailyLimit: env.openAiEmbeddingDailyBudget,

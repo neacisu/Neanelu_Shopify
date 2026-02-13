@@ -507,6 +507,91 @@ export const shopifyRateLimitHits: Counter = meter.createCounter('shopify_rate_l
 });
 
 // ============================================
+// PIM EXTERNAL API COST METRICS (F8.4.7)
+// ============================================
+
+/** Total estimated cost (USD) by external provider */
+export const pimApiCostTotal: Counter = meter.createCounter('pim_api_cost_total', {
+  description: 'Total estimated cost in USD by external API provider',
+  unit: 'USD',
+});
+
+/** Total external API requests by provider/operation */
+export const pimApiRequestsTotal: Counter = meter.createCounter('pim_api_requests_total', {
+  description: 'Total number of external API requests by provider/operation',
+});
+
+/** Total external API tokens consumed (input + output) */
+export const pimApiTokensTotal: Counter = meter.createCounter('pim_api_tokens_total', {
+  description: 'Total number of tokens consumed by external APIs',
+});
+
+/** External API response time distribution */
+export const pimApiResponseTimeSeconds: Histogram = meter.createHistogram(
+  'pim_api_response_time_seconds',
+  {
+    description: 'External API response time in seconds',
+    unit: 's',
+    advice: {
+      explicitBucketBoundaries: [0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+    },
+  }
+);
+
+/** External API error count by provider/operation */
+export const pimApiErrorsTotal: Counter = meter.createCounter('pim_api_errors_total', {
+  description: 'Total number of external API errors by provider/operation',
+});
+
+/** Budget warning events (threshold reached but not exceeded) */
+export const pimApiBudgetWarningTotal: Counter = meter.createCounter(
+  'pim_api_budget_warning_total',
+  {
+    description: 'Budget warning events when threshold is reached',
+  }
+);
+
+/** Budget exceeded events */
+export const pimApiBudgetExceededTotal: Counter = meter.createCounter(
+  'pim_api_budget_exceeded_total',
+  {
+    description: 'Budget exceeded events',
+  }
+);
+
+/** Enrichment queue paused due to budget policy */
+export const pimApiQueuePausedTotal: Counter = meter.createCounter('pim_api_queue_paused_total', {
+  description: 'Queue pause events triggered by budget enforcement',
+});
+
+/** Queue resumed due to budget scheduler or manual actions */
+export const pimApiQueueResumedTotal: Counter = meter.createCounter('pim_api_queue_resumed_total', {
+  description: 'Queue resume events triggered by budget workflow',
+});
+
+/** Max budget usage ratio across all shops (labels: provider) */
+export const pimApiBudgetUsageRatio: ObservableGauge = meter.createObservableGauge(
+  'pim_api_budget_usage_ratio',
+  {
+    description: 'Max budget usage ratio across shops for each provider',
+  }
+);
+
+const pimBudgetUsageRatioState = new Map<string, number>();
+const DEFAULT_BUDGET_RATIO_CACHE_KEY = 'pim:budget:max_ratios';
+const DEFAULT_BUDGET_RATIO_CACHE_TTL_SECONDS = 60;
+
+meter.addBatchObservableCallback(
+  (observableResult) => {
+    if (pimBudgetUsageRatioState.size === 0) return;
+    for (const [provider, ratio] of pimBudgetUsageRatioState.entries()) {
+      observableResult.observe(pimApiBudgetUsageRatio, Math.max(0, ratio), { provider });
+    }
+  },
+  [pimApiBudgetUsageRatio]
+);
+
+// ============================================
 // HELPER FUNCTIONS
 // ============================================
 
@@ -729,5 +814,99 @@ export function recordShopifyApiUsage(costPoints: number, isRateLimited = false)
   shopifyApiCostPoints.add(costPoints);
   if (isRateLimited) {
     shopifyRateLimitHits.add(1);
+  }
+}
+
+/** Record PIM external API usage (provider labels only; no shop_id to avoid high cardinality). */
+export function recordPimApiUsage(params: {
+  provider: 'serper' | 'xai' | 'openai';
+  operation: 'search' | 'audit' | 'extraction' | 'embedding' | 'other';
+  estimatedCost: number;
+  requestCount?: number;
+  tokensTotal?: number;
+  responseTimeMs?: number;
+  isError?: boolean;
+}): void {
+  const attrs = { provider: params.provider, operation: params.operation };
+  pimApiCostTotal.add(Math.max(0, params.estimatedCost), attrs);
+  pimApiRequestsTotal.add(Math.max(1, Math.floor(params.requestCount ?? 1)), attrs);
+  if (typeof params.tokensTotal === 'number' && params.tokensTotal > 0) {
+    pimApiTokensTotal.add(Math.floor(params.tokensTotal), attrs);
+  }
+  if (typeof params.responseTimeMs === 'number' && Number.isFinite(params.responseTimeMs)) {
+    pimApiResponseTimeSeconds.record(Math.max(0, params.responseTimeMs / 1000), attrs);
+  }
+  if (params.isError) {
+    pimApiErrorsTotal.add(1, attrs);
+  }
+}
+
+export function recordPimBudgetWarning(provider: 'serper' | 'xai' | 'openai'): void {
+  pimApiBudgetWarningTotal.add(1, { provider });
+}
+
+export function recordPimBudgetExceeded(provider: 'serper' | 'xai' | 'openai'): void {
+  pimApiBudgetExceededTotal.add(1, { provider });
+}
+
+export function recordPimQueuePaused(
+  trigger: 'manual' | 'budget_enforcement' | 'scheduler',
+  queueName?: string
+): void {
+  pimApiQueuePausedTotal.add(1, queueName ? { trigger, queue_name: queueName } : { trigger });
+}
+
+export function recordPimQueueResumed(
+  trigger: 'manual' | 'budget_enforcement' | 'scheduler',
+  queueName?: string
+): void {
+  pimApiQueueResumedTotal.add(1, queueName ? { trigger, queue_name: queueName } : { trigger });
+}
+
+export function setPimBudgetUsageRatio(provider: 'serper' | 'xai' | 'openai', ratio: number): void {
+  if (!Number.isFinite(ratio)) return;
+  pimBudgetUsageRatioState.set(provider, Math.max(0, ratio));
+}
+
+type BudgetRatioCacheLike = Readonly<{
+  get: (key: string) => Promise<string | null>;
+  setex: (key: string, ttlSeconds: number, value: string) => Promise<unknown>;
+}>;
+
+export async function refreshPimBudgetUsageRatios(params: {
+  getMaxRatios: () => Promise<
+    readonly { provider: 'serper' | 'xai' | 'openai'; maxRatio: number }[]
+  >;
+  cache?: BudgetRatioCacheLike;
+  cacheKey?: string;
+  cacheTtlSeconds?: number;
+}): Promise<void> {
+  const cacheKey = params.cacheKey ?? DEFAULT_BUDGET_RATIO_CACHE_KEY;
+  const cacheTtlSeconds = params.cacheTtlSeconds ?? DEFAULT_BUDGET_RATIO_CACHE_TTL_SECONDS;
+  try {
+    let ratios: readonly { provider: 'serper' | 'xai' | 'openai'; maxRatio: number }[] | null =
+      null;
+    if (params.cache) {
+      const cached = await params.cache.get(cacheKey);
+      if (cached) {
+        ratios = JSON.parse(cached) as readonly {
+          provider: 'serper' | 'xai' | 'openai';
+          maxRatio: number;
+        }[];
+      }
+    }
+
+    if (!ratios) {
+      ratios = await params.getMaxRatios();
+      if (params.cache) {
+        await params.cache.setex(cacheKey, cacheTtlSeconds, JSON.stringify(ratios));
+      }
+    }
+
+    for (const ratio of ratios) {
+      setPimBudgetUsageRatio(ratio.provider, ratio.maxRatio);
+    }
+  } catch {
+    // no-op: metrics should never crash main flow
   }
 }

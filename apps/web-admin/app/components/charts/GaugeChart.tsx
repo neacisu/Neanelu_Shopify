@@ -16,6 +16,8 @@ export type GaugeChartProps = Readonly<{
   fillColor?: string;
   /** Back-compat: track / zone background. */
   trackColor?: string;
+  /** Accessibility label for assistive technologies. */
+  ariaLabel?: string;
 }>;
 
 const DEFAULT_SIZE = 84;
@@ -64,6 +66,7 @@ export function GaugeChart({
   className,
   fillColor = DEFAULT_FILL_COLOR,
   trackColor = DEFAULT_TRACK_COLOR,
+  ariaLabel,
 }: GaugeChartProps) {
   const safeMax = Number.isFinite(max) && max > min ? max : min + 1;
   const safeValue = Number.isFinite(value) ? value : min;
@@ -119,8 +122,13 @@ export function GaugeChart({
   const progressArc = describeArc(cx, cy, r, startAngle, startAngle + pct * 180);
 
   return (
-    <div className={className} style={{ width: size, height: size, position: 'relative' }}>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+    <div
+      className={className}
+      style={{ width: size, height: size, position: 'relative' }}
+      role="img"
+      aria-label={ariaLabel ?? `Gauge ${displayValue}${label ? ` ${label}` : ''}`}
+    >
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
         {/* zones */}
         {zoneSegments.map((seg, idx) => (
           <path
@@ -145,6 +153,7 @@ export function GaugeChart({
 
         {/* needle */}
         <g
+          aria-hidden="true"
           style={{
             transformOrigin: `${cx}px ${cy}px`,
             transform: `rotate(${needleAngle}deg)`,

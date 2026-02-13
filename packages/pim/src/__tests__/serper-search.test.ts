@@ -74,6 +74,30 @@ describe('Serper Search Service', () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
+  it('propagă shopId în tracking-ul de cost când este disponibil', async () => {
+    vi.mocked(hasEnoughConfirmedMatches).mockResolvedValue(false);
+    vi.mocked(getCachedResult).mockResolvedValue(null);
+    vi.mocked(storeRawHarvest).mockResolvedValue('harvest-id');
+    vi.mocked(trackSerperCost).mockResolvedValue();
+
+    const fetchMock = vi.mocked(global.fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => ({
+        searchParameters: { q: '5941234567890', type: 'search' },
+        organic: [{ title: 'Product 1', link: 'https://example.com/1', position: 1 }],
+      }),
+    } as unknown as Response);
+
+    await searchProductByGTIN('5941234567890', 'product-id', 'shop-1');
+    expect(trackSerperCost).toHaveBeenCalledWith(
+      expect.objectContaining({
+        shopId: 'shop-1',
+      })
+    );
+  });
+
   it('returnează rezultatele din cache când există', async () => {
     vi.mocked(hasEnoughConfirmedMatches).mockResolvedValue(false);
     vi.mocked(checkDailyBudget).mockResolvedValue({

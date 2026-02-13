@@ -61,6 +61,8 @@ void mock.module('@app/database', {
 let rateLimitAllowed = true;
 let rateLimitDelayMs = 0;
 const rateLimitTokensRemaining = 100;
+let budgetExceeded = false;
+let trackedCostCalls = 0;
 
 void mock.module('@app/ai-engine', {
   namedExports: {
@@ -77,6 +79,23 @@ void mock.module('@app/ai-engine', {
         delayMs: rateLimitDelayMs,
         tokensRemaining: rateLimitTokensRemaining,
       }),
+  },
+});
+
+void mock.module('@app/pim', {
+  namedExports: {
+    checkBudget: () =>
+      Promise.resolve({
+        provider: 'openai',
+        primary: { unit: 'dollars', used: 1, limit: 10, remaining: 9, ratio: 0.1 },
+        alertThreshold: 0.8,
+        exceeded: budgetExceeded,
+        alertTriggered: false,
+      }),
+    trackCost: () => {
+      trackedCostCalls += 1;
+      return Promise.resolve();
+    },
   },
 });
 
@@ -145,6 +164,7 @@ const env = {
   openAiEmbeddingMaxRetries: 3,
   openAiEmbeddingBackfillEnabled: true,
   openAiEmbeddingDailyBudget: 10_000,
+  openAiEmbeddingCostPer1MTokens: 0.02,
   openAiEmbedRateLimitTokensPerMinute: 1_000_000,
   openAiEmbedRateLimitRequestsPerMinute: 3_000,
   openAiEmbedRateLimitBucketTtlMs: 120_000,
@@ -155,6 +175,8 @@ const env = {
   vectorSearchCacheTtlSeconds: 300,
   vectorSearchQueryTimeoutMs: 2_000,
   openAiEmbeddingDimensions: 2000,
+  serperDailyBudget: 25,
+  serperBudgetAlertThreshold: 0.8,
   serperHealthCheckIntervalSeconds: 3600,
   openAiHealthCheckIntervalSeconds: 3600,
   xaiHealthCheckIntervalSeconds: 3600,
@@ -182,6 +204,8 @@ void describe('search route integration', () => {
   void it('returns search results and caches', async () => {
     rateLimitAllowed = true;
     rateLimitDelayMs = 0;
+    budgetExceeded = false;
+    trackedCostCalls = 0;
     const app = Fastify();
     try {
       await app.register(searchRoutes, {
@@ -202,6 +226,7 @@ void describe('search route integration', () => {
       const body = parsed as { data?: { results?: unknown[]; cached?: boolean } };
       assert.equal(body.data?.cached, false);
       assert.equal(body.data?.results?.length, 1);
+      assert.equal(trackedCostCalls > 0, true);
     } finally {
       await app.close();
     }
@@ -210,6 +235,7 @@ void describe('search route integration', () => {
   void it('returns 429 when rate limited', async () => {
     rateLimitAllowed = false;
     rateLimitDelayMs = 250;
+    budgetExceeded = false;
     const app = Fastify();
     try {
       await app.register(searchRoutes, {
@@ -230,6 +256,35 @@ void describe('search route integration', () => {
       const body = parsed as { error?: { code?: string } };
       assert.equal(body.error?.code, 'TOO_MANY_REQUESTS');
     } finally {
+      await app.close();
+    }
+  });
+
+  void it('returns 429 when daily OpenAI budget is exceeded', async () => {
+    rateLimitAllowed = true;
+    rateLimitDelayMs = 0;
+    budgetExceeded = true;
+    const app = Fastify();
+    try {
+      await app.register(searchRoutes, {
+        prefix: '/api',
+        env,
+        logger,
+        sessionConfig: { secret: 'test', maxAge: 3600, cookieName: 'neanelu_session' },
+      });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/products/search?q=iphone+case',
+      });
+
+      assert.equal(response.statusCode, 429);
+      const parsed: unknown = JSON.parse(response.body);
+      assert.ok(parsed && typeof parsed === 'object');
+      const body = parsed as { error?: { code?: string } };
+      assert.equal(body.error?.code, 'BUDGET_EXCEEDED');
+    } finally {
+      budgetExceeded = false;
       await app.close();
     }
   });

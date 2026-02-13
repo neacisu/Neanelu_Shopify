@@ -2,8 +2,16 @@ import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { withTenantContext } from '@app/database';
+import { configFromEnv, createQueue, ENRICHMENT_QUEUE_NAME } from '@app/queue-manager';
+import { checkAllBudgets } from '@app/pim';
 import type { SessionConfig } from '../auth/session.js';
 import { requireSession } from '../auth/session.js';
+import { recordPimQueuePaused, recordPimQueueResumed } from '../otel/metrics.js';
+import {
+  pauseCostSensitiveQueues,
+  readCostSensitiveQueueStatus,
+  resumeCostSensitiveQueues,
+} from '../processors/pim/cost-sensitive-queues.js';
 
 interface PimStatsPluginOptions {
   env: AppEnv;
@@ -75,7 +83,7 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
   server: FastifyInstance,
   options
 ) => {
-  const { logger, sessionConfig } = options;
+  const { logger, sessionConfig, env } = options;
 
   server.get(
     '/pim/stats/enrichment-progress',
@@ -592,35 +600,39 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
       try {
         const data = await withTenantContext(session.shopId, async (client) => {
           const [daily, weekly, monthly] = await Promise.all([
-            client.query<{ serper: string; xai: string }>(
+            client.query<{ serper: string; xai: string; openai: string }>(
               `SELECT
                  COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'serper'), 0) as serper,
-                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'xai'), 0) as xai
+                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'xai'), 0) as xai,
+                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'openai'), 0) as openai
                FROM api_usage_log
               WHERE created_at >= date_trunc('day', now())
                 AND created_at < date_trunc('day', now()) + interval '1 day'`
             ),
-            client.query<{ serper: string; xai: string }>(
+            client.query<{ serper: string; xai: string; openai: string }>(
               `SELECT
                  COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'serper'), 0) as serper,
-                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'xai'), 0) as xai
+                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'xai'), 0) as xai,
+                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'openai'), 0) as openai
                FROM api_usage_log
               WHERE created_at >= date_trunc('week', now())
                 AND created_at < date_trunc('week', now()) + interval '7 days'`
             ),
-            client.query<{ serper: string; xai: string }>(
+            client.query<{ serper: string; xai: string; openai: string }>(
               `SELECT
                  COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'serper'), 0) as serper,
-                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'xai'), 0) as xai
+                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'xai'), 0) as xai,
+                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'openai'), 0) as openai
                FROM api_usage_log
               WHERE created_at >= date_trunc('month', now())
                 AND created_at < date_trunc('month', now()) + interval '1 month'`
             ),
           ]);
-          const lastMonth = await client.query<{ serper: string; xai: string }>(
+          const lastMonth = await client.query<{ serper: string; xai: string; openai: string }>(
             `SELECT
                COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'serper'), 0) as serper,
-               COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'xai'), 0) as xai
+               COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'xai'), 0) as xai,
+               COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'openai'), 0) as openai
              FROM api_usage_log
             WHERE created_at >= date_trunc('month', now()) - interval '1 month'
               AND created_at < date_trunc('month', now())`
@@ -631,12 +643,16 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
             serper_budget_alert_threshold: number | null;
             xai_daily_budget: number | null;
             xai_budget_alert_threshold: number | null;
+            openai_daily_budget: string | null;
+            openai_budget_alert_threshold: string | null;
           }>(
             `SELECT
                serper_daily_budget,
                serper_budget_alert_threshold,
                xai_daily_budget,
-               xai_budget_alert_threshold
+               xai_budget_alert_threshold,
+               openai_daily_budget,
+               openai_budget_alert_threshold
              FROM shop_ai_credentials
             WHERE shop_id = $1`,
             [session.shopId]
@@ -644,25 +660,40 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
           const settingsRow = settings.rows[0];
           const serperBudget = settingsRow?.serper_daily_budget ?? null;
           const xaiBudget = settingsRow?.xai_daily_budget ?? null;
+          const openAiBudget = settingsRow?.openai_daily_budget
+            ? Number(settingsRow.openai_daily_budget)
+            : null;
           const serperAlert = settingsRow?.serper_budget_alert_threshold ?? null;
           const xaiAlert = settingsRow?.xai_budget_alert_threshold ?? null;
+          const openAiAlert = settingsRow?.openai_budget_alert_threshold
+            ? Number(settingsRow.openai_budget_alert_threshold)
+            : null;
 
           const todaySerper = Number(daily.rows[0]?.serper ?? 0);
           const todayXai = Number(daily.rows[0]?.xai ?? 0);
+          const todayOpenAi = Number(daily.rows[0]?.openai ?? 0);
           const thisWeekSerper = Number(weekly.rows[0]?.serper ?? 0);
           const thisWeekXai = Number(weekly.rows[0]?.xai ?? 0);
+          const thisWeekOpenAi = Number(weekly.rows[0]?.openai ?? 0);
           const thisMonthSerper = Number(monthly.rows[0]?.serper ?? 0);
           const thisMonthXai = Number(monthly.rows[0]?.xai ?? 0);
+          const thisMonthOpenAi = Number(monthly.rows[0]?.openai ?? 0);
           const lastMonthSerper = Number(lastMonth.rows[0]?.serper ?? 0);
           const lastMonthXai = Number(lastMonth.rows[0]?.xai ?? 0);
+          const lastMonthOpenAi = Number(lastMonth.rows[0]?.openai ?? 0);
 
-          const dailyTotal = todaySerper + todayXai;
+          const dailyTotal = todaySerper + todayXai + todayOpenAi;
           const hasBudget =
-            serperBudget != null && xaiBudget != null && serperAlert != null && xaiAlert != null;
-          const dailyBudgetTotal = hasBudget ? serperBudget + xaiBudget : null;
+            serperBudget != null &&
+            xaiBudget != null &&
+            openAiBudget != null &&
+            serperAlert != null &&
+            xaiAlert != null &&
+            openAiAlert != null;
+          const dailyBudgetTotal = hasBudget ? serperBudget + xaiBudget + openAiBudget : null;
           const dailyPercentage =
             hasBudget && dailyBudgetTotal ? dailyTotal / dailyBudgetTotal : null;
-          const warningThreshold = hasBudget ? Math.min(serperAlert, xaiAlert) : null;
+          const warningThreshold = hasBudget ? Math.min(serperAlert, xaiAlert, openAiAlert) : null;
           const status =
             dailyPercentage == null || warningThreshold == null
               ? null
@@ -692,9 +723,11 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
           ]);
           const goldenCount = Number(goldenCurrent.rows[0]?.count ?? 0);
           const goldenPrevCount = Number(goldenPrevious.rows[0]?.count ?? 0);
-          const costPerGolden = goldenCount ? (thisMonthSerper + thisMonthXai) / goldenCount : null;
+          const costPerGolden = goldenCount
+            ? (thisMonthSerper + thisMonthXai + thisMonthOpenAi) / goldenCount
+            : null;
           const previousCostPerGolden = goldenPrevCount
-            ? (lastMonthSerper + lastMonthXai) / goldenPrevCount
+            ? (lastMonthSerper + lastMonthXai + lastMonthOpenAi) / goldenPrevCount
             : null;
           const trend =
             previousCostPerGolden && costPerGolden != null
@@ -728,6 +761,7 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
                  WHEN api_provider = 'serper' THEN 'search'
                  WHEN api_provider = 'xai' AND endpoint = 'ai-audit' THEN 'audit'
                  WHEN api_provider = 'xai' AND endpoint = 'extract-product' THEN 'extraction'
+                WHEN api_provider = 'openai' THEN 'embedding'
                  ELSE 'other'
                END as operation_type,
                SUM(estimated_cost) as total_cost
@@ -743,28 +777,36 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
 
           const breakdownMap = new Map<
             string,
-            { search: number; audit: number; extraction: number }
+            { search: number; audit: number; extraction: number; embedding: number }
           >();
           for (const row of breakdown.rows) {
             if (row.operation_type === 'other') continue;
-            const entry = breakdownMap.get(row.date) ?? { search: 0, audit: 0, extraction: 0 };
+            const entry = breakdownMap.get(row.date) ?? {
+              search: 0,
+              audit: 0,
+              extraction: 0,
+              embedding: 0,
+            };
             if (row.operation_type === 'search') entry.search = Number(row.total_cost ?? 0);
             if (row.operation_type === 'audit') entry.audit = Number(row.total_cost ?? 0);
             if (row.operation_type === 'extraction') entry.extraction = Number(row.total_cost ?? 0);
+            if (row.operation_type === 'embedding') entry.embedding = Number(row.total_cost ?? 0);
             breakdownMap.set(row.date, entry);
           }
 
           return {
-            today: { serper: todaySerper, xai: todayXai, total: dailyTotal },
+            today: { serper: todaySerper, xai: todayXai, openai: todayOpenAi, total: dailyTotal },
             thisWeek: {
               serper: thisWeekSerper,
               xai: thisWeekXai,
-              total: thisWeekSerper + thisWeekXai,
+              openai: thisWeekOpenAi,
+              total: thisWeekSerper + thisWeekXai + thisWeekOpenAi,
             },
             thisMonth: {
               serper: thisMonthSerper,
               xai: thisMonthXai,
-              total: thisMonthSerper + thisMonthXai,
+              openai: thisMonthOpenAi,
+              total: thisMonthSerper + thisMonthXai + thisMonthOpenAi,
             },
             budget:
               hasBudget && dailyBudgetTotal != null && dailyPercentage != null
@@ -787,6 +829,7 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
               search: entry.search,
               audit: entry.audit,
               extraction: entry.extraction,
+              embedding: entry.embedding,
             })),
             breakdownRange: rangeFrom && rangeTo ? { from: rangeFrom, to: rangeTo } : null,
           };
@@ -799,6 +842,322 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
           .status(500)
           .send(
             errorEnvelope(request.id, 500, 'INTERNAL_SERVER_ERROR', 'Failed to load cost tracking')
+          );
+      }
+    }
+  );
+
+  server.get(
+    '/pim/stats/cost-tracking/budget-status',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+
+      try {
+        const budgets = await checkAllBudgets(session.shopId);
+        return reply.send(
+          successEnvelope(request.id, {
+            providers: budgets.map((budget) => ({
+              provider: budget.provider,
+              primary: budget.primary,
+              ...(budget.secondary ? { secondary: budget.secondary } : {}),
+              alertThreshold: budget.alertThreshold,
+              exceeded: budget.exceeded,
+              alertTriggered: budget.alertTriggered,
+            })),
+          })
+        );
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to load budget status');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(request.id, 500, 'INTERNAL_SERVER_ERROR', 'Failed to load budget status')
+          );
+      }
+    }
+  );
+
+  server.post(
+    '/pim/stats/cost-tracking/pause-enrichment',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      try {
+        const queue = createQueue({ config: configFromEnv(env) }, { name: ENRICHMENT_QUEUE_NAME });
+        await queue.pause();
+        await queue.close();
+        recordPimQueuePaused('manual', ENRICHMENT_QUEUE_NAME);
+        return reply.send(successEnvelope(request.id, { paused: true }));
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to pause enrichment queue');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(
+              request.id,
+              500,
+              'INTERNAL_SERVER_ERROR',
+              'Failed to pause enrichment queue'
+            )
+          );
+      }
+    }
+  );
+
+  server.post(
+    '/pim/stats/cost-tracking/resume-enrichment',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      try {
+        const queue = createQueue({ config: configFromEnv(env) }, { name: ENRICHMENT_QUEUE_NAME });
+        await queue.resume();
+        await queue.close();
+        recordPimQueueResumed('manual', ENRICHMENT_QUEUE_NAME);
+        return reply.send(successEnvelope(request.id, { resumed: true }));
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to resume enrichment queue');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(
+              request.id,
+              500,
+              'INTERNAL_SERVER_ERROR',
+              'Failed to resume enrichment queue'
+            )
+          );
+      }
+    }
+  );
+
+  server.post(
+    '/pim/stats/cost-tracking/pause-all-cost-queues',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      try {
+        const results = await pauseCostSensitiveQueues({
+          config: configFromEnv(env),
+          trigger: 'manual',
+          logger,
+        });
+        return reply.send(
+          successEnvelope(request.id, {
+            paused: true,
+            queues: results,
+          })
+        );
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to pause all cost-sensitive queues');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(
+              request.id,
+              500,
+              'INTERNAL_SERVER_ERROR',
+              'Failed to pause all cost-sensitive queues'
+            )
+          );
+      }
+    }
+  );
+
+  server.post(
+    '/pim/stats/cost-tracking/resume-all-cost-queues',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      try {
+        const results = await resumeCostSensitiveQueues({
+          config: configFromEnv(env),
+          trigger: 'manual',
+          logger,
+        });
+        return reply.send(
+          successEnvelope(request.id, {
+            resumed: true,
+            queues: results,
+          })
+        );
+      } catch (error) {
+        logger.error(
+          { requestId: request.id, error },
+          'Failed to resume all cost-sensitive queues'
+        );
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(
+              request.id,
+              500,
+              'INTERNAL_SERVER_ERROR',
+              'Failed to resume all cost-sensitive queues'
+            )
+          );
+      }
+    }
+  );
+
+  server.get(
+    '/pim/stats/cost-tracking/budget-guard-status',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      try {
+        const budgets = await checkAllBudgets(session.shopId);
+        const queueStatus = await readCostSensitiveQueueStatus(configFromEnv(env));
+        return reply.send(
+          successEnvelope(request.id, {
+            providers: budgets.map((budget) => ({
+              provider: budget.provider,
+              exceeded: budget.exceeded,
+              alertTriggered: budget.alertTriggered,
+              ratio: budget.primary.ratio,
+            })),
+            queues: queueStatus,
+          })
+        );
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to load budget guard status');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(
+              request.id,
+              500,
+              'INTERNAL_SERVER_ERROR',
+              'Failed to load budget guard status'
+            )
+          );
+      }
+    }
+  );
+
+  server.put(
+    '/pim/stats/cost-tracking/budgets',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      const body = (request.body ?? {}) as {
+        serperDailyBudget?: number;
+        serperBudgetAlertThreshold?: number;
+        xaiDailyBudget?: number;
+        xaiBudgetAlertThreshold?: number;
+        openaiDailyBudget?: number;
+        openaiBudgetAlertThreshold?: number;
+        openaiItemsDailyBudget?: number;
+      };
+
+      const updates: string[] = [];
+      const values: unknown[] = [];
+      let idx = 1;
+      const addUpdate = (column: string, value: unknown): void => {
+        updates.push(`${column} = $${idx}`);
+        values.push(value);
+        idx++;
+      };
+
+      if (typeof body.serperDailyBudget === 'number')
+        addUpdate('serper_daily_budget', body.serperDailyBudget);
+      if (typeof body.serperBudgetAlertThreshold === 'number')
+        addUpdate('serper_budget_alert_threshold', body.serperBudgetAlertThreshold);
+      if (typeof body.xaiDailyBudget === 'number')
+        addUpdate('xai_daily_budget', body.xaiDailyBudget);
+      if (typeof body.xaiBudgetAlertThreshold === 'number')
+        addUpdate('xai_budget_alert_threshold', body.xaiBudgetAlertThreshold);
+      if (typeof body.openaiDailyBudget === 'number')
+        addUpdate('openai_daily_budget', body.openaiDailyBudget);
+      if (typeof body.openaiBudgetAlertThreshold === 'number')
+        addUpdate('openai_budget_alert_threshold', body.openaiBudgetAlertThreshold);
+      if (typeof body.openaiItemsDailyBudget === 'number')
+        addUpdate('openai_items_daily_budget', body.openaiItemsDailyBudget);
+
+      if (updates.length === 0) {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'INVALID_REQUEST', 'No budget fields provided'));
+      }
+
+      try {
+        await withTenantContext(session.shopId, async (client) => {
+          values.push(session.shopId);
+          await client.query(
+            `UPDATE shop_ai_credentials
+                SET ${updates.join(', ')},
+                    updated_at = now()
+              WHERE shop_id = $${idx}`,
+            values
+          );
+        });
+
+        const maybeRedis = (
+          server as FastifyInstance & {
+            redis?: { del: (key: string) => Promise<unknown> };
+          }
+        ).redis;
+        if (maybeRedis) {
+          await maybeRedis.del('pim:budget:max_ratios');
+        }
+
+        return reply.send(successEnvelope(request.id, { updated: true }));
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to update budgets');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(request.id, 500, 'INTERNAL_SERVER_ERROR', 'Failed to update budgets')
           );
       }
     }
@@ -896,6 +1255,124 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
           .status(500)
           .send(
             errorEnvelope(request.id, 500, 'INTERNAL_SERVER_ERROR', 'Failed to load quality events')
+          );
+      }
+    }
+  );
+
+  server.get(
+    '/pim/notifications',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      try {
+        const rows = await withTenantContext(session.shopId, async (client) => {
+          const result = await client.query<{
+            id: string;
+            type: string;
+            title: string;
+            body: Record<string, unknown>;
+            read: boolean;
+            created_at: string;
+          }>(
+            `SELECT id, type, title, body, read, created_at
+               FROM pim_notifications
+              WHERE shop_id = $1
+              ORDER BY created_at DESC
+              LIMIT 100`,
+            [session.shopId]
+          );
+          return result.rows;
+        });
+        return reply.send(successEnvelope(request.id, { notifications: rows }));
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to load PIM notifications');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(request.id, 500, 'INTERNAL_SERVER_ERROR', 'Failed to load notifications')
+          );
+      }
+    }
+  );
+
+  server.put(
+    '/pim/notifications/:id/read',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      const params = request.params as { id?: string };
+      if (!params.id) {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing notification id'));
+      }
+      try {
+        await withTenantContext(session.shopId, async (client) => {
+          await client.query(
+            `UPDATE pim_notifications
+                SET read = true
+              WHERE id = $1
+                AND shop_id = $2`,
+            [params.id, session.shopId]
+          );
+        });
+        return reply.send(successEnvelope(request.id, { updated: true }));
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to update notification');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(request.id, 500, 'INTERNAL_SERVER_ERROR', 'Failed to update notification')
+          );
+      }
+    }
+  );
+
+  server.get(
+    '/pim/notifications/unread-count',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      try {
+        const count = await withTenantContext(session.shopId, async (client) => {
+          const result = await client.query<{ count: string }>(
+            `SELECT COUNT(*)::text as count
+               FROM pim_notifications
+              WHERE shop_id = $1
+                AND read = false`,
+            [session.shopId]
+          );
+          return Number(result.rows[0]?.count ?? 0);
+        });
+        return reply.send(successEnvelope(request.id, { count }));
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to load unread notifications count');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(request.id, 500, 'INTERNAL_SERVER_ERROR', 'Failed to load unread count')
           );
       }
     }

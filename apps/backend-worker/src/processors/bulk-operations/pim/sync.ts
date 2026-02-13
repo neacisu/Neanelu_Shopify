@@ -2,6 +2,7 @@ import { createEmbeddingsProvider, sha256Hex } from '@app/ai-engine';
 import { loadEnv } from '@app/config';
 import { withTenantContext } from '@app/database';
 import { OTEL_ATTR, type Logger } from '@app/logger';
+import { BudgetExceededError, enforceBudget } from '@app/pim';
 import { getShopOpenAiConfig } from '../../../runtime/openai-config.js';
 
 import { enqueueConsensusJob } from '../../../queue/consensus-queue.js';
@@ -189,8 +190,16 @@ export async function runPimSyncFromBulkRun(params: {
 
         let embeddings: readonly (readonly number[])[] = [];
         try {
+          await enforceBudget({ provider: 'openai', shopId: params.shopId });
           embeddings = await provider.embedTexts(batchTexts);
         } catch (err) {
+          if (err instanceof BudgetExceededError) {
+            params.logger.warn(
+              { [OTEL_ATTR.SHOP_ID]: params.shopId, bulkRunId: params.bulkRunId, err: err.message },
+              'OpenAI budget exceeded; stopping semantic dedup for remaining items'
+            );
+            break;
+          }
           await insertBulkError({
             shopId: params.shopId,
             bulkRunId: params.bulkRunId,

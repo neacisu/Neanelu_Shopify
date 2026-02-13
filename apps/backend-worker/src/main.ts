@@ -1,7 +1,10 @@
 import 'dotenv/config';
+import { Redis as IORedis } from 'ioredis';
 
 import { loadEnv } from '@app/config';
 import { createLogger } from '@app/logger';
+import { getMaxBudgetRatios, registerBudgetGuardHooks, registerOtelCallback } from '@app/pim';
+import { configFromEnv } from '@app/queue-manager';
 
 import { buildServer } from './http/server.js';
 import { startWebhookWorker } from './processors/webhooks/worker.js';
@@ -22,6 +25,9 @@ import { startSimilaritySearchWorker } from './processors/similarity/search-and-
 import { startAIAuditWorker } from './processors/similarity/ai-audit.worker.js';
 import { startExtractionWorker } from './processors/pim/extraction.worker.js';
 import { startConsensusWorker } from './processors/pim/consensus.worker.js';
+import { startBudgetResetScheduler } from './processors/pim/budget-reset.worker.js';
+import { startWeeklySummaryScheduler } from './processors/pim/weekly-summary.worker.js';
+import { pauseCostSensitiveQueues } from './processors/pim/cost-sensitive-queues.js';
 import { scheduleTokenHealthJob, closeTokenHealthQueue } from './queue/token-health-queue.js';
 import { closeSimilarityQueues } from './queue/similarity-queues.js';
 import {
@@ -35,6 +41,12 @@ import {
 } from './runtime/worker-registry.js';
 import { emitQueueStreamEvent } from './runtime/queue-stream.js';
 import { startQueueConfigListener } from './runtime/queue-config-listener.js';
+import {
+  recordPimApiUsage,
+  recordPimBudgetExceeded,
+  recordPimBudgetWarning,
+  refreshPimBudgetUsageRatios,
+} from './otel/metrics.js';
 
 const env = loadEnv();
 const logger = createLogger({
@@ -46,6 +58,36 @@ const logger = createLogger({
 const server = await buildServer({
   env,
   logger,
+});
+
+registerBudgetGuardHooks({
+  onWarning: (status) => {
+    if (status.provider === 'serper' || status.provider === 'xai' || status.provider === 'openai') {
+      recordPimBudgetWarning(status.provider);
+    }
+  },
+  onExceeded: async (status) => {
+    if (status.provider === 'serper' || status.provider === 'xai' || status.provider === 'openai') {
+      recordPimBudgetExceeded(status.provider);
+    }
+    await pauseCostSensitiveQueues({
+      config: configFromEnv(env),
+      trigger: 'budget_enforcement',
+      logger,
+    });
+  },
+});
+
+registerOtelCallback((params) => {
+  recordPimApiUsage({
+    provider: params.provider,
+    operation: params.operation,
+    estimatedCost: params.estimatedCost,
+    requestCount: params.requestCount,
+    tokensTotal: params.tokensTotal,
+    responseTimeMs: params.responseTimeMs,
+    isError: params.isError,
+  });
 });
 
 let webhookWorker: Awaited<ReturnType<typeof startWebhookWorker>> | null = null;
@@ -68,7 +110,11 @@ let similaritySearchWorker: Awaited<ReturnType<typeof startSimilaritySearchWorke
 let similarityAIAuditWorker: Awaited<ReturnType<typeof startAIAuditWorker>> | null = null;
 let extractionWorker: Awaited<ReturnType<typeof startExtractionWorker>> | null = null;
 let consensusWorker: Awaited<ReturnType<typeof startConsensusWorker>> | null = null;
+let budgetResetScheduler: Awaited<ReturnType<typeof startBudgetResetScheduler>> | null = null;
+let weeklySummaryScheduler: Awaited<ReturnType<typeof startWeeklySummaryScheduler>> | null = null;
 let queueConfigListener: Awaited<ReturnType<typeof startQueueConfigListener>> | null = null;
+let budgetGaugeRedis: IORedis | null = null;
+let budgetGaugeInterval: NodeJS.Timeout | null = null;
 
 try {
   await server.listen({ port: env.port, host: '0.0.0.0' });
@@ -226,6 +272,44 @@ try {
     workerId: 'pim-consensus-worker',
     timestamp: new Date().toISOString(),
   });
+
+  budgetResetScheduler = startBudgetResetScheduler(logger);
+  logger.info({}, 'pim budget reset scheduler started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'pim-budget-reset-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  weeklySummaryScheduler = startWeeklySummaryScheduler(logger);
+  logger.info({}, 'pim weekly summary scheduler started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'pim-weekly-summary-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  budgetGaugeRedis = new IORedis(env.redisUrl, {
+    enableReadyCheck: true,
+    maxRetriesPerRequest: null,
+  });
+  const refreshBudgetMetrics = async (): Promise<void> => {
+    const budgetRatioParams: Parameters<typeof refreshPimBudgetUsageRatios>[0] = {
+      getMaxRatios: getMaxBudgetRatios,
+    };
+    if (budgetGaugeRedis) {
+      const redis = budgetGaugeRedis;
+      budgetRatioParams.cache = {
+        get: (key) => redis.get(key),
+        setex: (key, ttlSeconds, value) => redis.setex(key, ttlSeconds, value),
+      };
+    }
+    await refreshPimBudgetUsageRatios(budgetRatioParams);
+  };
+  await refreshBudgetMetrics();
+  budgetGaugeInterval = setInterval(() => {
+    void refreshBudgetMetrics();
+  }, 15_000);
 
   queueConfigListener = await startQueueConfigListener(env, logger, {
     'webhook-queue': webhookWorker?.worker as unknown as { concurrency?: number },
@@ -412,6 +496,28 @@ const shutdown = async (signal: string): Promise<void> => {
       });
     }
 
+    if (budgetResetScheduler) {
+      await budgetResetScheduler.close();
+      budgetResetScheduler = null;
+      logger.info({ signal }, 'pim budget reset scheduler stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'pim-budget-reset-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (weeklySummaryScheduler) {
+      await weeklySummaryScheduler.close();
+      weeklySummaryScheduler = null;
+      logger.info({ signal }, 'pim weekly summary scheduler stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'pim-weekly-summary-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     if (aiBatchScheduleWorker) {
       await aiBatchScheduleWorker.close();
       aiBatchScheduleWorker = null;
@@ -460,6 +566,15 @@ const shutdown = async (signal: string): Promise<void> => {
       await queueConfigListener.quit().catch(() => undefined);
       queueConfigListener = null;
       logger.info({ signal }, 'queue config listener stopped');
+    }
+
+    if (budgetGaugeInterval) {
+      clearInterval(budgetGaugeInterval);
+      budgetGaugeInterval = null;
+    }
+    if (budgetGaugeRedis) {
+      await budgetGaugeRedis.quit();
+      budgetGaugeRedis = null;
     }
 
     await closeTokenHealthQueue();

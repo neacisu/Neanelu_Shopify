@@ -179,3 +179,25 @@ Pentru evitarea drift-ului între documentație și implementare, nu mai folosim
 - [Observability & Alerting](./Observability_Alerting.md) - Alert rules and SLOs
 - [SRE Performance Report](./SRE_Performance_Report.md) - Performance targets
 - [Port Conventions](./Port_Conventions.md) - OTel ports (65020-65025)
+
+---
+
+## PIM API Cost Metrics (F8.4.7)
+
+| Metric                          | Type            | Labels              | Description                                    |
+|---------------------------------|-----------------|---------------------|------------------------------------------------|
+| `pim_api_cost_total`            | Counter         | provider, operation | Total estimated cost in USD                    |
+| `pim_api_requests_total`        | Counter         | provider, operation | Total external API requests                    |
+| `pim_api_tokens_total`          | Counter         | provider, operation | Total tokens consumed                          |
+| `pim_api_response_time_seconds` | Histogram       | provider, operation | External API response latency                  |
+| `pim_api_errors_total`          | Counter         | provider, operation | External API errors                            |
+| `pim_api_budget_warning_total`  | Counter         | provider            | Warning threshold reached events               |
+| `pim_api_budget_exceeded_total` | Counter         | provider            | Hard budget exceeded events                    |
+| `pim_api_queue_paused_total`    | Counter         | trigger, queue_name | Queue pauses due to budget policy/manual flow  |
+| `pim_api_queue_resumed_total`   | Counter         | trigger, queue_name | Queue resumes due to scheduler/manual flow     |
+| `pim_api_budget_usage_ratio`    | ObservableGauge | provider            | Max budget usage ratio across all shops        |
+
+> **Cardinality guardrails**
+
+- Do **not** include `shop_id` in metric labels.
+- Per-shop debugging must be done via traces/logs and DB records.

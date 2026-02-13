@@ -7,6 +7,7 @@ import { pool, withTenantContext } from '@app/database';
 import { OpenAiBatchManager, createEmbeddingsProvider, sha256Hex } from '@app/ai-engine';
 import type { Logger } from '@app/logger';
 import { enqueueAiBatchPollerJob } from '@app/queue-manager';
+import { BudgetExceededError, enforceBudget } from '@app/pim';
 import type {
   AiBatchOrchestratorJobPayload,
   AiBatchPollerJobPayload,
@@ -397,6 +398,18 @@ export async function runAiBatchOrchestrator(params: {
     { 'ai.shop_id': payload.shopId, 'ai.embedding_type': payload.embeddingType },
     async () => {
       const env = loadEnv();
+      try {
+        await enforceBudget({ provider: 'openai', shopId: payload.shopId });
+      } catch (error) {
+        if (error instanceof BudgetExceededError) {
+          logger.warn(
+            { shopId: payload.shopId, error: error.message },
+            'OpenAI budget exceeded; skipping ai batch orchestrator run'
+          );
+          return;
+        }
+        throw error;
+      }
 
       const openAiConfig = await getShopOpenAiConfig({
         shopId: payload.shopId,

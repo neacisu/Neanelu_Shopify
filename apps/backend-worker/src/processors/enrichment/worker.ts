@@ -12,7 +12,7 @@ import {
   withJobTelemetryContext,
 } from '@app/queue-manager';
 import type { EnrichmentJobPayload } from '@app/types';
-import { EnrichmentOrchestrator } from '@app/pim';
+import { checkAllBudgets, EnrichmentOrchestrator } from '@app/pim';
 
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
 import { enqueueSimilaritySearchJob } from '../../queue/similarity-queues.js';
@@ -68,6 +68,22 @@ export function startEnrichmentWorker(logger: Logger): EnrichmentWorkerHandle {
                 'No products found for enrichment'
               );
               return { dispatched: 0, skipped: payload.productIds.length };
+            }
+
+            const budgets = await checkAllBudgets(payload.shopId);
+            const exceededProviders = budgets
+              .filter((budget) => budget.exceeded)
+              .map((budget) => budget.provider);
+            if (exceededProviders.length > 0) {
+              logger.warn(
+                { shopId: payload.shopId, exceededProviders },
+                'Skipping enrichment dispatch due to exceeded API budgets'
+              );
+              return {
+                dispatched: 0,
+                skipped: payload.productIds.length,
+                byPriority: { p1: 0, p2: 0, p3: 0 },
+              };
             }
 
             const result = await orchestrator.dispatchForEnrichment(payload.shopId, products);

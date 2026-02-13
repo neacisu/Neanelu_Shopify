@@ -7,11 +7,70 @@ const requireSessionMock = () => (req: unknown, _reply: unknown) => {
   (req as { session?: { shopId: string } }).session = { shopId: 'shop-1' };
   return Promise.resolve();
 };
+const queueState = {
+  paused: false,
+  resumed: false,
+  pausedByName: new Set<string>(),
+};
 
 const sessionPath = new URL('../../auth/session.js', import.meta.url).href;
 void mock.module(sessionPath, {
   namedExports: {
     requireSession: () => requireSessionMock(),
+  },
+});
+
+void mock.module('@app/queue-manager', {
+  namedExports: {
+    ENRICHMENT_QUEUE_NAME: 'pim-enrichment-queue',
+    COST_SENSITIVE_QUEUE_NAMES: [
+      'ai-batch-queue',
+      'bulk-ingest-queue',
+      'pim-enrichment-queue',
+      'pim-similarity-search',
+      'pim-ai-audit',
+      'pim-extraction',
+    ],
+    configFromEnv: () => ({}) as never,
+    createQueue: (_ctx: unknown, opts: { name?: string }) => {
+      const queueName = opts.name ?? 'unknown';
+      return {
+        pause: () => {
+          queueState.paused = true;
+          queueState.pausedByName.add(queueName);
+          return Promise.resolve();
+        },
+        resume: () => {
+          queueState.resumed = true;
+          queueState.pausedByName.delete(queueName);
+          return Promise.resolve();
+        },
+        isPaused: () => Promise.resolve(queueState.pausedByName.has(queueName)),
+        close: () => Promise.resolve(),
+      };
+    },
+  },
+});
+
+void mock.module('@app/pim', {
+  namedExports: {
+    checkAllBudgets: () =>
+      Promise.resolve([
+        {
+          provider: 'serper',
+          primary: { unit: 'requests', used: 800, limit: 1000, remaining: 200, ratio: 0.8 },
+          alertThreshold: 0.8,
+          exceeded: false,
+          alertTriggered: true,
+        },
+        {
+          provider: 'xai',
+          primary: { unit: 'dollars', used: 40, limit: 100, remaining: 60, ratio: 0.4 },
+          alertThreshold: 0.8,
+          exceeded: false,
+          alertTriggered: false,
+        },
+      ]),
   },
 });
 
@@ -133,9 +192,34 @@ void mock.module('@app/database', {
                   serper_budget_alert_threshold: 0.8,
                   xai_daily_budget: 20,
                   xai_budget_alert_threshold: 0.8,
+                  openai_daily_budget: '5',
+                  openai_budget_alert_threshold: '0.8',
                 },
               ],
             });
+          }
+          if (sql.includes('UPDATE shop_ai_credentials')) {
+            return Promise.resolve({ rows: [], rowCount: 1 });
+          }
+          if (sql.includes('FROM pim_notifications') && sql.includes('COUNT(*)::text')) {
+            return Promise.resolve({ rows: [{ count: '2' }] });
+          }
+          if (sql.includes('FROM pim_notifications')) {
+            return Promise.resolve({
+              rows: [
+                {
+                  id: 'notif-1',
+                  type: 'weekly_cost_summary',
+                  title: 'Weekly API cost summary',
+                  body: { totalCost: 10 },
+                  read: false,
+                  created_at: '2026-02-10T10:00:00Z',
+                },
+              ],
+            });
+          }
+          if (sql.includes('UPDATE pim_notifications')) {
+            return Promise.resolve({ rows: [], rowCount: 1 });
           }
           if (sql.includes('FROM prod_quality_events') && sql.includes('COUNT')) {
             return Promise.resolve({ rows: [{ count: '2' }] });
@@ -250,6 +334,116 @@ void describe('pim-stats routes', () => {
     }
   });
 
+  void test('GET /pim/stats/cost-tracking/budget-status returns provider budgets', async () => {
+    const server = await createServer();
+    try {
+      const response = await server.inject({
+        method: 'GET',
+        url: '/pim/stats/cost-tracking/budget-status',
+      });
+      assert.equal(response.statusCode, 200);
+      const body: { success: boolean; data: { providers: unknown[] } } = response.json();
+      assert.equal(body.success, true);
+      assert.equal(body.data.providers.length >= 2, true);
+    } finally {
+      await server.close();
+    }
+  });
+
+  void test('POST /pim/stats/cost-tracking/pause-enrichment pauses queue', async () => {
+    const server = await createServer();
+    queueState.paused = false;
+    queueState.pausedByName.clear();
+    try {
+      const response = await server.inject({
+        method: 'POST',
+        url: '/pim/stats/cost-tracking/pause-enrichment',
+      });
+      assert.equal(response.statusCode, 200);
+      assert.equal(queueState.paused, true);
+    } finally {
+      await server.close();
+    }
+  });
+
+  void test('POST /pim/stats/cost-tracking/resume-enrichment resumes queue', async () => {
+    const server = await createServer();
+    queueState.resumed = false;
+    queueState.pausedByName.add('pim-enrichment-queue');
+    try {
+      const response = await server.inject({
+        method: 'POST',
+        url: '/pim/stats/cost-tracking/resume-enrichment',
+      });
+      assert.equal(response.statusCode, 200);
+      assert.equal(queueState.resumed, true);
+    } finally {
+      await server.close();
+    }
+  });
+
+  void test('POST /pim/stats/cost-tracking/pause-all-cost-queues pauses all queues', async () => {
+    const server = await createServer();
+    queueState.pausedByName.clear();
+    try {
+      const response = await server.inject({
+        method: 'POST',
+        url: '/pim/stats/cost-tracking/pause-all-cost-queues',
+      });
+      assert.equal(response.statusCode, 200);
+      const body: { success: boolean; data: { queues: unknown[] } } = response.json();
+      assert.equal(body.success, true);
+      assert.equal(body.data.queues.length >= 6, true);
+    } finally {
+      await server.close();
+    }
+  });
+
+  void test('POST /pim/stats/cost-tracking/resume-all-cost-queues resumes all queues', async () => {
+    const server = await createServer();
+    queueState.pausedByName = new Set([
+      'ai-batch-queue',
+      'bulk-ingest-queue',
+      'pim-enrichment-queue',
+      'pim-similarity-search',
+      'pim-ai-audit',
+      'pim-extraction',
+    ]);
+    try {
+      const response = await server.inject({
+        method: 'POST',
+        url: '/pim/stats/cost-tracking/resume-all-cost-queues',
+      });
+      assert.equal(response.statusCode, 200);
+      const body: { success: boolean; data: { queues: unknown[] } } = response.json();
+      assert.equal(body.success, true);
+      assert.equal(body.data.queues.length >= 6, true);
+    } finally {
+      await server.close();
+    }
+  });
+
+  void test('GET /pim/stats/cost-tracking/budget-guard-status returns provider and queue state', async () => {
+    const server = await createServer();
+    queueState.pausedByName = new Set(['pim-enrichment-queue']);
+    try {
+      const response = await server.inject({
+        method: 'GET',
+        url: '/pim/stats/cost-tracking/budget-guard-status',
+      });
+      assert.equal(response.statusCode, 200);
+      const body: {
+        success: boolean;
+        data: { providers: unknown[]; queues: unknown[] };
+      } = response.json();
+      assert.equal(body.success, true);
+      assert.equal(body.data.providers.length >= 2, true);
+      assert.equal(body.data.queues.length >= 6, true);
+    } finally {
+      await server.close();
+    }
+  });
+
   void test('GET /pim/events/quality returns events data', async () => {
     const server = await createServer();
     try {
@@ -265,6 +459,54 @@ void describe('pim-stats routes', () => {
       } = response.json();
       assert.equal(body.success, true);
       assert.equal(body.data.events.length, 1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  void test('GET /pim/notifications returns list', async () => {
+    const server = await createServer();
+    try {
+      const response = await server.inject({
+        method: 'GET',
+        url: '/pim/notifications',
+      });
+      assert.equal(response.statusCode, 200);
+      const body: { success: boolean; data: { notifications: unknown[] } } = response.json();
+      assert.equal(body.success, true);
+      assert.equal(body.data.notifications.length, 1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  void test('GET /pim/notifications/unread-count returns count', async () => {
+    const server = await createServer();
+    try {
+      const response = await server.inject({
+        method: 'GET',
+        url: '/pim/notifications/unread-count',
+      });
+      assert.equal(response.statusCode, 200);
+      const body: { success: boolean; data: { count: number } } = response.json();
+      assert.equal(body.success, true);
+      assert.equal(body.data.count, 2);
+    } finally {
+      await server.close();
+    }
+  });
+
+  void test('PUT /pim/notifications/:id/read updates notification', async () => {
+    const server = await createServer();
+    try {
+      const response = await server.inject({
+        method: 'PUT',
+        url: '/pim/notifications/notif-1/read',
+      });
+      assert.equal(response.statusCode, 200);
+      const body: { success: boolean; data: { updated: boolean } } = response.json();
+      assert.equal(body.success, true);
+      assert.equal(body.data.updated, true);
     } finally {
       await server.close();
     }
