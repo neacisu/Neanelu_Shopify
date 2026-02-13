@@ -626,17 +626,23 @@ export function startExtractionWorker(logger: Logger): ExtractionWorkerHandle {
   };
 }
 
+export async function recoverStaleScraperQueueItems(db: {
+  query: (sql: string, values?: unknown[]) => Promise<unknown>;
+}): Promise<void> {
+  await db.query(
+    `UPDATE scraper_queue
+       SET status = 'pending',
+           next_attempt_at = now(),
+           error_message = COALESCE(error_message, 'recovered_from_stale_processing')
+     WHERE status = 'processing'
+       AND last_attempt_at < now() - interval '10 minutes'`
+  );
+}
+
 async function runScraperQueueSweep(env: AppEnv, logger: Logger): Promise<void> {
   try {
     // Recover stuck rows left in processing state (worker crash/restart).
-    await pool.query(
-      `UPDATE scraper_queue
-         SET status = 'pending',
-             next_attempt_at = now(),
-             error_message = COALESCE(error_message, 'recovered_from_stale_processing')
-       WHERE status = 'processing'
-         AND last_attempt_at < now() - interval '10 minutes'`
-    );
+    await recoverStaleScraperQueueItems(pool);
 
     await pool.query(
       `DELETE FROM scraper_queue

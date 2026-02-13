@@ -107,6 +107,43 @@ function setCached(key: string, data: unknown): void {
   }
 }
 
+export async function fetchScraperEventsSince(params: {
+  client: {
+    query: <T>(sql: string, values: unknown[]) => Promise<{ rows: T[] }>;
+  };
+  shopId: string;
+  lastSeenAt: string;
+}): Promise<
+  {
+    id: string;
+    status: string;
+    method: string | null;
+    started_at: string | null;
+    completed_at: string | null;
+    created_at: string;
+    target_urls: string[] | null;
+  }[]
+> {
+  const result = await params.client.query<{
+    id: string;
+    status: string;
+    method: string | null;
+    started_at: string | null;
+    completed_at: string | null;
+    created_at: string;
+    target_urls: string[] | null;
+  }>(
+    `SELECT id, status, method, started_at::text, completed_at::text, created_at::text, target_urls
+     FROM scraper_runs
+     WHERE shop_id = $1
+       AND COALESCE(completed_at, started_at, created_at) > $2::timestamptz
+     ORDER BY COALESCE(completed_at, started_at, created_at) ASC
+     LIMIT 100`,
+    [params.shopId, params.lastSeenAt]
+  );
+  return result.rows;
+}
+
 export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
   server: FastifyInstance,
   options
@@ -2035,24 +2072,11 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
           });
 
           const scraperEvents = await withTenantContext(session.shopId, async (client) => {
-            const result = await client.query<{
-              id: string;
-              status: string;
-              method: string | null;
-              started_at: string | null;
-              completed_at: string | null;
-              created_at: string;
-              target_urls: string[] | null;
-            }>(
-              `SELECT id, status, method, started_at::text, completed_at::text, created_at::text, target_urls
-               FROM scraper_runs
-               WHERE shop_id = $1
-                 AND COALESCE(completed_at, started_at, created_at) > $2::timestamptz
-               ORDER BY COALESCE(completed_at, started_at, created_at) ASC
-               LIMIT 100`,
-              [session.shopId, lastSeenAt]
-            );
-            return result.rows;
+            return fetchScraperEventsSince({
+              client,
+              shopId: session.shopId,
+              lastSeenAt,
+            });
           });
 
           if (data.length) {
