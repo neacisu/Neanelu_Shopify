@@ -258,7 +258,7 @@ Implemented alerts:
 - `PimApiBudgetExceeded` (`pim_api_budget_usage_ratio >= 1`)
 - `PimApiCostSpike` (`increase(pim_api_cost_total[1h]) > 50`)
 - `PimApiErrorRateHigh` (`pim_api_errors_total / pim_api_requests_total > 10%`)
-- `PimEnrichmentQueuePausedTooLong` (budget pause event persisted too long)
+- `PimEnrichmentQueuePausedTooLong` (cost-sensitive queues remain paused without recovery)
 
 Operational controls and status endpoints:
 

@@ -52,12 +52,17 @@ groups:
           runbook_url: 'https://docs.neanelu.local/runbooks/pim-api-budget-exceeded'
 
       - alert: PimEnrichmentQueuePausedTooLong
-        expr: increase(pim_api_queue_paused_total{trigger="budget_enforcement"}[2h]) > 0
+        expr: |
+          (
+            sum(increase(pim_api_queue_paused_total{trigger="budget_enforcement"}[2h]))
+            -
+            sum(increase(pim_api_queue_resumed_total[2h]))
+          ) > 0
         for: 2h
         labels:
           severity: critical
           team: pim
         annotations:
-          summary: 'Enrichment queue paused due to budget for too long'
-          description: 'Budget policy paused enrichment queue and no recovery happened for over 2h.'
+          summary: 'Cost-sensitive queues paused due to budget for too long'
+          description: 'Budget policy paused one or more cost-sensitive queues and no recovery happened for over 2h.'
           runbook_url: 'https://docs.neanelu.local/runbooks/pim-api-budget-exceeded'

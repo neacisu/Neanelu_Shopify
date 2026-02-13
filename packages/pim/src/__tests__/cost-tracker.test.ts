@@ -8,11 +8,12 @@ vi.mock('../db.js', () => ({
   }),
 }));
 
-import { checkBudget, trackCost } from '../services/cost-tracker.js';
+import { checkBudget, registerOtelCallback, trackCost } from '../services/cost-tracker.js';
 
 describe('cost-tracker', () => {
   beforeEach(() => {
     queryMock.mockReset();
+    registerOtelCallback(null);
   });
 
   it('persists api usage log for serper', async () => {
@@ -53,5 +54,26 @@ describe('cost-tracker', () => {
     expect(status.primary.ratio).toBeCloseTo(0.825, 3);
     expect(status.secondary?.ratio).toBeCloseTo(0.9, 3);
     expect(status.alertTriggered).toBe(true);
+  });
+
+  it('emits otel usage callback when tracking cost', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    const callback = vi.fn();
+    registerOtelCallback(callback);
+
+    await trackCost({
+      provider: 'openai',
+      operation: 'embedding',
+      endpoint: 'search-query-embedding',
+      shopId: 'shop-1',
+      requestCount: 1,
+      tokensInput: 100,
+      tokensOutput: 0,
+      estimatedCost: 0.000002,
+      httpStatus: 200,
+      responseTimeMs: 120,
+    });
+
+    expect(callback).toHaveBeenCalledTimes(1);
   });
 });

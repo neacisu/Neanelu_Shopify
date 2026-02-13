@@ -29,6 +29,8 @@ export type BudgetAlertsPanelProps = Readonly<{
   }[];
   onPauseQueue?: () => void;
   onResumeQueue?: () => void;
+  onPauseAllQueues?: () => void;
+  onResumeAllQueues?: () => void;
   onIncreaseBudget?: () => void;
   actionsDisabled?: boolean;
 }>;
@@ -38,6 +40,8 @@ export function BudgetAlertsPanel({
   providers = [],
   onPauseQueue,
   onResumeQueue,
+  onPauseAllQueues,
+  onResumeAllQueues,
   onIncreaseBudget,
   actionsDisabled = false,
 }: BudgetAlertsPanelProps) {
@@ -95,6 +99,22 @@ export function BudgetAlertsPanel({
               disabled={actionsDisabled}
             >
               Reia coada
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onPauseAllQueues}
+              disabled={actionsDisabled}
+            >
+              Pauzeaza toate cozile
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onResumeAllQueues}
+              disabled={actionsDisabled}
+            >
+              Reia toate cozile
             </Button>
             <Button size="sm" onClick={onIncreaseBudget} disabled={actionsDisabled}>
               Editeaza bugete

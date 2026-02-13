@@ -1,5 +1,5 @@
 import type { ActionFunction, ActionFunctionArgs, LoaderFunctionArgs } from 'react-router-dom';
-import { data, useFetcher, useLoaderData, useNavigation } from 'react-router-dom';
+import { data, useFetcher, useLoaderData, useNavigation, useRevalidator } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 import { DollarSign, TrendingDown, TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
@@ -12,6 +12,7 @@ import { BudgetEditModal } from '../components/domain/BudgetEditModal';
 import { ConfirmDialog } from '../components/domain/confirm-dialog';
 import { CostBreakdownChart } from '../components/domain/CostBreakdownChart';
 import { ProviderComparisonTable } from '../components/domain/ProviderComparisonTable';
+import { QueueGovernancePanel } from '../components/domain/QueueGovernancePanel';
 import { LoadingState } from '../components/patterns/loading-state';
 import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
 import { apiAction, createActionApiClient } from '../utils/actions';
@@ -62,15 +63,37 @@ type BudgetStatusResponse = Readonly<{
   }[];
 }>;
 
+type BudgetGuardStatusResponse = Readonly<{
+  providers: {
+    provider: 'serper' | 'xai' | 'openai';
+    exceeded: boolean;
+    alertTriggered: boolean;
+    ratio: number;
+  }[];
+  queues: {
+    queueName: string;
+    paused: boolean;
+    error?: string;
+  }[];
+}>;
+
 export const loader = apiLoader(async (_args: LoaderFunctionArgs) => {
   const api = createLoaderApiClient();
   return {
     costs: await api.getApi<CostTrackingResponse>('/pim/stats/cost-tracking'),
     budgetStatus: await api.getApi<BudgetStatusResponse>('/pim/stats/cost-tracking/budget-status'),
+    budgetGuardStatus: await api.getApi<BudgetGuardStatusResponse>(
+      '/pim/stats/cost-tracking/budget-guard-status'
+    ),
   };
 });
 
-type CostActionIntent = 'pause-enrichment' | 'resume-enrichment' | 'update-budgets';
+type CostActionIntent =
+  | 'pause-enrichment'
+  | 'resume-enrichment'
+  | 'pause-all-cost-queues'
+  | 'resume-all-cost-queues'
+  | 'update-budgets';
 type CostActionResult =
   | {
       ok: true;
@@ -118,6 +141,24 @@ export const action: ActionFunction = apiAction(async (args: ActionFunctionArgs)
     } satisfies CostActionResult);
   }
 
+  if (intent === 'pause-all-cost-queues') {
+    await api.postApi('/pim/stats/cost-tracking/pause-all-cost-queues', {});
+    return data({
+      ok: true,
+      intent,
+      toast: { type: 'success', message: 'Toate cozile cost-sensitive au fost pauzate' },
+    } satisfies CostActionResult);
+  }
+
+  if (intent === 'resume-all-cost-queues') {
+    await api.postApi('/pim/stats/cost-tracking/resume-all-cost-queues', {});
+    return data({
+      ok: true,
+      intent,
+      toast: { type: 'success', message: 'Toate cozile cost-sensitive au fost reluate' },
+    } satisfies CostActionResult);
+  }
+
   const payload: Record<string, number> = {};
   const numericKeys = [
     'serperDailyBudget',
@@ -146,11 +187,13 @@ export const action: ActionFunction = apiAction(async (args: ActionFunctionArgs)
 type RouteLoaderData = LoaderData<typeof loader>;
 
 export default function CostTrackingPage() {
-  const { costs, budgetStatus } = useLoaderData<RouteLoaderData>();
+  const { costs, budgetStatus, budgetGuardStatus } = useLoaderData<RouteLoaderData>();
   const navigation = useNavigation();
+  const revalidator = useRevalidator();
   const fetcher = useFetcher<CostActionResult>();
   const [budgetModalOpen, setBudgetModalOpen] = useState(false);
   const [pauseConfirmOpen, setPauseConfirmOpen] = useState(false);
+  const [pauseAllConfirmOpen, setPauseAllConfirmOpen] = useState(false);
   const trendValue = costs.costPerGolden.trend;
   const trendDirection = trendValue != null && trendValue >= 0 ? 'up' : 'down';
   const trendLabel = trendValue != null ? `${Math.abs(trendValue).toFixed(1)}%` : null;
@@ -202,11 +245,12 @@ export default function CostTrackingPage() {
       if (actionData.toast.type === 'success') toast.success(message);
       else toast.error(message);
       if (actionData.intent === 'update-budgets') setBudgetModalOpen(false);
+      void revalidator.revalidate();
     }
     if (!actionData.ok) {
       toast.error(actionData.error.message);
     }
-  }, [fetcher.data]);
+  }, [fetcher.data, revalidator]);
 
   return (
     <div className="space-y-6">
@@ -243,7 +287,25 @@ export default function CostTrackingPage() {
           form.set('intent', 'resume-enrichment');
           void fetcher.submit(form, { method: 'post' });
         }}
+        onPauseAllQueues={() => setPauseAllConfirmOpen(true)}
+        onResumeAllQueues={() => {
+          const form = new FormData();
+          form.set('intent', 'resume-all-cost-queues');
+          void fetcher.submit(form, { method: 'post' });
+        }}
         onIncreaseBudget={() => setBudgetModalOpen(true)}
+        actionsDisabled={isSubmitting}
+      />
+
+      <QueueGovernancePanel
+        queues={budgetGuardStatus.queues}
+        providers={budgetGuardStatus.providers}
+        onPauseAll={() => setPauseAllConfirmOpen(true)}
+        onResumeAll={() => {
+          const form = new FormData();
+          form.set('intent', 'resume-all-cost-queues');
+          void fetcher.submit(form, { method: 'post' });
+        }}
         actionsDisabled={isSubmitting}
       />
 
@@ -329,6 +391,22 @@ export default function CostTrackingPage() {
           form.set('intent', 'pause-enrichment');
           void fetcher.submit(form, { method: 'post' });
           setPauseConfirmOpen(false);
+        }}
+      />
+      <ConfirmDialog
+        open={pauseAllConfirmOpen}
+        title="Pauzezi toate cozile cost-sensitive?"
+        message="Actiunea opreste temporar toate procesele cost-sensitive (AI batch, bulk ingest, enrichment, similarity, audit, extraction)."
+        confirmLabel="Pauzeaza toate"
+        cancelLabel="Renunta"
+        confirmTone="critical"
+        confirmLoading={isSubmitting}
+        onCancel={() => setPauseAllConfirmOpen(false)}
+        onConfirm={() => {
+          const form = new FormData();
+          form.set('intent', 'pause-all-cost-queues');
+          void fetcher.submit(form, { method: 'post' });
+          setPauseAllConfirmOpen(false);
         }}
       />
     </div>

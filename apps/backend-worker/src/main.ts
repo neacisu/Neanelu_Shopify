@@ -3,7 +3,7 @@ import { Redis as IORedis } from 'ioredis';
 
 import { loadEnv } from '@app/config';
 import { createLogger } from '@app/logger';
-import { getMaxBudgetRatios, registerBudgetGuardHooks } from '@app/pim';
+import { getMaxBudgetRatios, registerBudgetGuardHooks, registerOtelCallback } from '@app/pim';
 import { configFromEnv } from '@app/queue-manager';
 
 import { buildServer } from './http/server.js';
@@ -42,9 +42,9 @@ import {
 import { emitQueueStreamEvent } from './runtime/queue-stream.js';
 import { startQueueConfigListener } from './runtime/queue-config-listener.js';
 import {
+  recordPimApiUsage,
   recordPimBudgetExceeded,
   recordPimBudgetWarning,
-  recordPimQueuePaused,
   refreshPimBudgetUsageRatios,
 } from './otel/metrics.js';
 
@@ -75,8 +75,19 @@ registerBudgetGuardHooks({
       trigger: 'budget_enforcement',
       logger,
     });
-    recordPimQueuePaused('budget_enforcement');
   },
+});
+
+registerOtelCallback((params) => {
+  recordPimApiUsage({
+    provider: params.provider,
+    operation: params.operation,
+    estimatedCost: params.estimatedCost,
+    requestCount: params.requestCount,
+    tokensTotal: params.tokensTotal,
+    responseTimeMs: params.responseTimeMs,
+    isError: params.isError,
+  });
 });
 
 let webhookWorker: Awaited<ReturnType<typeof startWebhookWorker>> | null = null;

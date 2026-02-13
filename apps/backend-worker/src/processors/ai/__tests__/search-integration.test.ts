@@ -62,6 +62,7 @@ let rateLimitAllowed = true;
 let rateLimitDelayMs = 0;
 const rateLimitTokensRemaining = 100;
 let budgetExceeded = false;
+let trackedCostCalls = 0;
 
 void mock.module('@app/ai-engine', {
   namedExports: {
@@ -91,6 +92,10 @@ void mock.module('@app/pim', {
         exceeded: budgetExceeded,
         alertTriggered: false,
       }),
+    trackCost: () => {
+      trackedCostCalls += 1;
+      return Promise.resolve();
+    },
   },
 });
 
@@ -200,6 +205,7 @@ void describe('search route integration', () => {
     rateLimitAllowed = true;
     rateLimitDelayMs = 0;
     budgetExceeded = false;
+    trackedCostCalls = 0;
     const app = Fastify();
     try {
       await app.register(searchRoutes, {
@@ -220,6 +226,7 @@ void describe('search route integration', () => {
       const body = parsed as { data?: { results?: unknown[]; cached?: boolean } };
       assert.equal(body.data?.cached, false);
       assert.equal(body.data?.results?.length, 1);
+      assert.equal(trackedCostCalls > 0, true);
     } finally {
       await app.close();
     }

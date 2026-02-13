@@ -21,6 +21,8 @@ describe('BudgetAlertsPanel', () => {
     expect(screen.getByText('Buget in parametri')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Pauzeaza coada/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Reia coada/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Pauzeaza toate cozile/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Reia toate cozile/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Editeaza bugete/i })).toBeTruthy();
   });
 });

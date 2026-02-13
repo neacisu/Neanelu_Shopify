@@ -10,7 +10,7 @@ import {
   EmbeddingsDisabledError,
   gateOpenAiEmbeddingRequest,
 } from '@app/ai-engine';
-import { checkBudget } from '@app/pim';
+import { checkBudget, trackCost } from '@app/pim';
 import type { ProductSearchResponse, ProductSearchResult } from '@app/types';
 import type { SessionConfig } from '../auth/session.js';
 import { getSessionFromRequest, requireSession } from '../auth/session.js';
@@ -171,6 +171,31 @@ function estimateTokens(text: string): number {
 async function isOpenAiBudgetExceeded(shopId: string): Promise<boolean> {
   const status = await checkBudget('openai', shopId);
   return status.exceeded;
+}
+
+async function trackOpenAiSearchEmbeddingCost(params: {
+  shopId: string;
+  endpoint: 'search-query-embedding' | 'search-export-embedding';
+  text: string;
+  costPer1MTokens: number;
+  responseTimeMs: number;
+  errorMessage?: string;
+}): Promise<void> {
+  const estimatedTokens = estimateTokens(params.text);
+  const estimatedCost = (estimatedTokens / 1_000_000) * params.costPer1MTokens;
+  await trackCost({
+    provider: 'openai',
+    operation: 'embedding',
+    endpoint: params.endpoint,
+    shopId: params.shopId,
+    requestCount: 1,
+    tokensInput: estimatedTokens,
+    tokensOutput: 0,
+    estimatedCost,
+    httpStatus: params.errorMessage ? 500 : 200,
+    responseTimeMs: params.responseTimeMs,
+    ...(params.errorMessage ? { errorMessage: params.errorMessage } : {}),
+  });
 }
 
 function toExportRow(result: ProductSearchResult) {
@@ -385,10 +410,18 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
         let totalCount = 0;
 
         try {
+          const embedStartedAt = Date.now();
           const embedding = await generateQueryEmbedding({
             text: rawText,
             provider,
             logger,
+          });
+          await trackOpenAiSearchEmbeddingCost({
+            shopId: session.shopId,
+            endpoint: 'search-query-embedding',
+            text: rawText,
+            costPer1MTokens: env.openAiEmbeddingCostPer1MTokens,
+            responseTimeMs: Date.now() - embedStartedAt,
           });
 
           const searchResult = await withTenantContext(session.shopId, async (client) => {
@@ -449,6 +482,14 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           }));
           totalCount = searchResult.total;
         } catch (error) {
+          await trackOpenAiSearchEmbeddingCost({
+            shopId: session.shopId,
+            endpoint: 'search-query-embedding',
+            text: rawText,
+            costPer1MTokens: env.openAiEmbeddingCostPer1MTokens,
+            responseTimeMs: 0,
+            errorMessage: error instanceof Error ? error.message : String(error),
+          }).catch(() => undefined);
           if (error instanceof EmbeddingsDisabledError) {
             void reply
               .status(503)
@@ -693,10 +734,14 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           openAiTimeoutMs: env.openAiTimeoutMs,
         });
 
-        const embedding = await generateQueryEmbedding({
+        const embedStartedAt = Date.now();
+        const embedding = await generateQueryEmbedding({ text: rawText, provider, logger });
+        await trackOpenAiSearchEmbeddingCost({
+          shopId: session.shopId,
+          endpoint: 'search-export-embedding',
           text: rawText,
-          provider,
-          logger,
+          costPer1MTokens: env.openAiEmbeddingCostPer1MTokens,
+          responseTimeMs: Date.now() - embedStartedAt,
         });
 
         const searchRows = await withTenantContext(session.shopId, async (client) => {
