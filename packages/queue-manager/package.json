@@ -22,7 +22,7 @@
     "@app/config": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
     "@taskforcesh/bullmq-pro": "^7.41.0",
-    "ioredis": "^5.8.2"
+    "ioredis": "^5.9.3"
   },
   "devDependencies": {
     "@app/shopify-client": "workspace:*",
