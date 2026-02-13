@@ -50,3 +50,8 @@ export * from './quality-webhook-deliveries.ts';
 // Module E: Attribute Normalization & Vectors
 // ============================================
 export * from './vectors.ts';
+
+// ============================================
+// Module L: Scraper Infrastructure
+// ============================================
+export * from './scraper.ts';

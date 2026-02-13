@@ -114,6 +114,18 @@ export type AppEnv = Readonly<{
   openAiHealthCheckIntervalSeconds: number;
   /** xAI health check interval (seconds) */
   xaiHealthCheckIntervalSeconds: number;
+  /** Enable Playwright scraper fallback */
+  scraperEnabled: boolean;
+  /** Domain-level scraper rate limit (req/sec) */
+  scraperRateLimitPerDomain: number;
+  /** Scraper page timeout in milliseconds */
+  scraperTimeoutMs: number;
+  /** Max concurrent Playwright pages per worker */
+  scraperMaxConcurrentPages: number;
+  /** Scraper user agent string */
+  scraperUserAgent: string;
+  /** Robots.txt cache TTL in seconds */
+  scraperRobotsCacheTtl: number;
   /** Optional webhook endpoint for weekly PIM cost summaries */
   pimWeeklySummaryWebhookUrl?: string;
   /** Optional HMAC secret used to sign weekly summary webhooks */
@@ -502,6 +514,24 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     'XAI_HEALTH_CHECK_INTERVAL_SECONDS',
     3600
   );
+  const scraperEnabled = parseBooleanWithDefault(env, 'SCRAPER_ENABLED', false);
+  const scraperRateLimitPerDomain = parsePositiveIntWithDefault(
+    env,
+    'SCRAPER_RATE_LIMIT_PER_DOMAIN',
+    1
+  );
+  const scraperTimeoutMs = parsePositiveIntWithDefault(env, 'SCRAPER_TIMEOUT_MS', 30_000);
+  const scraperMaxConcurrentPages = parsePositiveIntWithDefault(
+    env,
+    'SCRAPER_MAX_CONCURRENT_PAGES',
+    5
+  );
+  const scraperUserAgent = optionalString(env, 'SCRAPER_USER_AGENT') ?? 'NeaneluPIM/1.0';
+  const scraperRobotsCacheTtl = parsePositiveIntWithDefault(
+    env,
+    'SCRAPER_ROBOTS_CACHE_TTL',
+    86_400
+  );
   const pimWeeklySummaryWebhookUrl = optionalString(env, 'PIM_WEEKLY_SUMMARY_WEBHOOK_URL');
   const pimWeeklySummaryWebhookSecret = optionalString(env, 'PIM_WEEKLY_SUMMARY_WEBHOOK_SECRET');
   const qualityWebhookTimeoutMs = parsePositiveIntWithDefault(
@@ -626,6 +656,12 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     serperHealthCheckIntervalSeconds,
     openAiHealthCheckIntervalSeconds,
     xaiHealthCheckIntervalSeconds,
+    scraperEnabled,
+    scraperRateLimitPerDomain,
+    scraperTimeoutMs,
+    scraperMaxConcurrentPages,
+    scraperUserAgent,
+    scraperRobotsCacheTtl,
     ...(pimWeeklySummaryWebhookUrl ? { pimWeeklySummaryWebhookUrl } : {}),
     ...(pimWeeklySummaryWebhookSecret ? { pimWeeklySummaryWebhookSecret } : {}),
     qualityWebhookTimeoutMs,

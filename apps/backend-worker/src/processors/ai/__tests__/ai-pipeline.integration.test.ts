@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -20,13 +21,7 @@ function logStep(message: string): void {
 }
 
 const MIGRATIONS_DIR = join(
-  process.cwd(),
-  '..',
-  '..',
-  'packages',
-  'database',
-  'drizzle',
-  'migrations'
+  fileURLToPath(new URL('../../../../../../packages/database/drizzle/migrations', import.meta.url))
 );
 
 async function runSqlFile(pool: Pool, fileName: string): Promise<void> {

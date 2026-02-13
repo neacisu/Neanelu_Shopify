@@ -7,7 +7,7 @@ type QueueStatus = Readonly<{
 }>;
 
 type ProviderStatus = Readonly<{
-  provider: 'serper' | 'xai' | 'openai';
+  provider: 'serper' | 'xai' | 'openai' | 'scraper';
   exceeded: boolean;
   alertTriggered: boolean;
   ratio: number;
@@ -29,6 +29,7 @@ function toQueueLabel(queueName: string): string {
     'pim-similarity-search': 'PIM Similarity Search',
     'pim-ai-audit': 'PIM AI Audit',
     'pim-extraction': 'PIM Extraction',
+    'pim-scraper-queue': 'PIM Scraper Queue',
   };
   return labels[queueName] ?? queueName;
 }

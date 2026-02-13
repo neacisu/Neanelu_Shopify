@@ -2,6 +2,7 @@ type ProviderCosts = Readonly<{
   serper: number;
   xai: number;
   openai: number;
+  scraper: number;
   total: number;
 }>;
 
@@ -44,6 +45,13 @@ export function ProviderComparisonTable({
       today: today.openai,
       thisWeek: thisWeek.openai,
       thisMonth: thisMonth.openai,
+    },
+    {
+      id: 'scraper',
+      label: 'Scraper',
+      today: today.scraper,
+      thisWeek: thisWeek.scraper,
+      thisMonth: thisMonth.scraper,
     },
     {
       id: 'total',

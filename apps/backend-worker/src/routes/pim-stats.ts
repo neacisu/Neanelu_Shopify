@@ -454,6 +454,13 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
                 avgDuration: stageAvg('ai-audit'),
               },
               {
+                id: 'scraper',
+                name: 'Scraper Fallback',
+                count: pendingMatches,
+                status: pendingMatches > 0 ? 'active' : 'idle',
+                avgDuration: stageAvg('scraper'),
+              },
+              {
                 id: 'extraction',
                 name: 'Extraction',
                 count: productsWithSpecs,
@@ -990,29 +997,32 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
       try {
         const data = await withTenantContext(session.shopId, async (client) => {
           const [daily, weekly, monthly] = await Promise.all([
-            client.query<{ serper: string; xai: string; openai: string }>(
+            client.query<{ serper: string; xai: string; openai: string; scraper: string }>(
               `SELECT
                  COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'serper'), 0) as serper,
                  COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'xai'), 0) as xai,
-                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'openai'), 0) as openai
+                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'openai'), 0) as openai,
+                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'scraper'), 0) as scraper
                FROM api_usage_log
               WHERE created_at >= date_trunc('day', now())
                 AND created_at < date_trunc('day', now()) + interval '1 day'`
             ),
-            client.query<{ serper: string; xai: string; openai: string }>(
+            client.query<{ serper: string; xai: string; openai: string; scraper: string }>(
               `SELECT
                  COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'serper'), 0) as serper,
                  COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'xai'), 0) as xai,
-                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'openai'), 0) as openai
+                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'openai'), 0) as openai,
+                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'scraper'), 0) as scraper
                FROM api_usage_log
               WHERE created_at >= date_trunc('week', now())
                 AND created_at < date_trunc('week', now()) + interval '7 days'`
             ),
-            client.query<{ serper: string; xai: string; openai: string }>(
+            client.query<{ serper: string; xai: string; openai: string; scraper: string }>(
               `SELECT
                  COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'serper'), 0) as serper,
                  COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'xai'), 0) as xai,
-                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'openai'), 0) as openai
+                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'openai'), 0) as openai,
+                 COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'scraper'), 0) as scraper
                FROM api_usage_log
               WHERE created_at >= date_trunc('month', now())
                 AND created_at < date_trunc('month', now()) + interval '1 month'`
@@ -1062,17 +1072,20 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
           const todaySerper = Number(daily.rows[0]?.serper ?? 0);
           const todayXai = Number(daily.rows[0]?.xai ?? 0);
           const todayOpenAi = Number(daily.rows[0]?.openai ?? 0);
+          const todayScraper = Number(daily.rows[0]?.scraper ?? 0);
           const thisWeekSerper = Number(weekly.rows[0]?.serper ?? 0);
           const thisWeekXai = Number(weekly.rows[0]?.xai ?? 0);
           const thisWeekOpenAi = Number(weekly.rows[0]?.openai ?? 0);
+          const thisWeekScraper = Number(weekly.rows[0]?.scraper ?? 0);
           const thisMonthSerper = Number(monthly.rows[0]?.serper ?? 0);
           const thisMonthXai = Number(monthly.rows[0]?.xai ?? 0);
           const thisMonthOpenAi = Number(monthly.rows[0]?.openai ?? 0);
+          const thisMonthScraper = Number(monthly.rows[0]?.scraper ?? 0);
           const lastMonthSerper = Number(lastMonth.rows[0]?.serper ?? 0);
           const lastMonthXai = Number(lastMonth.rows[0]?.xai ?? 0);
           const lastMonthOpenAi = Number(lastMonth.rows[0]?.openai ?? 0);
 
-          const dailyTotal = todaySerper + todayXai + todayOpenAi;
+          const dailyTotal = todaySerper + todayXai + todayOpenAi + todayScraper;
           const hasBudget =
             serperBudget != null &&
             xaiBudget != null &&
@@ -1185,18 +1198,26 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
           }
 
           return {
-            today: { serper: todaySerper, xai: todayXai, openai: todayOpenAi, total: dailyTotal },
+            today: {
+              serper: todaySerper,
+              xai: todayXai,
+              openai: todayOpenAi,
+              scraper: todayScraper,
+              total: dailyTotal,
+            },
             thisWeek: {
               serper: thisWeekSerper,
               xai: thisWeekXai,
               openai: thisWeekOpenAi,
-              total: thisWeekSerper + thisWeekXai + thisWeekOpenAi,
+              scraper: thisWeekScraper,
+              total: thisWeekSerper + thisWeekXai + thisWeekOpenAi + thisWeekScraper,
             },
             thisMonth: {
               serper: thisMonthSerper,
               xai: thisMonthXai,
               openai: thisMonthOpenAi,
-              total: thisMonthSerper + thisMonthXai + thisMonthOpenAi,
+              scraper: thisMonthScraper,
+              total: thisMonthSerper + thisMonthXai + thisMonthOpenAi + thisMonthScraper,
             },
             budget:
               hasBudget && dailyBudgetTotal != null && dailyPercentage != null
@@ -1252,16 +1273,43 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
 
       try {
         const budgets = await checkAllBudgets(session.shopId);
+        const scraperRatio = await withTenantContext(session.shopId, async (client) => {
+          const usage = await client.query<{ used: string }>(
+            `SELECT COALESCE(SUM(request_count),0)::text AS used
+             FROM api_usage_log
+             WHERE api_provider = 'scraper'
+               AND created_at >= date_trunc('day', now())
+               AND created_at < date_trunc('day', now()) + interval '1 day'`
+          );
+          const used = Number(usage.rows[0]?.used ?? 0);
+          const limit = 10000;
+          return { used, limit, ratio: used / limit };
+        });
         return reply.send(
           successEnvelope(request.id, {
-            providers: budgets.map((budget) => ({
-              provider: budget.provider,
-              primary: budget.primary,
-              ...(budget.secondary ? { secondary: budget.secondary } : {}),
-              alertThreshold: budget.alertThreshold,
-              exceeded: budget.exceeded,
-              alertTriggered: budget.alertTriggered,
-            })),
+            providers: [
+              ...budgets.map((budget) => ({
+                provider: budget.provider,
+                primary: budget.primary,
+                ...(budget.secondary ? { secondary: budget.secondary } : {}),
+                alertThreshold: budget.alertThreshold,
+                exceeded: budget.exceeded,
+                alertTriggered: budget.alertTriggered,
+              })),
+              {
+                provider: 'scraper',
+                primary: {
+                  unit: 'requests',
+                  used: scraperRatio.used,
+                  limit: scraperRatio.limit,
+                  remaining: Math.max(0, scraperRatio.limit - scraperRatio.used),
+                  ratio: scraperRatio.ratio,
+                },
+                alertThreshold: 0.8,
+                exceeded: scraperRatio.ratio >= 1,
+                alertTriggered: scraperRatio.ratio >= 0.8,
+              },
+            ],
           })
         );
       } catch (error) {
@@ -1441,14 +1489,38 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
       try {
         const budgets = await checkAllBudgets(session.shopId);
         const queueStatus = await readCostSensitiveQueueStatus(configFromEnv(env));
+        const scraperRatio = await withTenantContext(session.shopId, async (client) => {
+          const usage = await client.query<{ used: string }>(
+            `SELECT COALESCE(SUM(request_count),0)::text AS used
+             FROM api_usage_log
+             WHERE api_provider = 'scraper'
+               AND created_at >= date_trunc('day', now())
+               AND created_at < date_trunc('day', now()) + interval '1 day'`
+          );
+          const used = Number(usage.rows[0]?.used ?? 0);
+          const limit = 10000;
+          return {
+            ratio: used / limit,
+            exceeded: used >= limit,
+            alertTriggered: used / limit >= 0.8,
+          };
+        });
         return reply.send(
           successEnvelope(request.id, {
-            providers: budgets.map((budget) => ({
-              provider: budget.provider,
-              exceeded: budget.exceeded,
-              alertTriggered: budget.alertTriggered,
-              ratio: budget.primary.ratio,
-            })),
+            providers: [
+              ...budgets.map((budget) => ({
+                provider: budget.provider,
+                exceeded: budget.exceeded,
+                alertTriggered: budget.alertTriggered,
+                ratio: budget.primary.ratio,
+              })),
+              {
+                provider: 'scraper',
+                exceeded: scraperRatio.exceeded,
+                alertTriggered: scraperRatio.alertTriggered,
+                ratio: scraperRatio.ratio,
+              },
+            ],
             queues: queueStatus,
           })
         );
@@ -1962,8 +2034,32 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
             return result.rows;
           });
 
+          const scraperEvents = await withTenantContext(session.shopId, async (client) => {
+            const result = await client.query<{
+              id: string;
+              status: string;
+              method: string | null;
+              started_at: string | null;
+              completed_at: string | null;
+              created_at: string;
+              target_urls: string[] | null;
+            }>(
+              `SELECT id, status, method, started_at::text, completed_at::text, created_at::text, target_urls
+               FROM scraper_runs
+               WHERE COALESCE(completed_at, started_at, created_at) > $1::timestamptz
+               ORDER BY COALESCE(completed_at, started_at, created_at) ASC
+               LIMIT 100`,
+              [lastSeenAt]
+            );
+            return result.rows;
+          });
+
           if (data.length) {
             lastSeenAt = data[data.length - 1]?.created_at ?? lastSeenAt;
+          }
+          if (scraperEvents.length) {
+            const last = scraperEvents[scraperEvents.length - 1];
+            lastSeenAt = last?.completed_at ?? last?.started_at ?? last?.created_at ?? lastSeenAt;
           }
 
           for (const row of data) {
@@ -1985,6 +2081,24 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
               webhookStatus: row.webhook_status,
               webhookLastHttpStatus: row.webhook_last_http_status,
               timestamp: row.created_at,
+            });
+          }
+
+          for (const row of scraperEvents) {
+            const eventName =
+              row.status === 'completed'
+                ? 'scraper.page.success'
+                : row.status === 'robots_blocked'
+                  ? 'scraper.robots.blocked'
+                  : row.status === 'login_detected'
+                    ? 'scraper.login.detected'
+                    : 'scraper.page.failed';
+            sendEvent(eventName, {
+              id: row.id,
+              status: row.status,
+              method: row.method,
+              url: row.target_urls?.[0] ?? null,
+              timestamp: row.completed_at ?? row.started_at ?? row.created_at,
             });
           }
         } catch (error) {

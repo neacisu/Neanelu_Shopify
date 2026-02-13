@@ -10,6 +10,7 @@ export const QUEUE_NAMES = [
   'pim-similarity-search',
   'pim-ai-audit',
   'pim-extraction',
+  'pim-scraper-queue',
   'pim-consensus',
   'pim-mv-refresh-queue',
 ] as const;
@@ -23,6 +24,7 @@ export const COST_SENSITIVE_QUEUE_NAMES = [
   'pim-similarity-search',
   'pim-ai-audit',
   'pim-extraction',
+  'pim-scraper-queue',
 ] as const satisfies readonly KnownQueueName[];
 
 export type CostSensitiveQueueName = (typeof COST_SENSITIVE_QUEUE_NAMES)[number];

@@ -5,7 +5,7 @@
     "rootDir": "./src",
     "baseUrl": ".",
     "paths": {
-      "@app/database": ["../../packages/database/dist/index.d.ts"],
+      "@app/database": ["../../packages/database/src/compat.d.ts"],
       "@app/shopify-client": ["../../packages/shopify-client/dist/index.d.ts"],
       "@app/queue-manager": ["../../packages/queue-manager/dist/index.d.ts"],
       "@app/config": ["../../packages/config/dist/index.d.ts"],

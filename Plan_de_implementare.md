@@ -4471,7 +4471,7 @@ Obiectiv: Extensii specifice care nu sunt strict necesare pentru MVP dar îmbun�
 
 **Sprint 9 Deliverables:**
 
-- ✅ Google Custom Search integration pentru product discovery
+- ✅ Serper API integration pentru product discovery
 - ✅ xAI Grok extraction cu anti-hallucination
 - ✅ Multi-source consensus engine pentru Golden Records
 - ✅ Automatic quality level promotion (bronze→silver→golden)
