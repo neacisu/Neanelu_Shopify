@@ -1,7 +1,7 @@
-import { createHmac } from 'node:crypto';
 import type { Logger } from '@app/logger';
 import { pool } from '@app/database';
 import { loadEnv } from '@app/config';
+import { computeHmacSignature } from '@app/pim';
 import {
   configFromEnv,
   createQueue,
@@ -36,10 +36,6 @@ type WeeklySummaryPayload = Readonly<{
   period: 'previous_week';
 }>;
 
-function computeSignature(secret: string, timestamp: string, body: string): string {
-  return createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
-}
-
 async function dispatchWeeklySummaryWebhook(params: {
   url: string;
   payload: WeeklySummaryPayload;
@@ -53,7 +49,7 @@ async function dispatchWeeklySummaryWebhook(params: {
     try {
       const timestamp = String(Date.now());
       const signature = params.secret
-        ? computeSignature(params.secret, timestamp, body)
+        ? computeHmacSignature(params.secret, timestamp, body)
         : undefined;
       const response = await fetch(params.url, {
         method: 'POST',

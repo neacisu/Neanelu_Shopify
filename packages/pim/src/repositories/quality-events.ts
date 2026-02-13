@@ -103,7 +103,10 @@ export async function getRecentEvents(
   return result.rows;
 }
 
-export async function getPendingWebhookEvents(limit = 100): Promise<QualityEvent[]> {
+export async function getPendingWebhookEvents(
+  limit = 100,
+  maxAgeDays = 7
+): Promise<QualityEvent[]> {
   const pool = getDbPool();
   const result = await pool.query<QualityEvent>(
     `SELECT
@@ -123,9 +126,10 @@ export async function getPendingWebhookEvents(limit = 100): Promise<QualityEvent
        created_at as "createdAt"
      FROM prod_quality_events
     WHERE webhook_sent = false
+      AND created_at > now() - make_interval(days => $2::int)
     ORDER BY created_at ASC
     LIMIT $1`,
-    [limit]
+    [limit, maxAgeDays]
   );
   return result.rows;
 }

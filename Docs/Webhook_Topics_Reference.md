@@ -195,3 +195,42 @@ Failed webhooks go to `webhook-queue-dlq` queue:
 | Processing p99 > 5s    | Warning  | Investigate bottleneck  |
 | Error rate > 5%        | Critical | On-call notification    |
 | app/uninstalled fails  | Critical | Immediate investigation |
+
+---
+
+## Quality Events (Outbound)
+
+Aceste webhook-uri NU vin de la Shopify; sunt trimise de aplicație către endpoint-ul configurat în `Settings > Webhooks`.
+
+### Event Types
+
+| Event                  | Descriere                                              |
+| ---------------------- | ------------------------------------------------------ |
+| `quality_promoted`     | Produs promovat (`bronze->silver`, `silver->golden`) |
+| `quality_demoted`      | Produs retrogradat                                     |
+| `review_requested`     | Produs marcat pentru review                            |
+| `milestone_reached`    | Milestone de produse `golden` atins                    |
+
+### Payload
+
+```json
+{
+  "event_type": "quality_promoted",
+  "event_id": "uuid",
+  "product_id": "uuid",
+  "sku": "SKU-123",
+  "previous_level": "bronze",
+  "new_level": "silver",
+  "quality_score": 0.91,
+  "trigger_reason": "match_confirmed",
+  "timestamp": "2026-02-13T10:00:00.000Z",
+  "shop_id": "uuid"
+}
+```
+
+### Delivery guarantees
+
+- Eventul este trimis doar după persistarea în DB (`prod_quality_events`)
+- fiecare attempt este logat în `quality_webhook_deliveries`
+- evenimentele non-livrabile rămân retry-abile manual
+- sweep scheduler re-procesează pending events la 5 minute, cu limită de vârstă configurabilă

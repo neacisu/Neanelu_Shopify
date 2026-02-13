@@ -135,11 +135,11 @@ export async function runSerperHealthCheck(params: {
   const responseTimeMs = Date.now() - startedAt;
 
   if (!response.ok) {
-    let detail = '';
+    let detail: string | undefined;
     try {
       detail = (await response.text()).trim();
     } catch {
-      detail = '';
+      detail = undefined;
     }
     const message = `API returned ${response.status}${detail ? `: ${detail.slice(0, 200)}` : ''}`;
     logger.warn(

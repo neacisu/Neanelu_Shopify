@@ -210,6 +210,8 @@ function safeJsonParse(value: string): unknown {
   try {
     return JSON.parse(value);
   } catch (error) {
-    throw new Error(error instanceof Error ? error.message : 'Invalid JSON payload');
+    throw new Error(error instanceof Error ? error.message : 'Invalid JSON payload', {
+      cause: error,
+    });
   }
 }

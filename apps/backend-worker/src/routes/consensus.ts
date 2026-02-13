@@ -13,6 +13,7 @@ import {
   PROMOTION_THRESHOLDS,
 } from '@app/pim';
 import { enqueueConsensusBatchJob, enqueueConsensusJob } from '../queue/consensus-queue.js';
+import { enqueueQualityWebhookJob } from '../queue/quality-webhook-queue.js';
 import type { SessionConfig } from '../auth/session.js';
 import { getSessionFromRequest, requireSession } from '../auth/session.js';
 
@@ -332,7 +333,7 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
       const eventType =
         levelOrder[newLevel] >= levelOrder[currentLevel] ? 'quality_promoted' : 'quality_demoted';
 
-      await logQualityEvent({
+      const eventId = await logQualityEvent({
         client,
         productId,
         eventType,
@@ -342,6 +343,7 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
         qualityScoreAfter: currentRow.quality_score ?? 0,
         triggerReason: body.reason ?? 'manual_override',
       });
+      void enqueueQualityWebhookJob({ eventId, shopId: session.shopId }).catch(() => undefined);
 
       return {
         changed: true,

@@ -235,7 +235,8 @@ export function createDownloadStream(params: {
         ) {
           stats.contentLengthActual = rawBytesRead;
           throw new Error(
-            `bulk_download_content_length_mismatch:${contentLengthExpected}:${rawBytesRead}`
+            `bulk_download_content_length_mismatch:${contentLengthExpected}:${rawBytesRead}`,
+            { cause: err }
           );
         }
 

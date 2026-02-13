@@ -592,6 +592,54 @@ meter.addBatchObservableCallback(
 );
 
 // ============================================
+// QUALITY WEBHOOK METRICS (PR-063 / F8.4.9)
+// ============================================
+
+export const pimQualityWebhookDispatchedTotal: Counter = meter.createCounter(
+  'pim_quality_webhook_dispatched_total',
+  {
+    description: 'Total quality webhook dispatch attempts by event type and status',
+  }
+);
+
+export const pimQualityWebhookDeliveryDurationSeconds: Histogram = meter.createHistogram(
+  'pim_quality_webhook_delivery_duration_seconds',
+  {
+    description: 'Quality webhook delivery duration in seconds',
+    unit: 's',
+    advice: {
+      explicitBucketBoundaries: [0.1, 0.5, 1, 2, 5, 10],
+    },
+  }
+);
+
+export const pimQualityWebhookPendingTotal: ObservableGauge = meter.createObservableGauge(
+  'pim_quality_webhook_pending_total',
+  {
+    description: 'Number of pending quality events with webhook_sent = false',
+  }
+);
+
+const pimQualityWebhookPendingState = { value: 0 };
+
+meter.addBatchObservableCallback(
+  (observableResult) => {
+    observableResult.observe(
+      pimQualityWebhookPendingTotal,
+      Math.max(0, Math.floor(pimQualityWebhookPendingState.value))
+    );
+  },
+  [pimQualityWebhookPendingTotal]
+);
+
+export const pimQualityWebhookSweepProcessedTotal: Counter = meter.createCounter(
+  'pim_quality_webhook_sweep_processed_total',
+  {
+    description: 'Total quality webhook sweep events by outcome',
+  }
+);
+
+// ============================================
 // HELPER FUNCTIONS
 // ============================================
 
@@ -866,6 +914,38 @@ export function recordPimQueueResumed(
 export function setPimBudgetUsageRatio(provider: 'serper' | 'xai' | 'openai', ratio: number): void {
   if (!Number.isFinite(ratio)) return;
   pimBudgetUsageRatioState.set(provider, Math.max(0, ratio));
+}
+
+export function recordQualityWebhookDispatched(
+  eventType: string,
+  status: 'success' | 'failed' | 'skipped',
+  count = 1
+): void {
+  if (!Number.isFinite(count) || count <= 0) return;
+  pimQualityWebhookDispatchedTotal.add(Math.floor(count), {
+    event_type: eventType || 'unknown',
+    status,
+  });
+}
+
+export function recordQualityWebhookDuration(eventType: string, durationSeconds: number): void {
+  if (!Number.isFinite(durationSeconds) || durationSeconds < 0) return;
+  pimQualityWebhookDeliveryDurationSeconds.record(durationSeconds, {
+    event_type: eventType || 'unknown',
+  });
+}
+
+export function setQualityWebhookPendingTotal(value: number): void {
+  if (!Number.isFinite(value)) return;
+  pimQualityWebhookPendingState.value = Math.max(0, Math.floor(value));
+}
+
+export function recordQualityWebhookSweepEvent(
+  outcome: 'scheduled' | 'orphaned' | 'processed',
+  count = 1
+): void {
+  if (!Number.isFinite(count) || count <= 0) return;
+  pimQualityWebhookSweepProcessedTotal.add(Math.floor(count), { outcome });
 }
 
 type BudgetRatioCacheLike = Readonly<{

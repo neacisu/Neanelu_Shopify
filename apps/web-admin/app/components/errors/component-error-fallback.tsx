@@ -2,7 +2,8 @@ import type { FallbackProps } from 'react-error-boundary';
 
 export function ComponentErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
   // Intentionally minimal: no stack traces in UI.
-  const message = error?.message || 'Această secțiune nu a putut fi încărcată.';
+  const fallbackMessage = 'Această secțiune nu a putut fi încărcată.';
+  const message = error instanceof Error ? (error.message ?? fallbackMessage) : fallbackMessage;
 
   return (
     <div className="rounded-md border border-error/30 bg-error/10 p-4 text-error shadow-sm">

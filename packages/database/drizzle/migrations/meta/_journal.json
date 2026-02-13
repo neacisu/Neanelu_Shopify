@@ -561,6 +561,13 @@
       "when": 1770980400000,
       "tag": "0079_pim_mvs_tenant_aware",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1771209600000,
+      "tag": "0080_quality_webhook_config",
+      "breakpoints": true
     }
   ]
 }

@@ -38,6 +38,7 @@ import SettingsLayout from './routes/settings';
 import SettingsIndex from './routes/settings._index';
 import SettingsGeneral from './routes/settings.general';
 import SettingsApi from './routes/settings.api';
+import SettingsWebhooks from './routes/settings.webhooks';
 import SettingsQueues from './routes/settings.queues';
 import SettingsOpenAi from './routes/settings.openai';
 import SettingsSerper from './routes/settings.serper';
@@ -216,6 +217,12 @@ export const routes: RouteObject[] = [
             path: 'api',
             handle: { title: 'Settings - API' },
             element: createElement(SettingsApi),
+          },
+          {
+            id: 'settings-webhooks',
+            path: 'webhooks',
+            handle: { title: 'Settings - Webhooks' },
+            element: createElement(SettingsWebhooks),
           },
           {
             id: 'settings-queues',

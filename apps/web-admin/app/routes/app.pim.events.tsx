@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { DateRangePicker } from '../components/ui/DateRangePicker';
 import { Timeline, type TimelineEvent } from '../components/ui/Timeline';
+import { WebhookDeliveryStatusBadge } from '../components/domain/WebhookDeliveryStatusBadge';
 import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
 import { toUtcIsoRange } from '../utils/date-range';
 import { useEnrichmentStream } from '../hooks/useEnrichmentStream';
@@ -20,6 +21,10 @@ interface QualityEvent {
   newLevel?: string;
   qualityScore: number | null;
   triggerReason: string | null;
+  webhookSent?: boolean;
+  webhookSentAt?: string | null;
+  webhookStatus?: 'sent' | 'pending' | 'retrying' | 'failed';
+  webhookLastHttpStatus?: number | null;
   timestamp: string;
 }
 
@@ -76,6 +81,16 @@ const eventIcon = (type: QualityEvent['eventType']) => {
   }
 };
 
+function resolveWebhookBadgeStatus(
+  status?: QualityEvent['webhookStatus'],
+  sent?: boolean
+): 'sent' | 'pending' | 'retrying' | 'failed' {
+  if (status === 'sent' || status === 'pending' || status === 'retrying' || status === 'failed') {
+    return status;
+  }
+  return sent ? 'sent' : 'pending';
+}
+
 export default function QualityEventsPage() {
   const { events } = useLoaderData<RouteLoaderData>();
   const revalidator = useRevalidator();
@@ -127,6 +142,21 @@ export default function QualityEventsPage() {
           : null;
     const triggerReason =
       typeof evt.payload['triggerReason'] === 'string' ? evt.payload['triggerReason'] : null;
+    const webhookSent =
+      typeof evt.payload['webhookSent'] === 'boolean' ? evt.payload['webhookSent'] : false;
+    const webhookSentAt =
+      typeof evt.payload['webhookSentAt'] === 'string' ? evt.payload['webhookSentAt'] : null;
+    const webhookStatus =
+      evt.payload['webhookStatus'] === 'sent' ||
+      evt.payload['webhookStatus'] === 'pending' ||
+      evt.payload['webhookStatus'] === 'retrying' ||
+      evt.payload['webhookStatus'] === 'failed'
+        ? evt.payload['webhookStatus']
+        : 'pending';
+    const webhookLastHttpStatus =
+      typeof evt.payload['webhookLastHttpStatus'] === 'number'
+        ? evt.payload['webhookLastHttpStatus']
+        : null;
     const qualityEvent: QualityEvent = {
       id,
       eventType,
@@ -135,6 +165,10 @@ export default function QualityEventsPage() {
       ...(newLevel ? { newLevel } : {}),
       qualityScore,
       triggerReason,
+      webhookSent,
+      webhookSentAt,
+      webhookStatus,
+      webhookLastHttpStatus,
       timestamp,
     };
     return [qualityEvent];
@@ -169,19 +203,34 @@ export default function QualityEventsPage() {
 
   const timelineEvents: TimelineEvent[] = mergedEvents.map((evt) => {
     const description = evt.triggerReason ?? undefined;
+    const badgeStatus = resolveWebhookBadgeStatus(evt.webhookStatus, evt.webhookSent);
+    const webhookLabel =
+      badgeStatus === 'sent'
+        ? `Webhook sent${evt.webhookSentAt ? ` at ${new Date(evt.webhookSentAt).toLocaleString()}` : ''}`
+        : badgeStatus === 'failed'
+          ? `Webhook failed${evt.webhookLastHttpStatus ? ` (HTTP ${evt.webhookLastHttpStatus})` : ''}`
+          : badgeStatus === 'retrying'
+            ? 'Webhook retrying'
+            : 'Webhook pending';
     return {
       id: evt.id,
       timestamp: evt.timestamp,
       title: evt.eventType,
-      ...(description ? { description } : {}),
-      icon: eventIcon(evt.eventType),
+      icon: (
+        <span className="inline-flex items-center gap-2">
+          <span>{eventIcon(evt.eventType)}</span>
+          <WebhookDeliveryStatusBadge status={badgeStatus} title={webhookLabel} />
+        </span>
+      ),
       status: evt.eventType === 'quality_demoted' ? 'error' : 'success',
       metadata: {
         productId: evt.productId,
         previousLevel: evt.previousLevel,
         newLevel: evt.newLevel,
         qualityScore: evt.qualityScore ?? 'n/a',
+        webhookStatus: webhookLabel,
       },
+      description: `${description ? `${description} · ` : ''}${webhookLabel}`,
     };
   });
 

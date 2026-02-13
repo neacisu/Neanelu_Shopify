@@ -24,19 +24,20 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "test": "vitest run",
+    "test": "vitest run src",
     "test:watch": "vitest"
   },
   "dependencies": {
     "@app/config": "workspace:*",
     "@app/database": "workspace:*",
     "@app/logger": "workspace:*",
-    "ioredis": "^5.8.2",
-    "pg": "^8.16.3",
-    "zod": "^4.3.5"
+    "@app/types": "workspace:*",
+    "ioredis": "^5.9.3",
+    "pg": "^8.18.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "^4.0.18"
   }
 }

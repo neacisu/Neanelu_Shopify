@@ -253,7 +253,7 @@ export const serperSettingsRoutes: FastifyPluginCallback<SerperSettingsPluginOpt
           const values: (string | boolean | number | Buffer | null)[] = [session.shopId];
           let idx = 2;
 
-          let nextStatus: SerperConnectionStatus | null = null;
+          let nextStatus: SerperConnectionStatus | null | undefined;
           if (enabled !== undefined) {
             updates.push(`serper_enabled = $${idx++}`);
             values.push(enabled);
@@ -304,8 +304,8 @@ export const serperSettingsRoutes: FastifyPluginCallback<SerperSettingsPluginOpt
             }
           }
 
-          if (nextStatus) {
-            updates.push(`serper_connection_status = $${idx++}`);
+          if (nextStatus != null) {
+            updates.push(`serper_connection_status = $${idx}`);
             values.push(nextStatus);
             updates.push(`serper_last_error = NULL`);
           }

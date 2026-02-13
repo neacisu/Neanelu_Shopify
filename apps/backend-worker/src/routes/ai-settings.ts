@@ -352,7 +352,7 @@ export const aiSettingsRoutes: FastifyPluginCallback<AiSettingsPluginOptions> = 
           const updates: string[] = [];
           const values: (string | boolean | number | Buffer | null)[] = [session.shopId];
           let idx = 2;
-          let nextStatus: OpenAiConnectionStatus | null = null;
+          let nextStatus: OpenAiConnectionStatus | null | undefined;
 
           if (enabled !== undefined) {
             updates.push(`enabled = $${idx++}`);
@@ -404,8 +404,8 @@ export const aiSettingsRoutes: FastifyPluginCallback<AiSettingsPluginOptions> = 
             }
           }
 
-          if (nextStatus) {
-            updates.push(`openai_connection_status = $${idx++}`);
+          if (nextStatus != null) {
+            updates.push(`openai_connection_status = $${idx}`);
             values.push(nextStatus);
             updates.push(`openai_last_error = NULL`);
           }

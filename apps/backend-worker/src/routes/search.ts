@@ -406,8 +406,8 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
         openaiEmbedRateLimitAllowed.add(1);
 
         const start = process.hrtime.bigint();
-        let results: ProductSearchResult[] = [];
-        let totalCount = 0;
+        let results: ProductSearchResult[];
+        let totalCount: number;
 
         try {
           const embedStartedAt = Date.now();

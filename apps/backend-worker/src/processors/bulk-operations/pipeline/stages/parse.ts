@@ -63,7 +63,7 @@ export function createJsonlParseStream(params: {
         message: err instanceof Error ? err.message : 'Invalid JSON',
       });
       if (!params.tolerateInvalidLines) {
-        throw new Error('bulk_parse_invalid_json');
+        throw new Error('bulk_parse_invalid_json', { cause: err });
       }
       return;
     }

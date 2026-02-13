@@ -287,13 +287,14 @@ void describe('bulk ingest performance (guarded)', { skip: !runPerf }, () => {
       cpuSystemMicros: number;
     }[] = [];
 
-    let baseline: { rowsPerSec: number; heapDelta: number } | null = null;
-    try {
-      const raw = await readFile(baselinePath, 'utf8');
-      baseline = JSON.parse(raw) as { rowsPerSec: number; heapDelta: number };
-    } catch {
-      baseline = null;
-    }
+    const baseline = await (async (): Promise<{ rowsPerSec: number; heapDelta: number } | null> => {
+      try {
+        const raw = await readFile(baselinePath, 'utf8');
+        return JSON.parse(raw) as { rowsPerSec: number; heapDelta: number };
+      } catch {
+        return null;
+      }
+    })();
 
     const minRowsPerSec = autoTune
       ? Math.max(0, baseline?.rowsPerSec ? baseline.rowsPerSec * (1 - maxRegressionPct) : 0)

@@ -15,6 +15,7 @@ import {
   CONSENSUS_JOB_SINGLE,
   CONSENSUS_QUEUE_NAME,
 } from '../../queue/consensus-queue.js';
+import { enqueueQualityWebhookJob } from '../../queue/quality-webhook-queue.js';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
 
 type ConsensusJobPayload = Readonly<{
@@ -74,6 +75,8 @@ const applyQualityLevelChangeSafe = applyQualityLevelChange as unknown as (param
   sourceCount: number;
   consensusSpecs: Record<string, unknown>;
   trigger: string;
+  shopId?: string;
+  onEventCreated?: (eventId: string) => void | Promise<void>;
 }) => Promise<QualityLevelChangeResult>;
 
 export interface ConsensusWorkerHandle {
@@ -195,6 +198,10 @@ async function processSingleConsensus(payload: ConsensusJobPayload, logger: Logg
       sourceCount: result.sourceCount,
       consensusSpecs: filteredConsensusSpecs,
       trigger: payload.trigger,
+      shopId: payload.shopId,
+      onEventCreated: async (eventId) => {
+        await enqueueQualityWebhookJob({ eventId, shopId: payload.shopId });
+      },
     });
 
     if (promotionResult.changed) {

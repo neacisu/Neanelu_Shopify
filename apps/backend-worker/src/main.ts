@@ -28,9 +28,12 @@ import { startConsensusWorker } from './processors/pim/consensus.worker.js';
 import { startBudgetResetScheduler } from './processors/pim/budget-reset.worker.js';
 import { startWeeklySummaryScheduler } from './processors/pim/weekly-summary.worker.js';
 import { startMvRefreshScheduler } from './processors/pim/mv-refresh.worker.js';
+import { startQualityWebhookWorker } from './processors/pim/quality-webhook.worker.js';
+import { startQualityWebhookSweepScheduler } from './processors/pim/quality-webhook-sweep.js';
 import { pauseCostSensitiveQueues } from './processors/pim/cost-sensitive-queues.js';
 import { scheduleTokenHealthJob, closeTokenHealthQueue } from './queue/token-health-queue.js';
 import { closeSimilarityQueues } from './queue/similarity-queues.js';
+import { closeQualityWebhookQueue } from './queue/quality-webhook-queue.js';
 import {
   setBulkOrchestratorWorkerHandle,
   setBulkIngestWorkerHandle,
@@ -114,6 +117,10 @@ let consensusWorker: Awaited<ReturnType<typeof startConsensusWorker>> | null = n
 let budgetResetScheduler: Awaited<ReturnType<typeof startBudgetResetScheduler>> | null = null;
 let weeklySummaryScheduler: Awaited<ReturnType<typeof startWeeklySummaryScheduler>> | null = null;
 let mvRefreshScheduler: Awaited<ReturnType<typeof startMvRefreshScheduler>> | null = null;
+let qualityWebhookWorker: Awaited<ReturnType<typeof startQualityWebhookWorker>> | null = null;
+let qualityWebhookSweepScheduler: Awaited<
+  ReturnType<typeof startQualityWebhookSweepScheduler>
+> | null = null;
 let queueConfigListener: Awaited<ReturnType<typeof startQueueConfigListener>> | null = null;
 let budgetGaugeRedis: IORedis | null = null;
 let budgetGaugeInterval: NodeJS.Timeout | null = null;
@@ -299,6 +306,22 @@ try {
     timestamp: new Date().toISOString(),
   });
 
+  qualityWebhookWorker = startQualityWebhookWorker(logger);
+  logger.info({}, 'pim quality webhook worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'pim-quality-webhook-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  qualityWebhookSweepScheduler = startQualityWebhookSweepScheduler(logger);
+  logger.info({}, 'pim quality webhook sweep scheduler started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'pim-quality-webhook-sweep-worker',
+    timestamp: new Date().toISOString(),
+  });
+
   budgetGaugeRedis = new IORedis(env.redisUrl, {
     enableReadyCheck: true,
     maxRetriesPerRequest: null,
@@ -336,6 +359,10 @@ try {
     'pim-extraction': extractionWorker?.worker as unknown as { concurrency?: number },
     'pim-consensus': consensusWorker?.worker as unknown as { concurrency?: number },
     'pim-mv-refresh-queue': mvRefreshScheduler?.worker as unknown as { concurrency?: number },
+    'pim-quality-webhook': qualityWebhookWorker?.worker as unknown as { concurrency?: number },
+    'pim-quality-webhook-sweep': qualityWebhookSweepScheduler?.worker as unknown as {
+      concurrency?: number;
+    },
   });
   logger.info({}, 'queue config listener started');
 } catch (error) {
@@ -540,6 +567,28 @@ const shutdown = async (signal: string): Promise<void> => {
       });
     }
 
+    if (qualityWebhookWorker) {
+      await qualityWebhookWorker.close();
+      qualityWebhookWorker = null;
+      logger.info({ signal }, 'pim quality webhook worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'pim-quality-webhook-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (qualityWebhookSweepScheduler) {
+      await qualityWebhookSweepScheduler.close();
+      qualityWebhookSweepScheduler = null;
+      logger.info({ signal }, 'pim quality webhook sweep scheduler stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'pim-quality-webhook-sweep-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     if (aiBatchScheduleWorker) {
       await aiBatchScheduleWorker.close();
       aiBatchScheduleWorker = null;
@@ -601,6 +650,7 @@ const shutdown = async (signal: string): Promise<void> => {
 
     await closeTokenHealthQueue();
     await closeSimilarityQueues();
+    await closeQualityWebhookQueue();
     await server.close();
     logger.info({ signal }, 'shutdown complete');
   } catch (error) {

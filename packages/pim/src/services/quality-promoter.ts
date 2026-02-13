@@ -202,8 +202,20 @@ export async function applyQualityLevelChange(params: {
   consensusSpecs: Record<string, unknown>;
   trigger: string;
   jobId?: string;
+  shopId?: string;
+  onEventCreated?: (eventId: string) => void | Promise<void>;
 }): Promise<QualityLevelChangeResult> {
-  const { client, productId, qualityScore, sourceCount, consensusSpecs, trigger, jobId } = params;
+  const {
+    client,
+    productId,
+    qualityScore,
+    sourceCount,
+    consensusSpecs,
+    trigger,
+    jobId,
+    onEventCreated,
+    shopId,
+  } = params;
 
   const currentResult = await client.query<{
     data_quality_level: QualityLevel;
@@ -278,7 +290,15 @@ export async function applyQualityLevelChange(params: {
   });
 
   if (newLevel === 'golden') {
-    await checkAndLogMilestone({ client, productId });
+    await checkAndLogMilestone({
+      client,
+      productId,
+      ...(shopId ? { shopId } : {}),
+      ...(onEventCreated ? { onEventCreated } : {}),
+    });
+  }
+  if (onEventCreated) {
+    await onEventCreated(eventId);
   }
 
   return {
@@ -293,8 +313,10 @@ export async function applyQualityLevelChange(params: {
 export async function checkAndLogMilestone(params: {
   client: DbClient;
   productId: string;
+  shopId?: string;
+  onEventCreated?: (eventId: string) => void | Promise<void>;
 }): Promise<void> {
-  const { client, productId } = params;
+  const { client, productId, onEventCreated } = params;
   const result = await client.query<{ count: string }>(
     `SELECT COUNT(*)::text as count
        FROM prod_master
@@ -313,7 +335,7 @@ export async function checkAndLogMilestone(params: {
   );
   const qualityScore = normalizeScore(scoreResult.rows[0]?.quality_score ?? 0);
 
-  await logQualityEvent({
+  const eventId = await logQualityEvent({
     client,
     productId,
     eventType: 'milestone_reached',
@@ -324,4 +346,7 @@ export async function checkAndLogMilestone(params: {
     triggerReason: 'golden_milestone',
     triggerDetails: { milestone: count, triggeringProductId: productId },
   });
+  if (onEventCreated) {
+    await onEventCreated(eventId);
+  }
 }

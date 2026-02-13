@@ -329,9 +329,12 @@ void describe('smoke: bulk orchestrator (enqueue → DB → poller scheduled)', 
     await cleanupBulkRuns(contentionShopId);
 
     const redis = new IORedis(process.env['REDIS_URL'] ?? '');
-    let lockToken: Readonly<{ shopId: string; token: string }> | null = null;
-    lockToken = await acquireBulkLock(redis, contentionShopId, { ttlMs: 30_000 });
-    if (!lockToken) throw new Error('expected to acquire bulk lock for contention test');
+    const maybeLockToken = await acquireBulkLock(redis, contentionShopId, { ttlMs: 30_000 });
+    if (!maybeLockToken) {
+      await redis.quit().catch(() => undefined);
+      throw new Error('expected to acquire bulk lock for contention test');
+    }
+    const lockToken = maybeLockToken;
 
     const idempotencyKey = `lock-test-${randomUUID()}`;
     const jobId = `bulk-orchestrator__${contentionShopId}__${idempotencyKey}`;
@@ -381,10 +384,7 @@ void describe('smoke: bulk orchestrator (enqueue → DB → poller scheduled)', 
 
       assert.fail('Timed out waiting for contended job to move to delayed state');
     } finally {
-      let released = false;
-      if (lockToken) {
-        released = await releaseBulkLock(redis, lockToken).catch(() => false);
-      }
+      const released = await releaseBulkLock(redis, lockToken).catch(() => false);
       assert.equal(released, true, 'expected to release bulk lock after contention test');
       await redis.quit().catch(() => undefined);
       await cleanupBulkRuns(contentionShopId).catch(() => undefined);

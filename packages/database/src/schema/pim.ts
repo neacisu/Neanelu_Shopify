@@ -374,3 +374,40 @@ export const prodChannelMappings = pgTable(
 
 export type ProdChannelMapping = typeof prodChannelMappings.$inferSelect;
 export type NewProdChannelMapping = typeof prodChannelMappings.$inferInsert;
+
+// ============================================
+// 6. QUALITY EVENTS: prod_quality_events
+// ============================================
+
+export const prodQualityEvents = pgTable(
+  'prod_quality_events',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`uuidv7()`),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => prodMaster.id, { onDelete: 'cascade' }),
+    eventType: varchar('event_type', { length: 50 }).notNull(),
+    previousLevel: varchar('previous_level', { length: 20 }),
+    newLevel: varchar('new_level', { length: 20 }).notNull(),
+    qualityScoreBefore: decimal('quality_score_before', { precision: 3, scale: 2 }),
+    qualityScoreAfter: decimal('quality_score_after', { precision: 3, scale: 2 }),
+    triggerReason: text('trigger_reason'),
+    triggerDetails: jsonb('trigger_details').default({}),
+    triggeredBy: uuid('triggered_by'),
+    jobId: varchar('job_id', { length: 255 }),
+    webhookSent: boolean('webhook_sent').notNull().default(false),
+    webhookSentAt: timestamp('webhook_sent_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    index('idx_quality_events_product').on(table.productId, table.createdAt),
+    index('idx_quality_events_type').on(table.eventType, table.createdAt),
+    index('idx_quality_events_level').on(table.newLevel, table.createdAt),
+    index('idx_quality_events_pending_webhook').on(table.createdAt),
+  ]
+);
+
+export type ProdQualityEvent = typeof prodQualityEvents.$inferSelect;
+export type NewProdQualityEvent = typeof prodQualityEvents.$inferInsert;
