@@ -10,12 +10,15 @@ export interface TabsProps {
   value: string;
   onValueChange: (value: string) => void;
   className?: string;
+  ariaLabel?: string;
 }
 
-export function Tabs({ items, value, onValueChange, className }: TabsProps) {
+export function Tabs({ items, value, onValueChange, className, ariaLabel }: TabsProps) {
   return (
     <div
       className={`inline-flex h-10 items-center justify-center rounded-md bg-muted/10 p-1 text-muted-foreground ${className ?? ''}`}
+      role="tablist"
+      aria-label={ariaLabel ?? 'Tabs'}
     >
       {items.map((item) => {
         const isActive = item.value === value;
@@ -32,7 +35,8 @@ export function Tabs({ items, value, onValueChange, className }: TabsProps) {
                   : 'hover:bg-black/5 hover:text-foreground'
               }
             `}
-            aria-pressed={isActive}
+            role="tab"
+            aria-selected={isActive}
           >
             {item.label}
           </button>

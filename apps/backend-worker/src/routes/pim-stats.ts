@@ -79,6 +79,34 @@ function parseDateParam(value: unknown): string | null {
   return parsed.toISOString();
 }
 
+const API_CACHE_TTL_MS = 60_000;
+const API_CACHE_MAX_ENTRIES = 100;
+const pimStatsCache = new Map<string, { data: unknown; expiresAt: number }>();
+
+function buildCacheKey(routePath: string, shopId: string, params: Record<string, unknown>): string {
+  return `${routePath}:${shopId}:${JSON.stringify(params)}`;
+}
+
+function getCached<T>(key: string): T | null {
+  const entry = pimStatsCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    pimStatsCache.delete(key);
+    return null;
+  }
+  return entry.data as T;
+}
+
+function setCached(key: string, data: unknown): void {
+  pimStatsCache.set(key, { data, expiresAt: Date.now() + API_CACHE_TTL_MS });
+
+  if (pimStatsCache.size <= API_CACHE_MAX_ENTRIES) return;
+  const now = Date.now();
+  for (const [cacheKey, entry] of pimStatsCache.entries()) {
+    if (entry.expiresAt <= now) pimStatsCache.delete(cacheKey);
+  }
+}
+
 export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
   server: FastifyInstance,
   options
@@ -101,6 +129,47 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
       const query = request.query as { from?: string; to?: string };
       const parsedFrom = parseDateParam(query.from);
       const parsedTo = parseDateParam(query.to);
+      const cacheKey = buildCacheKey('/pim/stats/enrichment-progress', session.shopId, {
+        from: parsedFrom,
+        to: parsedTo,
+      });
+      const cached = getCached<{
+        pending: number;
+        inProgress: number;
+        completedToday: number;
+        completedThisWeek: number;
+        successRate: number;
+        avgProcessingTime: number | null;
+        pipelineStages: {
+          id: string;
+          name: string;
+          count: number;
+          status: 'idle' | 'active' | 'bottleneck';
+          avgDuration: number | null;
+        }[];
+        trendPoints: { date: string; pending: number; completed: number }[];
+        trendsData: { pending: number[]; completed: number[] };
+        trendRange: { from: string; to: string } | null;
+        sourcePerformance: {
+          provider: string;
+          totalRequests: number;
+          totalCost: number;
+          avgLatencyMs: number;
+          successRate: number;
+        }[];
+        totals: {
+          totalProducts: number;
+          productsWithMatches: number;
+          productsWithSpecs: number;
+          totalMatches: number;
+          confirmedMatches: number;
+          pendingMatches: number;
+          rejectedMatches: number;
+        };
+      }>(cacheKey);
+      if (cached) {
+        return reply.send(successEnvelope(request.id, cached));
+      }
 
       try {
         const data = await withTenantContext(session.shopId, async (client) => {
@@ -418,6 +487,7 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
           };
         });
 
+        setCached(cacheKey, data);
         return reply.send(successEnvelope(request.id, data));
       } catch (error) {
         logger.error({ requestId: request.id, error }, 'Failed to load enrichment progress');
@@ -451,6 +521,37 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
       const query = request.query as { from?: string; to?: string };
       const from = parseDateParam(query.from);
       const to = parseDateParam(query.to);
+      const cacheKey = buildCacheKey('/pim/stats/quality-distribution', session.shopId, {
+        from,
+        to,
+      });
+      const cached = getCached<{
+        bronze: { count: number; percentage: number; avgQualityScore: number | null };
+        silver: { count: number; percentage: number; avgQualityScore: number | null };
+        golden: { count: number; percentage: number; avgQualityScore: number | null };
+        review: { count: number; percentage: number; avgQualityScore: number | null };
+        total: number;
+        needsReviewCount: number;
+        promotions: {
+          toSilver24h: number;
+          toGolden24h: number;
+          toSilver7d: number;
+          toGolden7d: number;
+        };
+        lastUpdate: string | null;
+        refreshedAt: string | null;
+        trend: {
+          date: string;
+          bronze: number;
+          silver: number;
+          golden: number;
+          review: number;
+        }[];
+        trendRange: { from: string; to: string } | null;
+      }>(cacheKey);
+      if (cached) {
+        return reply.send(successEnvelope(request.id, cached));
+      }
 
       try {
         const data = await withTenantContext(session.shopId, async (client) => {
@@ -458,9 +559,30 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
             data_quality_level: string | null;
             product_count: string | null;
             percentage: string | null;
+            avg_quality_score: string | null;
+            needs_review_count: string | null;
+            promoted_to_silver_24h: string | null;
+            promoted_to_golden_24h: string | null;
+            promoted_to_silver_7d: string | null;
+            promoted_to_golden_7d: string | null;
+            last_update: string | null;
+            refreshed_at: string | null;
           }>(
-            `SELECT data_quality_level, product_count, percentage
-               FROM mv_pim_quality_progress`
+            `SELECT
+               data_quality_level,
+               product_count,
+               percentage,
+               avg_quality_score,
+               needs_review_count,
+               promoted_to_silver_24h,
+               promoted_to_golden_24h,
+               promoted_to_silver_7d,
+               promoted_to_golden_7d,
+               last_update,
+               refreshed_at
+               FROM mv_pim_quality_progress
+              WHERE shop_id = $1`,
+            [session.shopId]
           );
           const rangeResult = await client.query<{
             min_date: string | null;
@@ -537,32 +659,113 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
                 }))
               : [];
 
-          const totals = new Map<string, { count: number; percentage: number }>();
+          const totals = new Map<
+            string,
+            {
+              count: number;
+              percentage: number;
+              avgQualityScore: number | null;
+              needsReviewCount: number;
+              promotedToSilver24h: number;
+              promotedToGolden24h: number;
+              promotedToSilver7d: number;
+              promotedToGolden7d: number;
+              lastUpdate: string | null;
+              refreshedAt: string | null;
+            }
+          >();
           for (const row of result.rows) {
             if (!row.data_quality_level) continue;
             totals.set(row.data_quality_level, {
               count: Number(row.product_count ?? 0),
               percentage: Number(row.percentage ?? 0),
+              avgQualityScore:
+                row.avg_quality_score == null ? null : Number(row.avg_quality_score ?? 0),
+              needsReviewCount: Number(row.needs_review_count ?? 0),
+              promotedToSilver24h: Number(row.promoted_to_silver_24h ?? 0),
+              promotedToGolden24h: Number(row.promoted_to_golden_24h ?? 0),
+              promotedToSilver7d: Number(row.promoted_to_silver_7d ?? 0),
+              promotedToGolden7d: Number(row.promoted_to_golden_7d ?? 0),
+              lastUpdate: row.last_update,
+              refreshedAt: row.refreshed_at,
             });
           }
 
-          const bronze = totals.get('bronze') ?? { count: 0, percentage: 0 };
-          const silver = totals.get('silver') ?? { count: 0, percentage: 0 };
-          const golden = totals.get('golden') ?? { count: 0, percentage: 0 };
-          const review = totals.get('review_needed') ?? { count: 0, percentage: 0 };
+          const emptyLevel = {
+            count: 0,
+            percentage: 0,
+            avgQualityScore: null,
+            needsReviewCount: 0,
+            promotedToSilver24h: 0,
+            promotedToGolden24h: 0,
+            promotedToSilver7d: 0,
+            promotedToGolden7d: 0,
+            lastUpdate: null,
+            refreshedAt: null,
+          };
+          const bronze = totals.get('bronze') ?? emptyLevel;
+          const silver = totals.get('silver') ?? emptyLevel;
+          const golden = totals.get('golden') ?? emptyLevel;
+          const review = totals.get('review_needed') ?? emptyLevel;
           const total = bronze.count + silver.count + golden.count + review.count;
+          const refreshedAt =
+            bronze.refreshedAt ?? silver.refreshedAt ?? golden.refreshedAt ?? review.refreshedAt;
+          const lastUpdate =
+            bronze.lastUpdate ?? silver.lastUpdate ?? golden.lastUpdate ?? review.lastUpdate;
 
           return {
-            bronze,
-            silver,
-            golden,
-            review,
+            bronze: {
+              count: bronze.count,
+              percentage: bronze.percentage,
+              avgQualityScore: bronze.avgQualityScore,
+            },
+            silver: {
+              count: silver.count,
+              percentage: silver.percentage,
+              avgQualityScore: silver.avgQualityScore,
+            },
+            golden: {
+              count: golden.count,
+              percentage: golden.percentage,
+              avgQualityScore: golden.avgQualityScore,
+            },
+            review: {
+              count: review.count,
+              percentage: review.percentage,
+              avgQualityScore: review.avgQualityScore,
+            },
             total,
+            needsReviewCount: review.needsReviewCount,
+            promotions: {
+              toSilver24h:
+                bronze.promotedToSilver24h +
+                silver.promotedToSilver24h +
+                golden.promotedToSilver24h +
+                review.promotedToSilver24h,
+              toGolden24h:
+                bronze.promotedToGolden24h +
+                silver.promotedToGolden24h +
+                golden.promotedToGolden24h +
+                review.promotedToGolden24h,
+              toSilver7d:
+                bronze.promotedToSilver7d +
+                silver.promotedToSilver7d +
+                golden.promotedToSilver7d +
+                review.promotedToSilver7d,
+              toGolden7d:
+                bronze.promotedToGolden7d +
+                silver.promotedToGolden7d +
+                golden.promotedToGolden7d +
+                review.promotedToGolden7d,
+            },
+            lastUpdate,
+            refreshedAt,
             trend,
             trendRange: rangeFrom && rangeTo ? { from: rangeFrom, to: rangeTo } : null,
           };
         });
 
+        setCached(cacheKey, data);
         return reply.send(successEnvelope(request.id, data));
       } catch (error) {
         logger.error({ requestId: request.id, error }, 'Failed to load quality distribution');
@@ -574,6 +777,193 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
               500,
               'INTERNAL_SERVER_ERROR',
               'Failed to load quality distribution'
+            )
+          );
+      }
+    }
+  );
+
+  server.get(
+    '/pim/stats/source-performance',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+
+      const cacheKey = buildCacheKey('/pim/stats/source-performance', session.shopId, {});
+      const cached = getCached<{
+        sources: {
+          sourceType: string;
+          sourceName: string;
+          totalHarvests: number;
+          successfulHarvests: number;
+          pendingHarvests: number;
+          failedHarvests: number;
+          successRate: number;
+          trustScore: number;
+          isActive: boolean;
+          lastHarvestAt: string | null;
+          refreshedAt: string | null;
+        }[];
+        refreshedAt: string | null;
+      }>(cacheKey);
+      if (cached) return reply.send(successEnvelope(request.id, cached));
+
+      try {
+        const data = await withTenantContext(session.shopId, async (client) => {
+          const result = await client.query<{
+            source_type: string | null;
+            source_name: string | null;
+            total_harvests: string | null;
+            successful_harvests: string | null;
+            pending_harvests: string | null;
+            failed_harvests: string | null;
+            success_rate: string | null;
+            trust_score: string | null;
+            is_active: boolean | null;
+            last_harvest_at: string | null;
+            refreshed_at: string | null;
+          }>(
+            `SELECT
+               source_type,
+               source_name,
+               total_harvests,
+               successful_harvests,
+               pending_harvests,
+               failed_harvests,
+               success_rate,
+               trust_score,
+               is_active,
+               last_harvest_at,
+               refreshed_at
+             FROM mv_pim_source_performance
+            WHERE shop_id = $1
+             ORDER BY success_rate DESC NULLS LAST`,
+            [session.shopId]
+          );
+          const sources = result.rows.map((row) => ({
+            sourceType: row.source_type ?? 'unknown',
+            sourceName: row.source_name ?? 'Unknown source',
+            totalHarvests: Number(row.total_harvests ?? 0),
+            successfulHarvests: Number(row.successful_harvests ?? 0),
+            pendingHarvests: Number(row.pending_harvests ?? 0),
+            failedHarvests: Number(row.failed_harvests ?? 0),
+            successRate: Number(row.success_rate ?? 0),
+            trustScore: Number(row.trust_score ?? 0),
+            isActive: Boolean(row.is_active),
+            lastHarvestAt: row.last_harvest_at ?? null,
+            refreshedAt: row.refreshed_at ?? null,
+          }));
+          return {
+            sources,
+            refreshedAt: sources[0]?.refreshedAt ?? null,
+          };
+        });
+        setCached(cacheKey, data);
+        return reply.send(successEnvelope(request.id, data));
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to load source performance');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(
+              request.id,
+              500,
+              'INTERNAL_SERVER_ERROR',
+              'Failed to load source performance'
+            )
+          );
+      }
+    }
+  );
+
+  server.get(
+    '/pim/stats/enrichment-sync',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+
+      const cacheKey = buildCacheKey('/pim/stats/enrichment-sync', session.shopId, {});
+      const cached = getCached<{
+        syncStatus: {
+          dataQualityLevel: string;
+          channel: string;
+          productCount: number;
+          syncedCount: number;
+          syncRate: number;
+          avgQualityScore: number;
+          refreshedAt: string | null;
+        }[];
+        refreshedAt: string | null;
+      }>(cacheKey);
+      if (cached) return reply.send(successEnvelope(request.id, cached));
+
+      try {
+        const data = await withTenantContext(session.shopId, async (client) => {
+          const result = await client.query<{
+            data_quality_level: string | null;
+            channel: string | null;
+            product_count: string | null;
+            synced_count: string | null;
+            sync_rate: string | null;
+            avg_quality_score: string | null;
+            refreshed_at: string | null;
+          }>(
+            `SELECT
+               data_quality_level,
+               channel,
+               product_count,
+               synced_count,
+               sync_rate,
+               avg_quality_score,
+               refreshed_at
+             FROM mv_pim_enrichment_status
+            WHERE shop_id = $1
+             ORDER BY data_quality_level ASC, channel ASC`,
+            [session.shopId]
+          );
+
+          const syncStatus = result.rows.map((row) => ({
+            dataQualityLevel: row.data_quality_level ?? 'unknown',
+            channel: row.channel ?? 'unknown',
+            productCount: Number(row.product_count ?? 0),
+            syncedCount: Number(row.synced_count ?? 0),
+            syncRate: Number(row.sync_rate ?? 0),
+            avgQualityScore: Number(row.avg_quality_score ?? 0),
+            refreshedAt: row.refreshed_at ?? null,
+          }));
+
+          return {
+            syncStatus,
+            refreshedAt: syncStatus[0]?.refreshedAt ?? null,
+          };
+        });
+
+        setCached(cacheKey, data);
+        return reply.send(successEnvelope(request.id, data));
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to load enrichment sync stats');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(
+              request.id,
+              500,
+              'INTERNAL_SERVER_ERROR',
+              'Failed to load enrichment sync stats'
             )
           );
       }

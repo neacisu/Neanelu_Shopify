@@ -4,8 +4,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { DollarSign, TrendingDown, TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { Breadcrumbs } from '../components/layout/breadcrumbs';
-import { PageHeader } from '../components/layout/page-header';
 import { Button } from '../components/ui/button';
 import { BudgetAlertsPanel } from '../components/domain/BudgetAlertsPanel';
 import { BudgetEditModal } from '../components/domain/BudgetEditModal';
@@ -238,6 +236,13 @@ export default function CostTrackingPage() {
   }, [budgetStatus.providers]);
 
   useEffect(() => {
+    const id = setInterval(() => {
+      void revalidator.revalidate();
+    }, 120_000);
+    return () => clearInterval(id);
+  }, [revalidator]);
+
+  useEffect(() => {
     const actionData = fetcher.data;
     if (!actionData) return;
     if (actionData.ok && actionData.toast) {
@@ -254,29 +259,17 @@ export default function CostTrackingPage() {
 
   return (
     <div className="space-y-6">
-      <Breadcrumbs
-        items={[
-          { label: 'Dashboard', href: '/' },
-          { label: 'PIM', href: '/pim/costs' },
-          { label: 'Cost Tracking' },
-        ]}
-      />
-
-      <PageHeader
-        title="API Cost Management"
-        description="Monitorizează costurile Serper/xAI/OpenAI și bugetele zilnice."
-        actions={
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setBudgetModalOpen(true)}
-            disabled={isSubmitting}
-          >
-            <DollarSign className="mr-2 h-4 w-4" />
-            Setari buget
-          </Button>
-        }
-      />
+      <div className="flex justify-end">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setBudgetModalOpen(true)}
+          disabled={isSubmitting}
+        >
+          <DollarSign className="mr-2 h-4 w-4" />
+          Setari buget
+        </Button>
+      </div>
 
       <BudgetAlertsPanel
         budget={costs.budget}

@@ -83,7 +83,7 @@ describe('settings form', () => {
 
     render(<RouterProvider router={router} />);
 
-    await user.click(screen.getByRole('button', { name: 'OpenAI' }));
+    await user.click(screen.getByRole('tab', { name: 'OpenAI' }));
 
     const saveButton = screen.getByRole('button', { name: /salvează setări openai/i });
     await waitFor(() => expect(saveButton).toBeEnabled());

@@ -1,12 +1,10 @@
 import type { LoaderFunctionArgs } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
-import { useLoaderData, useSearchParams } from 'react-router-dom';
+import { useLoaderData, useRevalidator, useSearchParams } from 'react-router-dom';
 import type { DateRange } from 'react-day-picker';
 import { AlertCircle, Trophy, TrendingDown, TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { Breadcrumbs } from '../components/layout/breadcrumbs';
-import { PageHeader } from '../components/layout/page-header';
 import { Button } from '../components/ui/button';
 import { DateRangePicker } from '../components/ui/DateRangePicker';
 import { Timeline, type TimelineEvent } from '../components/ui/Timeline';
@@ -80,6 +78,7 @@ const eventIcon = (type: QualityEvent['eventType']) => {
 
 export default function QualityEventsPage() {
   const { events } = useLoaderData<RouteLoaderData>();
+  const revalidator = useRevalidator();
   const stream = useEnrichmentStream();
   const [searchParams, setSearchParams] = useSearchParams();
   const timeZone =
@@ -90,6 +89,13 @@ export default function QualityEventsPage() {
     parseRangeFromParams(searchParams)
   );
   const seenToastIds = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      void revalidator.revalidate();
+    }, 120_000);
+    return () => clearInterval(id);
+  }, [revalidator]);
 
   useEffect(() => {
     setEventType(searchParams.get('type') ?? 'all');
@@ -181,19 +187,6 @@ export default function QualityEventsPage() {
 
   return (
     <div className="space-y-6">
-      <Breadcrumbs
-        items={[
-          { label: 'Dashboard', href: '/' },
-          { label: 'PIM', href: '/pim/events' },
-          { label: 'Quality Events' },
-        ]}
-      />
-
-      <PageHeader
-        title="Quality Events Timeline"
-        description="Audit trail pentru promovări, demotări și review requests."
-      />
-
       <div className="rounded-lg border border-muted/20 bg-background p-4">
         <div className="grid gap-3 lg:grid-cols-[200px_1fr_1fr_auto]">
           <div>

@@ -27,6 +27,7 @@ import { startExtractionWorker } from './processors/pim/extraction.worker.js';
 import { startConsensusWorker } from './processors/pim/consensus.worker.js';
 import { startBudgetResetScheduler } from './processors/pim/budget-reset.worker.js';
 import { startWeeklySummaryScheduler } from './processors/pim/weekly-summary.worker.js';
+import { startMvRefreshScheduler } from './processors/pim/mv-refresh.worker.js';
 import { pauseCostSensitiveQueues } from './processors/pim/cost-sensitive-queues.js';
 import { scheduleTokenHealthJob, closeTokenHealthQueue } from './queue/token-health-queue.js';
 import { closeSimilarityQueues } from './queue/similarity-queues.js';
@@ -112,6 +113,7 @@ let extractionWorker: Awaited<ReturnType<typeof startExtractionWorker>> | null =
 let consensusWorker: Awaited<ReturnType<typeof startConsensusWorker>> | null = null;
 let budgetResetScheduler: Awaited<ReturnType<typeof startBudgetResetScheduler>> | null = null;
 let weeklySummaryScheduler: Awaited<ReturnType<typeof startWeeklySummaryScheduler>> | null = null;
+let mvRefreshScheduler: Awaited<ReturnType<typeof startMvRefreshScheduler>> | null = null;
 let queueConfigListener: Awaited<ReturnType<typeof startQueueConfigListener>> | null = null;
 let budgetGaugeRedis: IORedis | null = null;
 let budgetGaugeInterval: NodeJS.Timeout | null = null;
@@ -289,6 +291,14 @@ try {
     timestamp: new Date().toISOString(),
   });
 
+  mvRefreshScheduler = startMvRefreshScheduler(logger);
+  logger.info({}, 'pim mv refresh scheduler started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'pim-mv-refresh-worker',
+    timestamp: new Date().toISOString(),
+  });
+
   budgetGaugeRedis = new IORedis(env.redisUrl, {
     enableReadyCheck: true,
     maxRetriesPerRequest: null,
@@ -325,6 +335,7 @@ try {
     'pim-ai-audit': similarityAIAuditWorker?.worker as unknown as { concurrency?: number },
     'pim-extraction': extractionWorker?.worker as unknown as { concurrency?: number },
     'pim-consensus': consensusWorker?.worker as unknown as { concurrency?: number },
+    'pim-mv-refresh-queue': mvRefreshScheduler?.worker as unknown as { concurrency?: number },
   });
   logger.info({}, 'queue config listener started');
 } catch (error) {
@@ -514,6 +525,17 @@ const shutdown = async (signal: string): Promise<void> => {
       emitQueueStreamEvent({
         type: 'worker.offline',
         workerId: 'pim-weekly-summary-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (mvRefreshScheduler) {
+      await mvRefreshScheduler.close();
+      mvRefreshScheduler = null;
+      logger.info({ signal }, 'pim mv refresh scheduler stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'pim-mv-refresh-worker',
         timestamp: new Date().toISOString(),
       });
     }

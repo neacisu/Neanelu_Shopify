@@ -54,6 +54,8 @@ export const DEFAULT_QUEUE_TIMEOUTS_MS: QueueTimeoutsMs = {
   'pim-extraction': 10 * 60_000,
   // Consensus is CPU-bound and DB-heavy but should stay bounded.
   'pim-consensus': 10 * 60_000,
+  // MV refresh jobs run database functions and should complete quickly.
+  'pim-mv-refresh-queue': 5 * 60_000,
 } as const;
 
 export function defaultJobTimeoutMs(queueName: KnownQueueName): number {
