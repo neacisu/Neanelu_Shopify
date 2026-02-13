@@ -118,6 +118,14 @@ export type AppEnv = Readonly<{
   pimWeeklySummaryWebhookUrl?: string;
   /** Optional HMAC secret used to sign weekly summary webhooks */
   pimWeeklySummaryWebhookSecret?: string;
+  /** Timeout for a single quality webhook HTTP request (milliseconds) */
+  qualityWebhookTimeoutMs: number;
+  /** Max attempts for quality webhook queue */
+  qualityWebhookMaxAttempts: number;
+  /** Kill-switch for quality webhook sweep scheduler */
+  qualityWebhookSweepEnabled: boolean;
+  /** Max age in days for pending events considered by sweep */
+  qualityWebhookSweepMaxAgeDays: number;
 
   // ============================================
   // BULK DEDUP + CONSENSUS + PIM SYNC (PR-043 / F5.2.9-F5.2.10)
@@ -496,6 +504,26 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
   );
   const pimWeeklySummaryWebhookUrl = optionalString(env, 'PIM_WEEKLY_SUMMARY_WEBHOOK_URL');
   const pimWeeklySummaryWebhookSecret = optionalString(env, 'PIM_WEEKLY_SUMMARY_WEBHOOK_SECRET');
+  const qualityWebhookTimeoutMs = parsePositiveIntWithDefault(
+    env,
+    'QUALITY_WEBHOOK_TIMEOUT_MS',
+    10_000
+  );
+  const qualityWebhookMaxAttempts = parsePositiveIntWithDefault(
+    env,
+    'QUALITY_WEBHOOK_MAX_ATTEMPTS',
+    3
+  );
+  const qualityWebhookSweepEnabled = parseBooleanWithDefault(
+    env,
+    'QUALITY_WEBHOOK_SWEEP_ENABLED',
+    true
+  );
+  const qualityWebhookSweepMaxAgeDays = parsePositiveIntWithDefault(
+    env,
+    'QUALITY_WEBHOOK_SWEEP_MAX_AGE_DAYS',
+    7
+  );
 
   const bulkPimSyncEnabled = parseBooleanWithDefault(env, 'BULK_PIM_SYNC_ENABLED', true);
   const bulkSemanticDedupEnabled = parseBooleanWithDefault(
@@ -600,6 +628,10 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     xaiHealthCheckIntervalSeconds,
     ...(pimWeeklySummaryWebhookUrl ? { pimWeeklySummaryWebhookUrl } : {}),
     ...(pimWeeklySummaryWebhookSecret ? { pimWeeklySummaryWebhookSecret } : {}),
+    qualityWebhookTimeoutMs,
+    qualityWebhookMaxAttempts,
+    qualityWebhookSweepEnabled,
+    qualityWebhookSweepMaxAgeDays,
 
     bulkPimSyncEnabled,
     bulkSemanticDedupEnabled,

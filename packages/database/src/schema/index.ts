@@ -44,6 +44,7 @@ export * from './bulk-schedules.ts';
 export * from './pim.ts';
 export * from './pim-similarity.ts';
 export * from './pim-notifications.ts';
+export * from './quality-webhook-deliveries.ts';
 
 // ============================================
 // Module E: Attribute Normalization & Vectors

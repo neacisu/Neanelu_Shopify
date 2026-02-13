@@ -15,6 +15,7 @@ import {
   customType,
   numeric,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { shops } from './shops.ts';
 
 const bytea = customType<{ data: Buffer }>({
@@ -97,6 +98,14 @@ export const shopAiCredentials = pgTable(
     xaiLastCheckedAt: timestamp('xai_last_checked_at', { withTimezone: true }),
     xaiLastError: text('xai_last_error'),
     xaiLastSuccessAt: timestamp('xai_last_success_at', { withTimezone: true }),
+
+    qualityWebhookUrl: text('quality_webhook_url'),
+    qualityWebhookSecret: text('quality_webhook_secret'),
+    qualityWebhookEnabled: boolean('quality_webhook_enabled').notNull().default(false),
+    qualityWebhookEvents: text('quality_webhook_events')
+      .array()
+      .notNull()
+      .default(sql`'{quality_promoted,quality_demoted,review_requested,milestone_reached}'`),
 
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),

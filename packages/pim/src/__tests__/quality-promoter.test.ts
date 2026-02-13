@@ -372,4 +372,26 @@ describe('quality-promoter', { skip: shouldSkip }, () => {
     expect(event?.event_type).toBe('milestone_reached');
     expect(event?.trigger_details?.['milestone']).toBe(target);
   });
+
+  it('calls onEventCreated callback after event is persisted', async () => {
+    const productId = await createProduct('bronze');
+    const db = requirePool();
+    const captured: string[] = [];
+    const result = await applyQualityLevelChange({
+      client: db,
+      productId,
+      qualityScore: 0.65,
+      sourceCount: 2,
+      consensusSpecs: { brand: 'X', category: 'Y' },
+      trigger: 'match_confirmed',
+      shopId: '00000000-0000-0000-0000-000000000001',
+      onEventCreated: (eventId) => {
+        captured.push(eventId);
+      },
+    });
+
+    expect(result.changed).toBe(true);
+    expect(captured.length).toBe(1);
+    expect(captured[0]).toBeTruthy();
+  });
 });

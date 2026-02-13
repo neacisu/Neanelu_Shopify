@@ -11,4 +11,5 @@ export * from './similarity-matches.js';
 export * from './settings.js';
 export * from './shop.js';
 export * from './user.js';
+export * from './quality-webhooks.js';
 export * from './webhooks.js';

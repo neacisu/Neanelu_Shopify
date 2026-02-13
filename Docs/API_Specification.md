@@ -449,3 +449,74 @@ API-ul folosește versioning prin header:
 - `X-API-Version: 2025-10`
 
 Fallback la 2025-07 dacă 2025-10 nu e disponibil.
+
+---
+
+## 8. Quality Webhooks (Outbound)
+
+Outbound quality events sunt trimise de sistem către endpoint-ul configurat per shop.
+
+### GET /api/pim/webhooks/config
+
+Returnează configurația curentă:
+
+- `url`
+- `enabled`
+- `subscribedEvents`
+- `secretMasked` (`***...last4`)
+
+### PUT /api/pim/webhooks/config
+
+Actualizează configurația webhook:
+
+```json
+{
+  "url": "https://example.com/webhooks/quality",
+  "enabled": true,
+  "subscribedEvents": ["quality_promoted", "quality_demoted"],
+  "regenerateSecret": false
+}
+```
+
+Reguli:
+
+- URL validat; în production este permis doar `https://`
+- dacă `enabled=true` și secretul lipsește, backend generează automat un secret
+- când secretul este generat/regenerat, răspunsul include `secretPlaintext` o singură dată
+
+### POST /api/pim/webhooks/test
+
+Trimite payload de test (nu se loghează în `quality_webhook_deliveries`).
+
+### GET /api/pim/webhooks/deliveries
+
+Listează tentativele de livrare reale, cu filtrare:
+
+- `eventType`
+- `status` (`success` / `failed`)
+- `limit`, `offset`
+
+### POST /api/pim/webhooks/deliveries/:eventId/retry
+
+Re-queue manual pentru un eveniment eșuat. Include rate limit: max 1 retry / event / minut.
+
+### Headers pentru outbound delivery
+
+- `Content-Type: application/json`
+- `X-Neanelu-Event: <event_type>`
+- `X-Neanelu-Timestamp: <epoch_ms>`
+- `X-Neanelu-Signature: <hex_hmac_sha256>`
+
+### Verificare semnătură
+
+Formula:
+
+`sha256(secret, "${timestamp}.${rawBody}")`
+
+Semnătura rezultată trebuie să fie egală cu `X-Neanelu-Signature`.
+
+### Retry policy
+
+- Retry orchestrat de BullMQ (fără retry intern în dispatcher)
+- `attempts=3`, backoff exponențial (`1s`, `2s`, `4s`)
+- fiecare tentativă este logată în `quality_webhook_deliveries`

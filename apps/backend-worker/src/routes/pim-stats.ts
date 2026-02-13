@@ -1593,27 +1593,82 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
             quality_score_before: string | null;
             trigger_reason: string | null;
             trigger_details: Record<string, unknown> | null;
+            webhook_sent: boolean;
+            webhook_sent_at: string | null;
+            webhook_status: 'sent' | 'pending' | 'retrying' | 'failed';
+            webhook_last_http_status: number | null;
             created_at: string;
           }>(
-            `SELECT id, event_type, product_id, previous_level, new_level, quality_score_after, quality_score_before, trigger_reason, trigger_details, created_at
-               FROM prod_quality_events
-              WHERE ($1::text IS NULL OR event_type = $1)
-                AND ($2::timestamptz IS NULL OR created_at >= $2)
-                AND ($3::timestamptz IS NULL OR created_at <= $3)
-                AND ($4::text IS NULL OR product_id::text ILIKE '%' || $4 || '%')
-              ORDER BY created_at DESC
-              LIMIT $5 OFFSET $6`,
-            [eventType, from, to, search, limit, offset]
+            `SELECT
+               qe.id,
+               qe.event_type,
+               qe.product_id,
+               qe.previous_level,
+               qe.new_level,
+               qe.quality_score_after,
+               qe.quality_score_before,
+               qe.trigger_reason,
+               qe.trigger_details,
+               qe.webhook_sent,
+               qe.webhook_sent_at,
+               CASE
+                 WHEN qe.webhook_sent = true THEN 'sent'
+                 WHEN COALESCE(ld.attempt, 0) >= $7::int
+                   AND (ld.http_status IS NULL OR ld.http_status < 200 OR ld.http_status > 299)
+                   THEN 'failed'
+                 WHEN COALESCE(ld.attempt, 0) > 0 THEN 'retrying'
+                 ELSE 'pending'
+               END AS webhook_status,
+               ld.http_status AS webhook_last_http_status,
+               qe.created_at
+             FROM prod_quality_events qe
+             LEFT JOIN LATERAL (
+               SELECT qwd.http_status, qwd.attempt
+               FROM quality_webhook_deliveries qwd
+               WHERE qwd.event_id = qe.id
+               ORDER BY qwd.created_at DESC
+               LIMIT 1
+             ) ld ON true
+             WHERE EXISTS (
+               SELECT 1
+               FROM prod_channel_mappings pcm
+               WHERE pcm.product_id = qe.product_id
+                 AND pcm.shop_id = $8
+                 AND pcm.channel = 'shopify'
+             )
+               AND ($1::text IS NULL OR qe.event_type = $1)
+               AND ($2::timestamptz IS NULL OR qe.created_at >= $2)
+               AND ($3::timestamptz IS NULL OR qe.created_at <= $3)
+               AND ($4::text IS NULL OR qe.product_id::text ILIKE '%' || $4 || '%')
+             ORDER BY qe.created_at DESC
+             LIMIT $5 OFFSET $6`,
+            [
+              eventType,
+              from,
+              to,
+              search,
+              limit,
+              offset,
+              env.qualityWebhookMaxAttempts,
+              session.shopId,
+            ]
           );
 
           const totalCountResult = await client.query<{ count: string }>(
             `SELECT COUNT(*)::text as count
-               FROM prod_quality_events
-              WHERE ($1::text IS NULL OR event_type = $1)
-                AND ($2::timestamptz IS NULL OR created_at >= $2)
-                AND ($3::timestamptz IS NULL OR created_at <= $3)
-                AND ($4::text IS NULL OR product_id::text ILIKE '%' || $4 || '%')`,
-            [eventType, from, to, search]
+               FROM prod_quality_events qe
+              WHERE EXISTS (
+                SELECT 1
+                FROM prod_channel_mappings pcm
+                WHERE pcm.product_id = qe.product_id
+                  AND pcm.shop_id = $5
+                  AND pcm.channel = 'shopify'
+              )
+                AND ($1::text IS NULL OR qe.event_type = $1)
+                AND ($2::timestamptz IS NULL OR qe.created_at >= $2)
+                AND ($3::timestamptz IS NULL OR qe.created_at <= $3)
+                AND ($4::text IS NULL OR qe.product_id::text ILIKE '%' || $4 || '%')`,
+            [eventType, from, to, search, session.shopId]
           );
           const totalCount = Number(totalCountResult.rows[0]?.count ?? 0);
 
@@ -1631,6 +1686,10 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
                   : null,
               triggerReason: row.trigger_reason ?? null,
               triggerDetails: row.trigger_details ?? null,
+              webhookSent: row.webhook_sent,
+              webhookSentAt: row.webhook_sent_at,
+              webhookStatus: row.webhook_status,
+              webhookLastHttpStatus: row.webhook_last_http_status,
               timestamp: row.created_at,
             })),
             hasMore: offset + limit < totalCount,
@@ -1733,6 +1792,50 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
     }
   );
 
+  server.put(
+    '/pim/notifications/mark-all-read',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      try {
+        const updated = await withTenantContext(session.shopId, async (client) => {
+          const result = await client.query<{ count: string }>(
+            `WITH updated_rows AS (
+               UPDATE pim_notifications
+               SET read = true
+               WHERE shop_id = $1
+                 AND read = false
+               RETURNING 1
+             )
+             SELECT COUNT(*)::text AS count FROM updated_rows`,
+            [session.shopId]
+          );
+          return Number(result.rows[0]?.count ?? 0);
+        });
+        return reply.send(successEnvelope(request.id, { updated }));
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to mark notifications as read');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(
+              request.id,
+              500,
+              'INTERNAL_SERVER_ERROR',
+              'Failed to mark notifications as read'
+            )
+          );
+      }
+    }
+  );
+
   server.get(
     '/pim/notifications/unread-count',
     {
@@ -1807,14 +1910,53 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
               quality_score_before: string | null;
               trigger_reason: string | null;
               trigger_details: Record<string, unknown> | null;
+              webhook_sent: boolean;
+              webhook_sent_at: string | null;
+              webhook_status: 'sent' | 'pending' | 'retrying' | 'failed';
+              webhook_last_http_status: number | null;
               created_at: string;
             }>(
-              `SELECT id, event_type, product_id, previous_level, new_level, quality_score_after, quality_score_before, trigger_reason, trigger_details, created_at
-                 FROM prod_quality_events
-                WHERE created_at > $1
-                ORDER BY created_at ASC
-                LIMIT 100`,
-              [lastSeenAt]
+              `SELECT
+                 qe.id,
+                 qe.event_type,
+                 qe.product_id,
+                 qe.previous_level,
+                 qe.new_level,
+                 qe.quality_score_after,
+                 qe.quality_score_before,
+                 qe.trigger_reason,
+                 qe.trigger_details,
+                 qe.webhook_sent,
+                 qe.webhook_sent_at,
+                 CASE
+                   WHEN qe.webhook_sent = true THEN 'sent'
+                   WHEN COALESCE(ld.attempt, 0) >= $3::int
+                     AND (ld.http_status IS NULL OR ld.http_status < 200 OR ld.http_status > 299)
+                     THEN 'failed'
+                   WHEN COALESCE(ld.attempt, 0) > 0 THEN 'retrying'
+                   ELSE 'pending'
+                 END AS webhook_status,
+                 ld.http_status AS webhook_last_http_status,
+                 qe.created_at
+               FROM prod_quality_events qe
+               LEFT JOIN LATERAL (
+                 SELECT qwd.http_status, qwd.attempt
+                 FROM quality_webhook_deliveries qwd
+                 WHERE qwd.event_id = qe.id
+                 ORDER BY qwd.created_at DESC
+                 LIMIT 1
+               ) ld ON true
+               WHERE qe.created_at > $1
+                 AND EXISTS (
+                   SELECT 1
+                   FROM prod_channel_mappings pcm
+                   WHERE pcm.product_id = qe.product_id
+                     AND pcm.shop_id = $2
+                     AND pcm.channel = 'shopify'
+                 )
+               ORDER BY qe.created_at ASC
+               LIMIT 100`,
+              [lastSeenAt, session.shopId, env.qualityWebhookMaxAttempts]
             );
 
             return result.rows;
@@ -1838,6 +1980,10 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
                   : null,
               triggerReason: row.trigger_reason ?? null,
               triggerDetails: row.trigger_details ?? null,
+              webhookSent: row.webhook_sent,
+              webhookSentAt: row.webhook_sent_at,
+              webhookStatus: row.webhook_status,
+              webhookLastHttpStatus: row.webhook_last_http_status,
               timestamp: row.created_at,
             });
           }

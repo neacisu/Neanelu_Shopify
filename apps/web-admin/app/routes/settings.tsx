@@ -8,6 +8,7 @@ import { Tabs } from '../components/ui/tabs';
 const tabs = [
   { label: 'General', value: 'general' },
   { label: 'API & Webhooks', value: 'api' },
+  { label: 'Webhooks', value: 'webhooks' },
   { label: 'Queues', value: 'queues' },
   { label: 'OpenAI', value: 'openai' },
   { label: 'Serper', value: 'serper' },

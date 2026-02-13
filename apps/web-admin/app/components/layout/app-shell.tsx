@@ -14,6 +14,7 @@ import {
 import { NavLink } from './nav-link';
 import { ShopSelector } from './shop-selector';
 import { usePendingSimilarityMatchCount } from '../../hooks/use-similarity-matches';
+import { NotificationBell } from './notification-bell';
 
 export type AppShellProps = PropsWithChildren<{
   sidebarOpen?: boolean;
@@ -114,14 +115,17 @@ export function AppShell({
 
               <ShopSelector />
 
-              <button
-                type="button"
-                className="inline-flex items-center gap-2 rounded-md border border-muted/20 bg-background px-3 py-2 text-caption text-foreground shadow-sm hover:bg-muted/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                aria-label="Open user menu"
-              >
-                <UserRound className="size-4" />
-                Admin
-              </button>
+              <div className="flex items-center gap-2">
+                <NotificationBell />
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-2 rounded-md border border-muted/20 bg-background px-3 py-2 text-caption text-foreground shadow-sm hover:bg-muted/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                  aria-label="Open user menu"
+                >
+                  <UserRound className="size-4" />
+                  Admin
+                </button>
+              </div>
             </div>
           </header>
 

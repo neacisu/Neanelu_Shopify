@@ -31,6 +31,7 @@
     "@app/config": "workspace:*",
     "@app/database": "workspace:*",
     "@app/logger": "workspace:*",
+    "@app/types": "workspace:*",
     "ioredis": "^5.8.2",
     "pg": "^8.16.3",
     "zod": "^4.3.5"

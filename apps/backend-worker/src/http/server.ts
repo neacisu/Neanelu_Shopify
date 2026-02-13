@@ -31,6 +31,7 @@ import { connectionStatusRoutes } from '../routes/connection-status.js';
 import { webhookSettingsRoutes } from '../routes/webhook-settings.js';
 import { queueSettingsRoutes } from '../routes/queue-settings.js';
 import { pimStatsRoutes } from '../routes/pim-stats.js';
+import { qualityWebhookSettingsRoutes } from '../routes/quality-webhook-settings.js';
 import { setRequestIdAttribute } from '@app/logger';
 import {
   httpActiveRequests,
@@ -284,6 +285,12 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await server.register(connectionStatusRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(webhookSettingsRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(queueSettingsRoutes, { prefix: '/api', env, logger, sessionConfig });
+  await server.register(qualityWebhookSettingsRoutes, {
+    prefix: '/api',
+    env,
+    logger,
+    sessionConfig,
+  });
 
   // Compatibility mounting without /api prefix.
   // Some reverse proxies (or legacy deployments) may strip `/api` before forwarding.
@@ -303,6 +310,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await server.register(connectionStatusRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(webhookSettingsRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(queueSettingsRoutes, { prefix: '', env, logger, sessionConfig });
+  await server.register(qualityWebhookSettingsRoutes, { prefix: '', env, logger, sessionConfig });
 
   server.get('/api/health', (request, reply) => {
     void reply.status(200).send({
