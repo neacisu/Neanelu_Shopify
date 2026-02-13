@@ -1,4 +1,4 @@
-import cronParser from 'cron-parser';
+import { CronExpressionParser } from 'cron-parser';
 import type { Logger } from '@app/logger';
 import { pool, withTenantContext } from '@app/database';
 import { startBulkQueryFromContract } from './orchestrator.js';
@@ -16,7 +16,7 @@ type ScheduleRow = Readonly<{
 
 function safeParseCron(params: { cron: string; timezone: string; baseDate: Date }): Date | null {
   try {
-    const iter = cronParser.parseExpression(params.cron, {
+    const iter = CronExpressionParser.parse(params.cron, {
       tz: params.timezone,
       currentDate: params.baseDate,
     });

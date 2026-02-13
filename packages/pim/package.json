@@ -32,12 +32,12 @@
     "@app/database": "workspace:*",
     "@app/logger": "workspace:*",
     "@app/types": "workspace:*",
-    "ioredis": "^5.8.2",
-    "pg": "^8.16.3",
-    "zod": "^4.3.5"
+    "ioredis": "^5.9.3",
+    "pg": "^8.18.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "^4.0.18"
   }
 }

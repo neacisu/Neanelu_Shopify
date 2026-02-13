@@ -280,7 +280,7 @@ export const xaiSettingsRoutes: FastifyPluginCallback<XaiSettingsPluginOptions> 
           const values: (string | boolean | number | Buffer | null)[] = [session.shopId];
           let idx = 2;
 
-          let nextStatus: XaiSettingsResponse['connectionStatus'] | null = null;
+          let nextStatus: XaiSettingsResponse['connectionStatus'] | null | undefined;
           if (enabled !== undefined) {
             updates.push(`xai_enabled = $${idx++}`);
             values.push(enabled);
@@ -346,8 +346,8 @@ export const xaiSettingsRoutes: FastifyPluginCallback<XaiSettingsPluginOptions> 
             }
           }
 
-          if (nextStatus) {
-            updates.push(`xai_connection_status = $${idx++}`);
+          if (nextStatus != null) {
+            updates.push(`xai_connection_status = $${idx}`);
             values.push(nextStatus);
             updates.push(`xai_last_error = NULL`);
           }

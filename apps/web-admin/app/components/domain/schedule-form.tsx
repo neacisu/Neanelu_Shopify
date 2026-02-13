@@ -1,7 +1,7 @@
 import type { DateRange } from 'react-day-picker';
 import { useMemo, useState } from 'react';
 import { addHours, format } from 'date-fns';
-import cronParser from 'cron-parser';
+import { CronExpressionParser } from 'cron-parser';
 
 import { Button } from '../ui/button';
 import { DateRangePicker } from '../ui/DateRangePicker';
@@ -35,7 +35,7 @@ const TIMEZONES = [
 
 function safePreview(cron: string, timezone: string, range?: DateRange): string[] {
   try {
-    const interval = cronParser.parseExpression(cron, {
+    const interval = CronExpressionParser.parse(cron, {
       tz: timezone,
       ...(range?.from ? { currentDate: range.from } : {}),
     });
@@ -53,7 +53,7 @@ function safePreview(cron: string, timezone: string, range?: DateRange): string[
 
 function isHourlyOrMore(cron: string, timezone: string): boolean {
   try {
-    const interval = cronParser.parseExpression(cron, { tz: timezone });
+    const interval = CronExpressionParser.parse(cron, { tz: timezone });
     const first = interval.next().toDate();
     const second = interval.next().toDate();
     return second.getTime() - first.getTime() >= addHours(new Date(0), 1).getTime();

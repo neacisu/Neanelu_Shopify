@@ -188,7 +188,7 @@ export async function runPimSyncFromBulkRun(params: {
           return `${t} ${br}`.trim();
         });
 
-        let embeddings: readonly (readonly number[])[] = [];
+        let embeddings: readonly (readonly number[])[];
         try {
           await enforceBudget({ provider: 'openai', shopId: params.shopId });
           embeddings = await provider.embedTexts(batchTexts);
