@@ -10,6 +10,7 @@ import {
   EmbeddingsDisabledError,
   gateOpenAiEmbeddingRequest,
 } from '@app/ai-engine';
+import { checkBudget } from '@app/pim';
 import type { ProductSearchResponse, ProductSearchResult } from '@app/types';
 import type { SessionConfig } from '../auth/session.js';
 import { getSessionFromRequest, requireSession } from '../auth/session.js';
@@ -167,6 +168,11 @@ function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(normalized.length / 4));
 }
 
+async function isOpenAiBudgetExceeded(shopId: string): Promise<boolean> {
+  const status = await checkBudget('openai', shopId);
+  return status.exceeded;
+}
+
 function toExportRow(result: ProductSearchResult) {
   return {
     id: result.id,
@@ -321,6 +327,20 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           env,
           logger,
         });
+
+        if (await isOpenAiBudgetExceeded(session.shopId)) {
+          void reply
+            .status(429)
+            .send(
+              errorEnvelope(
+                request.id,
+                429,
+                'BUDGET_EXCEEDED',
+                'Bugetul zilnic OpenAI este epuizat. Incearca din nou dupa resetarea zilnica.'
+              )
+            );
+          return;
+        }
 
         const provider = createEmbeddingsProvider({
           ...(openAiConfig.openAiApiKey ? { openAiApiKey: openAiConfig.openAiApiKey } : {}),
@@ -650,6 +670,16 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
     void (async () => {
       exportJobs.set(jobId, { ...initial, status: 'processing', progress: 10 });
       try {
+        if (await isOpenAiBudgetExceeded(session.shopId)) {
+          exportJobs.set(jobId, {
+            ...initial,
+            status: 'failed',
+            progress: 100,
+            error: 'BUDGET_EXCEEDED: Bugetul zilnic OpenAI este epuizat.',
+          });
+          return;
+        }
+
         const openAiConfig = await getShopOpenAiConfig({
           shopId: session.shopId,
           env,

@@ -9,50 +9,55 @@ const SERPER_ENDPOINT = 'https://google.serper.dev/search';
 
 export async function searchProductByGTIN(
   gtin: string,
-  productId?: string
+  productId?: string,
+  shopId?: string
 ): Promise<ExternalProductSearchResult[]> {
   if (productId && (await hasEnoughConfirmedMatches(productId, 3))) {
     return [];
   }
-  return executeSearch({ query: gtin, searchType: 'search' }, productId);
+  return executeSearch({ query: gtin, searchType: 'search' }, productId, shopId);
 }
 
 export async function searchProductByMPN(
   brand: string,
   mpn: string,
-  productId?: string
+  productId?: string,
+  shopId?: string
 ): Promise<ExternalProductSearchResult[]> {
   if (productId && (await hasEnoughConfirmedMatches(productId, 3))) {
     return [];
   }
-  return executeSearch({ query: `${brand} ${mpn}`, searchType: 'search' }, productId);
+  return executeSearch({ query: `${brand} ${mpn}`, searchType: 'search' }, productId, shopId);
 }
 
 export async function searchProductByTitle(
   title: string,
   brand?: string,
-  productId?: string
+  productId?: string,
+  shopId?: string
 ): Promise<ExternalProductSearchResult[]> {
   if (productId && (await hasEnoughConfirmedMatches(productId, 3))) {
     return [];
   }
   const query = brand ? `${brand} ${title}` : title;
-  return executeSearch({ query, searchType: 'search' }, productId);
+  return executeSearch({ query, searchType: 'search' }, productId, shopId);
 }
 
 export async function searchProductShopping(
   query: string,
-  productId?: string
+  productId?: string,
+  shopId?: string
 ): Promise<ExternalProductSearchResult[]> {
   if (productId && (await hasEnoughConfirmedMatches(productId, 3))) {
     return [];
   }
-  return executeSearch({ query, searchType: 'shopping' }, productId);
+  return executeSearch({ query, searchType: 'shopping' }, productId, shopId);
 }
 
 async function executeSearch(
   options: SerperSearchOptions,
-  productId?: string
+  productId?: string,
+  shopId?: string
 ): Promise<ExternalProductSearchResult[]> {
   const apiKey = process.env['SERPER_API_KEY'];
   if (!apiKey) {
@@ -104,6 +109,7 @@ async function executeSearch(
 
     await trackSerperCost({
       endpoint: options.searchType ?? 'search',
+      ...(shopId ? { shopId } : {}),
       httpStatus,
       responseTimeMs,
       ...(productId ? { productId } : {}),
@@ -116,6 +122,7 @@ async function executeSearch(
   } catch (error) {
     await trackSerperCost({
       endpoint: options.searchType ?? 'search',
+      ...(shopId ? { shopId } : {}),
       httpStatus,
       responseTimeMs: Date.now() - startTime,
       ...(productId ? { productId } : {}),

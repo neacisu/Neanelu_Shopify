@@ -4,10 +4,9 @@ import {
   configFromEnv,
   createQueue,
   createWorker,
-  ENRICHMENT_QUEUE_NAME,
   withJobTelemetryContext,
 } from '@app/queue-manager';
-import { recordPimQueuePaused } from '../../otel/metrics.js';
+import { resumeCostSensitiveQueues } from './cost-sensitive-queues.js';
 
 export const BUDGET_RESET_QUEUE_NAME = 'pim-budget-reset-queue';
 export const BUDGET_RESET_JOB_NAME = 'pim.budget.daily-reset';
@@ -22,20 +21,17 @@ export async function runBudgetResetTick(params: {
   config: ReturnType<typeof configFromEnv>;
   logger: Logger;
 }): Promise<boolean> {
-  const enrichmentQueue = createQueue({ config: params.config }, { name: ENRICHMENT_QUEUE_NAME });
-  try {
-    const paused = await enrichmentQueue.isPaused();
-    if (paused) {
-      await enrichmentQueue.resume();
-      // Balance the paused counter stream by emitting scheduler transition.
-      recordPimQueuePaused('scheduler');
-      params.logger.info({}, 'Enrichment queue resumed after daily budget reset');
-      return true;
-    }
-    return false;
-  } finally {
-    await enrichmentQueue.close();
-  }
+  const results = await resumeCostSensitiveQueues({
+    config: params.config,
+    trigger: 'scheduler',
+    logger: params.logger,
+  });
+  const resumedCount = results.filter((result) => result.changed).length;
+  params.logger.info(
+    { resumedCount, queueCount: results.length },
+    'Cost-sensitive queues processed after daily budget reset'
+  );
+  return resumedCount > 0;
 }
 
 export function startBudgetResetScheduler(logger: Logger): BudgetResetWorkerHandle {

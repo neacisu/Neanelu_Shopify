@@ -6,7 +6,12 @@ import { configFromEnv, createQueue, ENRICHMENT_QUEUE_NAME } from '@app/queue-ma
 import { checkAllBudgets } from '@app/pim';
 import type { SessionConfig } from '../auth/session.js';
 import { requireSession } from '../auth/session.js';
-import { recordPimQueuePaused } from '../otel/metrics.js';
+import { recordPimQueuePaused, recordPimQueueResumed } from '../otel/metrics.js';
+import {
+  pauseCostSensitiveQueues,
+  readCostSensitiveQueueStatus,
+  resumeCostSensitiveQueues,
+} from '../processors/pim/cost-sensitive-queues.js';
 
 interface PimStatsPluginOptions {
   env: AppEnv;
@@ -896,7 +901,7 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
         const queue = createQueue({ config: configFromEnv(env) }, { name: ENRICHMENT_QUEUE_NAME });
         await queue.pause();
         await queue.close();
-        recordPimQueuePaused('manual');
+        recordPimQueuePaused('manual', ENRICHMENT_QUEUE_NAME);
         return reply.send(successEnvelope(request.id, { paused: true }));
       } catch (error) {
         logger.error({ requestId: request.id, error }, 'Failed to pause enrichment queue');
@@ -930,6 +935,7 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
         const queue = createQueue({ config: configFromEnv(env) }, { name: ENRICHMENT_QUEUE_NAME });
         await queue.resume();
         await queue.close();
+        recordPimQueueResumed('manual', ENRICHMENT_QUEUE_NAME);
         return reply.send(successEnvelope(request.id, { resumed: true }));
       } catch (error) {
         logger.error({ requestId: request.id, error }, 'Failed to resume enrichment queue');
@@ -941,6 +947,131 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
               500,
               'INTERNAL_SERVER_ERROR',
               'Failed to resume enrichment queue'
+            )
+          );
+      }
+    }
+  );
+
+  server.post(
+    '/pim/stats/cost-tracking/pause-all-cost-queues',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      try {
+        const results = await pauseCostSensitiveQueues({
+          config: configFromEnv(env),
+          trigger: 'manual',
+          logger,
+        });
+        return reply.send(
+          successEnvelope(request.id, {
+            paused: true,
+            queues: results,
+          })
+        );
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to pause all cost-sensitive queues');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(
+              request.id,
+              500,
+              'INTERNAL_SERVER_ERROR',
+              'Failed to pause all cost-sensitive queues'
+            )
+          );
+      }
+    }
+  );
+
+  server.post(
+    '/pim/stats/cost-tracking/resume-all-cost-queues',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      try {
+        const results = await resumeCostSensitiveQueues({
+          config: configFromEnv(env),
+          trigger: 'manual',
+          logger,
+        });
+        return reply.send(
+          successEnvelope(request.id, {
+            resumed: true,
+            queues: results,
+          })
+        );
+      } catch (error) {
+        logger.error(
+          { requestId: request.id, error },
+          'Failed to resume all cost-sensitive queues'
+        );
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(
+              request.id,
+              500,
+              'INTERNAL_SERVER_ERROR',
+              'Failed to resume all cost-sensitive queues'
+            )
+          );
+      }
+    }
+  );
+
+  server.get(
+    '/pim/stats/cost-tracking/budget-guard-status',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      try {
+        const budgets = await checkAllBudgets(session.shopId);
+        const queueStatus = await readCostSensitiveQueueStatus(configFromEnv(env));
+        return reply.send(
+          successEnvelope(request.id, {
+            providers: budgets.map((budget) => ({
+              provider: budget.provider,
+              exceeded: budget.exceeded,
+              alertTriggered: budget.alertTriggered,
+              ratio: budget.primary.ratio,
+            })),
+            queues: queueStatus,
+          })
+        );
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to load budget guard status');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(
+              request.id,
+              500,
+              'INTERNAL_SERVER_ERROR',
+              'Failed to load budget guard status'
             )
           );
       }

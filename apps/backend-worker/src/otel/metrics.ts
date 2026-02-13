@@ -564,6 +564,11 @@ export const pimApiQueuePausedTotal: Counter = meter.createCounter('pim_api_queu
   description: 'Queue pause events triggered by budget enforcement',
 });
 
+/** Queue resumed due to budget scheduler or manual actions */
+export const pimApiQueueResumedTotal: Counter = meter.createCounter('pim_api_queue_resumed_total', {
+  description: 'Queue resume events triggered by budget workflow',
+});
+
 /** Max budget usage ratio across all shops (labels: provider) */
 export const pimApiBudgetUsageRatio: ObservableGauge = meter.createObservableGauge(
   'pim_api_budget_usage_ratio',
@@ -844,8 +849,18 @@ export function recordPimBudgetExceeded(provider: 'serper' | 'xai' | 'openai'): 
   pimApiBudgetExceededTotal.add(1, { provider });
 }
 
-export function recordPimQueuePaused(trigger: 'manual' | 'budget_enforcement' | 'scheduler'): void {
-  pimApiQueuePausedTotal.add(1, { trigger });
+export function recordPimQueuePaused(
+  trigger: 'manual' | 'budget_enforcement' | 'scheduler',
+  queueName?: string
+): void {
+  pimApiQueuePausedTotal.add(1, queueName ? { trigger, queue_name: queueName } : { trigger });
+}
+
+export function recordPimQueueResumed(
+  trigger: 'manual' | 'budget_enforcement' | 'scheduler',
+  queueName?: string
+): void {
+  pimApiQueueResumedTotal.add(1, queueName ? { trigger, queue_name: queueName } : { trigger });
 }
 
 export function setPimBudgetUsageRatio(provider: 'serper' | 'xai' | 'openai', ratio: number): void {

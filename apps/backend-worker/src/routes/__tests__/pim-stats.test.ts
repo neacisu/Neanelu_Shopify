@@ -7,7 +7,11 @@ const requireSessionMock = () => (req: unknown, _reply: unknown) => {
   (req as { session?: { shopId: string } }).session = { shopId: 'shop-1' };
   return Promise.resolve();
 };
-const queueState = { paused: false, resumed: false };
+const queueState = {
+  paused: false,
+  resumed: false,
+  pausedByName: new Set<string>(),
+};
 
 const sessionPath = new URL('../../auth/session.js', import.meta.url).href;
 void mock.module(sessionPath, {
@@ -19,18 +23,32 @@ void mock.module(sessionPath, {
 void mock.module('@app/queue-manager', {
   namedExports: {
     ENRICHMENT_QUEUE_NAME: 'pim-enrichment-queue',
+    COST_SENSITIVE_QUEUE_NAMES: [
+      'ai-batch-queue',
+      'bulk-ingest-queue',
+      'pim-enrichment-queue',
+      'pim-similarity-search',
+      'pim-ai-audit',
+      'pim-extraction',
+    ],
     configFromEnv: () => ({}) as never,
-    createQueue: () => ({
-      pause: () => {
-        queueState.paused = true;
-        return Promise.resolve();
-      },
-      resume: () => {
-        queueState.resumed = true;
-        return Promise.resolve();
-      },
-      close: () => Promise.resolve(),
-    }),
+    createQueue: (_ctx: unknown, opts: { name?: string }) => {
+      const queueName = opts.name ?? 'unknown';
+      return {
+        pause: () => {
+          queueState.paused = true;
+          queueState.pausedByName.add(queueName);
+          return Promise.resolve();
+        },
+        resume: () => {
+          queueState.resumed = true;
+          queueState.pausedByName.delete(queueName);
+          return Promise.resolve();
+        },
+        isPaused: () => Promise.resolve(queueState.pausedByName.has(queueName)),
+        close: () => Promise.resolve(),
+      };
+    },
   },
 });
 
@@ -335,6 +353,7 @@ void describe('pim-stats routes', () => {
   void test('POST /pim/stats/cost-tracking/pause-enrichment pauses queue', async () => {
     const server = await createServer();
     queueState.paused = false;
+    queueState.pausedByName.clear();
     try {
       const response = await server.inject({
         method: 'POST',
@@ -350,6 +369,7 @@ void describe('pim-stats routes', () => {
   void test('POST /pim/stats/cost-tracking/resume-enrichment resumes queue', async () => {
     const server = await createServer();
     queueState.resumed = false;
+    queueState.pausedByName.add('pim-enrichment-queue');
     try {
       const response = await server.inject({
         method: 'POST',
@@ -357,6 +377,68 @@ void describe('pim-stats routes', () => {
       });
       assert.equal(response.statusCode, 200);
       assert.equal(queueState.resumed, true);
+    } finally {
+      await server.close();
+    }
+  });
+
+  void test('POST /pim/stats/cost-tracking/pause-all-cost-queues pauses all queues', async () => {
+    const server = await createServer();
+    queueState.pausedByName.clear();
+    try {
+      const response = await server.inject({
+        method: 'POST',
+        url: '/pim/stats/cost-tracking/pause-all-cost-queues',
+      });
+      assert.equal(response.statusCode, 200);
+      const body: { success: boolean; data: { queues: unknown[] } } = response.json();
+      assert.equal(body.success, true);
+      assert.equal(body.data.queues.length >= 6, true);
+    } finally {
+      await server.close();
+    }
+  });
+
+  void test('POST /pim/stats/cost-tracking/resume-all-cost-queues resumes all queues', async () => {
+    const server = await createServer();
+    queueState.pausedByName = new Set([
+      'ai-batch-queue',
+      'bulk-ingest-queue',
+      'pim-enrichment-queue',
+      'pim-similarity-search',
+      'pim-ai-audit',
+      'pim-extraction',
+    ]);
+    try {
+      const response = await server.inject({
+        method: 'POST',
+        url: '/pim/stats/cost-tracking/resume-all-cost-queues',
+      });
+      assert.equal(response.statusCode, 200);
+      const body: { success: boolean; data: { queues: unknown[] } } = response.json();
+      assert.equal(body.success, true);
+      assert.equal(body.data.queues.length >= 6, true);
+    } finally {
+      await server.close();
+    }
+  });
+
+  void test('GET /pim/stats/cost-tracking/budget-guard-status returns provider and queue state', async () => {
+    const server = await createServer();
+    queueState.pausedByName = new Set(['pim-enrichment-queue']);
+    try {
+      const response = await server.inject({
+        method: 'GET',
+        url: '/pim/stats/cost-tracking/budget-guard-status',
+      });
+      assert.equal(response.statusCode, 200);
+      const body: {
+        success: boolean;
+        data: { providers: unknown[]; queues: unknown[] };
+      } = response.json();
+      assert.equal(body.success, true);
+      assert.equal(body.data.providers.length >= 2, true);
+      assert.equal(body.data.queues.length >= 6, true);
     } finally {
       await server.close();
     }

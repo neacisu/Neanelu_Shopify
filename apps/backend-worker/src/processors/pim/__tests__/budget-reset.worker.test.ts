@@ -5,7 +5,14 @@ const state = { paused: true, resumed: false };
 
 void mock.module('@app/queue-manager', {
   namedExports: {
-    ENRICHMENT_QUEUE_NAME: 'pim-enrichment-queue',
+    COST_SENSITIVE_QUEUE_NAMES: [
+      'ai-batch-queue',
+      'bulk-ingest-queue',
+      'pim-enrichment-queue',
+      'pim-similarity-search',
+      'pim-ai-audit',
+      'pim-extraction',
+    ],
     configFromEnv: () => ({}) as never,
     createQueue: () => ({
       isPaused: () => Promise.resolve(state.paused),
@@ -27,6 +34,7 @@ void mock.module('@app/queue-manager', {
 void mock.module('../../../otel/metrics.js', {
   namedExports: {
     recordPimQueuePaused: () => undefined,
+    recordPimQueueResumed: () => undefined,
   },
 });
 

@@ -15,6 +15,7 @@ export type BudgetStatus = Readonly<{
 
 export type TrackSerperCostParams = Readonly<{
   endpoint: string;
+  shopId?: string;
   httpStatus: number;
   responseTimeMs: number;
   productId?: string;
@@ -34,6 +35,7 @@ export async function trackSerperCost(params: TrackSerperCostParams): Promise<vo
     provider: 'serper',
     operation: 'search',
     endpoint: params.endpoint,
+    ...(params.shopId ? { shopId: params.shopId } : {}),
     requestCount: 1,
     estimatedCost: SERPER_COST_PER_REQUEST,
     httpStatus: params.httpStatus,

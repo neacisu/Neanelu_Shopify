@@ -4,7 +4,7 @@ import { Redis as IORedis } from 'ioredis';
 import { loadEnv } from '@app/config';
 import { createLogger } from '@app/logger';
 import { getMaxBudgetRatios, registerBudgetGuardHooks } from '@app/pim';
-import { configFromEnv, createQueue, ENRICHMENT_QUEUE_NAME } from '@app/queue-manager';
+import { configFromEnv } from '@app/queue-manager';
 
 import { buildServer } from './http/server.js';
 import { startWebhookWorker } from './processors/webhooks/worker.js';
@@ -27,6 +27,7 @@ import { startExtractionWorker } from './processors/pim/extraction.worker.js';
 import { startConsensusWorker } from './processors/pim/consensus.worker.js';
 import { startBudgetResetScheduler } from './processors/pim/budget-reset.worker.js';
 import { startWeeklySummaryScheduler } from './processors/pim/weekly-summary.worker.js';
+import { pauseCostSensitiveQueues } from './processors/pim/cost-sensitive-queues.js';
 import { scheduleTokenHealthJob, closeTokenHealthQueue } from './queue/token-health-queue.js';
 import { closeSimilarityQueues } from './queue/similarity-queues.js';
 import {
@@ -69,9 +70,11 @@ registerBudgetGuardHooks({
     if (status.provider === 'serper' || status.provider === 'xai' || status.provider === 'openai') {
       recordPimBudgetExceeded(status.provider);
     }
-    const queue = createQueue({ config: configFromEnv(env) }, { name: ENRICHMENT_QUEUE_NAME });
-    await queue.pause();
-    await queue.close();
+    await pauseCostSensitiveQueues({
+      config: configFromEnv(env),
+      trigger: 'budget_enforcement',
+      logger,
+    });
     recordPimQueuePaused('budget_enforcement');
   },
 });

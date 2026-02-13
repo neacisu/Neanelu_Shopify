@@ -260,6 +260,12 @@ Implemented alerts:
 - `PimApiErrorRateHigh` (`pim_api_errors_total / pim_api_requests_total > 10%`)
 - `PimEnrichmentQueuePausedTooLong` (budget pause event persisted too long)
 
+Operational controls and status endpoints:
+
+- `POST /pim/stats/cost-tracking/pause-all-cost-queues`
+- `POST /pim/stats/cost-tracking/resume-all-cost-queues`
+- `GET /pim/stats/cost-tracking/budget-guard-status`
+
 All PIM budget alerts include:
 
 - `severity`

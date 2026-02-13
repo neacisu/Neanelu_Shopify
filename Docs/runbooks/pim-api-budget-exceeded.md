@@ -2,13 +2,13 @@
 
 ## Scope
 
-This runbook covers incidents where external API budgets (Serper, xAI, OpenAI) reach warning or critical thresholds and may pause enrichment processing.
+This runbook covers incidents where external API budgets (Serper, xAI, OpenAI) reach warning or critical thresholds and may pause cost-sensitive processing queues.
 
 ## Symptoms
 
 - Alert `PimApiBudgetWarning` or `PimApiBudgetExceeded` fires in Prometheus.
 - `pim_api_budget_usage_ratio` for one provider is `>= 0.8` (warning) or `>= 1.0` (critical).
-- Enrichment queue is paused (`PimEnrichmentQueuePausedTooLong` alert).
+- One or more cost-sensitive queues are paused (`pim_api_queue_paused_total` increase).
 - PIM cost dashboard shows high daily ratio and reduced throughput.
 
 ## Impact
@@ -21,9 +21,12 @@ This runbook covers incidents where external API budgets (Serper, xAI, OpenAI) r
 
 1. Identify affected provider (`serper`, `xai`, `openai`) from alert labels.
 2. Open `/pim/stats/cost-tracking/budget-status` and confirm exceeded ratio.
-3. Pause manual triggers and bulk enrichment from admin UI to reduce further spend.
-4. If necessary, increase provider budgets via `PUT /pim/stats/cost-tracking/budgets`.
-5. Resume enrichment queue only after budgets/limits are safely adjusted.
+3. Open `/pim/stats/cost-tracking/budget-guard-status` and confirm paused queues.
+4. Pause manual triggers and bulk enrichment from admin UI to reduce further spend.
+5. If necessary, increase provider budgets via `PUT /pim/stats/cost-tracking/budgets`.
+6. Resume queues only after budgets/limits are safely adjusted:
+   - one queue: `POST /pim/stats/cost-tracking/resume-enrichment`
+   - all cost-sensitive queues: `POST /pim/stats/cost-tracking/resume-all-cost-queues`
 
 ## Diagnosis Checklist
 
@@ -44,7 +47,9 @@ This runbook covers incidents where external API budgets (Serper, xAI, OpenAI) r
 2. Update budget limits and/or thresholds per provider.
 3. Clear stale budget cache key:
    - `pim:budget:max_ratios`
-4. Resume enrichment queue (`/pim/stats/cost-tracking/resume-enrichment`).
+4. Resume queues:
+   - `POST /pim/stats/cost-tracking/resume-all-cost-queues`
+   - fallback targeted: `POST /pim/stats/cost-tracking/resume-enrichment`
 5. Monitor for 30 minutes:
    - budget ratio trend
    - error rate
