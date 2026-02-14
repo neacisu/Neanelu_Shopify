@@ -60,9 +60,9 @@ describe('app.pim overview', () => {
     );
 
     render(<RouterProvider router={router} />);
-    expect(await screen.findByText('Total products')).toBeTruthy();
+    expect(await screen.findByText('Total produse')).toBeTruthy();
     expect(screen.getAllByText('10').length >= 1).toBeTruthy();
-    expect(screen.getByText('Channel sync status')).toBeTruthy();
+    expect(screen.getByText('Status sincronizare canale')).toBeTruthy();
     const syncRate = screen.getByText('60.0%');
     expect(syncRate.className.includes('text-danger')).toBeTruthy();
   });

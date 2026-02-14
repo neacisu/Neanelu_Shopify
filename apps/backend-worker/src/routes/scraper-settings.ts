@@ -506,6 +506,38 @@ export const scraperSettingsRoutes: FastifyPluginCallback<ScraperSettingsPluginO
     }
   );
 
+  server.get(
+    '/settings/scraper/sources',
+    { preHandler: [requireSession(sessionConfig)] },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      try {
+        const sources = await withTenantContext(session.shopId, async (client) => {
+          const result = await client.query<{ id: string; name: string }>(
+            `SELECT id, name
+               FROM prod_sources
+              WHERE is_active = true
+                AND (shop_id = $1 OR shop_id IS NULL)
+              ORDER BY name ASC`,
+            [session.shopId]
+          );
+          return result.rows;
+        });
+        return reply.send(successEnvelope(request.id, { sources }));
+      } catch (error) {
+        logger.error({ error }, 'Failed to list scraper sources');
+        return reply
+          .status(500)
+          .send(errorEnvelope(request.id, 500, 'INTERNAL_SERVER_ERROR', 'Failed to list sources'));
+      }
+    }
+  );
+
   server.post(
     '/settings/scraper/configs',
     { preHandler: [requireSession(sessionConfig)] },

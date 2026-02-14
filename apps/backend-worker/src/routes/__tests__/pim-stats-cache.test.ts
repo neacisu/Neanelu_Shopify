@@ -96,6 +96,7 @@ void mock.module('@app/queue-manager', {
     ENRICHMENT_QUEUE_NAME: 'pim-enrichment-queue',
     COST_SENSITIVE_QUEUE_NAMES: [],
     configFromEnv: () => ({}) as never,
+    enqueueEnrichmentJob: () => Promise.resolve(),
     createQueue: () => ({
       pause: () => Promise.resolve(),
       resume: () => Promise.resolve(),

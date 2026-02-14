@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
+import { Loader2, Search } from 'lucide-react';
 
-import type { ProductDetail } from '@app/types';
+import type { ConsensusDetail, ProductDetail } from '@app/types';
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { PageHeader } from '../components/layout/page-header';
@@ -12,6 +13,8 @@ import { Button } from '../components/ui/button';
 import { PromotionEligibilityCard } from '../components/domain/PromotionEligibilityCard';
 import { ShopifyAdminLink } from '../components/domain/ShopifyAdminLink';
 import { QualityLevelBadge } from '../components/domain/QualityLevelBadge';
+import { ConsensusDetailDrawer } from '../components/domain/ConsensusDetailDrawer';
+import { LoadingState } from '../components/patterns/loading-state';
 import { useApiClient } from '../hooks/use-api';
 import { useQualityLevel } from '../hooks/use-quality-level';
 
@@ -43,11 +46,33 @@ export default function ProductDetailPage() {
   const [similarProducts, setSimilarProducts] = useState<
     { id: string; title: string; similarity: number }[]
   >([]);
+  const [consensusOpen, setConsensusOpen] = useState(false);
+  const [consensusLoading, setConsensusLoading] = useState(false);
+  const [consensusDetail, setConsensusDetail] = useState<ConsensusDetail | null>(null);
+  const [extractionSessions, setExtractionSessions] = useState<
+    {
+      id: string;
+      harvestId: string;
+      agentVersion: string;
+      modelName: string | null;
+      confidenceScore: string | null;
+      tokensUsed: number | null;
+      latencyMs: number | null;
+      errorMessage: string | null;
+      createdAt: string;
+      sourceUrl: string;
+      sourceType: string;
+    }[]
+  >([]);
+  const [extractionsLoading, setExtractionsLoading] = useState(false);
+  const [extractionsError, setExtractionsError] = useState<string | null>(null);
   const variantsRef = useRef<HTMLDivElement | null>(null);
   const matchesRef = useRef<HTMLDivElement | null>(null);
   const historyRef = useRef<HTMLDivElement | null>(null);
   const aiRef = useRef<HTMLDivElement | null>(null);
+  const extractionsRef = useRef<HTMLDivElement | null>(null);
   const [loading, setLoading] = useState(true);
+  const [externalSearchLoading, setExternalSearchLoading] = useState(false);
   const qualityLevel = useQualityLevel(product?.id ?? null);
   const runQualityLevel = qualityLevel.run;
   const recentlyPromoted = useMemo(() => {
@@ -80,7 +105,7 @@ export default function ProductDetailPage() {
   useEffect(() => {
     if (!product?.id) return;
     void runQualityLevel().catch(() => {
-      toast.error('Failed to load quality promotion data');
+      toast.error('Nu pot incarca datele de promovare.');
     });
   }, [product?.id, runQualityLevel]);
 
@@ -112,17 +137,48 @@ export default function ProductDetailPage() {
               }>(`/products/search?q=${encodeURIComponent(product.title)}&limit=5&threshold=0.7`)
               .then((data) => setSimilarProducts(data.results));
           }
+          if (entry.target === extractionsRef.current && extractionSessions.length === 0) {
+            const pimId = product.pim?.masterId;
+            if (!pimId) return;
+            setExtractionsLoading(true);
+            setExtractionsError(null);
+            void api
+              .getApi<{ sessions: typeof extractionSessions }>(
+                `/products/${pimId}/extraction-sessions`
+              )
+              .then((data) => setExtractionSessions(data.sessions))
+              .catch((error) => {
+                setExtractionsError(
+                  error instanceof Error ? error.message : 'Nu pot incarca sesiunile de extractie.'
+                );
+              })
+              .finally(() => setExtractionsLoading(false));
+          }
         });
       },
       { rootMargin: '200px' }
     );
 
-    [variantsRef.current, matchesRef.current, historyRef.current, aiRef.current]
+    [
+      variantsRef.current,
+      matchesRef.current,
+      historyRef.current,
+      aiRef.current,
+      extractionsRef.current,
+    ]
       .filter(Boolean)
       .forEach((el) => observer.observe(el as Element));
 
     return () => observer.disconnect();
-  }, [api, product, variants.length, matches.length, events.length, similarProducts.length]);
+  }, [
+    api,
+    product,
+    variants.length,
+    matches.length,
+    events.length,
+    similarProducts.length,
+    extractionSessions.length,
+  ]);
 
   const groupedMetafields = useMemo(() => {
     const meta = product?.metafields ?? {};
@@ -148,10 +204,10 @@ export default function ProductDetailPage() {
     if (!product) return;
     try {
       await api.postApi('/products/bulk-sync', { productIds: [product.id] });
-      toast.success('Force sync queued');
+      toast.success('Sincronizare fortata pusa in coada.');
     } catch (error) {
       console.error('Force sync failed', error);
-      toast.error('Force sync failed');
+      toast.error('Sincronizarea fortata a esuat.');
     }
   };
 
@@ -162,20 +218,52 @@ export default function ProductDetailPage() {
 
   const handleManualPromote = async (level: string) => {
     if (!product) return;
-    const confirmed = window.confirm(`Promote product to ${level}?`);
+    const confirmed = window.confirm(`Promovezi produsul la ${level}?`);
     if (!confirmed) return;
     try {
       await api.postApi(`/products/${product.id}/quality-level`, { level });
-      toast.success(`Product promoted to ${level}`);
+      toast.success(`Produs promovat la ${level}`);
       await runQualityLevel();
     } catch (error) {
       console.error('Manual promotion failed', error);
-      toast.error('Manual promotion failed');
+      toast.error('Promovarea manuala a esuat.');
+    }
+  };
+
+  const handleExternalSearch = async () => {
+    if (!product) return;
+    setExternalSearchLoading(true);
+    try {
+      await api.postApi('/products/bulk-request-enrichment', { productIds: [product.id] });
+      toast.success('Cautare externa pornita (enrichment in coada).');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Nu pot porni cautarea externa.');
+    } finally {
+      setExternalSearchLoading(false);
+    }
+  };
+
+  const handleOpenConsensus = async () => {
+    if (!product?.pim?.masterId) {
+      toast.error('Produsul nu are PIM masterId.');
+      return;
+    }
+    const pimId = product.pim.masterId;
+    setConsensusOpen(true);
+    setConsensusLoading(true);
+    try {
+      const detail = await api.getApi<ConsensusDetail>(`/products/${pimId}/consensus/details`);
+      setConsensusDetail(detail);
+    } catch (error) {
+      setConsensusDetail(null);
+      toast.error(error instanceof Error ? error.message : 'Nu pot incarca detaliile consensus.');
+    } finally {
+      setConsensusLoading(false);
     }
   };
 
   if (loading || !product) {
-    return <div className="text-sm text-muted">Loading...</div>;
+    return <div className="text-sm text-muted">Se incarca...</div>;
   }
 
   return (
@@ -183,22 +271,44 @@ export default function ProductDetailPage() {
       <Breadcrumbs items={breadcrumbs} />
       <PageHeader
         title={product.title}
-        description={product.vendor ?? 'Product details'}
+        description={product.vendor ?? 'Detalii produs'}
         actions={
           <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => void handleExternalSearch()}
+              disabled={externalSearchLoading}
+            >
+              {externalSearchLoading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="mr-2 h-4 w-4" />
+              )}
+              Cauta extern
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                void handleOpenConsensus();
+              }}
+              disabled={consensusLoading}
+            >
+              {consensusLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Detalii consensus
+            </Button>
             <Button
               variant="secondary"
               onClick={() => {
                 void handleForceSync();
               }}
             >
-              Force Sync
+              Fortare sync
             </Button>
             <ShopifyAdminLink resourceType="products" resourceId={product.id}>
-              View in Shopify
+              Vezi in Shopify
             </ShopifyAdminLink>
             <Button variant="secondary" onClick={handleEdit}>
-              Edit
+              Editeaza
             </Button>
           </div>
         }
@@ -216,7 +326,7 @@ export default function ProductDetailPage() {
               />
             ) : (
               <div className="flex h-full w-full items-center justify-center text-xs text-muted">
-                No image
+                Fara imagine
               </div>
             )}
           </div>
@@ -229,19 +339,19 @@ export default function ProductDetailPage() {
                 level={product.pim?.qualityLevel ?? null}
                 recentlyPromoted={recentlyPromoted}
               />
-              <span className="text-xs text-muted">Score: {product.pim?.qualityScore ?? '-'}</span>
+              <span className="text-xs text-muted">Scor: {product.pim?.qualityScore ?? '-'}</span>
             </div>
           </div>
         </div>
       </section>
 
       <section className="rounded-lg border bg-background p-4">
-        <div className="text-sm font-semibold">Quality & Promotion</div>
+        <div className="text-sm font-semibold">Calitate si promovare</div>
         <div className="mt-3">
           {qualityLevel.loading ? (
-            <div className="text-xs text-muted">Loading promotion data...</div>
+            <div className="text-xs text-muted">Se incarca datele de promovare...</div>
           ) : qualityLevel.error ? (
-            <div className="text-xs text-muted">Failed to load promotion data.</div>
+            <div className="text-xs text-muted">Nu pot incarca datele de promovare.</div>
           ) : qualityLevel.data ? (
             <PromotionEligibilityCard
               productId={product.id}
@@ -261,19 +371,19 @@ export default function ProductDetailPage() {
               }}
             />
           ) : (
-            <div className="text-xs text-muted">Promotion data unavailable.</div>
+            <div className="text-xs text-muted">Date de promovare indisponibile.</div>
           )}
         </div>
       </section>
 
       <section className="rounded-lg border bg-background p-4" ref={variantsRef}>
-        <div className="text-sm font-semibold">Variants</div>
+        <div className="text-sm font-semibold">Variante</div>
         <div className="mt-3 overflow-hidden rounded-md border">
           <div className="grid grid-cols-5 gap-2 bg-muted/10 px-3 py-2 text-xs font-semibold">
             <span>SKU</span>
-            <span>Price</span>
-            <span>Stock</span>
-            <span>Barcode</span>
+            <span>Pret</span>
+            <span>Stoc</span>
+            <span>Cod bare</span>
             <span>Status</span>
           </div>
           {(variants.length ? variants : product.variants).map((variant) => (
@@ -282,7 +392,7 @@ export default function ProductDetailPage() {
               <span>{variant.price}</span>
               <span>{variant.inventoryQuantity}</span>
               <span>{variant.barcode ?? '-'}</span>
-              <span>Active</span>
+              <span>Activ</span>
             </div>
           ))}
         </div>
@@ -301,10 +411,10 @@ export default function ProductDetailPage() {
       </section>
 
       <section className="rounded-lg border bg-background p-4" ref={matchesRef}>
-        <div className="text-sm font-semibold">Enrichment Matches</div>
+        <div className="text-sm font-semibold">Potriviri enrichment</div>
         <div className="mt-3 space-y-2 text-xs text-muted">
           {matches.length === 0 ? (
-            'No enrichment matches available.'
+            'Nu exista potriviri de enrichment.'
           ) : (
             <div className="space-y-2">
               {matches.map((match) => (
@@ -314,7 +424,7 @@ export default function ProductDetailPage() {
                       {match.source_title ?? match.source_url}
                     </div>
                     <div className="text-xs text-muted">
-                      Similarity: {match.similarity_score} • {match.match_confidence}
+                      Similaritate: {match.similarity_score} • {match.match_confidence}
                     </div>
                   </div>
                   <div className="flex gap-2">
@@ -333,7 +443,7 @@ export default function ProductDetailPage() {
                         });
                       }}
                     >
-                      Confirm
+                      Confirma
                     </Button>
                     <Button
                       size="sm"
@@ -350,7 +460,7 @@ export default function ProductDetailPage() {
                         });
                       }}
                     >
-                      Reject
+                      Respinge
                     </Button>
                   </div>
                 </div>
@@ -372,7 +482,7 @@ export default function ProductDetailPage() {
       </section>
 
       <section className="rounded-lg border bg-background p-4" ref={historyRef}>
-        <div className="text-sm font-semibold">Sync History</div>
+        <div className="text-sm font-semibold">Istoric sincronizare</div>
         <div className="mt-3">
           <Timeline
             events={events.map((event) => {
@@ -383,19 +493,21 @@ export default function ProductDetailPage() {
                 status: event.event_type === 'quality_demoted' ? 'warning' : 'success',
               } as const;
               return event.quality_score_after
-                ? { ...base, description: `Score: ${event.quality_score_after}` }
+                ? { ...base, description: `Scor: ${event.quality_score_after}` }
                 : base;
             })}
-            emptyState={<div className="text-xs text-muted">No sync events available.</div>}
+            emptyState={
+              <div className="text-xs text-muted">Nu exista evenimente de sincronizare.</div>
+            }
           />
         </div>
       </section>
 
       <section className="rounded-lg border bg-background p-4" ref={aiRef}>
-        <div className="text-sm font-semibold">AI Insights</div>
+        <div className="text-sm font-semibold">AI insights</div>
         <div className="mt-2 space-y-2 text-xs text-muted">
           {similarProducts.length === 0
-            ? 'Embedding status unavailable for this product.'
+            ? 'Status embedding indisponibil pentru acest produs.'
             : similarProducts.map((item) => (
                 <div key={item.id}>
                   {item.title} ({Math.round(item.similarity * 100)}%)
@@ -403,6 +515,130 @@ export default function ProductDetailPage() {
               ))}
         </div>
       </section>
+
+      <section className="rounded-lg border bg-background p-4" ref={extractionsRef}>
+        <div className="text-sm font-semibold">Sesiuni de extractie</div>
+        <div className="mt-3">
+          {extractionsLoading ? (
+            <LoadingState label="Se incarca sesiunile de extractie..." />
+          ) : null}
+          {extractionsError ? <div className="text-xs text-error">{extractionsError}</div> : null}
+          {!extractionsLoading && !extractionsError ? (
+            extractionSessions.length === 0 ? (
+              <div className="text-xs text-muted">
+                Nu exista sesiuni de extractie pentru acest produs.
+              </div>
+            ) : (
+              <div className="overflow-auto rounded-md border">
+                <table className="min-w-[760px] w-full text-xs">
+                  <thead className="bg-muted/20 text-muted">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium">ID</th>
+                      <th className="px-3 py-2 text-left font-medium">Model</th>
+                      <th className="px-3 py-2 text-right font-medium">Incredere</th>
+                      <th className="px-3 py-2 text-right font-medium">Tokens</th>
+                      <th className="px-3 py-2 text-right font-medium">Latenta</th>
+                      <th className="px-3 py-2 text-left font-medium">Sursa</th>
+                      <th className="px-3 py-2 text-left font-medium">Creat</th>
+                      <th className="px-3 py-2 text-left font-medium">Eroare</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {extractionSessions.map((s) => (
+                      <tr key={s.id} className="border-t border-muted/20">
+                        <td className="px-3 py-2 font-mono">{s.id.slice(0, 8)}…</td>
+                        <td className="px-3 py-2">{s.modelName ?? s.agentVersion}</td>
+                        <td className="px-3 py-2 text-right">{s.confidenceScore ?? '—'}</td>
+                        <td className="px-3 py-2 text-right">{s.tokensUsed ?? '—'}</td>
+                        <td className="px-3 py-2 text-right">
+                          {s.latencyMs != null ? `${s.latencyMs}ms` : '—'}
+                        </td>
+                        <td className="px-3 py-2">
+                          <a
+                            className="text-primary underline"
+                            href={s.sourceUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {s.sourceType}
+                          </a>
+                        </td>
+                        <td className="px-3 py-2">{new Date(s.createdAt).toLocaleString()}</td>
+                        <td className="px-3 py-2">{s.errorMessage ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          ) : null}
+        </div>
+      </section>
+
+      {consensusOpen ? (
+        consensusDetail ? (
+          <ConsensusDetailDrawer
+            isOpen={consensusOpen}
+            onClose={() => setConsensusOpen(false)}
+            onRecompute={() => {
+              const pimId = product.pim?.masterId;
+              if (!pimId) return;
+              setConsensusLoading(true);
+              void api
+                .postApi(`/products/${pimId}/consensus`, {})
+                .then(() => api.getApi<ConsensusDetail>(`/products/${pimId}/consensus/details`))
+                .then((data) => setConsensusDetail(data))
+                .catch((error) => {
+                  toast.error(
+                    error instanceof Error ? error.message : 'Recompute eșuat pentru consensus.'
+                  );
+                })
+                .finally(() => setConsensusLoading(false));
+            }}
+            isRecomputing={consensusLoading}
+            onExport={() => {
+              const pimId = product.pim?.masterId;
+              if (!pimId) return;
+              void api.getJson<unknown>(`/products/${pimId}/consensus/export`).then((payload) => {
+                const blob = new Blob([JSON.stringify(payload, null, 2)], {
+                  type: 'application/json',
+                });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `consensus-${pimId}.json`;
+                link.click();
+                URL.revokeObjectURL(url);
+              });
+            }}
+            onViewProduct={() => void navigate(`/products/${product.id}`)}
+            title={product.title}
+            status={
+              consensusDetail.conflictsCount > 0
+                ? 'conflicts'
+                : consensusDetail.results.length > 0
+                  ? 'computed'
+                  : 'pending'
+            }
+            qualityScore={consensusDetail.qualityScore ?? null}
+            conflictsCount={consensusDetail.conflictsCount}
+            breakdown={consensusDetail.qualityBreakdown}
+            sources={consensusDetail.sources}
+            results={consensusDetail.results}
+            conflicts={consensusDetail.conflicts.map((conflict) => ({
+              attributeName: conflict.attributeName,
+              reason: conflict.reason,
+              values: conflict.values,
+            }))}
+            provenance={consensusDetail.provenance}
+            votesByAttribute={consensusDetail.votesByAttribute}
+          />
+        ) : consensusLoading ? (
+          <div className="rounded-lg border bg-background p-4">
+            <LoadingState label="Se incarca detaliile consensus..." />
+          </div>
+        ) : null
+      ) : null}
     </div>
   );
 }

@@ -3,8 +3,9 @@ import { Redis as IORedis } from 'ioredis';
 
 import { loadEnv } from '@app/config';
 import { createLogger } from '@app/logger';
+import { withTenantContext } from '@app/database';
 import { getMaxBudgetRatios, registerBudgetGuardHooks, registerOtelCallback } from '@app/pim';
-import { configFromEnv } from '@app/queue-manager';
+import { closeEnrichmentQueue, configFromEnv } from '@app/queue-manager';
 
 import { buildServer } from './http/server.js';
 import { startWebhookWorker } from './processors/webhooks/worker.js';
@@ -28,19 +29,35 @@ import { startConsensusWorker } from './processors/pim/consensus.worker.js';
 import { startBudgetResetScheduler } from './processors/pim/budget-reset.worker.js';
 import { startWeeklySummaryScheduler } from './processors/pim/weekly-summary.worker.js';
 import { startMvRefreshScheduler } from './processors/pim/mv-refresh.worker.js';
+import { startAutoEnrichmentScheduler } from './processors/pim/auto-enrichment.worker.js';
+import { startRawHarvestRetentionScheduler } from './processors/pim/raw-harvest-retention.worker.js';
 import { startQualityWebhookWorker } from './processors/pim/quality-webhook.worker.js';
 import { startQualityWebhookSweepScheduler } from './processors/pim/quality-webhook-sweep.js';
 import { pauseCostSensitiveQueues } from './processors/pim/cost-sensitive-queues.js';
 import { scheduleTokenHealthJob, closeTokenHealthQueue } from './queue/token-health-queue.js';
 import { closeSimilarityQueues } from './queue/similarity-queues.js';
 import { closeQualityWebhookQueue } from './queue/quality-webhook-queue.js';
+import { closeConsensusQueue } from './queue/consensus-queue.js';
 import {
   setBulkOrchestratorWorkerHandle,
   setBulkIngestWorkerHandle,
   setBulkMutationReconcileWorkerHandle,
   setBulkPollerWorkerHandle,
   setAiBatchWorkerHandle,
+  setAutoEnrichmentSchedulerHandle,
+  setBudgetResetSchedulerHandle,
+  setConsensusWorkerHandle,
+  setEnrichmentWorkerHandle,
+  setExtractionWorkerHandle,
+  setMvRefreshSchedulerHandle,
+  setQualityWebhookSweepSchedulerHandle,
+  setQualityWebhookWorkerHandle,
+  setSimilarityAIAuditWorkerHandle,
+  setSimilaritySearchWorkerHandle,
+  setSyncWorkerHandle,
   setTokenHealthWorkerHandle,
+  setRawHarvestRetentionSchedulerHandle,
+  setWeeklySummarySchedulerHandle,
   setWebhookWorkerHandle,
 } from './runtime/worker-registry.js';
 import { emitQueueStreamEvent } from './runtime/queue-stream.js';
@@ -64,16 +81,93 @@ const server = await buildServer({
   logger,
 });
 
+const budgetNotificationOncePerDay = new Map<string, string>();
+function budgetNotificationKey(params: {
+  shopId: string;
+  provider: string;
+  kind: 'warning' | 'exceeded';
+}) {
+  const day = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  return `${params.shopId}:${params.provider}:${params.kind}:${day}`;
+}
+
+async function createBudgetNotification(params: {
+  shopId: string;
+  provider: string;
+  kind: 'warning' | 'exceeded';
+  primaryUsed: number;
+  primaryLimit: number;
+  primaryUnit: string;
+  ratio: number;
+  alertThreshold: number;
+}): Promise<void> {
+  const key = budgetNotificationKey({
+    shopId: params.shopId,
+    provider: params.provider,
+    kind: params.kind,
+  });
+  if (budgetNotificationOncePerDay.get(key)) return;
+  budgetNotificationOncePerDay.set(key, '1');
+
+  const title =
+    params.kind === 'exceeded'
+      ? `Buget depasit: ${params.provider}`
+      : `Buget aproape depasit: ${params.provider}`;
+  await withTenantContext(params.shopId, async (client) => {
+    await client.query(
+      `INSERT INTO pim_notifications (shop_id, type, title, body, read, created_at)
+       VALUES ($1, $2, $3, $4::jsonb, false, now())`,
+      [
+        params.shopId,
+        params.kind === 'exceeded' ? 'budget_exceeded' : 'budget_warning',
+        title,
+        JSON.stringify({
+          provider: params.provider,
+          kind: params.kind,
+          primary: {
+            used: params.primaryUsed,
+            limit: params.primaryLimit,
+            unit: params.primaryUnit,
+            ratio: params.ratio,
+          },
+          alertThreshold: params.alertThreshold,
+          timestamp: new Date().toISOString(),
+        }),
+      ]
+    );
+  });
+}
+
 registerBudgetGuardHooks({
   onWarning: (status) => {
     if (status.provider === 'serper' || status.provider === 'xai' || status.provider === 'openai') {
       recordPimBudgetWarning(status.provider);
     }
+    void createBudgetNotification({
+      shopId: status.shopId,
+      provider: status.provider,
+      kind: 'warning',
+      primaryUsed: status.primary.used,
+      primaryLimit: status.primary.limit,
+      primaryUnit: status.primary.unit,
+      ratio: status.primary.ratio,
+      alertThreshold: status.alertThreshold,
+    }).catch(() => undefined);
   },
   onExceeded: async (status) => {
     if (status.provider === 'serper' || status.provider === 'xai' || status.provider === 'openai') {
       recordPimBudgetExceeded(status.provider);
     }
+    await createBudgetNotification({
+      shopId: status.shopId,
+      provider: status.provider,
+      kind: 'exceeded',
+      primaryUsed: status.primary.used,
+      primaryLimit: status.primary.limit,
+      primaryUnit: status.primary.unit,
+      ratio: status.primary.ratio,
+      alertThreshold: status.alertThreshold,
+    }).catch(() => undefined);
     await pauseCostSensitiveQueues({
       config: configFromEnv(env),
       trigger: 'budget_enforcement',
@@ -117,6 +211,10 @@ let consensusWorker: Awaited<ReturnType<typeof startConsensusWorker>> | null = n
 let budgetResetScheduler: Awaited<ReturnType<typeof startBudgetResetScheduler>> | null = null;
 let weeklySummaryScheduler: Awaited<ReturnType<typeof startWeeklySummaryScheduler>> | null = null;
 let mvRefreshScheduler: Awaited<ReturnType<typeof startMvRefreshScheduler>> | null = null;
+let autoEnrichmentScheduler: Awaited<ReturnType<typeof startAutoEnrichmentScheduler>> | null = null;
+let rawHarvestRetentionScheduler: Awaited<
+  ReturnType<typeof startRawHarvestRetentionScheduler>
+> | null = null;
 let qualityWebhookWorker: Awaited<ReturnType<typeof startQualityWebhookWorker>> | null = null;
 let qualityWebhookSweepScheduler: Awaited<
   ReturnType<typeof startQualityWebhookSweepScheduler>
@@ -151,6 +249,7 @@ try {
 
   syncWorker = startSyncWorker(logger);
   logger.info({}, 'sync worker started');
+  setSyncWorkerHandle(syncWorker);
   emitQueueStreamEvent({
     type: 'worker.online',
     workerId: 'sync-worker',
@@ -244,6 +343,7 @@ try {
 
   enrichmentWorker = startEnrichmentWorker(logger);
   logger.info({}, 'enrichment worker started');
+  setEnrichmentWorkerHandle(enrichmentWorker);
   emitQueueStreamEvent({
     type: 'worker.online',
     workerId: 'enrichment-worker',
@@ -252,6 +352,7 @@ try {
 
   similaritySearchWorker = startSimilaritySearchWorker(logger);
   logger.info({}, 'similarity search worker started');
+  setSimilaritySearchWorkerHandle(similaritySearchWorker);
   emitQueueStreamEvent({
     type: 'worker.online',
     workerId: 'similarity-search-worker',
@@ -260,6 +361,7 @@ try {
 
   similarityAIAuditWorker = startAIAuditWorker(logger);
   logger.info({}, 'similarity AI audit worker started');
+  setSimilarityAIAuditWorkerHandle(similarityAIAuditWorker);
   emitQueueStreamEvent({
     type: 'worker.online',
     workerId: 'ai-audit-worker',
@@ -268,6 +370,7 @@ try {
 
   extractionWorker = startExtractionWorker(logger);
   logger.info({}, 'pim extraction worker started');
+  setExtractionWorkerHandle(extractionWorker);
   emitQueueStreamEvent({
     type: 'worker.online',
     workerId: 'pim-extraction-worker',
@@ -276,6 +379,7 @@ try {
 
   consensusWorker = startConsensusWorker(logger);
   logger.info({}, 'pim consensus worker started');
+  setConsensusWorkerHandle(consensusWorker);
   emitQueueStreamEvent({
     type: 'worker.online',
     workerId: 'pim-consensus-worker',
@@ -284,6 +388,7 @@ try {
 
   budgetResetScheduler = startBudgetResetScheduler(logger);
   logger.info({}, 'pim budget reset scheduler started');
+  setBudgetResetSchedulerHandle(budgetResetScheduler);
   emitQueueStreamEvent({
     type: 'worker.online',
     workerId: 'pim-budget-reset-worker',
@@ -292,14 +397,34 @@ try {
 
   weeklySummaryScheduler = startWeeklySummaryScheduler(logger);
   logger.info({}, 'pim weekly summary scheduler started');
+  setWeeklySummarySchedulerHandle(weeklySummaryScheduler);
   emitQueueStreamEvent({
     type: 'worker.online',
     workerId: 'pim-weekly-summary-worker',
     timestamp: new Date().toISOString(),
   });
 
+  autoEnrichmentScheduler = startAutoEnrichmentScheduler(logger);
+  logger.info({}, 'pim auto enrichment scheduler started');
+  setAutoEnrichmentSchedulerHandle(autoEnrichmentScheduler);
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'pim-auto-enrichment-scheduler-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  rawHarvestRetentionScheduler = startRawHarvestRetentionScheduler(logger);
+  logger.info({}, 'pim raw harvest retention scheduler started');
+  setRawHarvestRetentionSchedulerHandle(rawHarvestRetentionScheduler);
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'pim-raw-harvest-retention-worker',
+    timestamp: new Date().toISOString(),
+  });
+
   mvRefreshScheduler = startMvRefreshScheduler(logger);
   logger.info({}, 'pim mv refresh scheduler started');
+  setMvRefreshSchedulerHandle(mvRefreshScheduler);
   emitQueueStreamEvent({
     type: 'worker.online',
     workerId: 'pim-mv-refresh-worker',
@@ -308,6 +433,7 @@ try {
 
   qualityWebhookWorker = startQualityWebhookWorker(logger);
   logger.info({}, 'pim quality webhook worker started');
+  setQualityWebhookWorkerHandle(qualityWebhookWorker);
   emitQueueStreamEvent({
     type: 'worker.online',
     workerId: 'pim-quality-webhook-worker',
@@ -316,6 +442,7 @@ try {
 
   qualityWebhookSweepScheduler = startQualityWebhookSweepScheduler(logger);
   logger.info({}, 'pim quality webhook sweep scheduler started');
+  setQualityWebhookSweepSchedulerHandle(qualityWebhookSweepScheduler);
   emitQueueStreamEvent({
     type: 'worker.online',
     workerId: 'pim-quality-webhook-sweep-worker',
@@ -359,6 +486,12 @@ try {
     'pim-extraction': extractionWorker?.worker as unknown as { concurrency?: number },
     'pim-consensus': consensusWorker?.worker as unknown as { concurrency?: number },
     'pim-mv-refresh-queue': mvRefreshScheduler?.worker as unknown as { concurrency?: number },
+    'pim-auto-enrichment-scheduler-queue': autoEnrichmentScheduler?.worker as unknown as {
+      concurrency?: number;
+    },
+    'pim-raw-harvest-retention-queue': rawHarvestRetentionScheduler?.worker as unknown as {
+      concurrency?: number;
+    },
     'pim-quality-webhook': qualityWebhookWorker?.worker as unknown as { concurrency?: number },
     'pim-quality-webhook-sweep': qualityWebhookSweepScheduler?.worker as unknown as {
       concurrency?: number;
@@ -400,6 +533,7 @@ const shutdown = async (signal: string): Promise<void> => {
     if (syncWorker) {
       await syncWorker.close();
       syncWorker = null;
+      setSyncWorkerHandle(null);
       logger.info({ signal }, 'sync worker stopped');
       emitQueueStreamEvent({
         type: 'worker.offline',
@@ -482,6 +616,7 @@ const shutdown = async (signal: string): Promise<void> => {
     if (enrichmentWorker) {
       await enrichmentWorker.close();
       enrichmentWorker = null;
+      setEnrichmentWorkerHandle(null);
       logger.info({ signal }, 'enrichment worker stopped');
       emitQueueStreamEvent({
         type: 'worker.offline',
@@ -493,6 +628,7 @@ const shutdown = async (signal: string): Promise<void> => {
     if (similaritySearchWorker) {
       await similaritySearchWorker.close();
       similaritySearchWorker = null;
+      setSimilaritySearchWorkerHandle(null);
       logger.info({ signal }, 'similarity search worker stopped');
       emitQueueStreamEvent({
         type: 'worker.offline',
@@ -504,6 +640,7 @@ const shutdown = async (signal: string): Promise<void> => {
     if (similarityAIAuditWorker) {
       await similarityAIAuditWorker.close();
       similarityAIAuditWorker = null;
+      setSimilarityAIAuditWorkerHandle(null);
       logger.info({ signal }, 'similarity AI audit worker stopped');
       emitQueueStreamEvent({
         type: 'worker.offline',
@@ -515,6 +652,7 @@ const shutdown = async (signal: string): Promise<void> => {
     if (extractionWorker) {
       await extractionWorker.close();
       extractionWorker = null;
+      setExtractionWorkerHandle(null);
       logger.info({ signal }, 'pim extraction worker stopped');
       emitQueueStreamEvent({
         type: 'worker.offline',
@@ -526,6 +664,7 @@ const shutdown = async (signal: string): Promise<void> => {
     if (consensusWorker) {
       await consensusWorker.close();
       consensusWorker = null;
+      setConsensusWorkerHandle(null);
       logger.info({ signal }, 'pim consensus worker stopped');
       emitQueueStreamEvent({
         type: 'worker.offline',
@@ -537,6 +676,7 @@ const shutdown = async (signal: string): Promise<void> => {
     if (budgetResetScheduler) {
       await budgetResetScheduler.close();
       budgetResetScheduler = null;
+      setBudgetResetSchedulerHandle(null);
       logger.info({ signal }, 'pim budget reset scheduler stopped');
       emitQueueStreamEvent({
         type: 'worker.offline',
@@ -548,6 +688,7 @@ const shutdown = async (signal: string): Promise<void> => {
     if (weeklySummaryScheduler) {
       await weeklySummaryScheduler.close();
       weeklySummaryScheduler = null;
+      setWeeklySummarySchedulerHandle(null);
       logger.info({ signal }, 'pim weekly summary scheduler stopped');
       emitQueueStreamEvent({
         type: 'worker.offline',
@@ -556,9 +697,34 @@ const shutdown = async (signal: string): Promise<void> => {
       });
     }
 
+    if (autoEnrichmentScheduler) {
+      await autoEnrichmentScheduler.close();
+      autoEnrichmentScheduler = null;
+      setAutoEnrichmentSchedulerHandle(null);
+      logger.info({ signal }, 'pim auto enrichment scheduler stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'pim-auto-enrichment-scheduler-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (rawHarvestRetentionScheduler) {
+      await rawHarvestRetentionScheduler.close();
+      rawHarvestRetentionScheduler = null;
+      setRawHarvestRetentionSchedulerHandle(null);
+      logger.info({ signal }, 'pim raw harvest retention scheduler stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'pim-raw-harvest-retention-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     if (mvRefreshScheduler) {
       await mvRefreshScheduler.close();
       mvRefreshScheduler = null;
+      setMvRefreshSchedulerHandle(null);
       logger.info({ signal }, 'pim mv refresh scheduler stopped');
       emitQueueStreamEvent({
         type: 'worker.offline',
@@ -570,6 +736,7 @@ const shutdown = async (signal: string): Promise<void> => {
     if (qualityWebhookWorker) {
       await qualityWebhookWorker.close();
       qualityWebhookWorker = null;
+      setQualityWebhookWorkerHandle(null);
       logger.info({ signal }, 'pim quality webhook worker stopped');
       emitQueueStreamEvent({
         type: 'worker.offline',
@@ -581,6 +748,7 @@ const shutdown = async (signal: string): Promise<void> => {
     if (qualityWebhookSweepScheduler) {
       await qualityWebhookSweepScheduler.close();
       qualityWebhookSweepScheduler = null;
+      setQualityWebhookSweepSchedulerHandle(null);
       logger.info({ signal }, 'pim quality webhook sweep scheduler stopped');
       emitQueueStreamEvent({
         type: 'worker.offline',
@@ -651,6 +819,8 @@ const shutdown = async (signal: string): Promise<void> => {
     await closeTokenHealthQueue();
     await closeSimilarityQueues();
     await closeQualityWebhookQueue();
+    await closeConsensusQueue();
+    await closeEnrichmentQueue();
     await server.close();
     logger.info({ signal }, 'shutdown complete');
   } catch (error) {

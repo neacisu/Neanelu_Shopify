@@ -257,6 +257,34 @@ void describe('products routes', () => {
     assert.equal(response.statusCode, 200);
   });
 
+  void it('valideaza GTIN checksum la update PIM', async () => {
+    const { productsRoutes } = await import('../products.js');
+    const app = Fastify();
+    await app.register(productsRoutes as unknown as Parameters<typeof app.register>[0], {
+      env: {
+        encryptionKeyHex: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        appHost: new URL('https://example.com'),
+        redisUrl: 'redis://localhost:6379',
+      },
+      logger: console,
+      sessionConfig: { secret: 'test', cookieName: 'neanelu_session', maxAge: 10 },
+    });
+
+    const bad = await app.inject({
+      method: 'PUT',
+      url: '/products/prod-1/pim',
+      payload: { gtin: '4006381333932' }, // checksum invalid (vezi gtin-validator.test.ts)
+    });
+    assert.equal(bad.statusCode, 400);
+
+    const good = await app.inject({
+      method: 'PUT',
+      url: '/products/prod-1/pim',
+      payload: { gtin: '4006381333931' }, // checksum valid
+    });
+    assert.equal(good.statusCode, 200);
+  });
+
   void it('queues bulk sync', async () => {
     const { productsRoutes } = await import('../products.js');
     const app = Fastify();

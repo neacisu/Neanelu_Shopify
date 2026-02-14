@@ -51,6 +51,7 @@ type RetryWebhookResult = Readonly<{ queued: boolean; jobId: string }>;
 export type UseQualityWebhookConfigResult = Readonly<{
   config: QualityWebhookConfigDto | undefined;
   isLoading: boolean;
+  loadError: unknown;
   deliveries: DeliveryDto[];
   hasMoreDeliveries: boolean;
   loadMoreDeliveries: () => Promise<void>;
@@ -126,6 +127,7 @@ export function useQualityWebhookConfig(): UseQualityWebhookConfigResult {
   return {
     config: configQuery.data,
     isLoading: configQuery.isLoading || deliveriesQuery.isLoading,
+    loadError: configQuery.error ?? deliveriesQuery.error ?? null,
     deliveries,
     hasMoreDeliveries: Boolean(deliveriesQuery.hasNextPage),
     loadMoreDeliveries,

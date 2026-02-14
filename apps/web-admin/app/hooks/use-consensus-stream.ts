@@ -17,12 +17,36 @@ export function useConsensusStream(options: UseConsensusStreamOptions = {}) {
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sourceRef = useRef<EventSource | null>(null);
+  const reconnectTimeoutRef = useRef<number | null>(null);
+  const attemptRef = useRef(0);
 
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
 
+    const cleanup = () => {
+      if (reconnectTimeoutRef.current != null) {
+        window.clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      sourceRef.current?.close();
+      sourceRef.current = null;
+    };
+
+    const scheduleReconnect = () => {
+      if (cancelled) return;
+      attemptRef.current += 1;
+      const attempt = Math.min(attemptRef.current, 6); // cap growth
+      const baseMs = 1000 * 2 ** (attempt - 1); // 1s,2s,4s,8s,16s,32s
+      const delayMs = Math.min(30_000, baseMs) + Math.floor(Math.random() * 250);
+      reconnectTimeoutRef.current = window.setTimeout(() => {
+        reconnectTimeoutRef.current = null;
+        void connect();
+      }, delayMs);
+    };
+
     const connect = async () => {
+      cleanup();
       const token = await getSessionToken();
       if (cancelled) return;
       const url = new URL('/api/pim/consensus/stream', window.location.origin);
@@ -34,12 +58,16 @@ export function useConsensusStream(options: UseConsensusStreamOptions = {}) {
         if (cancelled) return;
         setConnected(true);
         setError(null);
+        attemptRef.current = 0; // reset backoff on successful open
       };
 
       source.onerror = () => {
         if (cancelled) return;
         setConnected(false);
         setError('Stream connection error');
+        // EventSource retries internally, but we want fresh tokens + controlled backoff.
+        cleanup();
+        scheduleReconnect();
       };
 
       const handle = (evt: MessageEvent) => {
@@ -62,8 +90,7 @@ export function useConsensusStream(options: UseConsensusStreamOptions = {}) {
 
     return () => {
       cancelled = true;
-      sourceRef.current?.close();
-      sourceRef.current = null;
+      cleanup();
     };
   }, [enabled]);
 

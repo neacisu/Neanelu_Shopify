@@ -110,16 +110,18 @@ export function ActivityTimeline() {
 
   return (
     <ChartContainer
-      title="Activity Timeline"
-      description="Jobs processed per day (last 7 days)"
+      title="Timeline activitate"
+      description="Job-uri procesate pe zi (ultimele 7 zile)"
       height={260}
-      actions={query.isFetching ? <div className="text-caption text-muted">Updating…</div> : null}
+      actions={query.isFetching ? <div className="text-caption text-muted">Actualizez…</div> : null}
     >
       {query.isLoading ? (
-        <LoadingState label="Loading activity…" />
+        <LoadingState label="Se incarca activitatea…" />
       ) : query.isError ? (
         <ErrorState
-          message={query.error instanceof Error ? query.error.message : 'Failed to load activity'}
+          message={
+            query.error instanceof Error ? query.error.message : 'Nu pot incarca activitatea.'
+          }
           onRetry={() => void query.refetch()}
         />
       ) : (

@@ -6,12 +6,12 @@ import { PageHeader } from '../components/layout/page-header';
 import { Tabs } from '../components/ui/tabs';
 
 const tabs = [
-  { label: 'Overview', value: 'overview', path: '/pim' },
-  { label: 'Quality', value: 'quality', path: '/pim/quality' },
+  { label: 'Prezentare', value: 'overview', path: '/pim' },
+  { label: 'Calitate', value: 'quality', path: '/pim/quality' },
   { label: 'Enrichment', value: 'enrichment', path: '/pim/enrichment' },
-  { label: 'Costs', value: 'costs', path: '/pim/costs' },
-  { label: 'Events', value: 'events', path: '/pim/events' },
-  { label: 'Consensus', value: 'consensus', path: '/pim/consensus' },
+  { label: 'Costuri', value: 'costs', path: '/pim/costs' },
+  { label: 'Evenimente', value: 'events', path: '/pim/events' },
+  { label: 'Consens', value: 'consensus', path: '/pim/consensus' },
 ];
 
 function resolveActiveTab(pathname: string): string {
@@ -38,13 +38,13 @@ export default function PimLayout() {
         ]}
       />
       <PageHeader
-        title="Product Information Management"
-        description="Golden Record progress, enrichment pipeline si quality analytics."
+        title="Management informatii produs (PIM)"
+        description="Progres Golden Record, pipeline de enrichment si analize de calitate."
       />
       <Tabs
         items={tabs}
         value={activeTab}
-        ariaLabel="PIM sections"
+        ariaLabel="Sectiuni PIM"
         onValueChange={(value) => {
           const target = tabs.find((tab) => tab.value === value);
           if (!target) return;

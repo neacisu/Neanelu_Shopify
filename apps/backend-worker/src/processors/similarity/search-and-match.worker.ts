@@ -12,7 +12,7 @@ import {
 } from '@app/pim';
 import { SimilarityMatchService } from '@app/pim';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
-import { enqueueAIAuditJob } from '../../queue/similarity-queues.js';
+import { enqueueAIAuditJob, enqueueExtractionJob } from '../../queue/similarity-queues.js';
 
 export const SIMILARITY_SEARCH_QUEUE_NAME = 'pim-similarity-search';
 export const SIMILARITY_SEARCH_JOB = 'search-external';
@@ -155,6 +155,34 @@ export function startSimilaritySearchWorker(logger: Logger): SimilaritySearchWor
               await Promise.all(
                 pendingMatches.map(async (match) =>
                   enqueueAIAuditJob({ shopId: payload.shopId, matchId: match.id })
+                )
+              );
+            }
+
+            if (summary.autoApproved > 0) {
+              // Auto-approved matches are confirmed immediately; we must continue the pipeline by
+              // sending them to extraction (otherwise consensus can never happen).
+              const autoApprovedMatches = await withTenantContext(
+                payload.shopId,
+                async (client) => {
+                  const result = await client.query<{ id: string }>(
+                    `SELECT id
+                     FROM prod_similarity_matches
+                    WHERE product_id = $1
+                      AND match_confidence = 'confirmed'
+                      AND specs_extracted IS NULL
+                      AND (match_details ->> 'auto_approved') = 'true'
+                    ORDER BY created_at DESC
+                    LIMIT 50`,
+                    [product.product_id]
+                  );
+                  return result.rows;
+                }
+              );
+
+              await Promise.all(
+                autoApprovedMatches.map(async (match) =>
+                  enqueueExtractionJob({ shopId: payload.shopId, matchId: match.id })
                 )
               );
             }

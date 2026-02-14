@@ -7,7 +7,7 @@ type ProvenanceEntry = Readonly<{
 }>;
 
 type ProvenanceTimelineProps = Readonly<{
-  entries: ProvenanceEntry[];
+  entries: readonly ProvenanceEntry[];
 }>;
 
 export function ProvenanceTimeline({ entries }: ProvenanceTimelineProps) {

@@ -23,6 +23,7 @@ import { EmptyState } from '../components/patterns/empty-state';
 import { useApiClient } from '../hooks/use-api';
 import { ScraperActivityChart } from '../components/domain/ScraperActivityChart';
 import { ScraperDomainPerformanceTable } from '../components/domain/ScraperDomainPerformanceTable';
+import { PolarisModal } from '../../components/polaris/index.js';
 import { PolarisTooltip } from '../../components/polaris/tooltip';
 
 type BrowserStatus = ScraperSettingsResponse['browserStatus'];
@@ -61,6 +62,7 @@ export default function SettingsScraper() {
 
   const [settings, setSettings] = useState<ScraperSettingsResponse | null>(null);
   const [configs, setConfigs] = useState<ScraperConfigResponse[]>([]);
+  const [sources, setSources] = useState<{ id: string; name: string }[]>([]);
   const [runs, setRuns] = useState<ScraperRunResponse[]>([]);
   const [activity, setActivity] = useState<ScraperActivityDataPoint[]>([]);
   const [queueStatus, setQueueStatus] = useState<ScraperQueueStatusResponse | null>(null);
@@ -87,21 +89,41 @@ export default function SettingsScraper() {
   const [disableConfirmOpen, setDisableConfirmOpen] = useState(false);
   const [purgeConfirmOpen, setPurgeConfirmOpen] = useState(false);
 
+  const [configModalOpen, setConfigModalOpen] = useState(false);
+  const [configEditingId, setConfigEditingId] = useState<string | null>(null);
+  const [configSaving, setConfigSaving] = useState(false);
+  const [configDraft, setConfigDraft] = useState<{
+    sourceId: string;
+    name: string;
+    scraperType: ScraperConfigResponse['scraperType'];
+    targetUrlPattern: string;
+    isActive: boolean;
+  }>({
+    sourceId: '',
+    name: '',
+    scraperType: 'PLAYWRIGHT',
+    targetUrlPattern: '',
+    isActive: true,
+  });
+
   const loadAll = async (pageArg = page, limitArg = limit) => {
     setLoading(true);
     setError(null);
     try {
-      const [settingsRes, configsRes, runsRes, activityRes, queueRes] = await Promise.all([
-        api.getApi<ScraperSettingsResponse>('/settings/scraper'),
-        api.getApi<ScraperConfigResponse[]>('/settings/scraper/configs'),
-        api.getApi<{ items: ScraperRunResponse[] }>(
-          `/settings/scraper/runs?page=${String(pageArg)}&limit=${String(limitArg)}`
-        ),
-        api.getApi<ScraperActivityDataPoint[]>('/settings/scraper/activity?days=7'),
-        api.getApi<ScraperQueueStatusResponse>('/settings/scraper/queue-status'),
-      ]);
+      const [settingsRes, configsRes, sourcesRes, runsRes, activityRes, queueRes] =
+        await Promise.all([
+          api.getApi<ScraperSettingsResponse>('/settings/scraper'),
+          api.getApi<ScraperConfigResponse[]>('/settings/scraper/configs'),
+          api.getApi<{ sources: { id: string; name: string }[] }>('/settings/scraper/sources'),
+          api.getApi<{ items: ScraperRunResponse[] }>(
+            `/settings/scraper/runs?page=${String(pageArg)}&limit=${String(limitArg)}`
+          ),
+          api.getApi<ScraperActivityDataPoint[]>('/settings/scraper/activity?days=7'),
+          api.getApi<ScraperQueueStatusResponse>('/settings/scraper/queue-status'),
+        ]);
       setSettings(settingsRes);
       setConfigs(configsRes);
+      setSources(sourcesRes.sources ?? []);
       setRuns(runsRes.items);
       setActivity(activityRes);
       setQueueStatus(queueRes);
@@ -250,6 +272,64 @@ export default function SettingsScraper() {
       await loadAll();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Nu am putut dezactiva configuratia');
+    }
+  };
+
+  const openCreateConfig = () => {
+    setConfigEditingId(null);
+    setConfigDraft({
+      sourceId: sources[0]?.id ?? '',
+      name: '',
+      scraperType: 'PLAYWRIGHT',
+      targetUrlPattern: '',
+      isActive: true,
+    });
+    setConfigModalOpen(true);
+  };
+
+  const openEditConfig = (config: ScraperConfigResponse) => {
+    setConfigEditingId(config.id);
+    setConfigDraft({
+      sourceId: config.sourceId,
+      name: config.name,
+      scraperType: config.scraperType,
+      targetUrlPattern: config.targetUrlPattern,
+      isActive: config.isActive,
+    });
+    setConfigModalOpen(true);
+  };
+
+  const saveConfig = async () => {
+    if (!configDraft.sourceId || !configDraft.name.trim() || !configDraft.targetUrlPattern.trim()) {
+      toast.error('Completeaza sursa, numele si pattern-ul URL.');
+      return;
+    }
+
+    setConfigSaving(true);
+    try {
+      if (configEditingId) {
+        await api.putApi(`/settings/scraper/configs/${configEditingId}`, {
+          name: configDraft.name.trim(),
+          targetUrlPattern: configDraft.targetUrlPattern.trim(),
+          isActive: configDraft.isActive,
+        });
+        toast.success('Configuratia a fost actualizata.');
+      } else {
+        await api.postApi('/settings/scraper/configs', {
+          sourceId: configDraft.sourceId,
+          name: configDraft.name.trim(),
+          scraperType: configDraft.scraperType,
+          targetUrlPattern: configDraft.targetUrlPattern.trim(),
+          isActive: configDraft.isActive,
+        });
+        toast.success('Configuratia a fost creata.');
+      }
+      setConfigModalOpen(false);
+      await loadAll();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Nu am putut salva configuratia.');
+    } finally {
+      setConfigSaving(false);
     }
   };
 
@@ -500,15 +580,15 @@ export default function SettingsScraper() {
             disabled={robotsLoading || !robotsTestUrl.trim()}
             className="rounded-md border border-muted/20 px-4 py-2 text-sm font-medium shadow-sm hover:bg-muted/10 disabled:opacity-50"
           >
-            {robotsLoading ? 'Testing...' : 'Test robots.txt'}
+            {robotsLoading ? 'Testez...' : 'Testeaza robots.txt'}
           </button>
         </div>
         {robotsResult ? (
           <div
             className={`rounded-md border p-3 text-sm ${robotsResult.allowed ? 'border-success/30 bg-success/10 text-success' : 'border-error/30 bg-error/10 text-error'}`}
           >
-            {robotsResult.allowed ? 'Allowed' : 'Blocked'} - {robotsResult.domain} (
-            {robotsResult.robotsTxtCached ? 'cached' : 'fresh'})
+            {robotsResult.allowed ? 'Permis' : 'Blocat'} - {robotsResult.domain} (
+            {robotsResult.robotsTxtCached ? 'cache' : 'live'})
           </div>
         ) : null}
       </div>
@@ -517,59 +597,68 @@ export default function SettingsScraper() {
 
       <div className="rounded-lg border border-muted/20 bg-background p-4 space-y-3">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-medium">Scraper queue status</div>
+          <div className="text-sm font-medium">Status coada scraper</div>
           <div className="flex gap-2">
             <button
               type="button"
               className="rounded-md border border-muted/20 px-3 py-1 text-xs"
               onClick={() => setPurgeConfirmOpen(true)}
             >
-              Purge Failed
+              Curata esuate
             </button>
             <button
               type="button"
               className="rounded-md border border-muted/20 px-3 py-1 text-xs"
               onClick={() => void retryFailedQueue()}
             >
-              Retry All Failed
+              Reincearca toate esuate
             </button>
           </div>
         </div>
         <div className="grid gap-2 md:grid-cols-4 text-sm">
           <div className="rounded border border-muted/20 p-3">
-            Pending: {queueStatus?.pending ?? 0}
+            In asteptare: {queueStatus?.pending ?? 0}
           </div>
           <div className="rounded border border-muted/20 p-3">
-            Processing: {queueStatus?.processing ?? 0}
+            In procesare: {queueStatus?.processing ?? 0}
           </div>
           <div className="rounded border border-muted/20 p-3">
-            Completed: {queueStatus?.completed ?? 0}
+            Finalizate: {queueStatus?.completed ?? 0}
           </div>
           <div className="rounded border border-muted/20 p-3">
-            Failed: {queueStatus?.failed ?? 0}
+            Esuate: {queueStatus?.failed ?? 0}
           </div>
         </div>
       </div>
 
       <div className="rounded-lg border border-muted/20 bg-background p-4">
-        <div className="mb-2 text-xs text-muted">Active scraper configs</div>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="text-xs text-muted">Configuratii scraper active</div>
+          <button
+            type="button"
+            className="rounded-md border border-muted/20 bg-background px-3 py-1 text-xs shadow-sm hover:bg-muted/10"
+            onClick={openCreateConfig}
+          >
+            Adauga configuratie
+          </button>
+        </div>
         {!configRows.length ? (
           <EmptyState
             icon={Cog}
             title="Nicio configuratie scraper"
             description="Adauga o configuratie noua pentru un domeniu."
-            actionLabel="Adauga config"
-            onAction={() => toast.info('Endpointul de creare este disponibil in API.')}
+            actionLabel="Adauga configuratie"
+            onAction={openCreateConfig}
           />
         ) : (
           <div className="overflow-auto rounded-md border">
             <table className="w-full text-sm">
               <thead className="bg-muted/20">
                 <tr>
-                  <th className="px-3 py-2 text-left">Name</th>
-                  <th className="px-3 py-2 text-left">Source</th>
-                  <th className="px-3 py-2 text-left">Type</th>
-                  <th className="px-3 py-2 text-left">URL Pattern</th>
+                  <th className="px-3 py-2 text-left">Nume</th>
+                  <th className="px-3 py-2 text-left">Sursa</th>
+                  <th className="px-3 py-2 text-left">Tip</th>
+                  <th className="px-3 py-2 text-left">Pattern URL</th>
                   <th className="px-3 py-2 text-right">
                     <button
                       type="button"
@@ -582,7 +671,7 @@ export default function SettingsScraper() {
                         }
                       }}
                     >
-                      Success Rate
+                      Rata succes
                     </button>
                   </th>
                   <th className="px-3 py-2 text-right">
@@ -597,10 +686,10 @@ export default function SettingsScraper() {
                         }
                       }}
                     >
-                      Last Run
+                      Ultimul run
                     </button>
                   </th>
-                  <th className="px-3 py-2 text-right">Actions</th>
+                  <th className="px-3 py-2 text-right">Actiuni</th>
                 </tr>
               </thead>
               <tbody>
@@ -619,10 +708,17 @@ export default function SettingsScraper() {
                     <td className="px-3 py-2 text-right">
                       <button
                         type="button"
+                        className="mr-3 text-xs text-primary"
+                        onClick={() => openEditConfig(config)}
+                      >
+                        Editeaza
+                      </button>
+                      <button
+                        type="button"
                         className="text-error text-xs"
                         onClick={() => setDeactivateConfigId(config.id)}
                       >
-                        Deactivate
+                        Dezactiveaza
                       </button>
                     </td>
                   </tr>
@@ -779,6 +875,115 @@ export default function SettingsScraper() {
           </div>
         )}
       </div>
+
+      <PolarisModal open={configModalOpen} onClose={() => setConfigModalOpen(false)}>
+        <div className="space-y-4 p-4">
+          <div className="text-h3">
+            {configEditingId ? 'Editeaza configuratia scraper' : 'Adauga configuratie scraper'}
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <div>
+              <label className="text-caption text-muted">Sursa (prod_sources)</label>
+              <select
+                className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
+                value={configDraft.sourceId}
+                onChange={(e) =>
+                  setConfigDraft((p) => ({ ...p, sourceId: (e.target as HTMLSelectElement).value }))
+                }
+              >
+                <option value="">Selecteaza sursa</option>
+                {sources.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+              {sources.length === 0 ? (
+                <div className="mt-1 text-xs text-muted">
+                  Nu exista surse disponibile in `prod_sources` pentru acest shop.
+                </div>
+              ) : null}
+            </div>
+
+            <div>
+              <label className="text-caption text-muted">Tip scraper</label>
+              <select
+                className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
+                value={configDraft.scraperType}
+                onChange={(e) =>
+                  setConfigDraft((p) => ({
+                    ...p,
+                    scraperType: (e.target as HTMLSelectElement)
+                      .value as ScraperConfigResponse['scraperType'],
+                  }))
+                }
+              >
+                <option value="PLAYWRIGHT">PLAYWRIGHT</option>
+                <option value="CHEERIO">CHEERIO</option>
+                <option value="PUPPETEER">PUPPETEER</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <div>
+              <label className="text-caption text-muted">Nume</label>
+              <input
+                className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
+                value={configDraft.name}
+                onChange={(e) =>
+                  setConfigDraft((p) => ({ ...p, name: (e.target as HTMLInputElement).value }))
+                }
+              />
+            </div>
+            <div>
+              <label className="text-caption text-muted">Pattern URL</label>
+              <input
+                className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
+                placeholder="https://example.com/product-page"
+                value={configDraft.targetUrlPattern}
+                onChange={(e) =>
+                  setConfigDraft((p) => ({
+                    ...p,
+                    targetUrlPattern: (e.target as HTMLInputElement).value,
+                  }))
+                }
+              />
+            </div>
+          </div>
+
+          <label className="inline-flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={configDraft.isActive}
+              onChange={(e) =>
+                setConfigDraft((p) => ({ ...p, isActive: (e.target as HTMLInputElement).checked }))
+              }
+            />
+            Activ
+          </label>
+
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              className="rounded-md border border-muted/20 bg-background px-4 py-2 text-sm hover:bg-muted/10 disabled:opacity-50"
+              onClick={() => setConfigModalOpen(false)}
+              disabled={configSaving}
+            >
+              Renunta
+            </button>
+            <button
+              type="button"
+              className="rounded-md bg-primary px-4 py-2 text-sm text-background shadow-sm hover:bg-primary/90 disabled:opacity-50"
+              onClick={() => void saveConfig()}
+              disabled={configSaving}
+            >
+              {configSaving ? 'Salvez...' : 'Salveaza'}
+            </button>
+          </div>
+        </div>
+      </PolarisModal>
 
       <ConfirmDialog
         open={deactivateConfigId != null}

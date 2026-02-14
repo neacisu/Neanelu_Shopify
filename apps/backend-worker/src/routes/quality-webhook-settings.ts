@@ -4,6 +4,7 @@ import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
 import type { QualityEventType } from '@app/types';
 import { withTenantContext } from '@app/database';
+import { QualityWebhookConfigUpdateSchema } from '@app/validation';
 import {
   dispatchQualityWebhook,
   fetchWebhookConfig,
@@ -125,18 +126,18 @@ export const qualityWebhookSettingsRoutes: FastifyPluginCallback<
     { preHandler: requireSession(sessionConfig) },
     async (request, reply) => {
       const session = (request as typeof request & { session: { shopId: string } }).session;
-      const body = (request.body ?? {}) as {
-        url?: unknown;
-        secret?: unknown;
-        enabled?: unknown;
-        subscribedEvents?: unknown;
-        regenerateSecret?: unknown;
-      };
+      const parsed = QualityWebhookConfigUpdateSchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Invalid webhook config payload'));
+      }
+      const body = parsed.data;
 
       const url = typeof body.url === 'string' ? body.url.trim() : '';
-      const enabled = Boolean(body.enabled);
+      const enabled = body.enabled ?? false;
       const subscribedEvents = parseEvents(body.subscribedEvents);
-      const regenerateSecret = Boolean(body.regenerateSecret);
+      const regenerateSecret = body.regenerateSecret ?? false;
 
       if (enabled && (!url || !isValidWebhookUrl(url, env))) {
         return reply
@@ -333,6 +334,21 @@ export const qualityWebhookSettingsRoutes: FastifyPluginCallback<
 
       try {
         await withTenantContext(session.shopId, async (client) => {
+          const owned = await client.query<{ id: string }>(
+            `SELECT qe.id
+               FROM prod_quality_events qe
+               JOIN prod_channel_mappings pcm
+                 ON pcm.product_id = qe.product_id
+                AND pcm.shop_id = $2
+                AND pcm.channel = 'shopify'
+              WHERE qe.id = $1
+              LIMIT 1`,
+            [eventId, session.shopId]
+          );
+          if (!owned.rows[0]?.id) {
+            throw new Error('event_not_found');
+          }
+
           await resetEventWebhookPending(eventId, client);
           const evt = await getQualityEventById(eventId, client);
           if (!evt) {

@@ -34,6 +34,7 @@ import QualityProgressPage, { loader as qualityProgressLoader } from './routes/a
 import CostTrackingPage, { loader as costTrackingLoader } from './routes/app.pim.costs';
 import QualityEventsPage, { loader as qualityEventsLoader } from './routes/app.pim.events';
 import PimConsensusPage from './routes/app.pim.consensus';
+import PimRouteErrorBoundary from './routes/app.pim.error';
 import SettingsLayout from './routes/settings';
 import SettingsIndex from './routes/settings._index';
 import SettingsGeneral from './routes/settings.general';
@@ -152,6 +153,7 @@ export const routes: RouteObject[] = [
         path: 'pim',
         handle: { title: 'PIM' },
         element: createElement(PimLayout),
+        errorElement: createElement(PimRouteErrorBoundary),
         children: [
           {
             id: 'pim-index',

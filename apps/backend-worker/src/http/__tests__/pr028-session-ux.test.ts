@@ -38,6 +38,7 @@ void mock.module('@app/database', {
 void mock.module('@app/queue-manager', {
   namedExports: {
     QUEUE_NAMES: ['webhook-queue', 'sync-queue', 'bulk-queue', 'ai-batch-queue'],
+    NEANELU_BACKOFF_STRATEGY: 'neanelu-exp4',
     defaultQueuePolicy: () => ({
       attempts: 3,
       backoff: { type: 'exponential', delay: 1000 },

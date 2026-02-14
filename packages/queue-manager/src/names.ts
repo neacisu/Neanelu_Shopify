@@ -12,6 +12,12 @@ export const QUEUE_NAMES = [
   'pim-extraction',
   'pim-scraper-queue',
   'pim-consensus',
+  'pim-quality-webhook',
+  'pim-quality-webhook-sweep',
+  'pim-budget-reset-queue',
+  'pim-weekly-summary-queue',
+  'pim-auto-enrichment-scheduler-queue',
+  'pim-raw-harvest-retention-queue',
   'pim-mv-refresh-queue',
 ] as const;
 

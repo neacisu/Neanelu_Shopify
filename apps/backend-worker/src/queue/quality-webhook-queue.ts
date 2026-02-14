@@ -1,7 +1,12 @@
 import type { AppEnv } from '@app/config';
 import type { QualityWebhookJobData } from '@app/types';
 import { loadEnv } from '@app/config';
-import { configFromEnv, createQueue, type CreateQueueManagerOptions } from '@app/queue-manager';
+import {
+  configFromEnv,
+  createQueue,
+  NEANELU_BACKOFF_STRATEGY,
+  type CreateQueueManagerOptions,
+} from '@app/queue-manager';
 
 let cachedEnv: AppEnv | null = null;
 function getEnv(): AppEnv {
@@ -28,7 +33,7 @@ function getQualityWebhookQueue(): QualityWebhookQueue {
     name: QUALITY_WEBHOOK_QUEUE_NAME,
     defaultJobOptions: {
       attempts,
-      backoff: { type: 'exponential', delay: 1000 },
+      backoff: { type: NEANELU_BACKOFF_STRATEGY, delay: 1000 },
       removeOnComplete: { count: 500 },
       removeOnFail: { count: 200 },
     },

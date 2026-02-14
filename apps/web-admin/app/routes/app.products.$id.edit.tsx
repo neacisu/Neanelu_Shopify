@@ -101,7 +101,7 @@ export default function ProductEditPage() {
   return (
     <div className="space-y-6">
       <Breadcrumbs items={breadcrumbs} />
-      <PageHeader title="Edit Product" description="Update PIM metadata only." />
+      <PageHeader title="Editeaza produs" description="Actualizeaza doar metadata PIM." />
 
       <form onSubmit={handleFormSubmit} className="space-y-4 rounded-lg border p-4">
         <div className="grid gap-3">

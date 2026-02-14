@@ -2,8 +2,14 @@ import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { withTenantContext } from '@app/database';
-import { configFromEnv, createQueue, ENRICHMENT_QUEUE_NAME } from '@app/queue-manager';
+import {
+  configFromEnv,
+  createQueue,
+  enqueueEnrichmentJob,
+  ENRICHMENT_QUEUE_NAME,
+} from '@app/queue-manager';
 import { checkAllBudgets } from '@app/pim';
+import { PimBudgetsUpdateSchema } from '@app/validation';
 import type { SessionConfig } from '../auth/session.js';
 import { requireSession } from '../auth/session.js';
 import { recordPimQueuePaused, recordPimQueueResumed } from '../otel/metrics.js';
@@ -1041,8 +1047,10 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
                  COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'openai'), 0) as openai,
                  COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'scraper'), 0) as scraper
                FROM api_usage_log
-              WHERE created_at >= date_trunc('day', now())
-                AND created_at < date_trunc('day', now()) + interval '1 day'`
+              WHERE shop_id = $1
+                AND created_at >= date_trunc('day', now())
+                AND created_at < date_trunc('day', now()) + interval '1 day'`,
+              [session.shopId]
             ),
             client.query<{ serper: string; xai: string; openai: string; scraper: string }>(
               `SELECT
@@ -1051,8 +1059,10 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
                  COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'openai'), 0) as openai,
                  COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'scraper'), 0) as scraper
                FROM api_usage_log
-              WHERE created_at >= date_trunc('week', now())
-                AND created_at < date_trunc('week', now()) + interval '7 days'`
+              WHERE shop_id = $1
+                AND created_at >= date_trunc('week', now())
+                AND created_at < date_trunc('week', now()) + interval '7 days'`,
+              [session.shopId]
             ),
             client.query<{ serper: string; xai: string; openai: string; scraper: string }>(
               `SELECT
@@ -1061,8 +1071,10 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
                  COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'openai'), 0) as openai,
                  COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'scraper'), 0) as scraper
                FROM api_usage_log
-              WHERE created_at >= date_trunc('month', now())
-                AND created_at < date_trunc('month', now()) + interval '1 month'`
+              WHERE shop_id = $1
+                AND created_at >= date_trunc('month', now())
+                AND created_at < date_trunc('month', now()) + interval '1 month'`,
+              [session.shopId]
             ),
           ]);
           const lastMonth = await client.query<{ serper: string; xai: string; openai: string }>(
@@ -1071,8 +1083,10 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
                COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'xai'), 0) as xai,
                COALESCE(SUM(estimated_cost) FILTER (WHERE api_provider = 'openai'), 0) as openai
              FROM api_usage_log
-            WHERE created_at >= date_trunc('month', now()) - interval '1 month'
-              AND created_at < date_trunc('month', now())`
+            WHERE shop_id = $1
+              AND created_at >= date_trunc('month', now()) - interval '1 month'
+              AND created_at < date_trunc('month', now())`,
+            [session.shopId]
           );
 
           const settings = await client.query<{
@@ -1149,16 +1163,32 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
                  FROM prod_quality_events
                 WHERE event_type = 'quality_promoted'
                   AND new_level = 'golden'
+                  AND EXISTS (
+                    SELECT 1
+                    FROM prod_channel_mappings pcm
+                    WHERE pcm.product_id = prod_quality_events.product_id
+                      AND pcm.shop_id = $1
+                      AND pcm.channel = 'shopify'
+                  )
                   AND created_at >= date_trunc('month', now())
-                  AND created_at < date_trunc('month', now()) + interval '1 month'`
+                  AND created_at < date_trunc('month', now()) + interval '1 month'`,
+              [session.shopId]
             ),
             client.query<{ count: string }>(
               `SELECT COUNT(*)::text as count
                  FROM prod_quality_events
                 WHERE event_type = 'quality_promoted'
                   AND new_level = 'golden'
+                  AND EXISTS (
+                    SELECT 1
+                    FROM prod_channel_mappings pcm
+                    WHERE pcm.product_id = prod_quality_events.product_id
+                      AND pcm.shop_id = $1
+                      AND pcm.channel = 'shopify'
+                  )
                   AND created_at >= date_trunc('month', now()) - interval '1 month'
-                  AND created_at < date_trunc('month', now())`
+                  AND created_at < date_trunc('month', now())`,
+              [session.shopId]
             ),
           ]);
           const goldenCount = Number(goldenCurrent.rows[0]?.count ?? 0);
@@ -1314,9 +1344,11 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
           const usage = await client.query<{ used: string }>(
             `SELECT COALESCE(SUM(request_count),0)::text AS used
              FROM api_usage_log
-             WHERE api_provider = 'scraper'
+             WHERE shop_id = $1
+               AND api_provider = 'scraper'
                AND created_at >= date_trunc('day', now())
-               AND created_at < date_trunc('day', now()) + interval '1 day'`
+               AND created_at < date_trunc('day', now()) + interval '1 day'`,
+            [session.shopId]
           );
           const used = Number(usage.rows[0]?.used ?? 0);
           const limit = 10000;
@@ -1530,9 +1562,11 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
           const usage = await client.query<{ used: string }>(
             `SELECT COALESCE(SUM(request_count),0)::text AS used
              FROM api_usage_log
-             WHERE api_provider = 'scraper'
+             WHERE shop_id = $1
+               AND api_provider = 'scraper'
                AND created_at >= date_trunc('day', now())
-               AND created_at < date_trunc('day', now()) + interval '1 day'`
+               AND created_at < date_trunc('day', now()) + interval '1 day'`,
+            [session.shopId]
           );
           const used = Number(usage.rows[0]?.used ?? 0);
           const limit = 10000;
@@ -1589,15 +1623,13 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
           .status(401)
           .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
       }
-      const body = (request.body ?? {}) as {
-        serperDailyBudget?: number;
-        serperBudgetAlertThreshold?: number;
-        xaiDailyBudget?: number;
-        xaiBudgetAlertThreshold?: number;
-        openaiDailyBudget?: number;
-        openaiBudgetAlertThreshold?: number;
-        openaiItemsDailyBudget?: number;
-      };
+      const parsed = PimBudgetsUpdateSchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Invalid budget payload'));
+      }
+      const body = parsed.data;
 
       const updates: string[] = [];
       const values: unknown[] = [];
@@ -1975,6 +2007,83 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
           .status(500)
           .send(
             errorEnvelope(request.id, 500, 'INTERNAL_SERVER_ERROR', 'Failed to load unread count')
+          );
+      }
+    }
+  );
+
+  server.post(
+    '/pim/enrichment/start',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+
+      const body = (request.body ?? {}) as { limit?: unknown };
+      const limit = parseIntParam(body.limit, 50, 1, 250);
+
+      try {
+        const productIds = await withTenantContext(session.shopId, async (client) => {
+          const result = await client.query<{ id: string }>(
+            `SELECT sp.id
+               FROM prod_channel_mappings pcm
+               JOIN shopify_products sp
+                 ON sp.shopify_gid = pcm.external_id
+                AND sp.shop_id = $1
+               JOIN prod_master pm
+                 ON pm.id = pcm.product_id
+               LEFT JOIN prod_specs_normalized psn
+                 ON psn.product_id = pm.id
+                AND psn.is_current = true
+              WHERE pcm.shop_id = $1
+                AND pcm.channel = 'shopify'
+                AND pm.data_quality_level = 'bronze'
+                AND (psn.id IS NULL OR psn.updated_at < now() - interval '7 days')
+              ORDER BY pm.updated_at ASC NULLS LAST
+              LIMIT $2`,
+            [session.shopId, limit]
+          );
+          return result.rows.map((row) => row.id);
+        });
+
+        if (productIds.length === 0) {
+          return reply.send(successEnvelope(request.id, { status: 'noop', queued: 0 }));
+        }
+
+        await enqueueEnrichmentJob(
+          {
+            shopId: session.shopId,
+            productIds,
+            triggeredBy: 'manual',
+            requestedAt: Date.now(),
+            priority: 2,
+          },
+          logger as unknown as Parameters<typeof enqueueEnrichmentJob>[1]
+        );
+
+        return reply.status(202).send(
+          successEnvelope(request.id, {
+            status: 'queued',
+            queued: productIds.length,
+          })
+        );
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to start manual enrichment');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(
+              request.id,
+              500,
+              'INTERNAL_SERVER_ERROR',
+              'Failed to start manual enrichment'
+            )
           );
       }
     }

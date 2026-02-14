@@ -6,6 +6,7 @@ import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { PageHeader } from '../components/layout/page-header';
 import { Tabs } from '../components/ui/tabs';
 import { Button } from '../components/ui/button';
+import { useApiClient } from '../hooks/use-api';
 import { SimilarityMatchCard } from '../components/domain/SimilarityMatchCard';
 import { SimilarityMatchDetailDrawer } from '../components/domain/SimilarityMatchDetailDrawer';
 import {
@@ -26,16 +27,17 @@ import {
 } from '../hooks/use-similarity-matches';
 
 const TABS = [
-  { label: 'All', value: 'all' },
-  { label: 'Pending', value: 'pending' },
+  { label: 'Toate', value: 'all' },
+  { label: 'In asteptare', value: 'pending' },
   { label: 'AI Audit', value: 'ai_audit' },
   { label: 'HITL', value: 'hitl' },
-  { label: 'Confirmed', value: 'confirmed' },
-  { label: 'Rejected', value: 'rejected' },
+  { label: 'Confirmate', value: 'confirmed' },
+  { label: 'Respinse', value: 'rejected' },
 ];
 
 export default function SimilarityMatchesPage() {
   const location = useLocation();
+  const api = useApiClient();
   const productIdFromQuery = useMemo(
     () => new URLSearchParams(location.search).get('productId') ?? undefined,
     [location.search]
@@ -129,13 +131,15 @@ export default function SimilarityMatchesPage() {
   }, [matches]);
 
   const trackUxEvent = (name: string, payload: Record<string, unknown> = {}) => {
-    const record = {
-      name,
-      timestamp: new Date().toISOString(),
-      ...payload,
-    };
-    // Placeholder pentru instrumentare KPI: poate fi inlocuit cu un tracker real.
-    console.info('[ux-event]', record);
+    // Fire-and-forget: UX tracking must never block the UI.
+    void api
+      .postApi<{ ok: boolean }, Record<string, unknown>>('/ux/events', {
+        name,
+        payload,
+        resourceType: 'similarity_match',
+        ...(typeof payload['matchId'] === 'string' ? { resourceId: payload['matchId'] } : {}),
+      })
+      .catch(() => undefined);
   };
 
   useEffect(() => {
@@ -279,15 +283,15 @@ export default function SimilarityMatchesPage() {
   return (
     <div className="space-y-6">
       <Breadcrumbs
-        items={[{ label: 'Products', href: '/products' }, { label: 'Similarity Matches' }]}
+        items={[{ label: 'Produse', href: '/products' }, { label: 'Potriviri similare' }]}
       />
       <PageHeader
-        title="Similarity Matches"
+        title="Potriviri similare"
         description="Revizuiește și confirmă matches externe."
         actions={
           <>
             <Button size="sm" variant="secondary" onClick={() => void reload()}>
-              Refresh
+              Reincarca
             </Button>
             <Button size="sm" variant="ghost" onClick={exportCsv}>
               Export CSV
@@ -299,7 +303,7 @@ export default function SimilarityMatchesPage() {
                 aria-label="Activează auto-refresh"
                 onChange={(event) => setAutoRefresh(event.target.checked)}
               />
-              Auto-refresh
+              Auto-reincarcare
             </label>
           </>
         }
@@ -343,7 +347,7 @@ export default function SimilarityMatchesPage() {
               void batchUpdateConfidence(selectedIds, 'confirmed').then(() => reload());
             }}
           >
-            Confirm selected
+            Confirma selectate
           </button>
           <button
             type="button"
@@ -352,14 +356,14 @@ export default function SimilarityMatchesPage() {
               void batchUpdateConfidence(selectedIds, 'rejected').then(() => reload());
             }}
           >
-            Reject selected
+            Respinge selectate
           </button>
           <button
             type="button"
             className="rounded-md border border-muted/20 px-3 py-1 text-xs"
             onClick={() => setSelectedIds([])}
           >
-            Clear selection
+            Curata selectia
           </button>
         </div>
       ) : null}
@@ -374,7 +378,7 @@ export default function SimilarityMatchesPage() {
               key={`skeleton-${index}`}
               className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted"
             >
-              Se încarcă similarity matches...
+              Se incarca potrivirile...
             </div>
           ))}
         </div>

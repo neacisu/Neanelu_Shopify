@@ -29,7 +29,7 @@ type ConsensusResultRow = Readonly<{
 type ConflictRow = Readonly<{
   attributeName: string;
   reason: string;
-  values: Readonly<{
+  values: readonly Readonly<{
     value: unknown;
     sourceName: string;
     trustScore: number;
@@ -61,13 +61,13 @@ type ConsensusDetailDrawerProps = Readonly<{
     consistency: number;
     sourceWeight: number;
   } | null;
-  sources: ConsensusSource[];
-  results: ConsensusResultRow[];
-  conflicts: ConflictRow[];
-  provenance: ProvenanceEntry[];
+  sources: readonly ConsensusSource[];
+  results: readonly ConsensusResultRow[];
+  conflicts: readonly ConflictRow[];
+  provenance: readonly ProvenanceEntry[];
   votesByAttribute: Record<
     string,
-    {
+    readonly {
       value: unknown;
       attributeName: string;
       sourceName: string;

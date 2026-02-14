@@ -1,5 +1,5 @@
 import { useApiClient, useApiRequest } from './use-api';
-import type { ConsensusProductItem } from '../types/consensus';
+import type { ConsensusProductItem } from '@app/types';
 
 export type ConsensusProductsParams = Readonly<{
   status?: 'pending' | 'computed' | 'conflicts' | 'manual_review' | 'all';

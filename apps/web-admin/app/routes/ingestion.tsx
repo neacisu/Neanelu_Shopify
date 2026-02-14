@@ -939,14 +939,14 @@ export default function IngestionPage() {
         <PolarisCard className="p-6">
           <div className="grid gap-6 lg:grid-cols-[2fr,3fr]">
             <div className="space-y-3">
-              <h2 className="text-h3">Start a full sync</h2>
+              <h2 className="text-h3">Porneste o sincronizare completa</h2>
               <p className="text-body text-muted">
-                Kick off a full Shopify catalog ingestion. You can monitor progress and logs in real
-                time once the run starts.
+                Porneste o ingestie completa a catalogului Shopify. Poti monitoriza progresul si
+                log-urile in timp real dupa ce run-ul incepe.
               </p>
               {recentRuns.length > 0 ? (
                 <div className="text-caption text-muted">
-                  Last run: {recentRuns[0]?.completedAt ?? recentRuns[0]?.startedAt ?? '—'}
+                  Ultimul run: {recentRuns[0]?.completedAt ?? recentRuns[0]?.startedAt ?? '—'}
                 </div>
               ) : null}
               <Button
@@ -954,13 +954,13 @@ export default function IngestionPage() {
                 onClick={startIngestion}
                 loading={actionFetcher.state !== 'idle'}
               >
-                Start Full Sync
+                Porneste sync complet
               </Button>
             </div>
             <div className="rounded-md border bg-muted/10 p-4">
               <FileUpload
-                label="Manual JSONL upload"
-                description="Upload a JSONL file to ingest without a Shopify bulk run."
+                label="Upload JSONL manual"
+                description="Incarca un fisier JSONL pentru ingestie fara un bulk run Shopify."
                 accept={{ 'application/jsonl': ['.jsonl'], 'application/json': ['.json'] }}
                 maxFiles={1}
                 maxSize={1024 * 1024 * 1024}

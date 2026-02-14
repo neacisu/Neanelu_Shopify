@@ -10,7 +10,8 @@ import {
 } from '../services/quality-scorer.js';
 import { getConfirmedMatchesWithSources } from '../repositories/similarity-matches.js';
 
-const shouldSkip = !process.env['DATABASE_URL'];
+// DB integration tests are opt-in. Default `pnpm test` should be mock/unit friendly.
+const shouldSkip = process.env['PIM_TESTS_WITH_DB'] !== '1' || !process.env['DATABASE_URL'];
 
 describe('quality-scorer', { skip: shouldSkip }, () => {
   let pool: ReturnType<typeof getDbPool> | null = null;

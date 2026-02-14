@@ -199,10 +199,10 @@ export default function SettingsSerper() {
       if (apiKeyDirty && apiKey) {
         payload.apiKey = apiKey;
       }
-      const data = await api.getApi<SerperSettingsResponse>('/settings/serper', {
-        method: 'PUT',
-        body: JSON.stringify(payload),
-      });
+      const data = await api.putApi<SerperSettingsResponse, SerperSettingsUpdateRequest>(
+        '/settings/serper',
+        payload
+      );
       setHasApiKey(data.hasApiKey);
       setConnectionStatus(normalizeStatus(data.connectionStatus));
       setLastCheckedAt(coerceNullableString(data.lastCheckedAt));
@@ -230,10 +230,10 @@ export default function SettingsSerper() {
         enabled: false,
         apiKey: '',
       };
-      const data = await api.getApi<SerperSettingsResponse>('/settings/serper', {
-        method: 'PUT',
-        body: JSON.stringify(payload),
-      });
+      const data = await api.putApi<SerperSettingsResponse, SerperSettingsUpdateRequest>(
+        '/settings/serper',
+        payload
+      );
       setEnabled(false);
       setHasApiKey(data.hasApiKey);
       setConnectionStatus(normalizeStatus(data.connectionStatus));
@@ -256,7 +256,7 @@ export default function SettingsSerper() {
   return (
     <div className="space-y-6">
       <div className="rounded-lg border border-muted/20 bg-muted/5 p-4">
-        <h3 className="font-medium text-body">Serper API - External Product Search</h3>
+        <h3 className="font-medium text-body">Serper API - Cautare externa produse</h3>
         <p className="mt-1 text-sm text-muted">
           Configurează integrarea cu Serper API pentru căutarea externă de produse (Golden Record
           Stage 4). Obține un API key gratuit de la{' '}

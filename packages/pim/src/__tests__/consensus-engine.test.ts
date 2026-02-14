@@ -4,7 +4,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { getDbPool } from '../db.js';
 import { computeConsensus, mergeWithExistingSpecs } from '../services/consensus-engine.js';
 
-const shouldSkip = !process.env['DATABASE_URL'];
+// DB integration tests are opt-in. Default `pnpm test` should be mock/unit friendly.
+const shouldSkip = process.env['PIM_TESTS_WITH_DB'] !== '1' || !process.env['DATABASE_URL'];
 
 describe('consensus-engine', { skip: shouldSkip }, () => {
   let pool: ReturnType<typeof getDbPool> | null = null;

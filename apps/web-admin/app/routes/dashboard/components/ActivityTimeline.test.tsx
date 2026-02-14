@@ -90,7 +90,7 @@ describe('ActivityTimeline', () => {
     });
 
     render(<ActivityTimeline />);
-    expect(screen.getByText('Activity Timeline')).toBeInTheDocument();
+    expect(screen.getByText('Timeline activitate')).toBeInTheDocument();
   });
 
   it('renders tooltip breakdown (Total/Sync/Webhook/Bulk/AI Batch)', () => {

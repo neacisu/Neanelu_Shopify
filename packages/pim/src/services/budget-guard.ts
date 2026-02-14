@@ -8,8 +8,8 @@ export class BudgetExceededError extends Error {
 }
 
 export type BudgetGuardHooks = Readonly<{
-  onWarning?: (status: UnifiedBudgetStatus) => Promise<void> | void;
-  onExceeded?: (status: UnifiedBudgetStatus) => Promise<void> | void;
+  onWarning?: (status: UnifiedBudgetStatus & { shopId: string }) => Promise<void> | void;
+  onExceeded?: (status: UnifiedBudgetStatus & { shopId: string }) => Promise<void> | void;
 }>;
 
 let globalHooks: BudgetGuardHooks = {};
@@ -24,17 +24,18 @@ export async function enforceBudget(params: {
   hooks?: BudgetGuardHooks;
 }): Promise<UnifiedBudgetStatus> {
   const status = await checkBudget(params.provider, params.shopId);
+  const statusWithShop = { ...status, shopId: params.shopId } as const;
   const mergedHooks: BudgetGuardHooks = {
     ...globalHooks,
     ...(params.hooks ?? {}),
   };
 
   if (status.alertTriggered) {
-    await mergedHooks.onWarning?.(status);
+    await mergedHooks.onWarning?.(statusWithShop);
   }
 
   if (status.exceeded) {
-    await mergedHooks.onExceeded?.(status);
+    await mergedHooks.onExceeded?.(statusWithShop);
     throw new BudgetExceededError(
       `${params.provider} budget exceeded: ${status.primary.used}/${status.primary.limit} ${status.primary.unit}`
     );
