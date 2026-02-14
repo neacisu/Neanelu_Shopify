@@ -104,8 +104,8 @@ void describe('Data Types: Summary', { skip: SKIP }, () => {
 
     // Allow variance as schema evolves; exclude partitions are already filtered in helpers
     assert.ok(
-      totalColumns >= 1100 && totalColumns <= 1160,
-      `Total columns ${totalColumns} should be in range 1100-1160`
+      totalColumns >= 1100 && totalColumns <= 1180,
+      `Total columns ${totalColumns} should be in range 1100-1180`
     );
   });
 });

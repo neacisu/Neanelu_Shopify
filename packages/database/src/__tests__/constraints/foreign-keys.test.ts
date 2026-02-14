@@ -36,10 +36,10 @@ void describe('Foreign Key Constraints Summary', { skip: SKIP }, () => {
     assert.ok(allFks.length >= 100, `Expected at least 100 FKs, got ${allFks.length}`);
   });
 
-  void it('has correct FK count range (150-220)', () => {
+  void it('has correct FK count range (100-140)', () => {
     assert.ok(
-      allFks.length >= 95 && allFks.length <= 120,
-      `FK count ${allFks.length} should be in range 95-120`
+      allFks.length >= 100 && allFks.length <= 140,
+      `FK count ${allFks.length} should be in range 100-140`
     );
   });
 });

@@ -24,6 +24,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "pretest": "pnpm -C ../config build && pnpm -C ../types build",
     "test": "vitest run src",
     "test:db": "node ./scripts/test-db.js",
     "test:watch": "vitest"

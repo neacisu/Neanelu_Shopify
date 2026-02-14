@@ -80,6 +80,9 @@ const REQUIRED_RLS_TABLES = [
 
   // Module L - Scraper
   'api_usage_log',
+  'scraper_configs',
+  'scraper_runs',
+  'scraper_queue',
 
   // Module M - Analytics
   'analytics_daily_shop',
@@ -88,8 +91,6 @@ const REQUIRED_RLS_TABLES = [
 
 // Tables that should NOT have RLS (global data)
 const NO_RLS_TABLES = [
-  'scraper_runs',
-  'scraper_queue',
   'oauth_states',
   'oauth_nonces',
   'prod_taxonomy',

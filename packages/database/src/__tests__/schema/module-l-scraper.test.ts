@@ -88,7 +88,7 @@ void describe('Module L: scraper_runs table', { skip: SKIP }, () => {
     const columnNames = columns.map((c) => c.column_name);
 
     assert.ok(columnNames.includes('id'), 'should have id');
-    // assert.ok(columnNames.includes('shop_id'), 'should have shop_id'); // removed
+    assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
     assert.ok(columnNames.includes('config_id'), 'should have config_id');
     assert.ok(columnNames.includes('status'), 'should have status');
     assert.ok(columnNames.includes('started_at'), 'should have started_at');
@@ -99,7 +99,7 @@ void describe('Module L: scraper_runs table', { skip: SKIP }, () => {
 
   void it('has RLS enabled', async () => {
     const hasRls = await getTableRlsStatus('scraper_runs');
-    assert.strictEqual(hasRls, false, 'scraper_runs should NOT have RLS enabled (global table)');
+    assert.strictEqual(hasRls, true, 'scraper_runs should have RLS enabled (tenant-scoped)');
   });
 });
 
@@ -118,7 +118,7 @@ void describe('Module L: scraper_queue table', { skip: SKIP }, () => {
     const columnNames = columns.map((c) => c.column_name);
 
     assert.ok(columnNames.includes('id'), 'should have id');
-    // assert.ok(columnNames.includes('shop_id'), 'should have shop_id'); // removed
+    assert.ok(columnNames.includes('shop_id'), 'should have shop_id');
     assert.ok(columnNames.includes('config_id'), 'should have config_id');
     assert.ok(columnNames.includes('url'), 'should have url');
     assert.ok(columnNames.includes('status'), 'should have status');
@@ -128,7 +128,7 @@ void describe('Module L: scraper_queue table', { skip: SKIP }, () => {
 
   void it('has RLS enabled', async () => {
     const hasRls = await getTableRlsStatus('scraper_queue');
-    assert.strictEqual(hasRls, false, 'scraper_queue should NOT have RLS enabled (global table)');
+    assert.strictEqual(hasRls, true, 'scraper_queue should have RLS enabled (tenant-scoped)');
   });
 });
 
