@@ -1,6 +1,6 @@
 import type { Redis } from 'ioredis';
 
-import { canProcessProduct, markProductProcessed } from './enrichment-dedup.js';
+import { releaseProductReservation, tryReserveProduct } from './enrichment-dedup.js';
 import { calculateProductPriority, toBullMQPriority } from './enrichment-priority.js';
 
 export type EnrichmentLogger = Readonly<{
@@ -43,8 +43,8 @@ export class EnrichmentOrchestrator {
     const byPriority = { p1: 0, p2: 0, p3: 0 };
 
     for (const product of products) {
-      const canProcess = await canProcessProduct(this.redis, product.productId);
-      if (!canProcess) {
+      const reserved = await tryReserveProduct(this.redis, product.productId);
+      if (!reserved) {
         skipped++;
         continue;
       }
@@ -58,13 +58,17 @@ export class EnrichmentOrchestrator {
       });
       const bullmqPriority = toBullMQPriority(priority);
 
-      await this.enqueueSimilaritySearchJob({
-        shopId,
-        productId: product.shopifyProductId,
-        priority: bullmqPriority,
-      });
-
-      await markProductProcessed(this.redis, product.productId);
+      try {
+        await this.enqueueSimilaritySearchJob({
+          shopId,
+          productId: product.shopifyProductId,
+          priority: bullmqPriority,
+        });
+      } catch (error) {
+        // If enqueue fails, release the reservation so we can retry later.
+        await releaseProductReservation(this.redis, product.productId);
+        throw error;
+      }
 
       dispatched++;
       if (priority === 1) byPriority.p1++;

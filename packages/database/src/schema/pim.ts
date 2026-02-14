@@ -99,6 +99,10 @@ export const prodSources = pgTable(
     rateLimit: jsonb('rate_limit'), // {requests_per_second}
     authConfig: jsonb('auth_config'), // Encrypted credentials ref
 
+    shopId: uuid('shop_id').references(() => shops.id),
+    enrichedAt: timestamp('enriched_at', { withTimezone: true }),
+    enrichmentVersion: integer('enrichment_version').default(1),
+
     isActive: boolean('is_active').default(true),
     lastHarvestAt: timestamp('last_harvest_at', { withTimezone: true }),
 
@@ -108,6 +112,8 @@ export const prodSources = pgTable(
   (table) => [
     uniqueIndex('idx_sources_name').on(table.name),
     index('idx_sources_type').on(table.sourceType),
+    index('idx_prod_sources_shop').on(table.shopId),
+    index('idx_prod_sources_enriched').on(table.enrichedAt),
   ]
 );
 

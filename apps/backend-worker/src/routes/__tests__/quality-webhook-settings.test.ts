@@ -33,7 +33,36 @@ void mock.module('@app/database', {
     withTenantContext: (
       _shopId: string,
       fn: (client: { query: () => Promise<{ rows: unknown[] }> }) => unknown
-    ) => Promise.resolve(fn({ query: () => Promise.resolve({ rows: [] }) })),
+    ) =>
+      Promise.resolve(
+        fn({
+          query: (sql?: unknown, values?: unknown[]) => {
+            const s = typeof sql === 'string' ? sql : '';
+            if (
+              s.includes('FROM prod_quality_events qe') &&
+              s.includes('JOIN prod_channel_mappings')
+            ) {
+              const raw = Array.isArray(values) ? values[0] : undefined;
+              const eventId =
+                typeof raw === 'string'
+                  ? raw
+                  : typeof raw === 'number'
+                    ? String(raw)
+                    : raw && typeof raw === 'object'
+                      ? (() => {
+                          const maybe = raw as Record<string, unknown>;
+                          const id = maybe['id'];
+                          if (typeof id === 'string') return id;
+                          if (typeof id === 'number') return String(id);
+                          return null;
+                        })()
+                      : null;
+              return Promise.resolve({ rows: eventId ? [{ id: eventId }] : [] });
+            }
+            return Promise.resolve({ rows: [] });
+          },
+        })
+      ),
   },
 });
 

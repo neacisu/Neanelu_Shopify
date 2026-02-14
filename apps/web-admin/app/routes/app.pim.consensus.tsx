@@ -10,17 +10,19 @@ import { ConsensusDetailDrawer } from '../components/domain/ConsensusDetailDrawe
 import { DonutChart } from '../components/charts/DonutChart';
 import { DashboardSkeleton } from '../components/patterns/DashboardSkeleton';
 import { ErrorState } from '../components/patterns/error-state';
+import { LoadingState } from '../components/patterns/loading-state';
 import { toast } from 'sonner';
 import { useConsensusStats } from '../hooks/use-consensus-stats';
 import { useConsensusProducts } from '../hooks/use-consensus-products';
 import { useConsensusStream } from '../hooks/use-consensus-stream';
 import { useApiClient } from '../hooks/use-api';
-import type { ConsensusDetail, ConsensusProductItem } from '../types/consensus';
+import type { ConsensusDetail, ConsensusProductItem } from '@app/types';
 
 export default function PimConsensusPage() {
   const [tab, setTab] = useState<'all' | 'pending' | 'conflicts'>('all');
   const [selected, setSelected] = useState<ConsensusProductItem | null>(null);
   const [detail, setDetail] = useState<ConsensusDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [recomputing, setRecomputing] = useState(false);
   const statsQuery = useConsensusStats();
   const productsQuery = useConsensusProducts();
@@ -43,9 +45,9 @@ export default function PimConsensusPage() {
     if (!stats) return [];
     const computed = Math.max(stats.productsWithConsensus - stats.productsWithConflicts, 0);
     return [
-      { name: 'Conflicts', value: stats.productsWithConflicts },
-      { name: 'Computed', value: computed },
-      { name: 'Pending', value: stats.pendingConsensus },
+      { name: 'Conflicte', value: stats.productsWithConflicts },
+      { name: 'Calculat', value: computed },
+      { name: 'In asteptare', value: stats.pendingConsensus },
     ];
   }, [statsQuery.data]);
 
@@ -77,15 +79,18 @@ export default function PimConsensusPage() {
   useEffect(() => {
     if (!selected) {
       setDetail(null);
+      setDetailLoading(false);
       return;
     }
+    setDetailLoading(true);
     void api
       .getApi<ConsensusDetail>(`/products/${selected.productId}/consensus/details`)
       .then((data) => setDetail(data))
       .catch((error) => {
         setDetail(null);
         toast.error(error instanceof Error ? error.message : 'Nu pot încărca detaliile consensus.');
-      });
+      })
+      .finally(() => setDetailLoading(false));
   }, [api, selected]);
 
   const handleSelect = (item: ConsensusProductItem) => {
@@ -96,7 +101,7 @@ export default function PimConsensusPage() {
     <div className="space-y-6">
       <div className="flex justify-end">
         <Button onClick={() => void statsQuery.run()} size="sm">
-          Refresh
+          Reincarca
         </Button>
       </div>
 
@@ -114,7 +119,7 @@ export default function PimConsensusPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <ConsensusSourcesChart data={sourcesChartData} />
         <div className="rounded-lg border border-muted/20 bg-background p-4">
-          <div className="mb-2 text-xs text-muted">Real-time consensus events</div>
+          <div className="mb-2 text-xs text-muted">Evenimente consensus in timp real</div>
           <div className="max-h-64 space-y-2 overflow-y-auto text-xs text-muted">
             {stream.events.slice(0, 10).map((event, idx) => (
               <div key={`${event.type}-${idx}`} className="flex flex-col gap-1">
@@ -126,11 +131,11 @@ export default function PimConsensusPage() {
                 ) : null}
               </div>
             ))}
-            {stream.events.length === 0 ? <div>No events yet.</div> : null}
+            {stream.events.length === 0 ? <div>Nu exista evenimente inca.</div> : null}
           </div>
         </div>
         <div className="rounded-lg border border-muted/20 bg-background p-4">
-          <div className="mb-2 text-xs text-muted">Conflict distribution</div>
+          <div className="mb-2 text-xs text-muted">Distributie conflicte</div>
           <DonutChart data={conflictDistribution} height={220} showLegend />
         </div>
       </div>
@@ -140,11 +145,14 @@ export default function PimConsensusPage() {
           value={tab}
           onValueChange={(value) => setTab(value as typeof tab)}
           items={[
-            { value: 'all', label: 'All products' },
-            { value: 'pending', label: 'Pending' },
-            { value: 'conflicts', label: 'Conflicts' },
+            { value: 'all', label: 'Toate produsele' },
+            { value: 'pending', label: 'In asteptare' },
+            { value: 'conflicts', label: 'Conflicte' },
           ]}
         />
+        {productsQuery.loading && !productsQuery.data ? (
+          <LoadingState label="Se incarca lista de produse…" />
+        ) : null}
         {productsQuery.error ? (
           <ErrorState
             message="Nu pot incarca lista de produse consensus."
@@ -152,6 +160,9 @@ export default function PimConsensusPage() {
               void productsQuery.run({ status: tab });
             }}
           />
+        ) : null}
+        {productsQuery.loading && productsQuery.data ? (
+          <div className="text-caption text-muted">Actualizez lista…</div>
         ) : null}
         {tab === 'all' ? <ConsensusProductsTable items={products} onSelect={handleSelect} /> : null}
         {tab === 'pending' ? (
@@ -168,6 +179,9 @@ export default function PimConsensusPage() {
         ) : null}
       </div>
 
+      {selected && detailLoading && !detail ? (
+        <LoadingState label="Se incarca detaliile pentru produsul selectat…" />
+      ) : null}
       {selected && detail ? (
         <ConsensusDetailDrawer
           isOpen={Boolean(selected)}

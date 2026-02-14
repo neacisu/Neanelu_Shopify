@@ -4,6 +4,7 @@ import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { withTenantContext } from '@app/database';
+import { normalizeGTIN } from '@app/pim';
 import {
   createRedisConnection,
   enqueueBulkOrchestratorJob,
@@ -1023,7 +1024,14 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
     const taxonomyId = normalizeString(body.taxonomyId);
     const brand = normalizeString(body.brand);
     const manufacturer = normalizeString(body.manufacturer);
-    const gtin = normalizeString(body.gtin);
+    const gtinRaw = normalizeString(body.gtin);
+    const gtin = gtinRaw ? normalizeGTIN(gtinRaw) : null;
+    if (gtinRaw && !gtin) {
+      void reply
+        .status(400)
+        .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'GTIN invalid (checksum esuat)'));
+      return;
+    }
     const mpn = normalizeString(body.mpn);
     let metafields: Record<string, unknown> | null = null;
     if (typeof body.metafields === 'string') {

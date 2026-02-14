@@ -77,13 +77,13 @@ export default function DashboardIndex() {
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-h1">Neanelu Monitor</h1>
-          <p className="mt-1 text-body text-muted">System Overview & Health Status</p>
+          <p className="mt-1 text-body text-muted">Prezentare sistem si status de sanatate</p>
         </div>
 
         <Button variant="secondary" onClick={() => void revalidator.revalidate()}>
           <span className="inline-flex items-center gap-2">
             <RefreshCw className="size-4" />
-            Refresh Data
+            Reincarca datele
           </span>
         </Button>
       </header>

@@ -1,4 +1,4 @@
-import type { ConsensusStats } from '../../types/consensus';
+import type { ConsensusStats } from '@app/types';
 
 type ConsensusStatsCardsProps = Readonly<{
   stats: ConsensusStats;

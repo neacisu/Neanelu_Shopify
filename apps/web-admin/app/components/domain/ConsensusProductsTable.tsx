@@ -1,4 +1,4 @@
-import type { ConsensusProductItem } from '../../types/consensus';
+import type { ConsensusProductItem } from '@app/types';
 import { ConsensusStatusBadge } from './ConsensusStatusBadge';
 import { ConflictIndicator } from './ConflictIndicator';
 

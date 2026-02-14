@@ -87,7 +87,28 @@ type AttributeVote = Readonly<{
   confidence?: number;
 }>;
 
-async function buildConsensusDetails(params: { client: DbClient; productId: string }) {
+async function isOwnedProduct(params: {
+  client: DbClient;
+  shopId: string;
+  productId: string;
+}): Promise<boolean> {
+  const result = await params.client.query<{ ok: number }>(
+    `SELECT 1 as ok
+       FROM prod_channel_mappings pcm
+      WHERE pcm.product_id = $1
+        AND pcm.shop_id = $2
+        AND pcm.channel = 'shopify'
+      LIMIT 1`,
+    [params.productId, params.shopId]
+  );
+  return Boolean(result.rows[0]?.ok);
+}
+
+async function buildConsensusDetails(params: {
+  client: DbClient;
+  shopId: string;
+  productId: string;
+}) {
   const consensus = await computeConsensusSafe({
     client: params.client,
     productId: params.productId,
@@ -105,12 +126,16 @@ async function buildConsensusDetails(params: { client: DbClient; productId: stri
        psm.specs_extracted as specs_extracted,
        psm.created_at as created_at
      FROM prod_similarity_matches psm
+     JOIN prod_channel_mappings pcm
+       ON pcm.product_id = psm.product_id
+      AND pcm.shop_id = $2
+      AND pcm.channel = 'shopify'
      LEFT JOIN prod_sources ps ON ps.id = psm.source_id
     WHERE psm.product_id = $1
       AND psm.match_confidence = 'confirmed'
       AND psm.specs_extracted IS NOT NULL
     ORDER BY psm.similarity_score DESC`,
-    [params.productId]
+    [params.productId, params.shopId]
   );
 
   const votesByAttribute = new Map<string, AttributeVote[]>();
@@ -241,10 +266,79 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
         .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
     }
     const productId = String((request.params as { id: string }).id);
-    const result = await withTenantContext(session.shopId, (client) =>
-      computeConsensusSafe({ client, productId })
-    );
+    const result = await withTenantContext(session.shopId, async (client) => {
+      if (!(await isOwnedProduct({ client, shopId: session.shopId, productId }))) return null;
+      return computeConsensusSafe({ client, productId });
+    });
+    if (!result) {
+      return reply
+        .status(404)
+        .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'product_not_found'));
+    }
     return reply.send(successEnvelope(request.id, result));
+  });
+
+  fastify.get('/products/:id/extraction-sessions', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      return reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+    }
+
+    const productId = String((request.params as { id: string }).id);
+    const sessions = await withTenantContext(session.shopId, async (client) => {
+      if (!(await isOwnedProduct({ client, shopId: session.shopId, productId }))) return null;
+
+      const result = await client.query<{
+        id: string;
+        harvestId: string;
+        agentVersion: string;
+        modelName: string | null;
+        confidenceScore: string | null;
+        tokensUsed: number | null;
+        latencyMs: number | null;
+        errorMessage: string | null;
+        createdAt: string;
+        sourceUrl: string;
+        sourceType: string;
+      }>(
+        `SELECT
+           pes.id,
+           pes.harvest_id as "harvestId",
+           pes.agent_version as "agentVersion",
+           pes.model_name as "modelName",
+           pes.confidence_score::text as "confidenceScore",
+           pes.tokens_used as "tokensUsed",
+           pes.latency_ms as "latencyMs",
+           pes.error_message as "errorMessage",
+           pes.created_at::text as "createdAt",
+           prh.source_url as "sourceUrl",
+           prh.source_type as "sourceType"
+         FROM prod_extraction_sessions pes
+         JOIN prod_raw_harvest prh
+           ON prh.id = pes.harvest_id
+         JOIN prod_similarity_matches psm
+           ON psm.extraction_session_id = pes.id
+          AND psm.product_id = $1
+         JOIN prod_channel_mappings pcm
+           ON pcm.product_id = psm.product_id
+          AND pcm.shop_id = $2
+          AND pcm.channel = 'shopify'
+         ORDER BY pes.created_at DESC
+         LIMIT 50`,
+        [productId, session.shopId]
+      );
+      return result.rows;
+    });
+
+    if (!sessions) {
+      return reply
+        .status(404)
+        .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'product_not_found'));
+    }
+
+    return reply.send(successEnvelope(request.id, { sessions }));
   });
 
   fastify.post('/products/:id/consensus', requireAdminSession, async (request, reply) => {
@@ -288,8 +382,15 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
       }>(
         `SELECT data_quality_level, quality_score
            FROM prod_master
-          WHERE id = $1`,
-        [productId]
+          WHERE id = $1
+            AND EXISTS (
+              SELECT 1
+              FROM prod_channel_mappings pcm
+              WHERE pcm.product_id = prod_master.id
+                AND pcm.shop_id = $2
+                AND pcm.channel = 'shopify'
+            )`,
+        [productId, session.shopId]
       );
       const currentRow = currentResult.rows[0];
       if (!currentRow) {
@@ -326,8 +427,15 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
                END,
                last_quality_check = now(),
                updated_at = now()
-         WHERE id = $1`,
-        [productId, newLevel]
+         WHERE id = $1
+           AND EXISTS (
+             SELECT 1
+             FROM prod_channel_mappings pcm
+             WHERE pcm.product_id = prod_master.id
+               AND pcm.shop_id = $3
+               AND pcm.channel = 'shopify'
+           )`,
+        [productId, newLevel, session.shopId]
       );
 
       const eventType =
@@ -343,6 +451,26 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
         qualityScoreAfter: currentRow.quality_score ?? 0,
         triggerReason: body.reason ?? 'manual_override',
       });
+
+      // Always create in-app notification; webhook is optional.
+      await client.query(
+        `INSERT INTO pim_notifications (shop_id, type, title, body, read, created_at)
+         VALUES ($1, 'quality_event', $2, $3::jsonb, false, now())`,
+        [
+          session.shopId,
+          `Eveniment calitate: ${eventType}`,
+          JSON.stringify({
+            eventId,
+            productId,
+            eventType,
+            previousLevel: currentLevel,
+            newLevel,
+            qualityScore: currentRow.quality_score ?? 0,
+            triggerReason: body.reason ?? 'manual_override',
+            timestamp: new Date().toISOString(),
+          }),
+        ]
+      );
       void enqueueQualityWebhookJob({ eventId, shopId: session.shopId }).catch(() => undefined);
 
       return {
@@ -387,8 +515,15 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
                 promoted_to_silver_at,
                 promoted_to_golden_at
            FROM prod_master
-          WHERE id = $1`,
-        [productId]
+          WHERE id = $1
+            AND EXISTS (
+              SELECT 1
+              FROM prod_channel_mappings pcm
+              WHERE pcm.product_id = prod_master.id
+                AND pcm.shop_id = $2
+                AND pcm.channel = 'shopify'
+            )`,
+        [productId, session.shopId]
       );
       const product = productResult.rows[0];
       if (!product) {
@@ -397,11 +532,18 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
 
       const sourceCountResult = await client.query<{ source_count: number }>(
         `SELECT COUNT(*)::int as source_count
-           FROM prod_similarity_matches
-          WHERE product_id = $1
-            AND match_confidence = 'confirmed'
-            AND specs_extracted IS NOT NULL`,
-        [productId]
+           FROM prod_similarity_matches psm
+          WHERE psm.product_id = $1
+            AND psm.match_confidence = 'confirmed'
+            AND psm.specs_extracted IS NOT NULL
+            AND EXISTS (
+              SELECT 1
+              FROM prod_channel_mappings pcm
+              WHERE pcm.product_id = psm.product_id
+                AND pcm.shop_id = $2
+                AND pcm.channel = 'shopify'
+            )`,
+        [productId, session.shopId]
       );
       const sourceCount = sourceCountResult.rows[0]?.source_count ?? 0;
 
@@ -410,8 +552,15 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
            FROM prod_specs_normalized
           WHERE product_id = $1
             AND is_current = true
+            AND EXISTS (
+              SELECT 1
+              FROM prod_channel_mappings pcm
+              WHERE pcm.product_id = prod_specs_normalized.product_id
+                AND pcm.shop_id = $2
+                AND pcm.channel = 'shopify'
+            )
           LIMIT 1`,
-        [productId]
+        [productId, session.shopId]
       );
       const consensusSpecs = specsResult.rows[0]?.specs ?? {};
       const specsCount = Object.keys(consensusSpecs ?? {}).length;
@@ -486,8 +635,14 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
     const productId = String((request.params as { id: string }).id);
 
     const details = await withTenantContext(session.shopId, async (client) => {
-      return await buildConsensusDetails({ client, productId });
+      if (!(await isOwnedProduct({ client, shopId: session.shopId, productId }))) return null;
+      return await buildConsensusDetails({ client, shopId: session.shopId, productId });
     });
+    if (!details) {
+      return reply
+        .status(404)
+        .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'product_not_found'));
+    }
 
     return reply.send(successEnvelope(request.id, details));
   });
@@ -504,8 +659,14 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
     const format = String((request.query as { format?: string }).format ?? 'json').toLowerCase();
 
     const details = await withTenantContext(session.shopId, async (client) => {
-      return await buildConsensusDetails({ client, productId });
+      if (!(await isOwnedProduct({ client, shopId: session.shopId, productId }))) return null;
+      return await buildConsensusDetails({ client, shopId: session.shopId, productId });
     });
+    if (!details) {
+      return reply
+        .status(404)
+        .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'product_not_found'));
+    }
 
     if (format === 'csv') {
       const rows = details.results.map((row) => ({
@@ -538,9 +699,15 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
         .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
     }
     const productId = String((request.params as { id: string }).id);
-    const result = await withTenantContext(session.shopId, (client) =>
-      computeConsensusSafe({ client, productId })
-    );
+    const result = await withTenantContext(session.shopId, async (client) => {
+      if (!(await isOwnedProduct({ client, shopId: session.shopId, productId }))) return null;
+      return computeConsensusSafe({ client, productId });
+    });
+    if (!result) {
+      return reply
+        .status(404)
+        .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'product_not_found'));
+    }
     return reply.send(successEnvelope(request.id, { conflicts: result.conflicts }));
   });
 
@@ -565,6 +732,9 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
 
       try {
         await withTenantContext(session.shopId, async (client) => {
+          if (!(await isOwnedProduct({ client, shopId: session.shopId, productId }))) {
+            throw new Error('product_not_found');
+          }
           const consensus = await computeConsensusSafe({ client, productId });
           const targetConflict = consensus.conflicts.find(
             (conflict) => conflict.attributeName === field
@@ -654,6 +824,9 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : 'conflict_resolution_failed';
+        if (message === 'product_not_found') {
+          return reply.status(404).send(errorEnvelope(request.id, 404, 'NOT_FOUND', message));
+        }
         if (message.startsWith('no_conflict_for_field')) {
           return reply.status(400).send(errorEnvelope(request.id, 400, 'BAD_REQUEST', message));
         }
@@ -702,43 +875,85 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
           client.query<{ count: string }>(
             `SELECT COUNT(DISTINCT product_id) as count
              FROM prod_specs_normalized
-            WHERE is_current = true`
+            WHERE is_current = true
+              AND EXISTS (
+                SELECT 1
+                FROM prod_channel_mappings pcm
+                WHERE pcm.product_id = prod_specs_normalized.product_id
+                  AND pcm.shop_id = $1
+                  AND pcm.channel = 'shopify'
+              )`,
+            [session.shopId]
           ),
           client.query<{ count: string }>(
             `SELECT COUNT(*) as count
              FROM prod_specs_normalized
             WHERE is_current = true
-              AND needs_review = true`
+              AND needs_review = true
+              AND EXISTS (
+                SELECT 1
+                FROM prod_channel_mappings pcm
+                WHERE pcm.product_id = prod_specs_normalized.product_id
+                  AND pcm.shop_id = $1
+                  AND pcm.channel = 'shopify'
+              )`,
+            [session.shopId]
           ),
           client.query<{ avg: string | null }>(
             `SELECT AVG(quality_score) as avg
              FROM prod_master
-            WHERE quality_score IS NOT NULL`
+            WHERE quality_score IS NOT NULL
+              AND EXISTS (
+                SELECT 1
+                FROM prod_channel_mappings pcm
+                WHERE pcm.product_id = prod_master.id
+                  AND pcm.shop_id = $1
+                  AND pcm.channel = 'shopify'
+              )`,
+            [session.shopId]
           ),
           client.query<{ count: string }>(
             `SELECT COUNT(DISTINCT psm.product_id) as count
              FROM prod_similarity_matches psm
+             JOIN prod_channel_mappings pcm
+               ON pcm.product_id = psm.product_id
+              AND pcm.shop_id = $1
+              AND pcm.channel = 'shopify'
              LEFT JOIN prod_specs_normalized psn
                ON psn.product_id = psm.product_id AND psn.is_current = true
             WHERE psm.match_confidence = 'confirmed'
               AND psm.specs_extracted IS NOT NULL
-              AND psn.id IS NULL`
+              AND psn.id IS NULL`,
+            [session.shopId]
           ),
           client.query<{ avg: string | null }>(
             `SELECT AVG(source_count)::text as avg
              FROM (
                SELECT COUNT(*) as source_count
-                 FROM prod_similarity_matches
-                WHERE match_confidence = 'confirmed'
-                GROUP BY product_id
-             ) as counts`
+                 FROM prod_similarity_matches psm
+                 JOIN prod_channel_mappings pcm
+                   ON pcm.product_id = psm.product_id
+                  AND pcm.shop_id = $1
+                  AND pcm.channel = 'shopify'
+                WHERE psm.match_confidence = 'confirmed'
+                GROUP BY psm.product_id
+             ) as counts`,
+            [session.shopId]
           ),
           client.query<{ count: string }>(
             `SELECT COUNT(*) as count
              FROM prod_specs_normalized
             WHERE is_current = true
               AND needs_review = false
-              AND created_at::date = CURRENT_DATE`
+              AND created_at::date = CURRENT_DATE
+              AND EXISTS (
+                SELECT 1
+                FROM prod_channel_mappings pcm
+                WHERE pcm.product_id = prod_specs_normalized.product_id
+                  AND pcm.shop_id = $1
+                  AND pcm.channel = 'shopify'
+              )`,
+            [session.shopId]
           ),
         ]);
 
@@ -779,17 +994,25 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
         consensus_status: string;
         total_count: string;
       }>(
-        `WITH source_counts AS (
-           SELECT product_id, COUNT(*)::text as source_count
-             FROM prod_similarity_matches
-            WHERE match_confidence = 'confirmed'
-              AND specs_extracted IS NOT NULL
-            GROUP BY product_id
+        `WITH tenant_products AS (
+           SELECT product_id
+             FROM prod_channel_mappings
+            WHERE shop_id = $4
+              AND channel = 'shopify'
+         ),
+         source_counts AS (
+           SELECT psm.product_id, COUNT(*)::text as source_count
+             FROM prod_similarity_matches psm
+             JOIN tenant_products tp ON tp.product_id = psm.product_id
+            WHERE psm.match_confidence = 'confirmed'
+              AND psm.specs_extracted IS NOT NULL
+            GROUP BY psm.product_id
          ),
          current_specs AS (
-           SELECT product_id, needs_review, provenance, updated_at
-             FROM prod_specs_normalized
-            WHERE is_current = true
+           SELECT psn.product_id, psn.needs_review, psn.provenance, psn.updated_at
+             FROM prod_specs_normalized psn
+             JOIN tenant_products tp ON tp.product_id = psn.product_id
+            WHERE psn.is_current = true
          ),
          conflicts AS (
            SELECT cs.product_id,
@@ -819,6 +1042,7 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
                ELSE 'computed'
              END as consensus_status
            FROM prod_master pm
+           JOIN tenant_products tp ON tp.product_id = pm.id
            LEFT JOIN source_counts sc ON sc.product_id = pm.id
            LEFT JOIN current_specs cs ON cs.product_id = pm.id
            LEFT JOIN conflicts cf ON cf.product_id = pm.id
@@ -829,7 +1053,7 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
          WHERE ($1 = 'all' OR consensus_status = $1)
          ORDER BY last_computed_at DESC NULLS LAST, source_count::int DESC, title ASC
          LIMIT $2 OFFSET $3`,
-        [status, limit, offset]
+        [status, limit, offset, session.shopId]
       );
 
       const mapped = rows.rows.map((row) => ({
@@ -890,9 +1114,16 @@ export const consensusRoutes: FastifyPluginCallback<ConsensusRoutesOptions> = (
           `SELECT id, event_type, product_id, new_level, created_at
              FROM prod_quality_events
             WHERE created_at > $1
+              AND EXISTS (
+                SELECT 1
+                FROM prod_channel_mappings pcm
+                WHERE pcm.product_id = prod_quality_events.product_id
+                  AND pcm.shop_id = $2
+                  AND pcm.channel = 'shopify'
+              )
             ORDER BY created_at ASC
             LIMIT 50`,
-          [lastSeen.toISOString()]
+          [lastSeen.toISOString(), session.shopId]
         );
         if (result.rows.length > 0) {
           lastSeen = new Date(result.rows[result.rows.length - 1]?.created_at ?? lastSeen);

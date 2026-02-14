@@ -66,6 +66,7 @@ describe('enrichment-orchestrator', () => {
   it('dispatch-eaza produse si aplica dedup + priority', async () => {
     const redis = {
       exists: vi.fn().mockResolvedValue(0),
+      set: vi.fn().mockResolvedValue('OK'),
       setex: vi.fn().mockResolvedValue('OK'),
     };
     const logger = {

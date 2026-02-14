@@ -25,6 +25,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run src",
+    "test:db": "node ./scripts/test-db.js",
     "test:watch": "vitest"
   },
   "dependencies": {
@@ -37,6 +38,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@testcontainers/postgresql": "^11.11.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   }

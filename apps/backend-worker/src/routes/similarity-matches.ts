@@ -604,8 +604,8 @@ export const similarityMatchesRoutes: FastifyPluginCallback<SimilarityMatchesPlu
           .send(errorEnvelope(request.id, 409, 'INVALID_STATE', 'Invalid confidence transition'));
       }
 
-      const productId = await withTenantContext(session.shopId, async (client) => {
-        const result = await client.query<{ product_id: string }>(
+      const updated = await withTenantContext(session.shopId, async (client) => {
+        const result = await client.query<{ product_id: string; specs_extracted: unknown }>(
           `UPDATE prod_similarity_matches
             SET match_confidence = $1,
                 rejection_reason = $2,
@@ -621,18 +621,24 @@ export const similarityMatchesRoutes: FastifyPluginCallback<SimilarityMatchesPlu
              WHERE pcm.shop_id = $4
                AND pcm.channel = 'shopify'
             )
-          RETURNING product_id`,
+          RETURNING product_id, specs_extracted`,
           [body.confidence, body.rejectionReason ?? null, matchId, session.shopId]
         );
-        return result.rows[0]?.product_id ?? null;
+        return result.rows[0] ?? null;
       });
 
-      if (body.confidence === 'confirmed' && productId) {
-        await enqueueConsensusJob({
-          shopId: session.shopId,
-          productId,
-          trigger: 'match_confirmed',
-        });
+      if (body.confidence === 'confirmed' && updated?.product_id) {
+        const hasSpecs = updated.specs_extracted != null;
+        if (!hasSpecs) {
+          // Extraction will enqueue consensus on completion.
+          await enqueueExtractionJob({ shopId: session.shopId, matchId });
+        } else {
+          await enqueueConsensusJob({
+            shopId: session.shopId,
+            productId: updated.product_id,
+            trigger: 'match_confirmed',
+          });
+        }
       }
 
       return reply.status(200).send(successEnvelope(request.id, { updated: true }));
@@ -658,9 +664,13 @@ export const similarityMatchesRoutes: FastifyPluginCallback<SimilarityMatchesPlu
       await withTenantContext(session.shopId, async (client) => {
         const result = await client.query<{ product_id: string; match_confidence: string }>(
           `SELECT product_id, match_confidence
-             FROM prod_similarity_matches
-            WHERE id = $1`,
-          [matchId]
+             FROM prod_similarity_matches m
+             JOIN prod_channel_mappings pcm
+               ON pcm.product_id = m.product_id
+              AND pcm.shop_id = $2
+              AND pcm.channel = 'shopify'
+            WHERE m.id = $1`,
+          [matchId, session.shopId]
         );
         const row = result.rows[0];
         if (!row) {
@@ -674,8 +684,15 @@ export const similarityMatchesRoutes: FastifyPluginCallback<SimilarityMatchesPlu
           `UPDATE prod_similarity_matches
               SET is_primary_source = false,
               updated_at = now()
-            WHERE product_id = $1`,
-          [row.product_id]
+            WHERE product_id = $1
+              AND EXISTS (
+                SELECT 1
+                FROM prod_channel_mappings pcm
+                WHERE pcm.product_id = prod_similarity_matches.product_id
+                  AND pcm.shop_id = $2
+                  AND pcm.channel = 'shopify'
+              )`,
+          [row.product_id, session.shopId]
         );
 
         await client.query(

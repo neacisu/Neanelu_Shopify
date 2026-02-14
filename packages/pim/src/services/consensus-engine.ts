@@ -353,6 +353,16 @@ export async function computeConsensus(params: {
     }
   }
 
+  const manualCorrections = await checkManualCorrections({ client, productId: params.productId });
+  const skippedDueToManualCorrection: string[] = [];
+  for (const field of manualCorrections) {
+    if (Object.prototype.hasOwnProperty.call(consensusSpecs, field)) {
+      delete consensusSpecs[field];
+      delete provenance[field];
+      skippedDueToManualCorrection.push(field);
+    }
+  }
+
   const productResult = await client.query<{ taxonomy_id: string | null }>(
     'SELECT taxonomy_id FROM prod_master WHERE id = $1 LIMIT 1',
     [params.productId]
@@ -375,6 +385,6 @@ export async function computeConsensus(params: {
     sourceCount: matches.length,
     conflicts,
     needsReview: conflicts.length > 0,
-    skippedDueToManualCorrection: [],
+    skippedDueToManualCorrection,
   };
 }

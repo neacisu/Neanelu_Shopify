@@ -36,34 +36,6 @@ const recordQualityWebhookDurationSafe = recordQualityWebhookDuration as unknown
   durationSeconds: number
 ) => void;
 
-async function createInAppNotification(
-  params: { shopId: string; eventId: string; eventType: string; productId: string },
-  logger: Logger
-): Promise<void> {
-  try {
-    await withTenantContext(params.shopId, async (client) => {
-      await client.query(
-        `INSERT INTO pim_notifications (shop_id, type, title, body, read, created_at)
-         VALUES ($1, 'quality_event', $2, $3::jsonb, false, now())`,
-        [
-          params.shopId,
-          `Quality event: ${params.eventType}`,
-          JSON.stringify({
-            eventId: params.eventId,
-            productId: params.productId,
-            eventType: params.eventType,
-          }),
-        ]
-      );
-    });
-  } catch (error) {
-    logger.warn(
-      { error: error instanceof Error ? error.message : String(error), ...params },
-      'failed to create quality event notification'
-    );
-  }
-}
-
 export function startQualityWebhookWorker(logger: Logger): QualityWebhookWorkerHandle {
   const env = loadEnv();
   const timeoutMsRaw: unknown = (env as Record<string, unknown>)['qualityWebhookTimeoutMs'];
@@ -100,18 +72,6 @@ export function startQualityWebhookWorker(logger: Logger): QualityWebhookWorkerH
               await markEventWebhookSent(payload.eventId, client);
               recordQualityWebhookDispatchedSafe(event.eventType, 'skipped');
               return;
-            }
-
-            if (job.attemptsMade === 0) {
-              await createInAppNotification(
-                {
-                  shopId: payload.shopId,
-                  eventId: payload.eventId,
-                  eventType: event.eventType,
-                  productId: event.productId,
-                },
-                logger
-              );
             }
 
             const dispatch = await dispatchQualityWebhook({

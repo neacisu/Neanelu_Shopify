@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Bell } from 'lucide-react';
 
 import { useApiClient } from '../../hooks/use-api';
 import { usePolling } from '../../hooks/use-polling';
+import { useEnrichmentStream } from '../../hooks/useEnrichmentStream';
 
 type NotificationItem = Readonly<{
   id: string;
@@ -16,6 +17,8 @@ type NotificationItem = Readonly<{
 export function NotificationBell() {
   const api = useApiClient();
   const [open, setOpen] = useState(false);
+  const stream = useEnrichmentStream();
+  const lastPushedNotificationIdRef = useRef<string | null>(null);
   const unread = usePolling({
     queryKey: ['notifications-unread'],
     interval: 60_000,
@@ -33,13 +36,28 @@ export function NotificationBell() {
     [notifications.data]
   );
 
+  useEffect(() => {
+    // Real-time: PIM events stream pushes quality events; those create notifications in DB.
+    const evt = stream.events[0];
+    if (evt?.type !== 'quality.event') return;
+    const id = typeof evt.payload['id'] === 'string' ? evt.payload['id'] : null;
+    if (!id || lastPushedNotificationIdRef.current === id) return;
+    lastPushedNotificationIdRef.current = id;
+    void unread.refetch();
+    void notifications.refetch();
+  }, [notifications.refetch, stream.events, unread.refetch]);
+
   return (
     <div className="relative">
       <button
         type="button"
         className="relative inline-flex items-center rounded-md border border-muted/20 bg-background px-3 py-2 text-caption shadow-sm hover:bg-muted/10"
-        onClick={() => setOpen((prev) => !prev)}
-        aria-label="Notifications"
+        onClick={() => {
+          setOpen((prev) => !prev);
+          void unread.refetch();
+          void notifications.refetch();
+        }}
+        aria-label="Notificari"
       >
         <Bell className="h-4 w-4" />
         {unreadCount > 0 ? (
@@ -52,7 +70,7 @@ export function NotificationBell() {
       {open ? (
         <div className="absolute right-0 z-30 mt-2 w-[340px] rounded-md border border-muted/20 bg-background p-3 shadow-lg">
           <div className="mb-2 flex items-center justify-between">
-            <div className="text-sm font-medium">Notifications</div>
+            <div className="text-sm font-medium">Notificari</div>
             <button
               type="button"
               className="text-xs text-primary"
@@ -65,11 +83,13 @@ export function NotificationBell() {
                 void notifications.refetch();
               }}
             >
-              Mark all as read
+              Marcheaza toate ca citite
             </button>
           </div>
           <div className="max-h-80 space-y-2 overflow-auto">
-            {items.length === 0 ? <div className="text-sm text-muted">No notifications</div> : null}
+            {items.length === 0 ? (
+              <div className="text-sm text-muted">Nu exista notificari</div>
+            ) : null}
             {items.map((item) => (
               <button
                 key={item.id}

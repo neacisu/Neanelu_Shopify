@@ -50,8 +50,13 @@ void describe('AI Pipeline Integration (Testcontainers)', { timeout: 120_000 }, 
     fatal: () => undefined,
     child: () => noopLogger,
   };
+  // Integration tests are opt-in. Default `pnpm test` should not depend on Docker/Testcontainers.
+  const integrationEnabled = process.env['BACKEND_TESTS_WITH_CONTAINERS'] === '1';
   const useExternalServices = Boolean(
-    process.env['CI'] === 'true' && process.env['DATABASE_URL'] && process.env['REDIS_URL']
+    integrationEnabled &&
+    process.env['CI'] === 'true' &&
+    process.env['DATABASE_URL'] &&
+    process.env['REDIS_URL']
   );
 
   let pgContainer: StartedPostgreSqlContainer | undefined;
@@ -61,6 +66,10 @@ void describe('AI Pipeline Integration (Testcontainers)', { timeout: 120_000 }, 
 
   before(async () => {
     logStep('before:start');
+    if (!integrationEnabled) {
+      logStep('skip:testcontainers (BACKEND_TESTS_WITH_CONTAINERS!=1)');
+      return;
+    }
     if (useExternalServices) {
       logStep('using:external-services');
       pool = new Pool({ connectionString: process.env['DATABASE_URL'] });
@@ -113,6 +122,7 @@ void describe('AI Pipeline Integration (Testcontainers)', { timeout: 120_000 }, 
   });
 
   void it('enforces RLS isolation for shop_product_embeddings', async () => {
+    if (!integrationEnabled) return;
     logStep('test:rls:start');
     const client = await pool.connect();
     const shop1Id = randomUUID();
@@ -188,6 +198,7 @@ void describe('AI Pipeline Integration (Testcontainers)', { timeout: 120_000 }, 
   });
 
   void it('supports vector KNN search per shop', async () => {
+    if (!integrationEnabled) return;
     logStep('test:knn:start');
     const client = await pool.connect();
     const shopId = randomUUID();
@@ -279,6 +290,7 @@ void describe('AI Pipeline Integration (Testcontainers)', { timeout: 120_000 }, 
   });
 
   void it('uses Redis cache for search results', async () => {
+    if (!integrationEnabled) return;
     logStep('test:cache:start');
     const shopId = randomUUID();
     const queryText = 'test query';
@@ -305,6 +317,7 @@ void describe('AI Pipeline Integration (Testcontainers)', { timeout: 120_000 }, 
   });
 
   void it('mocks OpenAI embedding provider', async () => {
+    if (!integrationEnabled) return;
     logStep('test:embedding:start');
     nock('https://api.openai.com')
       .post('/v1/embeddings')

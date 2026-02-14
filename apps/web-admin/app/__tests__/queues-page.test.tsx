@@ -281,7 +281,7 @@ describe('Queue Monitor /queues UI', () => {
     render(<RouterProvider router={router} />);
 
     // Click Jobs tab (custom element button).
-    const jobsBtn = await screen.findByText('Jobs');
+    const jobsBtn = await screen.findByText('Job-uri');
     await user.click(jobsBtn.closest('polaris-button') ?? jobsBtn);
 
     await waitFor(() => {
@@ -333,7 +333,7 @@ describe('Queue Monitor /queues UI', () => {
 
     render(<RouterProvider router={router} />);
 
-    const jobsBtn = await screen.findByText('Jobs');
+    const jobsBtn = await screen.findByText('Job-uri');
     await user.click(jobsBtn.closest('polaris-button') ?? jobsBtn);
 
     // Wait for jobs row.
@@ -375,7 +375,7 @@ describe('Queue Monitor /queues UI', () => {
 
     render(<RouterProvider router={router} />);
 
-    const workersBtn = await screen.findByText('Workers');
+    const workersBtn = await screen.findByText('Workeri');
     await user.click(workersBtn.closest('polaris-button') ?? workersBtn);
 
     await waitFor(() => {
@@ -408,7 +408,7 @@ describe('Queue Monitor /queues UI', () => {
 
     render(<RouterProvider router={router} />);
 
-    const jobsBtn = await screen.findByText('Jobs');
+    const jobsBtn = await screen.findByText('Job-uri');
     await user.click(jobsBtn.closest('polaris-button') ?? jobsBtn);
 
     // Wait for jobs row.
@@ -427,8 +427,8 @@ describe('Queue Monitor /queues UI', () => {
     ).toBe(false);
 
     // Confirm dialog should appear.
-    expect(await screen.findByText(/This action is irreversible\./i)).toBeInTheDocument();
-    const confirm = await screen.findByText('Delete job');
+    expect(await screen.findByText(/Actiunea este ireversibila\./i)).toBeInTheDocument();
+    const confirm = await screen.findByText('Sterge job');
     await user.click(confirm.closest('polaris-button') ?? confirm);
 
     await waitFor(() => {
@@ -462,7 +462,7 @@ describe('Queue Monitor /queues UI', () => {
 
     render(<RouterProvider router={router} />);
 
-    const workersBtn = await screen.findByText('Workers');
+    const workersBtn = await screen.findByText('Workeri');
     await user.click(workersBtn.closest('polaris-button') ?? workersBtn);
 
     await waitFor(() => {
@@ -514,7 +514,7 @@ describe('Queue Monitor /queues UI', () => {
     const deleteSelected = await screen.findByText('Delete Selected');
     await user.click(deleteSelected.closest('polaris-button') ?? deleteSelected);
 
-    const confirm = await screen.findByText('Delete job');
+    const confirm = await screen.findByText('Sterge job');
     await user.click(confirm.closest('polaris-button') ?? confirm);
 
     await waitFor(() => {

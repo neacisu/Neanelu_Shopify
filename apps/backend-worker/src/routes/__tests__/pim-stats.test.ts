@@ -33,6 +33,7 @@ void mock.module('@app/queue-manager', {
       'pim-extraction',
     ],
     configFromEnv: () => ({}) as never,
+    enqueueEnrichmentJob: () => Promise.resolve(),
     createQueue: (_ctx: unknown, opts: { name?: string }) => {
       const queueName = opts.name ?? 'unknown';
       return {

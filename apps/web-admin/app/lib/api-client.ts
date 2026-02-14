@@ -155,7 +155,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
     });
   }
 
-  async function putApi<TResponse, TBody extends Record<string, unknown>>(
+  async function putApi<TResponse, TBody extends object>(
     path: string,
     body: TBody,
     init: RequestInit = {}

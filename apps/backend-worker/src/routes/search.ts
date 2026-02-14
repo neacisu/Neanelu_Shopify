@@ -74,7 +74,58 @@ type ExportJob = Readonly<{
   contentType?: string;
 }>;
 
-const exportJobs = new Map<string, ExportJob>();
+const EXPORT_JOB_TTL_SECONDS = 60 * 60; // 1h
+const EXPORT_JOB_PREFIX = 'pim:search-export:';
+
+function exportJobKey(shopId: string, jobId: string): string {
+  return `${EXPORT_JOB_PREFIX}${shopId}:${jobId}`;
+}
+
+async function saveExportJob(redis: RedisClient, job: ExportJob): Promise<void> {
+  const key = exportJobKey(job.shopId, job.jobId);
+  await redis.hset(key, {
+    jobId: job.jobId,
+    shopId: job.shopId,
+    status: job.status,
+    format: job.format,
+    progress: String(job.progress ?? 0),
+    downloadUrl: job.downloadUrl ?? '',
+    error: job.error ?? '',
+    contentType: job.contentType ?? '',
+    // payload can be large; still OK for short TTL exports.
+    payload: job.payload ?? '',
+  });
+  await redis.expire(key, EXPORT_JOB_TTL_SECONDS);
+}
+
+async function loadExportJob(
+  redis: RedisClient,
+  shopId: string,
+  jobId: string
+): Promise<ExportJob | null> {
+  const key = exportJobKey(shopId, jobId);
+  const data = await redis.hgetall(key);
+  if (!data?.['jobId'] || !data?.['shopId']) return null;
+  if (data['shopId'] !== shopId || data['jobId'] !== jobId) return null;
+  const status = data['status'] as ExportJob['status'];
+  const format = data['format'] as ExportJob['format'];
+  if (!status || !format) return null;
+  const progress = Number(data['progress'] ?? 0);
+  const base: ExportJob = {
+    jobId,
+    shopId,
+    status,
+    format,
+    progress: Number.isFinite(progress) ? progress : 0,
+  };
+  return {
+    ...base,
+    ...(data['downloadUrl'] ? { downloadUrl: data['downloadUrl'] } : {}),
+    ...(data['error'] ? { error: data['error'] } : {}),
+    ...(data['contentType'] ? { contentType: data['contentType'] } : {}),
+    ...(data['payload'] ? { payload: data['payload'] } : {}),
+  };
+}
 
 type CategoryRow = Readonly<{
   id: string;
@@ -698,7 +749,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
       progress: 0,
       format,
     };
-    exportJobs.set(jobId, initial);
+    await saveExportJob(redis, initial);
 
     void reply.status(202).send(
       successEnvelope(request.id, {
@@ -709,10 +760,10 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
     );
 
     void (async () => {
-      exportJobs.set(jobId, { ...initial, status: 'processing', progress: 10 });
+      await saveExportJob(redis, { ...initial, status: 'processing', progress: 10 });
       try {
         if (await isOpenAiBudgetExceeded(session.shopId)) {
-          exportJobs.set(jobId, {
+          await saveExportJob(redis, {
             ...initial,
             status: 'failed',
             progress: 100,
@@ -761,7 +812,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           });
         });
 
-        exportJobs.set(jobId, { ...initial, status: 'processing', progress: 70 });
+        await saveExportJob(redis, { ...initial, status: 'processing', progress: 70 });
 
         const results = searchRows.map((row) => ({
           id: row.productId,
@@ -775,7 +826,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
 
         const payload = format === 'csv' ? toCsv(results) : toJson(results);
         const contentType = format === 'csv' ? 'text/csv' : 'application/json';
-        exportJobs.set(jobId, {
+        await saveExportJob(redis, {
           ...initial,
           status: 'completed',
           progress: 100,
@@ -784,7 +835,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           downloadUrl: `/api/products/search/export/${jobId}/download`,
         });
       } catch (error) {
-        exportJobs.set(jobId, {
+        await saveExportJob(redis, {
           ...initial,
           status: 'failed',
           progress: 100,
@@ -804,13 +855,13 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
     }
 
     const jobId = (request.params as { jobId?: string }).jobId;
-    if (!jobId || !exportJobs.has(jobId)) {
+    if (!jobId) {
       void reply.status(404).send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Export not found'));
       return;
     }
 
-    const job = exportJobs.get(jobId);
-    if (job?.shopId !== session.shopId) {
+    const job = await loadExportJob(redis, session.shopId, jobId);
+    if (!job) {
       void reply.status(404).send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Export not found'));
       return;
     }
@@ -839,7 +890,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
       }
 
       const jobId = (request.params as { jobId?: string }).jobId;
-      const job = jobId ? exportJobs.get(jobId) : null;
+      const job = jobId ? await loadExportJob(redis, session.shopId, jobId) : null;
       if (job?.shopId !== session.shopId || job?.status !== 'completed' || !job?.payload) {
         void reply
           .status(404)

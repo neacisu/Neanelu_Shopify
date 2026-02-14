@@ -1,8 +1,9 @@
 import type { LoaderFunctionArgs } from 'react-router-dom';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLoaderData, useRevalidator, useSearchParams } from 'react-router-dom';
 import type { DateRange } from 'react-day-picker';
-import { RefreshCw } from 'lucide-react';
+import { Loader2, Play, RefreshCw } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { Button } from '../components/ui/button';
 import { DateRangePicker } from '../components/ui/DateRangePicker';
@@ -15,6 +16,7 @@ import { DataFreshnessIndicator } from '../components/domain/DataFreshnessIndica
 import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
 import { toUtcIsoRange } from '../utils/date-range';
 import { useEnrichmentStream } from '../hooks/useEnrichmentStream';
+import { useApiClient } from '../hooks/use-api';
 
 interface EnrichmentStage {
   id: string;
@@ -88,6 +90,8 @@ export default function EnrichmentDashboardPage() {
   const { progress, sourcePerformance } = useLoaderData<RouteLoaderData>();
   const revalidator = useRevalidator();
   const stream = useEnrichmentStream();
+  const api = useApiClient();
+  const [starting, setStarting] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const timeZone =
     typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC';
@@ -123,7 +127,7 @@ export default function EnrichmentDashboardPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end gap-3">
         <DateRangePicker
-          label="Date range"
+          label="Interval date"
           value={selectedRange}
           timeZone={timeZone}
           onChange={(next) => {
@@ -140,17 +144,52 @@ export default function EnrichmentDashboardPage() {
           }}
         />
         <Button
+          size="sm"
+          onClick={() => {
+            setStarting(true);
+            void api
+              .postApi<{ status: string; queued?: number }, { limit: number }>(
+                '/pim/enrichment/start',
+                {
+                  limit: 50,
+                }
+              )
+              .then((result) => {
+                if (result.status === 'noop') {
+                  toast.message('Nu exista produse eligibile pentru enrichment acum.');
+                  return;
+                }
+                toast.success(
+                  `Enrichment pornit${typeof result.queued === 'number' ? ` (${result.queued} produse)` : ''}.`
+                );
+                void revalidator.revalidate();
+              })
+              .catch((error) => {
+                toast.error(error instanceof Error ? error.message : 'Nu pot porni enrichment.');
+              })
+              .finally(() => setStarting(false));
+          }}
+          disabled={starting}
+        >
+          {starting ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Play className="mr-2 h-4 w-4" />
+          )}
+          Porneste enrichment
+        </Button>
+        <Button
           variant="secondary"
           size="sm"
           onClick={() => {
             void revalidator.revalidate();
           }}
-          disabled={revalidator.state === 'loading'}
+          disabled={revalidator.state === 'loading' || starting}
         >
           <RefreshCw className="mr-2 h-4 w-4" />
-          Refresh
+          Reincarca
         </Button>
-        <DataFreshnessIndicator refreshedAt={sourcePerformance.refreshedAt} label="Source data" />
+        <DataFreshnessIndicator refreshedAt={sourcePerformance.refreshedAt} label="Date surse" />
       </div>
 
       <EnrichmentStatsCards
@@ -173,8 +212,8 @@ export default function EnrichmentDashboardPage() {
           <SourcePerformanceTable rows={sourcePerformance.sources} />
         </div>
         <div className="rounded-lg border border-muted/20 bg-background p-4">
-          <div className="mb-2 text-xs text-muted">Recent activity</div>
-          <Timeline events={events} maxHeight={420} emptyState="No events yet." />
+          <div className="mb-2 text-xs text-muted">Activitate recenta</div>
+          <Timeline events={events} maxHeight={420} emptyState="Nu exista evenimente inca." />
         </div>
       </div>
     </div>

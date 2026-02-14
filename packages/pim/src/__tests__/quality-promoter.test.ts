@@ -4,7 +4,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { getDbPool } from '../db.js';
 import { applyQualityLevelChange, GOLDEN_MILESTONES } from '../services/quality-promoter.js';
 
-const shouldSkip = !process.env['DATABASE_URL'];
+// DB integration tests are opt-in. Default `pnpm test` should be mock/unit friendly.
+const shouldSkip = process.env['PIM_TESTS_WITH_DB'] !== '1' || !process.env['DATABASE_URL'];
 
 describe('quality-promoter', { skip: shouldSkip }, () => {
   let pool: ReturnType<typeof getDbPool> | null = null;

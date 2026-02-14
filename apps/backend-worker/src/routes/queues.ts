@@ -1,6 +1,7 @@
 import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
 import { QUEUE_NAMES, configFromEnv, createQueue, toDlqQueueName } from '@app/queue-manager';
+import type { DlqEntry } from '@app/queue-manager';
 import type { JobType } from 'bullmq';
 import type { SessionConfig } from '../auth/session.js';
 import { requireSession } from '../auth/session.js';
@@ -101,6 +102,17 @@ function normalizeQueueName(name: string): string {
   return name.trim();
 }
 
+function isDlqEntry(value: unknown): value is DlqEntry {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record['originalQueue'] === 'string' &&
+    typeof record['originalJobName'] === 'string' &&
+    // `data` can be any JSON-ish payload; keep it permissive.
+    'data' in record
+  );
+}
+
 const DEFAULT_QUEUE_NAMES: readonly string[] = [
   ...QUEUE_NAMES,
   // Include DLQs for visibility (even if empty)
@@ -153,6 +165,10 @@ function pushMetricsPoint(queueName: string, snapshot: QueueSummary): void {
 
 function isKnownQueueName(queueName: string): boolean {
   return DEFAULT_QUEUE_NAMES.includes(queueName);
+}
+
+function isDlqQueueName(queueName: string): boolean {
+  return queueName.endsWith('-dlq');
 }
 
 function createQueueHandle(env: AppEnv, name: string) {
@@ -375,6 +391,95 @@ export const queueRoutes: FastifyPluginAsync<QueueAdminPluginOptions> = (
     }
   });
 
+  server.post('/queues/:name/dlq/replay', requireAdminSession, async (request, reply) => {
+    const rawName = (request.params as { name?: unknown }).name;
+    const queueName = isNonEmptyString(rawName) ? normalizeQueueName(rawName) : '';
+    if (!queueName || !isKnownQueueName(queueName) || !isDlqQueueName(queueName)) {
+      void reply
+        .status(404)
+        .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'DLQ queue not found'));
+      return;
+    }
+
+    const body = (request.body ?? {}) as { jobIds?: unknown; limit?: unknown };
+    const jobIds = Array.isArray(body.jobIds)
+      ? body.jobIds.filter(isNonEmptyString).slice(0, 500)
+      : [];
+    const limit = parseIntParam(body.limit, 100, 1, 500);
+
+    const dlqQueue = createQueueHandle(env, queueName);
+    const originalQueueCache = new Map<string, ReturnType<typeof createQueueHandle>>();
+
+    const getOriginalQueue = (name: string) => {
+      const cached = originalQueueCache.get(name);
+      if (cached) return cached;
+      const q = createQueueHandle(env, name);
+      originalQueueCache.set(name, q);
+      return q;
+    };
+
+    const errors: { jobId: string; error: string }[] = [];
+    let replayed = 0;
+
+    try {
+      const jobs =
+        jobIds.length > 0
+          ? await Promise.all(jobIds.map(async (id) => await dlqQueue.getJob(id)))
+          : await dlqQueue.getJobs(['waiting'], 0, Math.max(0, limit - 1));
+
+      for (const job of jobs) {
+        if (!job) continue;
+        const entry: unknown = job.data;
+        if (!isDlqEntry(entry)) {
+          errors.push({ jobId: String(job.id), error: 'invalid_dlq_entry' });
+          continue;
+        }
+        const originalQueueName = entry.originalQueue;
+        const originalJobName = entry.originalJobName;
+
+        if (!originalQueueName || !originalJobName || !isKnownQueueName(originalQueueName)) {
+          errors.push({ jobId: String(job.id), error: 'invalid_dlq_entry' });
+          continue;
+        }
+
+        try {
+          const originalQueue = getOriginalQueue(originalQueueName);
+          const originalPayload: unknown = entry.data;
+          const originalJobId = entry.originalJobId;
+          const replayJobId = originalJobId
+            ? `replay__${originalQueueName}__${originalJobId.replaceAll(':', '_')}__${Date.now()}`
+            : undefined;
+
+          await originalQueue.add(originalJobName, originalPayload, {
+            ...(replayJobId ? { jobId: replayJobId } : {}),
+          });
+
+          await job.remove().catch(() => undefined);
+          replayed += 1;
+        } catch (err) {
+          errors.push({
+            jobId: String(job.id),
+            error: err instanceof Error ? err.message : 'replay_failed',
+          });
+        }
+      }
+
+      void reply.status(200).send(
+        successEnvelope(request.id, {
+          queueName,
+          replayed,
+          failed: errors.length,
+          errors,
+        })
+      );
+    } finally {
+      await dlqQueue.close().catch(() => undefined);
+      for (const q of originalQueueCache.values()) {
+        await q.close().catch(() => undefined);
+      }
+    }
+  });
+
   server.get('/queues/:name/jobs/:id', requireAdminSession, async (request, reply) => {
     const rawName = (request.params as { name?: unknown }).name;
     const rawId = (request.params as { id?: unknown }).id;
@@ -589,10 +694,16 @@ export const queueRoutes: FastifyPluginAsync<QueueAdminPluginOptions> = (
     const readiness = registry.getWorkerReadiness();
     const webhookJob = registry.getWorkerCurrentJob('webhook-worker');
     const tokenHealthJob = registry.getWorkerCurrentJob('token-health-worker');
+    const bulkIngestJob = registry.getWorkerCurrentJob('bulk-ingest-worker');
     const bulkOrchestratorJob = registry.getWorkerCurrentJob('bulk-orchestrator-worker');
     const bulkPollerJob = registry.getWorkerCurrentJob('bulk-poller-worker');
     const bulkMutationReconcileJob = registry.getWorkerCurrentJob('bulk-mutation-reconcile-worker');
     const aiBatchJob = registry.getWorkerCurrentJob('ai-batch-worker');
+    const enrichmentJob = registry.getWorkerCurrentJob('enrichment-worker');
+    const similaritySearchJob = registry.getWorkerCurrentJob('similarity-search-worker');
+    const aiAuditJob = registry.getWorkerCurrentJob('ai-audit-worker');
+    const extractionJob = registry.getWorkerCurrentJob('pim-extraction-worker');
+    const consensusJob = registry.getWorkerCurrentJob('consensus-worker');
 
     const mem = process.memoryUsage();
     const cpu = process.cpuUsage();
@@ -620,6 +731,12 @@ export const queueRoutes: FastifyPluginAsync<QueueAdminPluginOptions> = (
         currentJob: tokenHealthJob,
       },
       {
+        id: 'sync-worker',
+        ok: readiness.syncWorkerOk ?? false,
+        ...base,
+        currentJob: null,
+      },
+      {
         id: 'bulk-orchestrator-worker',
         ok: readiness.bulkOrchestratorWorkerOk ?? false,
         ...base,
@@ -638,10 +755,88 @@ export const queueRoutes: FastifyPluginAsync<QueueAdminPluginOptions> = (
         currentJob: bulkMutationReconcileJob,
       },
       {
+        id: 'bulk-ingest-worker',
+        ok: readiness.bulkIngestWorkerOk ?? false,
+        ...base,
+        currentJob: bulkIngestJob,
+      },
+      {
         id: 'ai-batch-worker',
         ok: readiness.aiBatchWorkerOk ?? false,
         ...base,
         currentJob: aiBatchJob,
+      },
+      {
+        id: 'enrichment-worker',
+        ok: readiness.enrichmentWorkerOk ?? false,
+        ...base,
+        currentJob: enrichmentJob,
+      },
+      {
+        id: 'similarity-search-worker',
+        ok: readiness.similaritySearchWorkerOk ?? false,
+        ...base,
+        currentJob: similaritySearchJob,
+      },
+      {
+        id: 'ai-audit-worker',
+        ok: readiness.similarityAIAuditWorkerOk ?? false,
+        ...base,
+        currentJob: aiAuditJob,
+      },
+      {
+        id: 'pim-extraction-worker',
+        ok: readiness.extractionWorkerOk ?? false,
+        ...base,
+        currentJob: extractionJob,
+      },
+      {
+        id: 'consensus-worker',
+        ok: readiness.consensusWorkerOk ?? false,
+        ...base,
+        currentJob: consensusJob,
+      },
+      {
+        id: 'pim-budget-reset-worker',
+        ok: readiness.budgetResetSchedulerOk ?? false,
+        ...base,
+        currentJob: null,
+      },
+      {
+        id: 'pim-weekly-summary-worker',
+        ok: readiness.weeklySummarySchedulerOk ?? false,
+        ...base,
+        currentJob: null,
+      },
+      {
+        id: 'pim-auto-enrichment-scheduler-worker',
+        ok: readiness.autoEnrichmentSchedulerOk ?? false,
+        ...base,
+        currentJob: null,
+      },
+      {
+        id: 'pim-raw-harvest-retention-worker',
+        ok: readiness.rawHarvestRetentionSchedulerOk ?? false,
+        ...base,
+        currentJob: null,
+      },
+      {
+        id: 'pim-mv-refresh-worker',
+        ok: readiness.mvRefreshSchedulerOk ?? false,
+        ...base,
+        currentJob: null,
+      },
+      {
+        id: 'pim-quality-webhook-worker',
+        ok: readiness.qualityWebhookWorkerOk ?? false,
+        ...base,
+        currentJob: null,
+      },
+      {
+        id: 'pim-quality-webhook-sweep-worker',
+        ok: readiness.qualityWebhookSweepSchedulerOk ?? false,
+        ...base,
+        currentJob: null,
       },
     ];
 

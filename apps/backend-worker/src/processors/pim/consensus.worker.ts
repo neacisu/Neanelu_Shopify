@@ -133,94 +133,121 @@ export function startConsensusWorker(logger: Logger): ConsensusWorkerHandle {
 
 async function processSingleConsensus(payload: ConsensusJobPayload, logger: Logger): Promise<void> {
   await withTenantContext(payload.shopId, async (client) => {
-    const result = await computeConsensusSafe({ client, productId: payload.productId });
-    const blockedAttributes = new Set(
-      result.conflicts
-        .filter((conflict) => conflict.autoResolveDisabled)
-        .map((conflict) => conflict.attributeName)
+    const lockKey = `${payload.shopId}:${payload.productId}`;
+    const lock = await client.query<{ locked: boolean }>(
+      `SELECT pg_try_advisory_lock(hashtext($1)) as locked`,
+      [lockKey]
     );
-    const filteredConsensusSpecs = Object.fromEntries(
-      Object.entries(result.consensusSpecs).filter(([key]) => !blockedAttributes.has(key))
-    );
-    const filteredProvenance = Object.fromEntries(
-      Object.entries(result.provenance).filter(([key]) => !blockedAttributes.has(key))
-    );
-
-    const criticalConflicts = result.conflicts.filter(
-      (conflict) =>
-        conflict.autoResolveDisabled &&
-        CONSENSUS_CONFIG.CRITICAL_FIELDS.includes(
-          conflict.attributeName as (typeof CONSENSUS_CONFIG.CRITICAL_FIELDS)[number]
-        )
-    );
-    if (criticalConflicts.length > 0) {
+    if (!lock.rows[0]?.locked) {
       logger.warn(
-        {
-          productId: payload.productId,
-          conflicts: criticalConflicts.map((conflict) => conflict.attributeName),
-        },
-        'Critical fields blocked from consensus due to conflicts'
+        { productId: payload.productId, shopId: payload.shopId },
+        'Consensus skipped: lock busy'
       );
+      return;
     }
-    const merged = await mergeWithExistingSpecsSafe({
-      client: client as DbClient,
-      productId: payload.productId,
-      consensusSpecs: filteredConsensusSpecs,
-      provenance: filteredProvenance,
-    });
 
-    const needsReview = result.needsReview;
-    const reviewReason = needsReview ? 'consensus_conflict' : null;
+    try {
+      const result = await computeConsensusSafe({ client, productId: payload.productId });
+      const blockedAttributes = new Set(
+        result.conflicts
+          .filter((conflict) => conflict.autoResolveDisabled)
+          .map((conflict) => conflict.attributeName)
+      );
+      const filteredConsensusSpecs = Object.fromEntries(
+        Object.entries(result.consensusSpecs).filter(([key]) => !blockedAttributes.has(key))
+      );
+      const filteredProvenance = Object.fromEntries(
+        Object.entries(result.provenance).filter(([key]) => !blockedAttributes.has(key))
+      );
 
-    await client.query(
-      `UPDATE prod_master
+      const criticalConflicts = result.conflicts.filter(
+        (conflict) =>
+          conflict.autoResolveDisabled &&
+          CONSENSUS_CONFIG.CRITICAL_FIELDS.includes(
+            conflict.attributeName as (typeof CONSENSUS_CONFIG.CRITICAL_FIELDS)[number]
+          )
+      );
+      if (criticalConflicts.length > 0) {
+        logger.warn(
+          {
+            productId: payload.productId,
+            conflicts: criticalConflicts.map((conflict) => conflict.attributeName),
+          },
+          'Critical fields blocked from consensus due to conflicts'
+        );
+      }
+      const merged = await mergeWithExistingSpecsSafe({
+        client: client as DbClient,
+        productId: payload.productId,
+        consensusSpecs: filteredConsensusSpecs,
+        provenance: filteredProvenance,
+      });
+
+      const needsReview = result.needsReview;
+      const reviewReason = needsReview ? 'consensus_conflict' : null;
+
+      await client.query(
+        `UPDATE prod_master
        SET quality_score = $2,
            quality_score_breakdown = $3::jsonb,
            needs_review = (needs_review OR $4),
            updated_at = now()
        WHERE id = $1`,
-      [payload.productId, result.qualityScore, JSON.stringify(result.qualityBreakdown), needsReview]
-    );
+        [
+          payload.productId,
+          result.qualityScore,
+          JSON.stringify(result.qualityBreakdown),
+          needsReview,
+        ]
+      );
 
-    await upsertProdSpecsSnapshot({
-      client,
-      productId: payload.productId,
-      specs: merged.merged,
-      provenance: filteredProvenance,
-      needsReview,
-      reviewReason,
-    });
+      await upsertProdSpecsSnapshot({
+        client,
+        productId: payload.productId,
+        specs: merged.merged,
+        provenance: filteredProvenance,
+        needsReview,
+        reviewReason,
+      });
 
-    const promotionResult = await applyQualityLevelChangeSafe({
-      client: client as DbClient,
-      productId: payload.productId,
-      qualityScore: result.qualityScore,
-      sourceCount: result.sourceCount,
-      consensusSpecs: filteredConsensusSpecs,
-      trigger: payload.trigger,
-      shopId: payload.shopId,
-      onEventCreated: async (eventId) => {
-        await enqueueQualityWebhookJob({ eventId, shopId: payload.shopId });
-      },
-    });
-
-    if (promotionResult.changed) {
-      logger.info(
-        {
-          productId: payload.productId,
-          from: promotionResult.previousLevel,
-          to: promotionResult.newLevel,
-          qualityScore: result.qualityScore,
+      const promotionResult = await applyQualityLevelChangeSafe({
+        client: client as DbClient,
+        productId: payload.productId,
+        qualityScore: result.qualityScore,
+        sourceCount: result.sourceCount,
+        consensusSpecs: filteredConsensusSpecs,
+        trigger: payload.trigger,
+        shopId: payload.shopId,
+        onEventCreated: async (eventId) => {
+          await enqueueQualityWebhookJob({ eventId, shopId: payload.shopId });
         },
-        'Quality level changed after consensus'
-      );
-    }
+      });
 
-    if (merged.skipped.length > 0) {
-      logger.info(
-        { productId: payload.productId, skipped: merged.skipped },
-        'Skipped manual-correction fields during consensus merge'
-      );
+      if (promotionResult.changed) {
+        logger.info(
+          {
+            productId: payload.productId,
+            from: promotionResult.previousLevel,
+            to: promotionResult.newLevel,
+            qualityScore: result.qualityScore,
+          },
+          'Quality level changed after consensus'
+        );
+      }
+
+      if (merged.skipped.length > 0) {
+        logger.info(
+          { productId: payload.productId, skipped: merged.skipped },
+          'Skipped manual-correction fields during consensus merge'
+        );
+      }
+    } finally {
+      // Always release the session-level lock.
+      try {
+        await client.query(`SELECT pg_advisory_unlock(hashtext($1))`, [lockKey]);
+      } catch {
+        // ignore unlock failure
+      }
     }
   });
 }

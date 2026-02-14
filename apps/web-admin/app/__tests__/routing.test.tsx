@@ -32,7 +32,7 @@ describe('routing', () => {
     render(<RouterProvider router={router} />);
 
     expect(await screen.findByRole('heading', { name: /Neanelu Monitor/i })).toBeInTheDocument();
-    expect(screen.getByText(/System Overview/i)).toBeInTheDocument();
+    expect(screen.getByText(/Prezentare sistem/i)).toBeInTheDocument();
   });
 
   it('renders ErrorBoundary for unknown route (404)', async () => {

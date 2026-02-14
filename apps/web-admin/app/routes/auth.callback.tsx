@@ -135,7 +135,7 @@ export default function AuthCallbackPage() {
       {phase === 'loading' ? (
         <div className="inline-flex items-center gap-2 text-muted">
           <Loader2 className="size-4 animate-spin" />
-          <span className="text-caption">Loading…</span>
+          <span className="text-caption">Se incarca…</span>
         </div>
       ) : null}
 

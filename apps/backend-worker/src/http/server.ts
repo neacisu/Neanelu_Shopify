@@ -33,6 +33,7 @@ import { webhookSettingsRoutes } from '../routes/webhook-settings.js';
 import { queueSettingsRoutes } from '../routes/queue-settings.js';
 import { pimStatsRoutes } from '../routes/pim-stats.js';
 import { qualityWebhookSettingsRoutes } from '../routes/quality-webhook-settings.js';
+import { uxEventsRoutes } from '../routes/ux-events.js';
 import { setRequestIdAttribute } from '@app/logger';
 import {
   httpActiveRequests,
@@ -228,7 +229,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       checkWebhookQueueFunctional(env, checkTimeoutMs),
     ]);
 
-    const { webhookWorkerOk, tokenHealthWorkerOk } = getWorkerReadiness();
+    const readiness = getWorkerReadiness();
+    const { webhookWorkerOk, tokenHealthWorkerOk } = readiness;
 
     const checks = {
       database: databaseOk ? 'ok' : 'fail',
@@ -236,12 +238,43 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       shopify_api: shopifyOk ? 'ok' : 'fail',
       queue_webhook: webhookQueueOk ? 'ok' : 'fail',
       worker_webhook: webhookWorkerOk ? 'ok' : 'fail',
+      worker_sync: readiness.syncWorkerOk ? 'ok' : 'fail',
+      worker_enrichment: readiness.enrichmentWorkerOk ? 'ok' : 'fail',
+      worker_similarity_search: readiness.similaritySearchWorkerOk ? 'ok' : 'fail',
+      worker_ai_audit: readiness.similarityAIAuditWorkerOk ? 'ok' : 'fail',
+      worker_extraction: readiness.extractionWorkerOk ? 'ok' : 'fail',
+      worker_consensus: readiness.consensusWorkerOk ? 'ok' : 'fail',
+      worker_mv_refresh: readiness.mvRefreshSchedulerOk ? 'ok' : 'fail',
+      worker_quality_webhook: readiness.qualityWebhookWorkerOk ? 'ok' : 'fail',
+      worker_quality_webhook_sweep: readiness.qualityWebhookSweepSchedulerOk ? 'ok' : 'fail',
+      worker_budget_reset: readiness.budgetResetSchedulerOk ? 'ok' : 'fail',
+      worker_weekly_summary: readiness.weeklySummarySchedulerOk ? 'ok' : 'fail',
+      worker_auto_enrichment: readiness.autoEnrichmentSchedulerOk ? 'ok' : 'fail',
+      worker_raw_harvest_retention: readiness.rawHarvestRetentionSchedulerOk ? 'ok' : 'fail',
       ...(tokenHealthWorkerOk == null
         ? {}
         : { worker_token_health: tokenHealthWorkerOk ? 'ok' : 'fail' }),
     } as const;
 
-    const allOk = databaseOk && redisOk && shopifyOk && webhookQueueOk && webhookWorkerOk;
+    const allOk =
+      databaseOk &&
+      redisOk &&
+      shopifyOk &&
+      webhookQueueOk &&
+      webhookWorkerOk &&
+      Boolean(readiness.syncWorkerOk) &&
+      Boolean(readiness.enrichmentWorkerOk) &&
+      Boolean(readiness.similaritySearchWorkerOk) &&
+      Boolean(readiness.similarityAIAuditWorkerOk) &&
+      Boolean(readiness.extractionWorkerOk) &&
+      Boolean(readiness.consensusWorkerOk) &&
+      Boolean(readiness.mvRefreshSchedulerOk) &&
+      Boolean(readiness.qualityWebhookWorkerOk) &&
+      Boolean(readiness.qualityWebhookSweepSchedulerOk) &&
+      Boolean(readiness.budgetResetSchedulerOk) &&
+      Boolean(readiness.weeklySummarySchedulerOk) &&
+      Boolean(readiness.autoEnrichmentSchedulerOk) &&
+      Boolean(readiness.rawHarvestRetentionSchedulerOk);
     const statusCode = allOk ? 200 : 503;
     const status = allOk ? 'ready' : 'not_ready';
 
@@ -293,6 +326,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     logger,
     sessionConfig,
   });
+  await server.register(uxEventsRoutes, { prefix: '/api', env, logger, sessionConfig });
 
   // Compatibility mounting without /api prefix.
   // Some reverse proxies (or legacy deployments) may strip `/api` before forwarding.
@@ -314,6 +348,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await server.register(webhookSettingsRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(queueSettingsRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(qualityWebhookSettingsRoutes, { prefix: '', env, logger, sessionConfig });
+  await server.register(uxEventsRoutes, { prefix: '', env, logger, sessionConfig });
 
   server.get('/api/health', (request, reply) => {
     void reply.status(200).send({
@@ -342,7 +377,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       checkWebhookQueueFunctional(env, checkTimeoutMs),
     ]);
 
-    const { webhookWorkerOk, tokenHealthWorkerOk } = getWorkerReadiness();
+    const readiness = getWorkerReadiness();
+    const { webhookWorkerOk, tokenHealthWorkerOk } = readiness;
 
     const checks = {
       database: databaseOk ? 'ok' : 'fail',
@@ -350,12 +386,43 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       shopify_api: shopifyOk ? 'ok' : 'fail',
       queue_webhook: webhookQueueOk ? 'ok' : 'fail',
       worker_webhook: webhookWorkerOk ? 'ok' : 'fail',
+      worker_sync: readiness.syncWorkerOk ? 'ok' : 'fail',
+      worker_enrichment: readiness.enrichmentWorkerOk ? 'ok' : 'fail',
+      worker_similarity_search: readiness.similaritySearchWorkerOk ? 'ok' : 'fail',
+      worker_ai_audit: readiness.similarityAIAuditWorkerOk ? 'ok' : 'fail',
+      worker_extraction: readiness.extractionWorkerOk ? 'ok' : 'fail',
+      worker_consensus: readiness.consensusWorkerOk ? 'ok' : 'fail',
+      worker_mv_refresh: readiness.mvRefreshSchedulerOk ? 'ok' : 'fail',
+      worker_quality_webhook: readiness.qualityWebhookWorkerOk ? 'ok' : 'fail',
+      worker_quality_webhook_sweep: readiness.qualityWebhookSweepSchedulerOk ? 'ok' : 'fail',
+      worker_budget_reset: readiness.budgetResetSchedulerOk ? 'ok' : 'fail',
+      worker_weekly_summary: readiness.weeklySummarySchedulerOk ? 'ok' : 'fail',
+      worker_auto_enrichment: readiness.autoEnrichmentSchedulerOk ? 'ok' : 'fail',
+      worker_raw_harvest_retention: readiness.rawHarvestRetentionSchedulerOk ? 'ok' : 'fail',
       ...(tokenHealthWorkerOk == null
         ? {}
         : { worker_token_health: tokenHealthWorkerOk ? 'ok' : 'fail' }),
     } as const;
 
-    const allOk = databaseOk && redisOk && shopifyOk && webhookQueueOk && webhookWorkerOk;
+    const allOk =
+      databaseOk &&
+      redisOk &&
+      shopifyOk &&
+      webhookQueueOk &&
+      webhookWorkerOk &&
+      Boolean(readiness.syncWorkerOk) &&
+      Boolean(readiness.enrichmentWorkerOk) &&
+      Boolean(readiness.similaritySearchWorkerOk) &&
+      Boolean(readiness.similarityAIAuditWorkerOk) &&
+      Boolean(readiness.extractionWorkerOk) &&
+      Boolean(readiness.consensusWorkerOk) &&
+      Boolean(readiness.mvRefreshSchedulerOk) &&
+      Boolean(readiness.qualityWebhookWorkerOk) &&
+      Boolean(readiness.qualityWebhookSweepSchedulerOk) &&
+      Boolean(readiness.budgetResetSchedulerOk) &&
+      Boolean(readiness.weeklySummarySchedulerOk) &&
+      Boolean(readiness.autoEnrichmentSchedulerOk) &&
+      Boolean(readiness.rawHarvestRetentionSchedulerOk);
     const statusCode = allOk ? 200 : 503;
     const status = allOk ? 'ready' : 'not_ready';
 

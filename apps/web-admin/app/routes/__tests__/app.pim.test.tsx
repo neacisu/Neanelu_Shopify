@@ -27,26 +27,26 @@ describe('app.pim layout', () => {
 
     render(<RouterProvider router={router} />);
     expect(screen.getByText('overview-content')).toBeTruthy();
-    expect(screen.getByRole('tablist', { name: 'PIM sections' })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: 'Quality' })).toBeTruthy();
+    expect(screen.getByRole('tablist', { name: 'Sectiuni PIM' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Calitate' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Enrichment' })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: 'Costs' })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: 'Events' })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: 'Consensus' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Costuri' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Evenimente' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Consens' })).toBeTruthy();
 
-    await userEvent.click(screen.getByRole('tab', { name: 'Quality' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Calitate' }));
     expect(await screen.findByText('quality-content')).toBeTruthy();
 
     await userEvent.click(screen.getByRole('tab', { name: 'Enrichment' }));
     expect(await screen.findByText('enrichment-content')).toBeTruthy();
 
-    await userEvent.click(screen.getByRole('tab', { name: 'Costs' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Costuri' }));
     expect(await screen.findByText('costs-content')).toBeTruthy();
 
-    await userEvent.click(screen.getByRole('tab', { name: 'Events' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Evenimente' }));
     expect(await screen.findByText('events-content')).toBeTruthy();
 
-    await userEvent.click(screen.getByRole('tab', { name: 'Consensus' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Consens' }));
     expect(await screen.findByText('consensus-content')).toBeTruthy();
   });
 });

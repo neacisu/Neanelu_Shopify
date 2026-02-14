@@ -33,7 +33,7 @@ void mock.module('@app/database', {
     ) => {
       const client = {
         query: (sql: string): Promise<{ rows: unknown[] }> => {
-          if (sql.includes('WITH source_counts AS')) {
+          if (sql.includes('WITH tenant_products AS') && sql.includes('source_counts AS')) {
             return Promise.resolve({
               rows: [
                 {
@@ -47,6 +47,9 @@ void mock.module('@app/database', {
                 },
               ],
             });
+          }
+          if (sql.includes('FROM prod_channel_mappings') && sql.includes("channel = 'shopify'")) {
+            return Promise.resolve({ rows: [{ ok: 1 }] });
           }
           if (
             sql.includes('FROM prod_similarity_matches') &&

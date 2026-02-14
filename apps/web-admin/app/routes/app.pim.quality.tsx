@@ -110,13 +110,13 @@ export default function QualityProgressPage() {
         typeof evt.payload['eventType'] === 'string' ? evt.payload['eventType'] : null;
       const newLevel = typeof evt.payload['newLevel'] === 'string' ? evt.payload['newLevel'] : '';
       if (eventType === 'quality_promoted') {
-        toast.success(`Product promoted to ${newLevel}!`, {
+        toast.success(`Produs promovat la ${newLevel}!`, {
           duration: 5000,
           icon: newLevel === 'golden' ? '🏆' : '⬆️',
         });
       }
       if (eventType === 'quality_demoted') {
-        toast.warning(`Product demoted to ${newLevel}`, { duration: 5000 });
+        toast.warning(`Produs retrogradat la ${newLevel}`, { duration: 5000 });
       }
       if (eventType === 'milestone_reached') {
         const details = evt.payload['triggerDetails'] as Record<string, unknown> | undefined;
@@ -127,8 +127,8 @@ export default function QualityProgressPage() {
             : typeof milestone === 'string'
               ? milestone
               : 'unknown';
-        toast.success(`Milestone reached: ${milestoneLabel} Golden Records!`, {
-          description: 'Your data quality program is progressing!',
+        toast.success(`Prag atins: ${milestoneLabel} Golden Records!`, {
+          description: 'Programul de calitate a datelor progreseaza.',
           duration: 8000,
           icon: '🏆',
         });
@@ -172,9 +172,9 @@ export default function QualityProgressPage() {
           }}
         >
           <RefreshCw className="mr-2 h-4 w-4" />
-          Refresh
+          Reincarca
         </Button>
-        <DataFreshnessIndicator refreshedAt={quality.refreshedAt} label="Quality data" />
+        <DataFreshnessIndicator refreshedAt={quality.refreshedAt} label="Date calitate" />
       </div>
 
       {latestMilestoneEvent?.milestone ? (
@@ -182,10 +182,10 @@ export default function QualityProgressPage() {
           <Trophy className="h-6 w-6 text-amber-600" />
           <div>
             <div className="text-sm font-semibold text-amber-700">
-              Milestone: {latestMilestoneEvent.milestone} Golden Records
+              Prag: {latestMilestoneEvent.milestone} Golden Records
             </div>
             <div className="text-xs text-muted">
-              Achieved on{' '}
+              Atins la{' '}
               {latestMilestoneEvent.createdAt
                 ? new Date(latestMilestoneEvent.createdAt).toLocaleDateString()
                 : '—'}
@@ -216,27 +216,27 @@ export default function QualityProgressPage() {
       </div>
 
       <div className="grid gap-3 md:grid-cols-5" aria-live="polite">
-        <PromotionRateCard label="To Silver (24h)" value={quality.promotions.toSilver24h} />
+        <PromotionRateCard label="La silver (24h)" value={quality.promotions.toSilver24h} />
         <PromotionRateCard
-          label="To Golden (24h)"
+          label="La golden (24h)"
           value={quality.promotions.toGolden24h}
           variant="success"
         />
-        <PromotionRateCard label="To Silver (7d)" value={quality.promotions.toSilver7d} />
+        <PromotionRateCard label="La silver (7 zile)" value={quality.promotions.toSilver7d} />
         <PromotionRateCard
-          label="To Golden (7d)"
+          label="La golden (7 zile)"
           value={quality.promotions.toGolden7d}
           variant="success"
         />
         <PromotionRateCard
-          label="Needs Review"
+          label="Necesita review"
           value={quality.needsReviewCount}
           variant="warning"
         />
       </div>
 
       <div className="rounded-lg border border-muted/20 bg-background p-4">
-        <div className="mb-2 text-xs text-muted">Quality levels summary</div>
+        <div className="mb-2 text-xs text-muted">Sumar nivele de calitate</div>
         <div className="grid gap-4 md:grid-cols-4">
           <div
             className="rounded-md border border-muted/20 p-3"
@@ -245,7 +245,7 @@ export default function QualityProgressPage() {
             <div className="text-xs text-muted">Bronze</div>
             <div className="text-h5">{quality.bronze.count}</div>
             <div className="text-xs text-muted">
-              Avg:{' '}
+              Medie:{' '}
               {quality.bronze.avgQualityScore != null
                 ? quality.bronze.avgQualityScore.toFixed(2)
                 : 'N/A'}
@@ -258,7 +258,7 @@ export default function QualityProgressPage() {
             <div className="text-xs text-muted">Silver</div>
             <div className="text-h5">{quality.silver.count}</div>
             <div className="text-xs text-muted">
-              Avg:{' '}
+              Medie:{' '}
               {quality.silver.avgQualityScore != null
                 ? quality.silver.avgQualityScore.toFixed(2)
                 : 'N/A'}
@@ -271,7 +271,7 @@ export default function QualityProgressPage() {
             <div className="text-xs text-muted">Golden</div>
             <div className="text-h5">{quality.golden.count}</div>
             <div className="text-xs text-muted">
-              Avg:{' '}
+              Medie:{' '}
               {quality.golden.avgQualityScore != null
                 ? quality.golden.avgQualityScore.toFixed(2)
                 : 'N/A'}
@@ -281,10 +281,10 @@ export default function QualityProgressPage() {
             className="rounded-md border border-muted/20 p-3"
             aria-label="Review quality summary"
           >
-            <div className="text-xs text-muted">Review needed</div>
+            <div className="text-xs text-muted">Review necesar</div>
             <div className="text-h5">{quality.review.count}</div>
             <div className="text-xs text-muted">
-              Avg:{' '}
+              Medie:{' '}
               {quality.review.avgQualityScore != null
                 ? quality.review.avgQualityScore.toFixed(2)
                 : 'N/A'}
@@ -296,9 +296,9 @@ export default function QualityProgressPage() {
       <div className="rounded-lg border border-muted/20 bg-background p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
-            <div className="text-xs text-muted">Quality level drill-down</div>
+            <div className="text-xs text-muted">Detaliere pe nivel de calitate</div>
             <div className="text-sm">
-              {selectedLevel ? `Level: ${selectedLevel}` : 'Selectează un segment pentru detalii'}
+              {selectedLevel ? `Nivel: ${selectedLevel}` : 'Selecteaza un segment pentru detalii'}
             </div>
           </div>
           {selectedLevel ? (
@@ -318,7 +318,7 @@ export default function QualityProgressPage() {
                   setSearchParams(params, { replace: true });
                 }}
               >
-                Clear
+                Curata
               </Button>
             </div>
           ) : null}
@@ -329,9 +329,9 @@ export default function QualityProgressPage() {
             <table className="w-full text-sm">
               <thead className="bg-muted/30 text-xs text-muted">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium">Product</th>
+                  <th className="px-3 py-2 text-left font-medium">Produs</th>
                   <th className="px-3 py-2 text-left font-medium">Vendor</th>
-                  <th className="px-3 py-2 text-right font-medium">Quality score</th>
+                  <th className="px-3 py-2 text-right font-medium">Scor calitate</th>
                 </tr>
               </thead>
               <tbody>
@@ -366,7 +366,7 @@ export default function QualityProgressPage() {
             </table>
           </div>
         ) : (
-          <div className="text-sm text-muted">Fă click pe un segment pentru a vedea produsele.</div>
+          <div className="text-sm text-muted">Fa click pe un segment pentru a vedea produsele.</div>
         )}
       </div>
     </div>

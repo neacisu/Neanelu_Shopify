@@ -53,6 +53,37 @@ function normalizeScore(score: number | null): number {
   return Number.isFinite(score) ? score! : 0;
 }
 
+async function createQualityEventNotification(params: {
+  client: DbClient;
+  shopId: string;
+  eventId: string;
+  eventType: string;
+  productId: string;
+  previousLevel: QualityLevel | null;
+  newLevel: QualityLevel;
+  qualityScore: number;
+  reason: string;
+}): Promise<void> {
+  await params.client.query(
+    `INSERT INTO pim_notifications (shop_id, type, title, body, read, created_at)
+     VALUES ($1, 'quality_event', $2, $3::jsonb, false, now())`,
+    [
+      params.shopId,
+      `Eveniment calitate: ${params.eventType}`,
+      JSON.stringify({
+        eventId: params.eventId,
+        productId: params.productId,
+        eventType: params.eventType,
+        previousLevel: params.previousLevel,
+        newLevel: params.newLevel,
+        qualityScore: params.qualityScore,
+        reason: params.reason,
+        timestamp: new Date().toISOString(),
+      }),
+    ]
+  );
+}
+
 function hasRequiredFields(
   specs: Record<string, unknown>,
   fields: readonly string[]
@@ -289,6 +320,24 @@ export async function applyQualityLevelChange(params: {
     ...(jobId ? { jobId } : {}),
   });
 
+  if (shopId) {
+    try {
+      await createQualityEventNotification({
+        client,
+        shopId,
+        eventId,
+        eventType: eventType ?? 'quality_promoted',
+        productId,
+        previousLevel: currentLevel,
+        newLevel,
+        qualityScore,
+        reason,
+      });
+    } catch {
+      // notification is best-effort; do not break promotion pipeline
+    }
+  }
+
   if (newLevel === 'golden') {
     await checkAndLogMilestone({
       client,
@@ -316,7 +365,7 @@ export async function checkAndLogMilestone(params: {
   shopId?: string;
   onEventCreated?: (eventId: string) => void | Promise<void>;
 }): Promise<void> {
-  const { client, productId, onEventCreated } = params;
+  const { client, productId, onEventCreated, shopId } = params;
   const result = await client.query<{ count: string }>(
     `SELECT COUNT(*)::text as count
        FROM prod_master
@@ -346,6 +395,24 @@ export async function checkAndLogMilestone(params: {
     triggerReason: 'golden_milestone',
     triggerDetails: { milestone: count, triggeringProductId: productId },
   });
+
+  if (shopId) {
+    try {
+      await createQualityEventNotification({
+        client,
+        shopId,
+        eventId,
+        eventType: 'milestone_reached',
+        productId,
+        previousLevel: null,
+        newLevel: 'golden',
+        qualityScore,
+        reason: 'golden_milestone',
+      });
+    } catch {
+      // best-effort
+    }
+  }
   if (onEventCreated) {
     await onEventCreated(eventId);
   }

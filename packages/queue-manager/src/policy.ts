@@ -56,6 +56,18 @@ export const DEFAULT_QUEUE_TIMEOUTS_MS: QueueTimeoutsMs = {
   'pim-scraper-queue': 10 * 60_000,
   // Consensus is CPU-bound and DB-heavy but should stay bounded.
   'pim-consensus': 10 * 60_000,
+  // Webhook dispatch should be bounded; retries handle transient failures.
+  'pim-quality-webhook': 60_000,
+  // Sweep is lightweight (re-enqueue), keep short.
+  'pim-quality-webhook-sweep': 60_000,
+  // Daily budget reset is a small control-plane task.
+  'pim-budget-reset-queue': 60_000,
+  // Weekly summary aggregates can take a bit longer.
+  'pim-weekly-summary-queue': 5 * 60_000,
+  // Scheduler scan should stay quick.
+  'pim-auto-enrichment-scheduler-queue': 2 * 60_000,
+  // Retention cleanup depends on table size; keep bounded.
+  'pim-raw-harvest-retention-queue': 5 * 60_000,
   // MV refresh jobs run database functions and should complete quickly.
   'pim-mv-refresh-queue': 5 * 60_000,
 } as const;

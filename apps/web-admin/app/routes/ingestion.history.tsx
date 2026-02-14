@@ -1,4 +1,8 @@
-import type { ActionFunctionArgs, LoaderFunctionArgs } from 'react-router-dom';
+import type {
+  ActionFunctionArgs,
+  LoaderFunctionArgs,
+  UNSAFE_DataWithResponseInit,
+} from 'react-router-dom';
 import {
   data,
   useFetcher,
@@ -109,37 +113,41 @@ export const loader = apiLoader(async (args: LoaderFunctionArgs): Promise<Histor
   };
 });
 
-export const action = apiAction(async (args: ActionFunctionArgs) => {
-  const api = createActionApiClient();
-  const formData = await args.request.formData();
-  const intent = formData.get('intent');
+type ActionReturn = Response | RetryActionResult | UNSAFE_DataWithResponseInit<RetryActionResult>;
 
-  if (intent !== 'bulk.retry') {
-    return data(
-      { ok: false, error: { code: 'missing_intent', message: 'Missing intent' } },
-      { status: 400 }
-    );
+export const action: (args: ActionFunctionArgs) => Promise<ActionReturn> = apiAction<ActionReturn>(
+  async (args: ActionFunctionArgs) => {
+    const api = createActionApiClient();
+    const formData = await args.request.formData();
+    const intent = formData.get('intent');
+
+    if (intent !== 'bulk.retry') {
+      return data(
+        { ok: false, error: { code: 'missing_intent', message: 'Missing intent' } },
+        { status: 400 }
+      );
+    }
+
+    const runId = formData.get('runId');
+    if (!runId || typeof runId !== 'string') {
+      return data(
+        { ok: false, error: { code: 'missing_runId', message: 'Missing runId' } },
+        { status: 400 }
+      );
+    }
+
+    const mode = formData.get('mode');
+    await api.postApi(`/bulk/${encodeURIComponent(runId)}/retry`, {
+      ...(mode === 'restart' || mode === 'resume' ? { mode } : {}),
+    });
+
+    return data({
+      ok: true,
+      intent: 'bulk.retry',
+      toast: { type: 'success', message: 'Reincercare programata' },
+    } satisfies RetryActionResult);
   }
-
-  const runId = formData.get('runId');
-  if (!runId || typeof runId !== 'string') {
-    return data(
-      { ok: false, error: { code: 'missing_runId', message: 'Missing runId' } },
-      { status: 400 }
-    );
-  }
-
-  const mode = formData.get('mode');
-  await api.postApi(`/bulk/${encodeURIComponent(runId)}/retry`, {
-    ...(mode === 'restart' || mode === 'resume' ? { mode } : {}),
-  });
-
-  return data({
-    ok: true,
-    intent: 'bulk.retry',
-    toast: { type: 'success', message: 'Retry scheduled' },
-  } satisfies RetryActionResult);
-});
+);
 
 type RouteLoaderData = LoaderData<typeof loader>;
 type RouteActionData = ActionData<typeof action>;
@@ -227,7 +235,7 @@ export default function IngestionHistoryPage() {
             <div className="space-y-3">
               <div className="text-h4">Errors for run {runId}</div>
               {errors.length === 0 ? (
-                <div className="text-caption text-muted">No error details available.</div>
+                <div className="text-caption text-muted">Nu exista detalii de eroare.</div>
               ) : (
                 errors.map((error) => (
                   <ErrorDetailsRow

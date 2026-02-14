@@ -53,15 +53,19 @@ vi.mock('../hooks/use-polling', () => ({
   },
 }));
 
+vi.mock('../hooks/useEnrichmentStream', () => ({
+  useEnrichmentStream: () => ({ events: [], connected: true, error: null }),
+}));
+
 describe('notification bell', () => {
   it('opens dropdown and marks all read', async () => {
     const user = userEvent.setup();
     render(<NotificationBell />);
 
-    await user.click(screen.getByRole('button', { name: /Notifications/i }));
-    expect(screen.getByText(/Notifications/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Notificari/i }));
+    expect(screen.getByText(/Notificari/i)).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /Mark all as read/i }));
+    await user.click(screen.getByRole('button', { name: /Marcheaza toate ca citite/i }));
     expect(apiMock.putApi).toHaveBeenCalled();
   });
 });

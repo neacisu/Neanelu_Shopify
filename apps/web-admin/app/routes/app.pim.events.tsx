@@ -1,8 +1,8 @@
 import type { LoaderFunctionArgs } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
-import { useLoaderData, useRevalidator, useSearchParams } from 'react-router-dom';
+import { useLoaderData, useNavigation, useRevalidator, useSearchParams } from 'react-router-dom';
 import type { DateRange } from 'react-day-picker';
-import { AlertCircle, Trophy, TrendingDown, TrendingUp } from 'lucide-react';
+import { AlertCircle, Loader2, Trophy, TrendingDown, TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '../components/ui/button';
@@ -93,11 +93,13 @@ function resolveWebhookBadgeStatus(
 
 export default function QualityEventsPage() {
   const { events } = useLoaderData<RouteLoaderData>();
+  const navigation = useNavigation();
   const revalidator = useRevalidator();
   const stream = useEnrichmentStream();
   const [searchParams, setSearchParams] = useSearchParams();
   const timeZone =
     typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC';
+  const isLoading = navigation.state === 'loading' || revalidator.state === 'loading';
   const [eventType, setEventType] = useState(searchParams.get('type') ?? 'all');
   const [query, setQuery] = useState(searchParams.get('q') ?? '');
   const [range, setRange] = useState<DateRange | undefined>(() =>
@@ -190,13 +192,13 @@ export default function QualityEventsPage() {
       const newLevel = typeof evt.payload['newLevel'] === 'string' ? evt.payload['newLevel'] : '';
 
       if (eventType === 'quality_promoted') {
-        toast.success(`Product promoted to ${newLevel}!`, {
+        toast.success(`Produs promovat la ${newLevel}!`, {
           duration: 5000,
           icon: newLevel === 'golden' ? '🏆' : '⬆️',
         });
       }
       if (eventType === 'quality_demoted') {
-        toast.warning(`Product demoted to ${newLevel}`, { duration: 5000 });
+        toast.warning(`Produs retrogradat la ${newLevel}`, { duration: 5000 });
       }
     }
   }, [stream.events]);
@@ -206,12 +208,12 @@ export default function QualityEventsPage() {
     const badgeStatus = resolveWebhookBadgeStatus(evt.webhookStatus, evt.webhookSent);
     const webhookLabel =
       badgeStatus === 'sent'
-        ? `Webhook sent${evt.webhookSentAt ? ` at ${new Date(evt.webhookSentAt).toLocaleString()}` : ''}`
+        ? `Webhook trimis${evt.webhookSentAt ? ` la ${new Date(evt.webhookSentAt).toLocaleString()}` : ''}`
         : badgeStatus === 'failed'
-          ? `Webhook failed${evt.webhookLastHttpStatus ? ` (HTTP ${evt.webhookLastHttpStatus})` : ''}`
+          ? `Webhook esuat${evt.webhookLastHttpStatus ? ` (HTTP ${evt.webhookLastHttpStatus})` : ''}`
           : badgeStatus === 'retrying'
-            ? 'Webhook retrying'
-            : 'Webhook pending';
+            ? 'Reincerc webhook'
+            : 'Webhook in asteptare';
     return {
       id: evt.id,
       timestamp: evt.timestamp,
@@ -237,32 +239,42 @@ export default function QualityEventsPage() {
   return (
     <div className="space-y-6">
       <div className="rounded-lg border border-muted/20 bg-background p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <div className="text-caption text-muted">Filtre</div>
+          {isLoading ? (
+            <div className="inline-flex items-center gap-2 text-caption text-muted">
+              <Loader2 className="size-4 animate-spin" />
+              <span>Se incarca…</span>
+            </div>
+          ) : null}
+        </div>
+
         <div className="grid gap-3 lg:grid-cols-[200px_1fr_1fr_auto]">
           <div>
-            <label className="text-caption text-muted">Event type</label>
+            <label className="text-caption text-muted">Tip eveniment</label>
             <select
               className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
               value={eventType}
               onChange={(e) => setEventType((e.target as HTMLSelectElement).value)}
             >
-              <option value="all">All</option>
-              <option value="quality_promoted">Promoted</option>
-              <option value="quality_demoted">Demoted</option>
-              <option value="review_requested">Review requested</option>
-              <option value="milestone_reached">Milestone</option>
+              <option value="all">Toate</option>
+              <option value="quality_promoted">Promovat</option>
+              <option value="quality_demoted">Retrogradat</option>
+              <option value="review_requested">Review necesar</option>
+              <option value="milestone_reached">Prag atins</option>
             </select>
           </div>
           <div>
-            <label className="text-caption text-muted">Product search</label>
+            <label className="text-caption text-muted">Cautare produs</label>
             <input
               className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
-              placeholder="Product ID"
+              placeholder="ID produs"
               value={query}
               onChange={(e) => setQuery((e.target as HTMLInputElement).value)}
             />
           </div>
           <DateRangePicker
-            label="Date range"
+            label="Interval date"
             value={range}
             timeZone={timeZone}
             onChange={(next) => setRange(next)}
@@ -270,6 +282,7 @@ export default function QualityEventsPage() {
           <div className="flex items-end gap-2">
             <Button
               variant="secondary"
+              disabled={isLoading}
               onClick={() => {
                 const params = new URLSearchParams(searchParams);
                 if (eventType && eventType !== 'all') params.set('type', eventType);
@@ -287,10 +300,11 @@ export default function QualityEventsPage() {
                 setSearchParams(params, { replace: true });
               }}
             >
-              Apply
+              Aplica
             </Button>
             <Button
               variant="ghost"
+              disabled={isLoading}
               onClick={() => {
                 setEventType('all');
                 setQuery('');
@@ -298,13 +312,19 @@ export default function QualityEventsPage() {
                 setSearchParams(new URLSearchParams(), { replace: true });
               }}
             >
-              Reset
+              Reseteaza
             </Button>
           </div>
         </div>
       </div>
 
       <div className="rounded-lg border border-muted/20 bg-background p-4">
+        {isLoading ? (
+          <div className="mb-3 inline-flex items-center gap-2 text-caption text-muted">
+            <Loader2 className="size-4 animate-spin" />
+            <span>Actualizez evenimentele…</span>
+          </div>
+        ) : null}
         <Timeline events={timelineEvents} maxHeight={640} />
       </div>
     </div>

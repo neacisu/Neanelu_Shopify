@@ -175,7 +175,7 @@ describe('Ingestion page', () => {
     });
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: /Start Full Sync/i }));
+    await user.click(screen.getByRole('button', { name: /Porneste sync complet/i }));
 
     await waitFor(() => {
       expect(apiCalls.some((c) => c.method === 'POST' && c.path === '/bulk/start')).toBe(true);
@@ -204,7 +204,7 @@ describe('Ingestion page', () => {
 
     render(<RouterProvider router={router} />);
 
-    const dropzone = await screen.findByRole('button', { name: /Manual JSONL upload/i });
+    const dropzone = await screen.findByRole('button', { name: /Upload JSONL manual/i });
     const file = new File(['{"id":1}\n'], 'upload.jsonl', { type: 'application/x-ndjson' });
 
     fireEvent.drop(dropzone, {

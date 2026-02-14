@@ -23,7 +23,7 @@ export type QueueJobListItem = Readonly<{
   payloadPreview: string | null;
 }>;
 
-export type JobsTableAction = 'retry' | 'delete' | 'promote' | 'details';
+export type JobsTableAction = 'retry' | 'delete' | 'promote' | 'details' | 'dlq_replay';
 
 export function JobsTable(props: {
   jobs: QueueJobListItem[];
@@ -33,6 +33,7 @@ export function JobsTable(props: {
   status: string;
   search: string;
   loading?: boolean;
+  dlqReplayEnabled?: boolean;
   onSearchChange: (value: string) => void;
   onStatusChange: (value: string) => void;
   onPageChange: (page: number) => void;
@@ -54,6 +55,7 @@ export function JobsTable(props: {
     onLimitChange,
     onAction,
     onOpenDetails,
+    dlqReplayEnabled,
   } = props;
 
   const recent = useRecentSearches({ storageKey: 'neanelu:web-admin:queues:jobs:search:v1' });
@@ -195,6 +197,7 @@ export function JobsTable(props: {
             options={[
               { label: 'Actions', value: '' },
               { label: 'Retry', value: 'retry' },
+              ...(dlqReplayEnabled ? [{ label: 'Reia din DLQ', value: 'dlq_replay' }] : []),
               { label: 'Promote', value: 'promote' },
               { label: 'Delete', value: 'delete' },
             ]}
@@ -359,6 +362,16 @@ export function JobsTable(props: {
             >
               Retry Selected
             </Button>
+            {dlqReplayEnabled ? (
+              <Button
+                variant="secondary"
+                disabled={Boolean(loading)}
+                loading={Boolean(loading)}
+                onClick={() => onAction('dlq_replay', Array.from(selected))}
+              >
+                Reia din DLQ
+              </Button>
+            ) : null}
             <Button
               variant="destructive"
               disabled={Boolean(loading)}

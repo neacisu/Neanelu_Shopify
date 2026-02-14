@@ -47,7 +47,7 @@ export default function ProductsReviewPage() {
     () => [
       { label: 'Home', href: '/' },
       { label: 'Products', href: '/products' },
-      { label: 'Review Queue', href: location.pathname },
+      { label: 'Coada review', href: location.pathname },
     ],
     [location.pathname]
   );
@@ -64,8 +64,8 @@ export default function ProductsReviewPage() {
     <div className="space-y-6">
       <Breadcrumbs items={breadcrumbs} />
       <PageHeader
-        title="Review Queue"
-        description="Review match confirmations and new attribute proposals."
+        title="Coada review"
+        description="Confirmari potriviri si propuneri noi de atribute."
       />
 
       <div className="flex items-center gap-2">
@@ -74,28 +74,30 @@ export default function ProductsReviewPage() {
           variant={type === 'match' ? 'secondary' : 'ghost'}
           onClick={() => setType('match')}
         >
-          Match Confirmation
+          Confirmare potriviri
         </Button>
         <Button
           size="sm"
           variant={type === 'proposal' ? 'secondary' : 'ghost'}
           onClick={() => setType('proposal')}
         >
-          New Attributes
+          Atribute noi
         </Button>
         <Button
           size="sm"
           variant={type === 'hitl' ? 'secondary' : 'ghost'}
           onClick={() => setType('hitl')}
         >
-          HITL Queue
+          Coada HITL
         </Button>
       </div>
 
       <div className="rounded-lg border bg-background">
-        {loading ? <div className="p-4 text-sm text-muted">Loading...</div> : null}
+        {loading ? <div className="p-4 text-sm text-muted">Se incarca...</div> : null}
         {!loading && items.length === 0 ? (
-          <div className="p-4 text-sm text-muted">No items pending review.</div>
+          <div className="p-4 text-sm text-muted">
+            Nu exista elemente in asteptare pentru review.
+          </div>
         ) : null}
 
         {type === 'hitl' ? (
@@ -123,10 +125,10 @@ export default function ProductsReviewPage() {
             <div key={item.id} className="border-t p-4 text-sm">
               <div className="font-semibold">{item.product_title}</div>
               <div className="text-xs text-muted">
-                Similarity: {item.similarity_score} • {item.source_title ?? item.source_url}
+                Similaritate: {item.similarity_score} • {item.source_title ?? item.source_url}
               </div>
               <div className="mt-2 text-xs text-muted">
-                GTIN: {item.source_gtin ?? '-'} • Price: {item.source_price ?? '-'}{' '}
+                GTIN: {item.source_gtin ?? '-'} • Pret: {item.source_price ?? '-'}{' '}
                 {item.source_currency ?? ''}
               </div>
               <div className="mt-3 flex items-center gap-2">
@@ -141,7 +143,7 @@ export default function ProductsReviewPage() {
                     });
                   }}
                 >
-                  Confirm Match
+                  Confirma potrivirea
                 </Button>
                 <Button
                   size="sm"
@@ -154,7 +156,7 @@ export default function ProductsReviewPage() {
                     });
                   }}
                 >
-                  Reject
+                  Respinge
                 </Button>
               </div>
             </div>
@@ -164,7 +166,7 @@ export default function ProductsReviewPage() {
             <div key={item.id} className="border-t p-4 text-sm">
               <div className="font-semibold">{item.product_title}</div>
               <div className="text-xs text-muted">
-                {item.field_path} • Confidence: {item.confidence_score ?? '-'}
+                {item.field_path} • Incredere: {item.confidence_score ?? '-'}
               </div>
               <ValueComparisonPanel
                 currentValue={item.current_value}
@@ -182,7 +184,7 @@ export default function ProductsReviewPage() {
                     });
                   }}
                 >
-                  Approve
+                  Aproba
                 </Button>
                 <Button
                   size="sm"
@@ -195,7 +197,7 @@ export default function ProductsReviewPage() {
                     });
                   }}
                 >
-                  Reject
+                  Respinge
                 </Button>
               </div>
             </div>

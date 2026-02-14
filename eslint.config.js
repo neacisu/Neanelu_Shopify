@@ -46,6 +46,7 @@ export default tseslint.config(
   // PROJECT SETTINGS
   // ============================================
   {
+    files: ['**/*.{ts,tsx}'],
     languageOptions: {
       ecmaVersion: 2024,
       sourceType: 'module',
@@ -123,6 +124,22 @@ export default tseslint.config(
   // PRETTIER (dezactivează reguli conflictuale) - TREBUIE ULTIMUL
   // ============================================
   prettier,
+
+  // ============================================
+  // SCRIPTS (JS) - no type checking
+  // ============================================
+  {
+    files: ['scripts/**/*.js', 'packages/**/scripts/**/*.js'],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      globals: {
+        // Node globals used in workspace scripts
+        console: 'readonly',
+        process: 'readonly',
+        URL: 'readonly',
+      },
+    },
+  },
 
   // ============================================
   // CONFIG FILES (no type checking)

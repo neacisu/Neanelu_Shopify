@@ -359,7 +359,7 @@ export default function SearchPage() {
 
           {typing ? (
             <div className="rounded-md border bg-muted/10 p-4 text-center text-sm text-muted">
-              Typing...
+              Tastezi...
             </div>
           ) : null}
 
@@ -375,7 +375,7 @@ export default function SearchPage() {
             <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
               <div>{error}</div>
               <Button variant="ghost" className="mt-2" onClick={() => void runSearch(query)}>
-                Retry
+                Reincearca
               </Button>
             </div>
           ) : null}
@@ -383,16 +383,16 @@ export default function SearchPage() {
           {!loading && !typing && results.length === 0 && query.trim().length === 0 ? (
             <EmptyState
               icon={Search}
-              title="No searches yet"
-              description="Enter a query to run semantic search."
+              title="Nu exista cautari inca"
+              description="Introdu o interogare pentru a rula cautarea semantica."
             />
           ) : null}
 
           {!loading && !typing && results.length === 0 && query.trim().length > 0 ? (
             <EmptyState
               icon={Search}
-              title="No results found"
-              description="Try adjusting your filters or lowering the threshold."
+              title="Nu am gasit rezultate"
+              description="Incearca sa ajustezi filtrele sau sa scazi pragul (threshold)."
             />
           ) : null}
 
@@ -462,7 +462,7 @@ export default function SearchPage() {
             <JsonViewer value={activeJson} />
             <div className="flex justify-end">
               <Button variant="ghost" onClick={() => setActiveJson(null)}>
-                Close
+                Inchide
               </Button>
             </div>
           </div>

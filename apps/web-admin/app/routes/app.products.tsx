@@ -445,7 +445,10 @@ export default function ProductsPage() {
           />
 
           {items.length === 0 && !loading ? (
-            <EmptyState title="No products" description="Try adjusting filters or sync." />
+            <EmptyState
+              title="Nu exista produse"
+              description="Incearca sa ajustezi filtrele sau ruleaza un sync."
+            />
           ) : (
             <ProductsTable
               items={items}

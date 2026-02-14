@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import type { LoaderFunctionArgs } from 'react-router-dom';
-import { useLoaderData, useRevalidator } from 'react-router-dom';
+import { useLoaderData, useNavigate, useRevalidator } from 'react-router-dom';
+import { PackageSearch } from 'lucide-react';
 
 import { GaugeChart } from '../components/charts/GaugeChart';
 import { Sparkline } from '../components/charts/Sparkline';
@@ -9,6 +10,7 @@ import { EnrichmentPipelineViz } from '../components/domain/EnrichmentPipelineVi
 import { DataFreshnessIndicator } from '../components/domain/DataFreshnessIndicator';
 import { PromotionRateCard } from '../components/domain/PromotionRateCard';
 import { DashboardSkeleton } from '../components/patterns/DashboardSkeleton';
+import { EmptyState } from '../components/patterns/empty-state';
 import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
 
 interface QualityDistributionResponse {
@@ -86,6 +88,7 @@ function getSyncRateClasses(syncRate: number): { text: string; bar: string } {
 
 export default function PimOverviewPage() {
   const { quality, enrichment, sources, syncStatus } = useLoaderData<RouteLoaderData>();
+  const navigate = useNavigate();
   const revalidator = useRevalidator();
 
   useEffect(() => {
@@ -110,28 +113,40 @@ export default function PimOverviewPage() {
     return <DashboardSkeleton rows={2} columns={3} variant="kpi" />;
   }
 
+  if (total === 0) {
+    return (
+      <EmptyState
+        icon={PackageSearch}
+        title="PIM nu are inca produse"
+        description="Importa produse sau ruleaza o ingestie ca sa poti incepe enrichment si Golden Record."
+        actionLabel="Importa produse"
+        onAction={() => void navigate('/products/import')}
+      />
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-lg border border-muted/20 bg-background p-4">
-          <div className="mb-2 text-xs text-muted">Total products</div>
+          <div className="mb-2 text-xs text-muted">Total produse</div>
           <div className="text-h4">{total}</div>
           <Sparkline data={[quality.bronze.count, quality.silver.count, quality.golden.count]} />
         </div>
         <div className="rounded-lg border border-muted/20 bg-background p-4">
-          <div className="mb-2 text-xs text-muted">Golden rate</div>
-          <GaugeChart value={Math.round(goldenPct * 100)} max={100} ariaLabel="Golden rate" />
+          <div className="mb-2 text-xs text-muted">Rata golden</div>
+          <GaugeChart value={Math.round(goldenPct * 100)} max={100} ariaLabel="Rata golden" />
         </div>
         <div className="rounded-lg border border-muted/20 bg-background p-4">
-          <div className="mb-2 text-xs text-muted">Avg quality score</div>
+          <div className="mb-2 text-xs text-muted">Scor calitate mediu</div>
           <GaugeChart
             value={Number(avgQuality.toFixed(2))}
             max={1}
-            ariaLabel="Average quality score"
+            ariaLabel="Scor mediu de calitate"
           />
         </div>
         <div className="rounded-lg border border-muted/20 bg-background p-4">
-          <div className="mb-2 text-xs text-muted">Active sources</div>
+          <div className="mb-2 text-xs text-muted">Surse active</div>
           <div className="text-h4">
             {sources.sources.filter((source) => source.isActive).length}
           </div>
@@ -151,20 +166,20 @@ export default function PimOverviewPage() {
           />
         </div>
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-1" aria-live="polite">
-          <PromotionRateCard label="To Silver (24h)" value={quality.promotions.toSilver24h} />
+          <PromotionRateCard label="La silver (24h)" value={quality.promotions.toSilver24h} />
           <PromotionRateCard
-            label="To Golden (24h)"
+            label="La golden (24h)"
             value={quality.promotions.toGolden24h}
             variant="success"
           />
-          <PromotionRateCard label="To Silver (7d)" value={quality.promotions.toSilver7d} />
+          <PromotionRateCard label="La silver (7 zile)" value={quality.promotions.toSilver7d} />
           <PromotionRateCard
-            label="To Golden (7d)"
+            label="La golden (7 zile)"
             value={quality.promotions.toGolden7d}
             variant="success"
           />
           <PromotionRateCard
-            label="Needs Review"
+            label="Necesita review"
             value={quality.needsReviewCount}
             variant="warning"
           />
@@ -173,11 +188,11 @@ export default function PimOverviewPage() {
 
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
         <div className="rounded-lg border border-muted/20 bg-background p-4">
-          <div className="mb-2 text-xs text-muted">Enrichment pipeline stages</div>
+          <div className="mb-2 text-xs text-muted">Etape pipeline enrichment</div>
           <EnrichmentPipelineViz stages={enrichment.pipelineStages} />
         </div>
         <div className="rounded-lg border border-muted/20 bg-background p-4">
-          <div className="mb-2 text-xs text-muted">Top source health</div>
+          <div className="mb-2 text-xs text-muted">Sanatate surse (top)</div>
           <div className="space-y-2 text-sm">
             {sources.sources.slice(0, 3).map((source) => (
               <div
@@ -193,17 +208,17 @@ export default function PimOverviewPage() {
       </div>
 
       <div className="rounded-lg border border-muted/20 bg-background p-4">
-        <div className="mb-2 text-xs text-muted">Channel sync status</div>
+        <div className="mb-2 text-xs text-muted">Status sincronizare canale</div>
         <div className="overflow-auto rounded-md border">
           <table className="w-full text-sm">
             <thead className="bg-muted/20">
               <tr>
-                <th className="px-3 py-2 text-left">Quality level</th>
-                <th className="px-3 py-2 text-left">Channel</th>
-                <th className="px-3 py-2 text-right">Products</th>
-                <th className="px-3 py-2 text-right">Synced</th>
-                <th className="px-3 py-2 text-right">Sync rate</th>
-                <th className="px-3 py-2 text-right">Avg score</th>
+                <th className="px-3 py-2 text-left">Nivel calitate</th>
+                <th className="px-3 py-2 text-left">Canal</th>
+                <th className="px-3 py-2 text-right">Produse</th>
+                <th className="px-3 py-2 text-right">Sincronizate</th>
+                <th className="px-3 py-2 text-right">Rata sync</th>
+                <th className="px-3 py-2 text-right">Scor mediu</th>
               </tr>
             </thead>
             <tbody>
@@ -245,9 +260,9 @@ export default function PimOverviewPage() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <DataFreshnessIndicator refreshedAt={quality.refreshedAt} label="Quality data" />
-        <DataFreshnessIndicator refreshedAt={syncStatus.refreshedAt} label="Sync data" />
-        <DataFreshnessIndicator refreshedAt={sources.refreshedAt} label="Source data" />
+        <DataFreshnessIndicator refreshedAt={quality.refreshedAt} label="Date calitate" />
+        <DataFreshnessIndicator refreshedAt={syncStatus.refreshedAt} label="Date sincronizare" />
+        <DataFreshnessIndicator refreshedAt={sources.refreshedAt} label="Date surse" />
       </div>
     </div>
   );

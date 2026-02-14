@@ -148,7 +148,9 @@ export function BudgetAlertsPanel({
                   <div className="mb-2 flex items-center justify-between text-xs">
                     <span>{providerLabel}</span>
                     <span className="text-muted">
-                      {provider.primary.used.toFixed(2)} / {provider.primary.limit.toFixed(2)}
+                      {provider.primary.used > 0
+                        ? `${provider.primary.used.toFixed(2)} / ${provider.primary.limit.toFixed(2)}`
+                        : 'Nicio utilizare astazi'}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
