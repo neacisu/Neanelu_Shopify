@@ -1,4 +1,4 @@
-import { Brain, CheckCircle2, GitBranch, Search, FileText } from 'lucide-react';
+import { Brain, CheckCircle2, GitBranch, Search, FileText, Globe } from 'lucide-react';
 
 export type PipelineStage = Readonly<{
   id: string;
@@ -16,6 +16,7 @@ const stageIcons: Record<string, typeof Search> = {
   pending: GitBranch,
   search: Search,
   'ai-audit': Brain,
+  scraper: Globe,
   extraction: FileText,
   complete: CheckCircle2,
 };

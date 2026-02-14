@@ -52,6 +52,8 @@ export const DEFAULT_QUEUE_TIMEOUTS_MS: QueueTimeoutsMs = {
   'pim-ai-audit': 10 * 60_000,
   // Extraction jobs can include large HTML payloads and external model calls.
   'pim-extraction': 10 * 60_000,
+  // Scraper queue retries and deferred crawl tasks.
+  'pim-scraper-queue': 10 * 60_000,
   // Consensus is CPU-bound and DB-heavy but should stay bounded.
   'pim-consensus': 10 * 60_000,
   // MV refresh jobs run database functions and should complete quickly.

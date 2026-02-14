@@ -640,6 +640,62 @@ export const pimQualityWebhookSweepProcessedTotal: Counter = meter.createCounter
 );
 
 // ============================================
+// PIM SCRAPER METRICS (PR-064 / F8.4.10)
+// ============================================
+
+export const scraperPagesTotal: Counter = meter.createCounter('pim.scraper.pages.total', {
+  description: 'Total scraper page attempts',
+});
+
+export const scraperPagesSuccess: Counter = meter.createCounter('pim.scraper.pages.success', {
+  description: 'Successful scraper page fetches',
+});
+
+export const scraperPagesFailed: Counter = meter.createCounter('pim.scraper.pages.failed', {
+  description: 'Failed scraper page fetches',
+});
+
+export const scraperPagesRobotsBlocked: Counter = meter.createCounter(
+  'pim.scraper.pages.robots_blocked',
+  {
+    description: 'Pages blocked by robots.txt',
+  }
+);
+
+export const scraperPagesDeduped: Counter = meter.createCounter('pim.scraper.pages.deduped', {
+  description: 'Pages skipped by content hash deduplication',
+});
+
+export const scraperPagesLoginDetected: Counter = meter.createCounter(
+  'pim.scraper.pages.login_detected',
+  {
+    description: 'Pages skipped because login was detected',
+  }
+);
+
+export const scraperLatencySeconds: Histogram = meter.createHistogram(
+  'pim.scraper.latency_seconds',
+  {
+    description: 'Scraper page latency in seconds',
+    unit: 's',
+  }
+);
+
+export const scraperBrowserActivePages: UpDownCounter = meter.createUpDownCounter(
+  'pim.scraper.browser.active_pages',
+  {
+    description: 'Number of active Playwright pages',
+  }
+);
+
+export const scraperCheerioFastPathHits: Counter = meter.createCounter(
+  'pim.scraper.cheerio_fast_path_hits',
+  {
+    description: 'Cheerio fast path hits (Playwright not needed)',
+  }
+);
+
+// ============================================
 // HELPER FUNCTIONS
 // ============================================
 
@@ -867,7 +923,7 @@ export function recordShopifyApiUsage(costPoints: number, isRateLimited = false)
 
 /** Record PIM external API usage (provider labels only; no shop_id to avoid high cardinality). */
 export function recordPimApiUsage(params: {
-  provider: 'serper' | 'xai' | 'openai';
+  provider: 'serper' | 'xai' | 'openai' | 'scraper';
   operation: 'search' | 'audit' | 'extraction' | 'embedding' | 'other';
   estimatedCost: number;
   requestCount?: number;
@@ -889,11 +945,11 @@ export function recordPimApiUsage(params: {
   }
 }
 
-export function recordPimBudgetWarning(provider: 'serper' | 'xai' | 'openai'): void {
+export function recordPimBudgetWarning(provider: 'serper' | 'xai' | 'openai' | 'scraper'): void {
   pimApiBudgetWarningTotal.add(1, { provider });
 }
 
-export function recordPimBudgetExceeded(provider: 'serper' | 'xai' | 'openai'): void {
+export function recordPimBudgetExceeded(provider: 'serper' | 'xai' | 'openai' | 'scraper'): void {
   pimApiBudgetExceededTotal.add(1, { provider });
 }
 
@@ -911,9 +967,59 @@ export function recordPimQueueResumed(
   pimApiQueueResumedTotal.add(1, queueName ? { trigger, queue_name: queueName } : { trigger });
 }
 
-export function setPimBudgetUsageRatio(provider: 'serper' | 'xai' | 'openai', ratio: number): void {
+export function setPimBudgetUsageRatio(
+  provider: 'serper' | 'xai' | 'openai' | 'scraper',
+  ratio: number
+): void {
   if (!Number.isFinite(ratio)) return;
   pimBudgetUsageRatioState.set(provider, Math.max(0, ratio));
+}
+
+export type ScraperMetricMethod = 'cheerio' | 'playwright';
+
+export function recordScraperAttempt(domain: string, method: ScraperMetricMethod): void {
+  scraperPagesTotal.add(1, { domain, method });
+}
+
+export function recordScraperSuccess(domain: string, method: ScraperMetricMethod): void {
+  scraperPagesSuccess.add(1, { domain, method });
+}
+
+export function recordScraperFailure(domain: string, method: ScraperMetricMethod): void {
+  scraperPagesFailed.add(1, { domain, method });
+}
+
+export function recordScraperRobotsBlocked(domain: string): void {
+  scraperPagesRobotsBlocked.add(1, { domain, method: 'playwright' });
+}
+
+export function recordScraperDeduped(domain: string, method: ScraperMetricMethod): void {
+  scraperPagesDeduped.add(1, { domain, method });
+}
+
+export function recordScraperLoginDetected(domain: string, method: ScraperMetricMethod): void {
+  scraperPagesLoginDetected.add(1, { domain, method });
+}
+
+export function recordScraperLatency(
+  domain: string,
+  method: ScraperMetricMethod,
+  seconds: number
+): void {
+  if (!Number.isFinite(seconds) || seconds < 0) return;
+  scraperLatencySeconds.record(seconds, { domain, method });
+}
+
+export function incrementScraperBrowserActivePages(domain: string): void {
+  scraperBrowserActivePages.add(1, { domain, method: 'playwright' });
+}
+
+export function decrementScraperBrowserActivePages(domain: string): void {
+  scraperBrowserActivePages.add(-1, { domain, method: 'playwright' });
+}
+
+export function recordScraperCheerioFastPathHit(domain: string): void {
+  scraperCheerioFastPathHits.add(1, { domain, method: 'cheerio' });
 }
 
 export function recordQualityWebhookDispatched(

@@ -26,6 +26,7 @@ import { consensusRoutes } from '../routes/consensus.js';
 import { aiSettingsRoutes } from '../routes/ai-settings.js';
 import { serperSettingsRoutes } from '../routes/serper-settings.js';
 import { xaiSettingsRoutes } from '../routes/xai-settings.js';
+import { scraperSettingsRoutes } from '../routes/scraper-settings.js';
 import { shopSettingsRoutes } from '../routes/shop-settings.js';
 import { connectionStatusRoutes } from '../routes/connection-status.js';
 import { webhookSettingsRoutes } from '../routes/webhook-settings.js';
@@ -281,6 +282,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await server.register(aiSettingsRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(serperSettingsRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(xaiSettingsRoutes, { prefix: '/api', env, logger, sessionConfig });
+  await server.register(scraperSettingsRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(shopSettingsRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(connectionStatusRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(webhookSettingsRoutes, { prefix: '/api', env, logger, sessionConfig });
@@ -306,6 +308,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await server.register(aiSettingsRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(serperSettingsRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(xaiSettingsRoutes, { prefix: '', env, logger, sessionConfig });
+  await server.register(scraperSettingsRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(shopSettingsRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(connectionStatusRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(webhookSettingsRoutes, { prefix: '', env, logger, sessionConfig });

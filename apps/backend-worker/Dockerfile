@@ -13,6 +13,11 @@ COPY . .
 # pnpm can request confirmation for node_modules cleanup; containers have no TTY.
 ENV CI=true
 
+# Playwright runtime dependency for PR-064 scraper fallback.
+# Keep Chromium in runtime stage for prod multi-stage builds.
+# Chromium adds roughly ~300MB, install only this browser.
+RUN npx playwright-core install --with-deps chromium
+
 EXPOSE 65000
 
 CMD ["sh", "-lc", "pnpm install && cd /app/apps/backend-worker && pnpm dev"]

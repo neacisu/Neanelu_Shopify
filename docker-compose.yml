@@ -197,6 +197,12 @@ services:
       OTEL_SAMPLING_RATIO: ${OTEL_SAMPLING_RATIO}
       OBS_DEBUG: ${OBS_DEBUG}
       BULK_INGEST_ARTIFACTS_DIR: /var/lib/neanelu/bulk-artifacts
+      SCRAPER_ENABLED: ${SCRAPER_ENABLED:-false}
+      SCRAPER_RATE_LIMIT_PER_DOMAIN: ${SCRAPER_RATE_LIMIT_PER_DOMAIN:-1}
+      SCRAPER_TIMEOUT_MS: ${SCRAPER_TIMEOUT_MS:-30000}
+      SCRAPER_MAX_CONCURRENT_PAGES: ${SCRAPER_MAX_CONCURRENT_PAGES:-5}
+      SCRAPER_USER_AGENT: ${SCRAPER_USER_AGENT:-NeaneluPIM/1.0}
+      SCRAPER_ROBOTS_CACHE_TTL: ${SCRAPER_ROBOTS_CACHE_TTL:-86400}
     volumes:
       - backend_worker_node_modules:/app/node_modules
       - backend_worker_pnpm_store:/pnpm/store

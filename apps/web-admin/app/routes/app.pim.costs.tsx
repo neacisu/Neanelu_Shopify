@@ -16,9 +16,9 @@ import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/load
 import { apiAction, createActionApiClient } from '../utils/actions';
 
 interface CostTrackingResponse {
-  today: { serper: number; xai: number; openai: number; total: number };
-  thisWeek: { serper: number; xai: number; openai: number; total: number };
-  thisMonth: { serper: number; xai: number; openai: number; total: number };
+  today: { serper: number; xai: number; openai: number; scraper: number; total: number };
+  thisWeek: { serper: number; xai: number; openai: number; scraper: number; total: number };
+  thisMonth: { serper: number; xai: number; openai: number; scraper: number; total: number };
   budget: {
     daily: number;
     used: number;
@@ -40,7 +40,7 @@ interface CostTrackingResponse {
 
 type BudgetStatusResponse = Readonly<{
   providers: {
-    provider: 'serper' | 'xai' | 'openai';
+    provider: 'serper' | 'xai' | 'openai' | 'scraper';
     primary: {
       unit: 'requests' | 'dollars' | 'items';
       used: number;
@@ -63,7 +63,7 @@ type BudgetStatusResponse = Readonly<{
 
 type BudgetGuardStatusResponse = Readonly<{
   providers: {
-    provider: 'serper' | 'xai' | 'openai';
+    provider: 'serper' | 'xai' | 'openai' | 'scraper';
     exceeded: boolean;
     alertTriggered: boolean;
     ratio: number;

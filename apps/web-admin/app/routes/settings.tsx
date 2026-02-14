@@ -13,6 +13,7 @@ const tabs = [
   { label: 'OpenAI', value: 'openai' },
   { label: 'Serper', value: 'serper' },
   { label: 'xAI Grok', value: 'xai' },
+  { label: 'Scraper', value: 'scraper' },
 ];
 
 function resolveActiveTab(pathname: string): string {

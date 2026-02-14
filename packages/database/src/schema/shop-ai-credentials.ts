@@ -99,6 +99,17 @@ export const shopAiCredentials = pgTable(
     xaiLastError: text('xai_last_error'),
     xaiLastSuccessAt: timestamp('xai_last_success_at', { withTimezone: true }),
 
+    scraperEnabled: boolean('scraper_enabled').notNull().default(false),
+    scraperRateLimitPerDomain: integer('scraper_rate_limit_per_domain').default(1),
+    scraperTimeoutMs: integer('scraper_timeout_ms').default(30000),
+    scraperMaxConcurrentPages: integer('scraper_max_concurrent_pages').default(5),
+    scraperUserAgent: text('scraper_user_agent').default('NeaneluPIM/1.0'),
+    scraperRobotsCacheTtl: integer('scraper_robots_cache_ttl').default(86400),
+    scraperConnectionStatus: text('scraper_connection_status').default('unknown'),
+    scraperLastCheckedAt: timestamp('scraper_last_checked_at', { withTimezone: true }),
+    scraperLastError: text('scraper_last_error'),
+    scraperLastSuccessAt: timestamp('scraper_last_success_at', { withTimezone: true }),
+
     qualityWebhookUrl: text('quality_webhook_url'),
     qualityWebhookSecret: text('quality_webhook_secret'),
     qualityWebhookEnabled: boolean('quality_webhook_enabled').notNull().default(false),

@@ -43,6 +43,7 @@ import SettingsQueues from './routes/settings.queues';
 import SettingsOpenAi from './routes/settings.openai';
 import SettingsSerper from './routes/settings.serper';
 import SettingsXai from './routes/settings.xai';
+import SettingsScraper from './routes/settings.scraper';
 
 export const routes: RouteObject[] = [
   {
@@ -247,6 +248,12 @@ export const routes: RouteObject[] = [
             path: 'xai',
             handle: { title: 'Settings - xAI Grok' },
             element: createElement(SettingsXai),
+          },
+          {
+            id: 'settings-scraper',
+            path: 'scraper',
+            handle: { title: 'Settings - Scraper' },
+            element: createElement(SettingsScraper),
           },
         ],
       },
