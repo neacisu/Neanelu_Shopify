@@ -145,3 +145,6 @@ __pycache__/
 *.pyd
 .venv/
 .pytest_cache/
+
+# Local-only docs (do not commit)
+Infrastructura_noua.md
