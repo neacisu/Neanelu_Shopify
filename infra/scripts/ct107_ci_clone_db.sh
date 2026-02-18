@@ -23,9 +23,10 @@ RUN_ID=""
 STRATEGY="template"   # template|dump
 FALLBACK="dump"       # template->dump
 FORCE="0"
+JOBS="4"
 
 usage() {
-  echo "Usage: $0 --env dev|staging|prod --run-id <id> [--strategy template|dump] [--fallback dump|none] [--force 1]" >&2
+  echo "Usage: $0 --env dev|staging|prod --run-id <id> [--strategy template|dump] [--fallback dump|none] [--jobs N] [--force 1]" >&2
 }
 
 while [[ $# -gt 0 ]]; do
@@ -34,6 +35,7 @@ while [[ $# -gt 0 ]]; do
     --run-id) RUN_ID="${2:-}"; shift 2 ;;
     --strategy) STRATEGY="${2:-}"; shift 2 ;;
     --fallback) FALLBACK="${2:-}"; shift 2 ;;
+    --jobs) JOBS="${2:-}"; shift 2 ;;
     --force) FORCE="${2:-1}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; usage; exit 2 ;;
@@ -42,6 +44,11 @@ done
 
 if [[ -z "${ENVIRONMENT}" || -z "${RUN_ID}" ]]; then
   usage
+  exit 2
+fi
+
+if [[ -z "${JOBS}" || ! "${JOBS}" =~ ^[0-9]+$ || "${JOBS}" -lt 1 ]]; then
+  echo "ERROR: invalid --jobs=${JOBS} (expected positive integer)" >&2
   exit 2
 fi
 
@@ -83,7 +90,7 @@ esac
 
 LOCK_FILE="/var/lock/neanelu_ci_db.lock"
 
-echo "ct107_ci_clone_db start ts=${ts} env=${ENVIRONMENT} source=${SOURCE_DB} target=${TARGET_DB} strategy=${STRATEGY} force=${FORCE}"
+echo "ct107_ci_clone_db start ts=${ts} env=${ENVIRONMENT} source=${SOURCE_DB} target=${TARGET_DB} strategy=${STRATEGY} force=${FORCE} jobs=${JOBS}"
 
 flock "${LOCK_FILE}" bash -lc "
 set -euo pipefail
@@ -117,11 +124,13 @@ clone_template() {
 clone_dump() {
   echo \"clone_dump source=${SOURCE_DB} target=${TARGET_DB}\"
   createdb -O neanelu_app \"${TARGET_DB}\"
-  tmp=\"/tmp/${TARGET_DB}.dump\"
-  rm -f \"\$tmp\"
-  pg_dump -Fc --no-owner --no-acl -d \"${SOURCE_DB}\" -f \"\$tmp\"
-  pg_restore --no-owner --no-acl -d \"${TARGET_DB}\" \"\$tmp\"
-  rm -f \"\$tmp\" || true
+  # Directory format enables parallel dump/restore (much faster than -Fc on big DBs).
+  tmpdir=\"/tmp/${TARGET_DB}.dumpdir\"
+  rm -rf \"\$tmpdir\" || true
+  mkdir -p \"\$tmpdir\"
+  pg_dump -Fd -j \"${JOBS}\" --no-owner --no-acl -d \"${SOURCE_DB}\" -f \"\$tmpdir\"
+  pg_restore -Fd -j \"${JOBS}\" --no-owner --no-acl -d \"${TARGET_DB}\" \"\$tmpdir\"
+  rm -rf \"\$tmpdir\" || true
 }
 
 if [[ \"${STRATEGY}\" == \"template\" ]]; then
