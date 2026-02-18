@@ -1,0 +1,38 @@
+# ============================================
+# Neanelu Shopify - CD trigger (main -> production)
+# ============================================
+# IMPORTANT:
+# - This workflow triggers production deployment ONLY after CI succeeded on main.
+# - Production gating (approvals) is enforced via GitHub environment protection in deploy.yml.
+
+name: CD - Main to Production
+
+on:
+  workflow_run:
+    workflows: ['CI - Pull Request']
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  trigger-deploy-production:
+    name: Trigger deploy.yml (production)
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger deploy workflow (production)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const headBranch = context.payload.workflow_run.head_branch;
+            const sha = context.payload.workflow_run.head_sha;
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'deploy.yml',
+              ref: headBranch,
+              inputs: { environment: 'production', version: sha },
+            });
+            core.info(`Triggered deploy.yml env=production ref=${headBranch} sha=${sha}`);

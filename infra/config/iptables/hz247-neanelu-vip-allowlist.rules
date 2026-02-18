@@ -1,0 +1,47 @@
+# === hz.247 INPUT allowlist pentru VIP gateway intern 10.0.1.10 ===
+# Scop:
+# - scoping strict pentru HAProxy VIP `10.0.1.10` folosit ca gateway intern L4
+# - permite doar CT-urile aplicatiei sa foloseasca:
+#   - `10.0.1.10:443` (TLS passthrough catre orchestrator/Traefik/OpenBao/obs ingest)
+#   - `10.0.1.10:6379` (Redis gateway prin HAProxy, fara expunere larga)
+#
+# IMPORTANT (aliniere cu pattern Cerniq):
+# - aceste reguli se pun INAINTE de `-A INPUT -j PVEFW-INPUT` in `/etc/iptables.rules`,
+#   astfel incat allowlist-ul sa fie aplicat inaintea chain-urilor PVEFW care pot fi
+#   prea permisive (ex: RETURN pe 443).
+# - pastram allowlist-ul existent pentru CT109/CT110 (Cerniq), CT111/CT112 (Neanelu),
+#   si adaugam CT108 (runner CI) pentru CI real pe infrastructura.
+#
+# Aplicare (manual, pe hz.247):
+# - insereaza liniile in `/etc/iptables.rules` imediat inainte de `-A INPUT -j PVEFW-INPUT`
+# - apoi: `iptables-restore < /etc/iptables.rules`
+#
+# Verificare:
+# - `sudo iptables -S INPUT | egrep '10\\.0\\.1\\.(108|109|110|111|112).*10\\.0\\.1\\.10.*(443|6379)|-d 10\\.0\\.1\\.10/32.*--dport (443|6379) -j DROP'`
+#
+-A INPUT -s 10.0.1.110/32 -d 10.0.1.10/32 -p tcp -m tcp --dport 443 -j ACCEPT
+-A INPUT -s 10.0.1.109/32 -d 10.0.1.10/32 -p tcp -m tcp --dport 443 -j ACCEPT
+-A INPUT -s 10.0.1.112/32 -d 10.0.1.10/32 -p tcp -m tcp --dport 443 -j ACCEPT
+-A INPUT -s 10.0.1.111/32 -d 10.0.1.10/32 -p tcp -m tcp --dport 443 -j ACCEPT
+-A INPUT -s 10.0.1.108/32 -d 10.0.1.10/32 -p tcp -m tcp --dport 443 -j ACCEPT
+-A INPUT -d 10.0.1.10/32 -p tcp -m tcp --dport 443 -j DROP
+
+-A INPUT -s 10.0.1.110/32 -d 10.0.1.10/32 -p tcp -m tcp --dport 6379 -j ACCEPT
+-A INPUT -s 10.0.1.109/32 -d 10.0.1.10/32 -p tcp -m tcp --dport 6379 -j ACCEPT
+-A INPUT -s 10.0.1.112/32 -d 10.0.1.10/32 -p tcp -m tcp --dport 6379 -j ACCEPT
+-A INPUT -s 10.0.1.111/32 -d 10.0.1.10/32 -p tcp -m tcp --dport 6379 -j ACCEPT
+-A INPUT -s 10.0.1.108/32 -d 10.0.1.10/32 -p tcp -m tcp --dport 6379 -j ACCEPT
+-A INPUT -d 10.0.1.10/32 -p tcp -m tcp --dport 6379 -j DROP
+
+# === Neanelu metrics scrape via HAProxy VIP ===
+# Scop:
+# - Prometheus ruleaza pe orchestrator (10.0.0.2) si NU poate ajunge direct la CT111/CT112,
+#   deci scrape se face prin HAProxy VIP pe porturi dedicate:
+#   - staging: 19200 (node-exporter), 19210 (cAdvisor), 19211 (pgbouncer-exporter)
+#   - prod:    29200 (node-exporter), 29210 (cAdvisor), 29211 (pgbouncer-exporter)
+# - Allowlist strict: doar orchestrator (10.0.0.2) are voie sa faca scrape; restul DROP.
+#
+# Verificare:
+# - din orchestrator: `curl -sf http://10.0.1.10:29200/metrics` (si echivalentele 192xx/292xx)
+-A INPUT -s 10.0.0.2/32 -d 10.0.1.10/32 -p tcp -m multiport --dports 19200,19210,19211,29200,29210,29211 -j ACCEPT
+-A INPUT -d 10.0.1.10/32 -p tcp -m multiport --dports 19200,19210,19211,29200,29210,29211 -j DROP

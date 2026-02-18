@@ -14,7 +14,7 @@ on:
   pull_request:
     branches: [main, develop]
   push:
-    branches: [main]
+    branches: ['**']
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -257,31 +257,8 @@ jobs:
       OTEL_SAMPLING_RATIO: '0'
       OBS_DEBUG: '0'
       NODE_ENV: test
-
-    services:
-      postgres:
-        image: pgvector/pgvector:0.8.1-pg18-trixie
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: test_db
-        ports:
-          - 65010:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-      redis:
-        image: redis:8.4-alpine
-        ports:
-          - 65011:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+      # Plan G.4: run integration tests via Testcontainers (no fixed local DB services).
+      BACKEND_TESTS_WITH_CONTAINERS: '1'
 
     steps:
       - name: Checkout code
@@ -310,38 +287,8 @@ jobs:
         env:
           NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
 
-      - name: Install PostgreSQL client (psql)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends postgresql-client
-
-      - name: Install PostgreSQL extensions
-        env:
-          PGPASSWORD: test
-        run: |
-          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
-          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS citext;"
-          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;"
-          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS btree_gin;"
-          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS btree_gist;"
-          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS vector;"
-
-      - name: Run database migrations (required for backend-worker tests)
-        run: pnpm db:migrate
-        env:
-          DATABASE_URL: postgresql://test:test@localhost:65010/test_db
-
-      - name: Smoke tests (bulk orchestrator)
-        run: pnpm smoke
-        env:
-          DATABASE_URL: postgresql://test:test@localhost:65010/test_db
-          REDIS_URL: redis://localhost:65011
-
-      - name: Run integration tests (@app/backend-worker)
-        run: |
-          pnpm --filter @app/backend-worker exec node \
-            --experimental-test-module-mocks --import tsx \
-            --test src/processors/ai/__tests__/ai-pipeline.integration.test.ts
+      - name: Run integration tests (@app/backend-worker, testcontainers)
+        run: pnpm --filter @app/backend-worker test:containers
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
@@ -375,21 +322,8 @@ jobs:
       # CI: keep OTel disabled (endpoint empty)
       OTEL_EXPORTER_OTLP_ENDPOINT: ''
       OTEL_SERVICE_NAME: neanelu-shopify-ci
-
-    services:
-      postgres:
-        image: pgvector/pgvector:0.8.1-pg18-trixie
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: test_db
-        ports:
-          - 65010:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+      # Plan G.4: run schema tests via Testcontainers.
+      DATABASE_TESTS_WITH_CONTAINERS: '1'
 
     steps:
       - name: Checkout code
@@ -417,38 +351,8 @@ jobs:
         env:
           NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
 
-      - name: Install PostgreSQL client (psql)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends postgresql-client
-
-      - name: Install PostgreSQL extensions
-        env:
-          PGPASSWORD: test
-        run: |
-          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
-          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS citext;"
-          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;"
-          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS btree_gin;"
-          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS btree_gist;"
-          psql -h localhost -p 65010 -U test -d test_db -c "CREATE EXTENSION IF NOT EXISTS vector;"
-
-      - name: Run database migrations
-        run: pnpm db:migrate
-        env:
-          DATABASE_URL: postgresql://test:test@localhost:65010/test_db
-
-      - name: Run DB Schema Tests
-        run: pnpm db:test:all
-        env:
-          DATABASE_URL: postgresql://test:test@localhost:65010/test_db
-          NODE_ENV: test
-
-      - name: Run Pre-commit Schema Verification
-        run: pnpm db:test:precommit
-        env:
-          DATABASE_URL: postgresql://test:test@localhost:65010/test_db
-          NODE_ENV: test
+      - name: Run schema tests (@app/database, testcontainers)
+        run: pnpm --filter @app/database test:db
 
   # ============================================
   # Security Scan: Trivy FS
@@ -602,3 +506,136 @@ jobs:
 
           docker exec pg-smoke pg_isready -U test -d test_db
           docker rm -f pg-smoke
+
+  # ============================================
+  # Real Infra CI (CT108): clone DBs + connectivity
+  # ============================================
+  real-infra-smoke:
+    name: Real Infra (CT108) - Clones + Connectivity
+    if: ${{ github.event_name == 'push' && github.actor != 'dependabot[bot]' }}
+    runs-on: [self-hosted, neanelu]
+    timeout-minutes: 45
+    needs:
+      - lint-typecheck-build
+      - test-packages
+      - test-backend-worker-unit
+      - test-backend-worker-integration
+      - db-schema-tests
+      - docker-compose-validate
+      - docker-smoke
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: OpenBao login (AppRole)
+        env:
+          OPENBAO_ADDR: ${{ secrets.OPENBAO_ADDR }}
+          OPENBAO_CICD_ROLE_ID: ${{ secrets.OPENBAO_CICD_ROLE_ID }}
+          OPENBAO_CICD_SECRET_ID: ${{ secrets.OPENBAO_CICD_SECRET_ID }}
+        run: python3 .github/scripts/openbao_ci_login.py
+
+      - name: Export CI secrets (postgres+redis)
+        env:
+          OPENBAO_ADDR: ${{ secrets.OPENBAO_ADDR }}
+        run: python3 .github/scripts/openbao_ci_export_secrets.py
+
+      - name: Live connectivity checks (pre)
+        env:
+          OPENBAO_ADDR: ${{ secrets.OPENBAO_ADDR }}
+        run: bash infra/scripts/ci-live-checks.sh | tee real-infra.connectivity.pre.txt
+
+      - name: Compute RUN_ID
+        run: |
+          echo "RUN_ID=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}" >> "$GITHUB_ENV"
+
+      - name: Clone DBs (dev/staging/prod) on CT107
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=no "neanelu-ci@${CI_CT107_HOST}" \
+            "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_clone_db.sh --env dev --run-id '${RUN_ID}' --strategy template --fallback dump"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=no "neanelu-ci@${CI_CT107_HOST}" \
+            "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_clone_db.sh --env staging --run-id '${RUN_ID}' --strategy dump --fallback none"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=no "neanelu-ci@${CI_CT107_HOST}" \
+            "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_clone_db.sh --env prod --run-id '${RUN_ID}' --strategy dump --fallback none"
+
+      - name: Fetch dynamic DB creds (dev/staging/prod)
+        env:
+          OPENBAO_ADDR: ${{ secrets.OPENBAO_ADDR }}
+        run: |
+          OPENBAO_DB_ENV_PREFIX=DEV OPENBAO_DB_CREDS_PATH=neanelu-db/creds/neanelu-dev-dynamic python3 .github/scripts/openbao_db_creds.py
+          OPENBAO_DB_ENV_PREFIX=STAGING OPENBAO_DB_CREDS_PATH=neanelu-db/creds/neanelu-staging-dynamic python3 .github/scripts/openbao_db_creds.py
+          OPENBAO_DB_ENV_PREFIX=PROD OPENBAO_DB_CREDS_PATH=neanelu-db/creds/neanelu-prod-dynamic python3 .github/scripts/openbao_db_creds.py
+
+      - name: Verify DB clone connectivity (psql)
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, os, re
+          run_id=os.environ["RUN_ID"]
+          clean=re.sub(r"[^a-zA-Z0-9_]+","_",run_id).strip("_")
+          clean=re.sub(r"_+","_",clean)
+          h=hashlib.sha1(run_id.encode("utf-8")).hexdigest()[:8]
+          clean=(clean[:24] if len(clean)>24 else clean)
+          suffix=f"{clean}_{h}" if clean else f"run_{h}"
+          print("DEV_DB="+f"neanelu_shopify_dev_ci_{suffix}")
+          print("STAGING_DB="+f"neanelu_shopify_staging_ci_{suffix}")
+          print("PROD_DB="+f"neanelu_shopify_prod_ci_{suffix}")
+          PY >> "$GITHUB_ENV"
+
+          export PGPASSWORD="${DEV_PASS}"
+          psql -h "${CI_CT107_HOST}" -p "${CI_CT107_PORT}" -U "${DEV_USER}" -d "${DEV_DB}" -c "select 1;" | tee real-infra.psql.dev.txt
+
+          export PGPASSWORD="${STAGING_PASS}"
+          psql -h "${CI_CT107_HOST}" -p "${CI_CT107_PORT}" -U "${STAGING_USER}" -d "${STAGING_DB}" -c "select 1;" | tee real-infra.psql.staging.txt
+
+          export PGPASSWORD="${PROD_PASS}"
+          psql -h "${CI_CT107_HOST}" -p "${CI_CT107_PORT}" -U "${PROD_USER}" -d "${PROD_DB}" -c "select 1;" | tee real-infra.psql.prod.txt
+
+      - name: Verify Redis CI scope (AUTH + prefix)
+        run: |
+          set -euo pipefail
+          REDIS_PASS="${CI_REDIS_PASSWORD}" python3 - <<'PY'
+          import os, socket
+          host=os.environ.get("CI_REDIS_HOST","10.0.1.10")
+          port=int(os.environ.get("CI_REDIS_PORT","6379"))
+          user=os.environ.get("CI_REDIS_USERNAME","neanelu-ci")
+          pw=os.environ["REDIS_PASS"]
+          run_id=os.environ["RUN_ID"]
+
+          def send(cmd):
+              parts=[b'*'+str(len(cmd)).encode()+b'\r\n']
+              for a in cmd:
+                  b=a.encode()
+                  parts.append(b'$'+str(len(b)).encode()+b'\r\n'+b+b'\r\n')
+              s.sendall(b''.join(parts))
+              return s.recv(4096)
+
+          s=socket.socket(); s.settimeout(3)
+          s.connect((host,port))
+          assert send(["AUTH", user, pw]).startswith(b"+OK")
+          ok=send(["SET", f"neanelu:ci:{run_id}:ping", "1"])
+          bad=send(["SET", "neanelu:prod:should_fail", "1"])
+          print("set_ci_resp", ok[:40].decode("utf-8","replace"))
+          print("set_prod_resp", bad[:80].decode("utf-8","replace"))
+          PY | tee real-infra.redis.txt
+
+      - name: Upload artifacts (real infra)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-infra-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            real-infra.connectivity.pre.txt
+            real-infra.psql.*.txt
+            real-infra.redis.txt
+          retention-days: 7
+
+      - name: Cleanup DB clones (always)
+        if: always()
+        run: |
+          set +e
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=no "neanelu-ci@${CI_CT107_HOST}" \
+            "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_drop_db.sh --env dev --run-id '${RUN_ID}'"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=no "neanelu-ci@${CI_CT107_HOST}" \
+            "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_drop_db.sh --env staging --run-id '${RUN_ID}'"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=no "neanelu-ci@${CI_CT107_HOST}" \
+            "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_drop_db.sh --env prod --run-id '${RUN_ID}'"
