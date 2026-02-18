@@ -556,6 +556,8 @@ jobs:
           # Reuse deploy key secret; key is also allowlisted on CT107 for user neanelu-ci.
           echo "${{ secrets.SSH_KEY_DEPLOY }}" > ~/.ssh/ct107_key
           chmod 0600 ~/.ssh/ct107_key
+          # Public key only (safe) - helps ops allowlist the right key on CT107 if needed.
+          ssh-keygen -y -f ~/.ssh/ct107_key | tee ct107_key.pub
 
       - name: Clone DBs (dev/staging/prod) on CT107
         run: |
@@ -635,6 +637,7 @@ jobs:
           name: real-infra-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             real-infra.connectivity.pre.txt
+            ct107_key.pub
             real-infra.psql.*.txt
             real-infra.redis.txt
           retention-days: 7
