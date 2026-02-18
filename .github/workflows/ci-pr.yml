@@ -586,7 +586,7 @@ jobs:
       - name: Verify DB clone connectivity (psql)
         run: |
           set -euo pipefail
-          python3 - <<'PY'
+          python3 - <<'PY' >> "$GITHUB_ENV"
           import hashlib, os, re
           run_id=os.environ["RUN_ID"]
           clean=re.sub(r"[^a-zA-Z0-9_]+","_",run_id).strip("_")
@@ -597,7 +597,7 @@ jobs:
           print("DEV_DB="+f"neanelu_shopify_dev_ci_{suffix}")
           print("STAGING_DB="+f"neanelu_shopify_staging_ci_{suffix}")
           print("PROD_DB="+f"neanelu_shopify_prod_ci_{suffix}")
-          PY >> "$GITHUB_ENV"
+          PY
 
           export PGPASSWORD="${DEV_PASS}"
           psql -h "${CI_CT107_HOST}" -p "${CI_CT107_PORT}" -U "${DEV_USER}" -d "${DEV_DB}" -c "select 1;" | tee real-infra.psql.dev.txt
