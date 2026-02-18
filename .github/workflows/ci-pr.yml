@@ -288,7 +288,24 @@ jobs:
           NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
 
       - name: Run integration tests (@app/backend-worker, testcontainers)
-        run: pnpm --filter @app/backend-worker test:containers
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$(mktemp)"
+
+          set +e
+          pnpm --filter @app/backend-worker test:containers 2>&1 | tee "$log"
+          code="${PIPESTATUS[0]}"
+          set -e
+
+          # Node/Testcontainers flake we observed in CI: "Error: write EPIPE".
+          # One retry is enough to avoid noisy red builds while we investigate root cause.
+          if [[ "$code" -ne 0 ]] && grep -q "Error: write EPIPE" "$log"; then
+            echo "retry_due_to_epipe=1"
+            pnpm --filter @app/backend-worker test:containers
+          else
+            exit "$code"
+          fi
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
