@@ -1,0 +1,242 @@
+http:
+  middlewares:
+    # Ingest-only endpoints exposed on the public Traefik entrypoint, but restricted
+    # to Neanelu-only internal sources (CT111/CT112) via IP allowlist.
+    neanelu-otlp-allowlist:
+      ipAllowList:
+        sourceRange:
+          - '10.0.1.111/32'
+          - '10.0.1.112/32'
+          # CI runner (CT108) needs ingest-only access for tracing.
+          - '10.0.1.108/32'
+          - '10.0.1.6/32'
+          # Internal observability gateway on hz.247 (TCP passthrough to Traefik).
+          - '10.0.1.10/32'
+
+    # Loki push clients (Vector) may not send X-Forwarded-For; use depth=0 to avoid 403.
+    neanelu-loki-allowlist:
+      ipAllowList:
+        sourceRange:
+          - '10.0.1.111/32'
+          - '10.0.1.112/32'
+          - '10.0.1.108/32'
+          - '10.0.1.6/32'
+          - '10.0.1.10/32'
+        ipStrategy:
+          depth: 0
+
+    # Some shippers can send a trailing slash to the push endpoint, but Loki does not
+    # accept it. Normalize it before proxying.
+    neanelu-loki-push-path-fix:
+      replacePathRegex:
+        regex: '^/loki/api/v1/push/?$'
+        replacement: '/loki/api/v1/push'
+
+    # NOTE: Middlewares such as `security-headers`, `chain-web`, `chain-api`,
+    # `chain-auth`, and `www-redirect` are provided by the orchestrator's
+    # shared Traefik config (common/platform dynamic files). We keep this file
+    # Neanelu-scoped to avoid cross-file name conflicts.
+
+    neanelu-strip-app-prefix:
+      stripPrefix:
+        prefixes:
+          - /app
+
+  routers:
+    # ----------------------------
+    # Production
+    # ----------------------------
+    neanelu-prod-admin:
+      rule: 'Host(`manager.neanelu.ro`) && PathPrefix(`/app`)'
+      service: neanelu-prod-admin-svc
+      entryPoints:
+        - websecure
+      middlewares:
+        - neanelu-strip-app-prefix
+        - chain-ui
+      tls:
+        certResolver: cloudflare
+
+    neanelu-prod-ws:
+      rule: 'Host(`manager.neanelu.ro`) && PathPrefix(`/api/pim/events/ws`)'
+      service: neanelu-prod-api-svc
+      priority: 120
+      entryPoints:
+        - websecure
+      middlewares:
+        - security-headers
+      tls:
+        certResolver: cloudflare
+
+    neanelu-staging-ws:
+      rule: 'Host(`staging.manager.neanelu.ro`) && PathPrefix(`/api/pim/events/ws`)'
+      service: neanelu-staging-api-svc
+      priority: 120
+      entryPoints:
+        - websecure
+      middlewares:
+        - security-headers
+      tls:
+        certResolver: cloudflare
+    neanelu-prod-api:
+      # Ensure /admin doesn't get routed to the API service.
+      rule: 'Host(`manager.neanelu.ro`) && !PathPrefix(`/app`)'
+      service: neanelu-prod-api-svc
+      entryPoints:
+        - websecure
+      middlewares:
+        - chain-api-neanelu
+      tls:
+        certResolver: cloudflare
+
+    # ----------------------------
+    # Staging
+    # ----------------------------
+    neanelu-staging-admin:
+      rule: 'Host(`staging.manager.neanelu.ro`) && PathPrefix(`/app`)'
+      service: neanelu-staging-admin-svc
+      entryPoints:
+        - websecure
+      middlewares:
+        - neanelu-strip-app-prefix
+        - chain-ui
+      tls:
+        certResolver: cloudflare
+
+    neanelu-staging-api:
+      rule: 'Host(`staging.manager.neanelu.ro`) && !PathPrefix(`/app`)'
+      service: neanelu-staging-api-svc
+      entryPoints:
+        - websecure
+      middlewares:
+        - chain-api-neanelu
+      tls:
+        certResolver: cloudflare
+
+    # ----------------------------
+    # Dev (dedicated stack)
+    # ----------------------------
+    neanelu-dev-admin:
+      rule: 'Host(`dev.manager.neanelu.ro`) && PathPrefix(`/app`)'
+      service: neanelu-dev-admin-svc
+      entryPoints:
+        - websecure
+      middlewares:
+        - neanelu-strip-app-prefix
+        - chain-ui
+      tls:
+        certResolver: cloudflare
+
+    neanelu-dev-ws:
+      rule: 'Host(`dev.manager.neanelu.ro`) && PathPrefix(`/api/pim/events/ws`)'
+      service: neanelu-dev-api-svc
+      priority: 120
+      entryPoints:
+        - websecure
+      middlewares:
+        - security-headers
+      tls:
+        certResolver: cloudflare
+
+    neanelu-dev-api:
+      rule: 'Host(`dev.manager.neanelu.ro`) && !PathPrefix(`/app`)'
+      service: neanelu-dev-api-svc
+      entryPoints:
+        - websecure
+      middlewares:
+        - chain-api-neanelu
+      tls:
+        certResolver: cloudflare
+
+    # ----------------------------
+    # Ingest-only observability endpoints (allowlist strict)
+    # ----------------------------
+    neanelu-otlp-http:
+      rule: 'Host(`otel-neanelu.neanelu.ro`)'
+      service: neanelu-otlp-http-svc
+      entryPoints:
+        - websecure
+      middlewares:
+        - neanelu-otlp-allowlist
+      tls:
+        certResolver: cloudflare
+
+    neanelu-loki-push:
+      rule: 'Host(`logs-neanelu.neanelu.ro`) && PathPrefix(`/loki/api/v1/push`)'
+      service: neanelu-loki-push-svc
+      entryPoints:
+        - websecure
+      middlewares:
+        - neanelu-loki-push-path-fix
+        - neanelu-loki-allowlist
+      tls:
+        certResolver: cloudflare
+
+    # Health endpoints for internal shippers (kept allowlisted).
+    neanelu-loki-health:
+      rule: 'Host(`logs-neanelu.neanelu.ro`) && (Path(`/ready`) || PathPrefix(`/loki/api/v1/status`))'
+      service: neanelu-loki-push-svc
+      entryPoints:
+        - websecure
+      middlewares:
+        - neanelu-loki-allowlist
+      tls:
+        certResolver: cloudflare
+
+  services:
+    neanelu-prod-api-svc:
+      loadBalancer:
+        servers:
+          - url: 'http://10.0.1.10:29250'
+        healthCheck:
+          path: '/health/ready'
+          interval: '30s'
+          timeout: '5s'
+
+    neanelu-prod-admin-svc:
+      loadBalancer:
+        servers:
+          - url: 'http://10.0.1.10:29251'
+
+    neanelu-staging-api-svc:
+      loadBalancer:
+        servers:
+          - url: 'http://10.0.1.10:19250'
+        healthCheck:
+          path: '/health/ready'
+          interval: '30s'
+          timeout: '5s'
+
+    neanelu-staging-admin-svc:
+      loadBalancer:
+        servers:
+          - url: 'http://10.0.1.10:19251'
+
+    # Dev stack (CT112 via HAProxy VIP ports).
+    neanelu-dev-api-svc:
+      loadBalancer:
+        servers:
+          - url: 'http://10.0.1.10:39250'
+        healthCheck:
+          # Dev stack may intentionally run only a subset of workers; use liveness for routing.
+          path: '/health/live'
+          interval: '30s'
+          timeout: '5s'
+
+    neanelu-dev-admin-svc:
+      loadBalancer:
+        servers:
+          - url: 'http://10.0.1.10:39251'
+
+    # OTLP collector intake (central, on orchestrator loopback).
+    # Traefik on orchestrator uses host networking, so 127.0.0.1 is stable.
+    neanelu-otlp-http-svc:
+      loadBalancer:
+        servers:
+          - url: 'http://127.0.0.1:4318'
+
+    # Loki push endpoint (central, published on orchestrator loopback).
+    neanelu-loki-push-svc:
+      loadBalancer:
+        servers:
+          - url: 'http://127.0.0.1:3100'

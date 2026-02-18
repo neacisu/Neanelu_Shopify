@@ -1,0 +1,301 @@
+# ============================================
+# Neanelu Shopify - CD Deploy Workflow
+# ============================================
+# Deploys staging/prod to CT112/CT111 using:
+# - Shared services: Traefik/OpenBao/Redis/Observability on orchestrator
+# - PostgreSQL on CT107 (direct for migrations, PgBouncer for runtime)
+#
+# IMPORTANT:
+# - Requires self-hosted runner on CT108 (recommended) for internal network access
+# - Requires GitHub Secrets (see below)
+#
+# Required GitHub Secrets:
+# - GHCR_USERNAME: ghcr username (often the org/user)
+# - GHCR_TOKEN: PAT with read:packages/write:packages for GHCR
+# - OPENBAO_ADDR: https://s3cr3ts.neanelu.ro
+# - OPENBAO_CICD_ROLE_ID: AppRole role_id (neanelu-cicd)
+# - OPENBAO_CICD_SECRET_ID: AppRole secret_id (neanelu-cicd)
+# - SSH_KEY_DEPLOY: private key for deploy@CT111/CT112 (from CT108 allowlisted)
+#
+name: CD - Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options: [staging, production]
+      version:
+        description: 'Docker image tag (e.g. sha, v1.2.3). Default: github.sha'
+        required: false
+        type: string
+
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  NODE_VERSION: '24'
+  PNPM_VERSION: '10.28.0'
+  OPENBAO_ADDR: '${{ secrets.OPENBAO_ADDR }}'
+
+jobs:
+  build-push:
+    name: Build & Push images
+    runs-on: [self-hosted, neanelu]
+    timeout-minutes: 30
+    outputs:
+      image_tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${{ inputs.version }}" ]]; then
+            echo "tag=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Login to GHCR
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
+
+      - name: Build & push backend-worker
+        shell: bash
+        env:
+          NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          test -n "${NPM_TASKFORCESH_TOKEN}" || (echo "Missing NPM_TASKFORCESH_TOKEN" >&2; exit 1)
+          DOCKER_BUILDKIT=1 docker build \
+            -f apps/backend-worker/Dockerfile \
+            --secret id=npm_token,env=NPM_TASKFORCESH_TOKEN \
+            -t "ghcr.io/neacisu/neanelu-shopify/backend-worker:${TAG}" .
+          docker push "ghcr.io/neacisu/neanelu-shopify/backend-worker:${TAG}"
+
+      - name: Build & push web-admin
+        shell: bash
+        env:
+          NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          test -n "${NPM_TASKFORCESH_TOKEN}" || (echo "Missing NPM_TASKFORCESH_TOKEN" >&2; exit 1)
+          DOCKER_BUILDKIT=1 docker build \
+            -f apps/web-admin/Dockerfile \
+            --secret id=npm_token,env=NPM_TASKFORCESH_TOKEN \
+            -t "ghcr.io/neacisu/neanelu-shopify/web-admin:${TAG}" .
+          docker push "ghcr.io/neacisu/neanelu-shopify/web-admin:${TAG}"
+
+  migrate:
+    name: DB migrations (direct CT107)
+    runs-on: [self-hosted, neanelu]
+    timeout-minutes: 20
+    needs: [build-push]
+    env:
+      NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
+      BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install deps
+        shell: bash
+        run: pnpm install --frozen-lockfile
+
+      - name: Fetch OpenBao dynamic DB creds (no stdout)
+        shell: bash
+        env:
+          OPENBAO_CICD_ROLE_ID: '${{ secrets.OPENBAO_CICD_ROLE_ID }}'
+          OPENBAO_CICD_SECRET_ID: '${{ secrets.OPENBAO_CICD_SECRET_ID }}'
+          TARGET_ENV: '${{ inputs.environment }}'
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, sys, urllib.request
+          bao=os.environ['OPENBAO_ADDR'].rstrip('/')
+          rid=os.environ['OPENBAO_CICD_ROLE_ID'].strip()
+          sid=os.environ['OPENBAO_CICD_SECRET_ID'].strip()
+          target=os.environ['TARGET_ENV']
+          role='neanelu-staging-dynamic' if target=='staging' else 'neanelu-prod-dynamic'
+          db='neanelu_shopify_staging' if target=='staging' else 'neanelu_shopify'
+          req=urllib.request.Request(bao+'/v1/auth/approle/login', method='POST',
+                                     data=json.dumps({'role_id':rid,'secret_id':sid}).encode('utf-8'),
+                                     headers={'Content-Type':'application/json','Accept':'application/json'})
+          with urllib.request.urlopen(req, timeout=20) as r:
+              tok=json.loads(r.read().decode('utf-8'))['auth']['client_token']
+          req=urllib.request.Request(f\"{bao}/v1/neanelu-db/creds/{role}\", headers={'X-Vault-Token':tok,'Accept':'application/json'})
+          with urllib.request.urlopen(req, timeout=20) as r:
+              data=json.loads(r.read().decode('utf-8'))['data']
+          u=data['username']; p=data['password']
+          # MIGRATION_DATABASE_URL bypass PgBouncer -> CT107 direct
+          url=f\"postgresql://{u}:{p}@10.0.1.107:5432/{db}\"
+          # GitHub Actions: write to GITHUB_ENV (no stdout)
+          env_path=os.environ['GITHUB_ENV']
+          with open(env_path,'a',encoding='utf-8') as f:
+              f.write('MIGRATION_DATABASE_URL='+url+'\\n')
+              f.write('DATABASE_URL='+url+'\\n')
+              f.write('DB_USER='+u+'\\n')
+              f.write('DB_PASS='+p+'\\n')
+              f.write('DB_NAME='+db+'\\n')
+          PY
+
+      - name: Pre-deploy backup (pg_dump, artifact)
+        shell: bash
+        env:
+          TARGET_ENV: '${{ inputs.environment }}'
+        run: |
+          set -euo pipefail
+          pg_dump --version
+          ts="$(date -u +%Y%m%dT%H%M%SZ)"
+          mkdir -p predeploy-backup
+          dump="predeploy-backup/${TARGET_ENV}_${GITHUB_SHA}_${ts}.dump"
+          PGPASSWORD="${DB_PASS}" pg_dump -h 10.0.1.107 -p 5432 -U "${DB_USER}" -d "${DB_NAME}" -Fc --no-owner --no-acl -f "${dump}"
+          sha256sum "${dump}" > "${dump}.sha256"
+
+      - name: Upload pre-deploy backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: predeploy-backup-${{ inputs.environment }}-${{ github.sha }}
+          path: predeploy-backup/*
+          retention-days: 14
+
+      - name: Run migrations
+        shell: bash
+        run: pnpm db:migrate
+
+  deploy:
+    name: Deploy to CT111/CT112
+    environment: ${{ inputs.environment }}
+    runs-on: [self-hosted, neanelu]
+    timeout-minutes: 25
+    needs: [build-push, migrate]
+    steps:
+      - name: Setup SSH key
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          echo "${{ secrets.SSH_KEY_DEPLOY }}" > ~/.ssh/deploy_key
+          chmod 0600 ~/.ssh/deploy_key
+
+      - name: Deploy
+        shell: bash
+        env:
+          TARGET_ENV: '${{ inputs.environment }}'
+          TAG: '${{ needs.build-push.outputs.image_tag }}'
+        run: |
+          set -euo pipefail
+          if [[ "${TARGET_ENV}" == "staging" ]]; then
+            HOST="10.0.1.112"
+            COMPOSE="docker-compose.staging.yml"
+          else
+            HOST="10.0.1.111"
+            COMPOSE="docker-compose.prod.yml"
+          fi
+
+          rollback() {
+            echo "deploy_failed -> rollback" >&2
+            ssh -o BatchMode=yes -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "deploy@${HOST}" "\
+              set -euo pipefail; \
+              if [[ -f /opt/neanelu/.env.prev ]]; then \
+                sudo cp -f /opt/neanelu/.env.prev /opt/neanelu/.env; \
+                cd /opt/neanelu && sudo docker compose -f ${COMPOSE} pull backend-worker web-admin bull-board || true; \
+                cd /opt/neanelu && sudo docker compose -f ${COMPOSE} up -d || true; \
+              else \
+                echo 'no_prev_env' >&2; \
+              fi"
+          }
+          trap rollback ERR
+
+          ssh -o BatchMode=yes -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "deploy@${HOST}" "mkdir -p /opt/neanelu /opt/neanelu/infra/scripts"
+
+          # Keep /opt/neanelu as the single source for compose+scripts on CTs.
+          scp -q -o BatchMode=yes -o IdentitiesOnly=yes -i ~/.ssh/deploy_key \
+            "./${COMPOSE}" \
+            "deploy@${HOST}:/opt/neanelu/${COMPOSE}"
+          scp -q -o BatchMode=yes -o IdentitiesOnly=yes -i ~/.ssh/deploy_key \
+            "./infra/scripts/verify-deployment.sh" \
+            "deploy@${HOST}:/opt/neanelu/infra/scripts/verify-deployment.sh"
+          ssh -o BatchMode=yes -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "deploy@${HOST}" "\
+            set -euo pipefail; \
+            if [[ -f /opt/neanelu/.env ]]; then sudo cp -f /opt/neanelu/.env /opt/neanelu/.env.prev; fi; \
+            cat > /opt/neanelu/.env <<'EOF'\nNEANELU_VERSION=${TAG}\nNEANELU_REGISTRY=ghcr.io\nNEANELU_IMAGE_PREFIX=neacisu/neanelu-shopify\nEOF"
+
+          # Pull + restart stack (images are private; requires docker login on host)
+          ssh -o BatchMode=yes -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "deploy@${HOST}" "echo '${{ secrets.GHCR_TOKEN }}' | sudo docker login ghcr.io -u '${{ secrets.GHCR_USERNAME }}' --password-stdin"
+          ssh -o BatchMode=yes -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "deploy@${HOST}" "cd /opt/neanelu && sudo docker compose -f ${COMPOSE} pull backend-worker web-admin bull-board"
+          ssh -o BatchMode=yes -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "deploy@${HOST}" "cd /opt/neanelu && sudo docker compose -f ${COMPOSE} up -d"
+          ssh -o BatchMode=yes -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "deploy@${HOST}" "sudo bash /opt/neanelu/infra/scripts/verify-deployment.sh"
+
+      - name: Post-deploy HTTP verification (artifact)
+        shell: bash
+        env:
+          TARGET_ENV: '${{ inputs.environment }}'
+        run: |
+          set -euo pipefail
+          if [[ "${TARGET_ENV}" == "staging" ]]; then
+            BASE_URL="https://staging.manager.neanelu.ro"
+          else
+            BASE_URL="https://manager.neanelu.ro"
+          fi
+
+          out="postdeploy-http-${TARGET_ENV}.txt"
+          {
+            echo "base_url=${BASE_URL}"
+            echo "ts=$(date -u +%Y%m%dT%H%M%SZ)"
+            echo "--- /api/health/live"
+            curl -sk --max-time 8 -w "\nhttp_code=%{http_code}\n" "${BASE_URL}/api/health/live" || true
+            echo "--- /api/health/ready"
+            curl -sk --max-time 8 -w "\nhttp_code=%{http_code}\n" "${BASE_URL}/api/health/ready" || true
+            echo "--- /health/live"
+            curl -sk --max-time 8 -w "\nhttp_code=%{http_code}\n" "${BASE_URL}/health/live" || true
+            echo "--- /health/ready"
+            curl -sk --max-time 8 -w "\nhttp_code=%{http_code}\n" "${BASE_URL}/health/ready" || true
+            echo "--- OAuth start (non-destructive)"
+            curl -skI --max-time 8 -o /dev/null -w "http_code=%{http_code} redirect=%{redirect_url}\n" \
+              "${BASE_URL}/auth?shop=unit-test.myshopify.com" || true
+          } | tee "${out}"
+
+      - name: Upload post-deploy HTTP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: postdeploy-http-${{ inputs.environment }}-${{ github.sha }}
+          path: postdeploy-http-*.txt
+          retention-days: 7
