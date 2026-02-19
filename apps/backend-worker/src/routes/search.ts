@@ -2,6 +2,7 @@ import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { Redis as RedisClient } from 'ioredis';
+import type { PoolClient } from 'pg';
 import { randomUUID } from 'node:crypto';
 import { createRedisConnection } from '@app/queue-manager';
 import { withTenantContext } from '@app/database';
@@ -34,6 +35,116 @@ const MAX_LIMIT = 100;
 const DEFAULT_THRESHOLD = 0.7;
 const MIN_THRESHOLD = 0.1;
 const MAX_THRESHOLD = 1;
+
+type TextSearchRow = Readonly<{
+  productId: string;
+  title: string;
+  featuredImageUrl: string | null;
+  vendor: string | null;
+  productType: string | null;
+  priceRange: { min: string; max: string; currency: string } | null;
+  similarity: number;
+}>;
+
+async function hasAnyProductEmbeddings(params: { shopId: string }): Promise<boolean> {
+  return withTenantContext(params.shopId, async (client) => {
+    const result = await client.query<{ ok: number }>(
+      `SELECT 1 as ok
+         FROM shop_product_embeddings
+        WHERE shop_id = $1
+        LIMIT 1`,
+      [params.shopId]
+    );
+    return (result.rowCount ?? 0) > 0;
+  });
+}
+
+async function fallbackTextSearch(params: {
+  client: PoolClient;
+  shopId: string;
+  queryText: string;
+  limit: number;
+  vendors?: readonly string[] | null;
+  productTypes?: readonly string[] | null;
+  priceMin?: number | null;
+  priceMax?: number | null;
+  categoryId?: string | null;
+  excludeProductIds?: readonly string[] | null;
+}): Promise<{ rows: TextSearchRow[]; total: number }> {
+  const q = params.queryText.trim();
+  if (!q) return { rows: [], total: 0 };
+
+  const like = `%${q}%`;
+  const values: unknown[] = [
+    params.shopId,
+    like,
+    params.vendors?.length ? params.vendors : null,
+    params.productTypes?.length ? params.productTypes : null,
+    params.priceMin ?? null,
+    params.priceMax ?? null,
+    params.categoryId ?? null,
+    params.excludeProductIds?.length ? params.excludeProductIds : null,
+    params.limit,
+  ];
+
+  const whereSql = `
+    p.shop_id = $1
+    AND (
+      p.title ILIKE $2
+      OR p.description ILIKE $2
+      OR p.handle ILIKE $2
+    )
+    AND ($3::text[] IS NULL OR p.vendor = ANY($3::text[]))
+    AND ($4::text[] IS NULL OR p.product_type = ANY($4::text[]))
+    AND ($5::numeric IS NULL OR (p.price_range->>'max')::numeric >= $5::numeric)
+    AND ($6::numeric IS NULL OR (p.price_range->>'min')::numeric <= $6::numeric)
+    AND ($7::text IS NULL OR p.category_id = $7::text)
+    AND ($8::uuid[] IS NULL OR p.id <> ALL($8::uuid[]))
+  `;
+
+  const rowsResult = await params.client.query<TextSearchRow>(
+    `SELECT p.id as "productId",
+            p.title as "title",
+            COALESCE(p.featured_image_url, pm_image.url, pm_image.preview_url, v_image.image_url) as "featuredImageUrl",
+            p.vendor as "vendor",
+            p.product_type as "productType",
+            p.price_range as "priceRange",
+            0.0 as "similarity"
+       FROM shopify_products p
+       LEFT JOIN LATERAL (
+         SELECT sm.url, sm.preview_url
+         FROM shopify_product_media spm
+         JOIN shopify_media sm
+           ON sm.media_id = spm.media_id
+          AND sm.shop_id = spm.shop_id
+         WHERE spm.shop_id = p.shop_id
+           AND spm.product_id = p.id
+         ORDER BY spm.is_featured DESC, spm.position ASC
+         LIMIT 1
+       ) pm_image ON true
+       LEFT JOIN LATERAL (
+         SELECT sv.image_url
+         FROM shopify_variants sv
+         WHERE sv.shop_id = p.shop_id
+           AND sv.product_id = p.id
+           AND sv.image_url IS NOT NULL
+         ORDER BY sv.position ASC
+         LIMIT 1
+       ) v_image ON true
+      WHERE ${whereSql}
+      LIMIT $9`,
+    values
+  );
+
+  return {
+    rows: rowsResult.rows.map((row) => ({
+      ...row,
+      similarity: Number(row.similarity ?? 0),
+    })),
+    // Exact counts are expensive without an index; keep UI responsive.
+    total: rowsResult.rows.length,
+  };
+}
 
 interface SearchCursor {
   lastSimilarity: number;
@@ -77,12 +188,16 @@ type ExportJob = Readonly<{
 const EXPORT_JOB_TTL_SECONDS = 60 * 60; // 1h
 const EXPORT_JOB_PREFIX = 'pim:search-export:';
 
-function exportJobKey(shopId: string, jobId: string): string {
-  return `${EXPORT_JOB_PREFIX}${shopId}:${jobId}`;
+function exportJobKey(redisPrefix: string, shopId: string, jobId: string): string {
+  return `${redisPrefix}${EXPORT_JOB_PREFIX}${shopId}:${jobId}`;
 }
 
-async function saveExportJob(redis: RedisClient, job: ExportJob): Promise<void> {
-  const key = exportJobKey(job.shopId, job.jobId);
+async function saveExportJob(
+  redis: RedisClient,
+  redisPrefix: string,
+  job: ExportJob
+): Promise<void> {
+  const key = exportJobKey(redisPrefix, job.shopId, job.jobId);
   await redis.hset(key, {
     jobId: job.jobId,
     shopId: job.shopId,
@@ -100,10 +215,11 @@ async function saveExportJob(redis: RedisClient, job: ExportJob): Promise<void> 
 
 async function loadExportJob(
   redis: RedisClient,
+  redisPrefix: string,
   shopId: string,
   jobId: string
 ): Promise<ExportJob | null> {
-  const key = exportJobKey(shopId, jobId);
+  const key = exportJobKey(redisPrefix, shopId, jobId);
   const data = await redis.hgetall(key);
   if (!data?.['jobId'] || !data?.['shopId']) return null;
   if (data['shopId'] !== shopId || data['jobId'] !== jobId) return null;
@@ -282,6 +398,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
   opts
 ): Promise<void> => {
   const { env, logger, sessionConfig } = opts;
+  const redisPrefix = env.redisPrefix;
   const redis: RedisClient = createRedisConnection({
     redisUrl: env.redisUrl,
     redisOptions: {
@@ -360,8 +477,19 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
         const cursor = typeof query.cursor === 'string' ? query.cursor.trim() : '';
         const decodedCursor = cursor ? decodeSearchCursor(cursor) : null;
 
+        const openAiConfig = await getShopOpenAiConfig({
+          shopId: session.shopId,
+          env,
+          logger,
+        });
+        const searchMode: 'vector' | 'text' =
+          openAiConfig.enabled && (await hasAnyProductEmbeddings({ shopId: session.shopId }))
+            ? 'vector'
+            : 'text';
+
         const cacheKeyText = [
           rawText,
+          `mode=${searchMode}`,
           `limit=${limit}`,
           `threshold=${threshold}`,
           `vendors=${vendors.join('|')}`,
@@ -374,6 +502,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
         if (!cursor) {
           const cached = await getCachedSearchResult({
             redis,
+            redisPrefix,
             shopId: session.shopId,
             queryText: cacheKeyText,
             config: { ttlSeconds: env.vectorSearchCacheTtlSeconds },
@@ -398,11 +527,80 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           vectorSearchCacheMissTotal.add(1);
         }
 
-        const openAiConfig = await getShopOpenAiConfig({
-          shopId: session.shopId,
-          env,
-          logger,
-        });
+        if (searchMode === 'text') {
+          if (cursor) {
+            void reply
+              .status(400)
+              .send(
+                errorEnvelope(
+                  request.id,
+                  400,
+                  'BAD_REQUEST',
+                  'Cursor nu este suportat pentru cautarea fallback (text).'
+                )
+              );
+            return;
+          }
+
+          const start = process.hrtime.bigint();
+          const searchResult = await withTenantContext(session.shopId, async (client) => {
+            const { rows, total } = await fallbackTextSearch({
+              client,
+              shopId: session.shopId,
+              queryText: rawText,
+              limit,
+              vendors: vendors.length ? vendors : null,
+              productTypes: productTypes.length ? productTypes : null,
+              priceMin: Number.isFinite(priceMin) ? priceMin : null,
+              priceMax: Number.isFinite(priceMax) ? priceMax : null,
+              categoryId: categoryId || null,
+              excludeProductIds: decodedCursor?.seenIds ?? null,
+            });
+            return { rows, total };
+          });
+
+          const results: ProductSearchResult[] = searchResult.rows.map((row) => ({
+            id: row.productId,
+            title: row.title,
+            similarity: row.similarity,
+            featuredImageUrl: row.featuredImageUrl,
+            vendor: row.vendor,
+            productType: row.productType,
+            priceRange: row.priceRange,
+          }));
+          const totalCount = searchResult.total;
+          const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+
+          // Keep metrics consistent (even though this is the fallback path).
+          vectorSearchLatencySeconds.record(durationMs / 1000);
+          recordAiQueryLatencyMs(durationMs);
+
+          if (!cursor) {
+            await setCachedSearchResult({
+              redis,
+              redisPrefix,
+              shopId: session.shopId,
+              queryText: cacheKeyText,
+              result: results,
+              vectorSearchTimeMs: Math.round(durationMs),
+              totalCount,
+              config: { ttlSeconds: env.vectorSearchCacheTtlSeconds },
+            }).catch(() => undefined);
+          }
+
+          void reply.status(200).send(
+            successEnvelope(request.id, {
+              results,
+              query: rawText,
+              vectorSearchTimeMs: Math.round(durationMs),
+              cached: false,
+              totalCount,
+              hasMore: totalCount > results.length,
+              nextCursor: null,
+            } satisfies ProductSearchResponse)
+          );
+          return;
+        }
 
         if (await isOpenAiBudgetExceeded(session.shopId)) {
           void reply
@@ -427,6 +625,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
 
         const rateLimit = await gateOpenAiEmbeddingRequest({
           redis,
+          redisPrefix,
           shopId: session.shopId,
           estimatedTokens: estimateTokens(rawText),
           config: {
@@ -542,9 +741,51 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
             errorMessage: error instanceof Error ? error.message : String(error),
           }).catch(() => undefined);
           if (error instanceof EmbeddingsDisabledError) {
-            void reply
-              .status(503)
-              .send(errorEnvelope(request.id, 503, 'SERVICE_UNAVAILABLE', 'Embeddings disabled'));
+            // This can still happen if provider is misconfigured at runtime.
+            // Keep the endpoint available by falling back to a DB text search.
+            const start = process.hrtime.bigint();
+            const searchResult = await withTenantContext(session.shopId, async (client) => {
+              const { rows, total } = await fallbackTextSearch({
+                client,
+                shopId: session.shopId,
+                queryText: rawText,
+                limit,
+                vendors: vendors.length ? vendors : null,
+                productTypes: productTypes.length ? productTypes : null,
+                priceMin: Number.isFinite(priceMin) ? priceMin : null,
+                priceMax: Number.isFinite(priceMax) ? priceMax : null,
+                categoryId: categoryId || null,
+                excludeProductIds: decodedCursor?.seenIds ?? null,
+              });
+              return { rows, total };
+            });
+
+            results = searchResult.rows.map((row) => ({
+              id: row.productId,
+              title: row.title,
+              similarity: row.similarity,
+              featuredImageUrl: row.featuredImageUrl,
+              vendor: row.vendor,
+              productType: row.productType,
+              priceRange: row.priceRange,
+            }));
+            totalCount = searchResult.total;
+
+            const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+            vectorSearchLatencySeconds.record(durationMs / 1000);
+            recordAiQueryLatencyMs(durationMs);
+
+            void reply.status(200).send(
+              successEnvelope(request.id, {
+                results,
+                query: rawText,
+                vectorSearchTimeMs: Math.round(durationMs),
+                cached: false,
+                totalCount,
+                hasMore: totalCount > results.length,
+                nextCursor: null,
+              } satisfies ProductSearchResponse)
+            );
             return;
           }
           throw error;
@@ -566,6 +807,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
         if (!cursor) {
           await setCachedSearchResult({
             redis,
+            redisPrefix,
             shopId: session.shopId,
             queryText: cacheKeyText,
             result: results,
@@ -749,7 +991,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
       progress: 0,
       format,
     };
-    await saveExportJob(redis, initial);
+    await saveExportJob(redis, redisPrefix, initial);
 
     void reply.status(202).send(
       successEnvelope(request.id, {
@@ -760,10 +1002,10 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
     );
 
     void (async () => {
-      await saveExportJob(redis, { ...initial, status: 'processing', progress: 10 });
+      await saveExportJob(redis, redisPrefix, { ...initial, status: 'processing', progress: 10 });
       try {
         if (await isOpenAiBudgetExceeded(session.shopId)) {
-          await saveExportJob(redis, {
+          await saveExportJob(redis, redisPrefix, {
             ...initial,
             status: 'failed',
             progress: 100,
@@ -812,7 +1054,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           });
         });
 
-        await saveExportJob(redis, { ...initial, status: 'processing', progress: 70 });
+        await saveExportJob(redis, redisPrefix, { ...initial, status: 'processing', progress: 70 });
 
         const results = searchRows.map((row) => ({
           id: row.productId,
@@ -826,7 +1068,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
 
         const payload = format === 'csv' ? toCsv(results) : toJson(results);
         const contentType = format === 'csv' ? 'text/csv' : 'application/json';
-        await saveExportJob(redis, {
+        await saveExportJob(redis, redisPrefix, {
           ...initial,
           status: 'completed',
           progress: 100,
@@ -835,7 +1077,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           downloadUrl: `/api/products/search/export/${jobId}/download`,
         });
       } catch (error) {
-        await saveExportJob(redis, {
+        await saveExportJob(redis, redisPrefix, {
           ...initial,
           status: 'failed',
           progress: 100,
@@ -860,7 +1102,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
       return;
     }
 
-    const job = await loadExportJob(redis, session.shopId, jobId);
+    const job = await loadExportJob(redis, redisPrefix, session.shopId, jobId);
     if (!job) {
       void reply.status(404).send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Export not found'));
       return;
@@ -890,7 +1132,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
       }
 
       const jobId = (request.params as { jobId?: string }).jobId;
-      const job = jobId ? await loadExportJob(redis, session.shopId, jobId) : null;
+      const job = jobId ? await loadExportJob(redis, redisPrefix, session.shopId, jobId) : null;
       if (job?.shopId !== session.shopId || job?.status !== 'completed' || !job?.payload) {
         void reply
           .status(404)

@@ -5,7 +5,10 @@ import { randomUUID } from 'node:crypto';
 import { pool } from '@app/database';
 import { computeConsensus } from '../../../../../../packages/pim/src/services/consensus-engine.js';
 
-const shouldSkip = !process.env['DATABASE_URL'];
+const dbUrl = (process.env['DATABASE_URL'] ?? '').trim();
+// Migration note: local Postgres on 127.0.0.1:65010 is deprecated; this test should
+// only run when DATABASE_URL points to a reachable integration DB.
+const shouldSkip = !dbUrl || /(?:localhost|127\.0\.0\.1):65010\b/.test(dbUrl);
 
 void describe('consensus integration', { skip: shouldSkip }, () => {
   const ids: {

@@ -103,12 +103,16 @@ nano .env
 
 ```bash
 # Database (host tooling)
-DATABASE_URL=postgresql://n3an37u:change_me@localhost:65010/shopify_neanelu_2025
-DATABASE_URL_DOCKER=postgresql://n3an37u:change_me@db:5432/shopify_neanelu_2025
+DATABASE_URL=postgresql://db_owner:password@localhost:65010/neanelu_shopify
+DATABASE_URL_DOCKER=postgresql://db_owner:password@db:5432/neanelu_shopify
 
 # Redis (host tooling)
 REDIS_URL=redis://localhost:65011
 REDIS_URL_DOCKER=redis://redis:6379
+
+# Prefixuri chei (dev defaults)
+REDIS_PREFIX=neanelu:dev:
+BULLMQ_PREFIX=neanelu:dev:
 
 # Criptare tokens (genereaza cu: openssl rand -hex 32)
 ENCRYPTION_KEY_VERSION=1
@@ -123,11 +127,11 @@ SHOPIFY_API_KEY=your_api_key
 SHOPIFY_API_SECRET=your_api_secret
 SCOPES=read_products,write_products,read_orders
 
-# App Host (URL-ul aplicației) — trebuie să includă schema
-APP_HOST=https://manager.neanelu.ro
+# App Host (URL-ul aplicației) — trebuie să includă schema (DEV local)
+APP_HOST=https://localhost:65000
 
-# Hostname only (fără schema) — folosit de Traefik Host() / servicii care cer strict domeniu
-APP_HOSTNAME=manager.neanelu.ro
+# Hostname only (fără schema) — folosit de Traefik Host() rules (DEV local)
+APP_HOSTNAME=localhost
 
 # OpenTelemetry (observabilitate)
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:65022
@@ -136,6 +140,20 @@ OTEL_EXPORTER_OTLP_ENDPOINT_DOCKER=http://otel-collector:4318
 # OpenAI (opțional pentru dev)
 OPENAI_API_KEY=sk-your-key-here
 ```
+
+### Note despre staging/prod (infrastructura noua)
+
+- În staging/prod, `.env` nu se completează manual: secretele vin din OpenBao Agent (fișiere render-izate în `/run/neanelu/runtime-secrets/...`).
+- DB runtime merge prin PgBouncer (`DATABASE_URL`), iar migrațiile folosesc conexiune directă (`MIGRATION_DATABASE_URL`) către CT107.
+- Redis este shared prin VIP `10.0.1.10:6379` și necesită `REDIS_PREFIX` + `BULLMQ_PREFIX` distincte per environment.
+
+### Rulare teste (fără DB local)
+
+- Rulează toate testele care nu depind de DB/Redis locale:
+  - `pnpm test`
+- Rulează schema/DB tests cu Testcontainers:
+  - `pnpm --filter @app/database test:db`
+  - alternativ: `DATABASE_TESTS_WITH_CONTAINERS=1 pnpm --filter @app/database test`
 
 ### Pasul 3: Configurare NPM Token
 

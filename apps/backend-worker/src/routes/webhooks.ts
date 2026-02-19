@@ -32,6 +32,7 @@ import {
 
 // Load env
 const env = loadEnv();
+const REDIS_PREFIX = env.redisPrefix.endsWith(':') ? env.redisPrefix : `${env.redisPrefix}:`;
 
 // Redis connection for deduplication
 // We use a separate connection or reuse one, but for simplicity here we create new
@@ -144,7 +145,8 @@ export const webhookRoutes: FastifyPluginCallback<{ appLogger?: Logger }> = (app
     const isDuplicate = await withSpan(
       'webhooks.dedupe_check',
       { shop_domain: shopDomain, topic: headerTopic },
-      async () => isDuplicateWebhook(redis, shopDomain, headerTopic, webhookId, request.log)
+      async () =>
+        isDuplicateWebhook(redis, REDIS_PREFIX, shopDomain, headerTopic, webhookId, request.log)
     );
     if (isDuplicate) {
       incrementWebhookMetric('duplicate', { topic: headerTopic });
@@ -174,7 +176,12 @@ export const webhookRoutes: FastifyPluginCallback<{ appLogger?: Logger }> = (app
       if (testId) {
         const latencyMs = sentAt ? Math.max(0, Date.now() - sentAt) : null;
         try {
-          await redis.set(`webhook_test:${testId}`, `received:${latencyMs ?? 0}`, 'EX', 10);
+          await redis.set(
+            `${REDIS_PREFIX}webhook_test:${testId}`,
+            `received:${latencyMs ?? 0}`,
+            'EX',
+            10
+          );
         } catch (err) {
           log.warn({ err, testId }, 'Failed to mark webhook test as received');
         }
@@ -185,7 +192,7 @@ export const webhookRoutes: FastifyPluginCallback<{ appLogger?: Logger }> = (app
     // Store payload out-of-band (TTL) and enqueue only a reference.
     // This keeps the job payload minimal and avoids sensitive payload duplication.
     const payloadSha256 = createHash('sha256').update(rawJson, 'utf8').digest('hex');
-    const payloadRef = `webhook:payload:${shopDomain}:${headerTopic}:${webhookId}`;
+    const payloadRef = `${REDIS_PREFIX}webhook:payload:${shopDomain}:${headerTopic}:${webhookId}`;
     try {
       await redis.set(payloadRef, rawJson, 'EX', WEBHOOK_PAYLOAD_TTL_SECONDS);
     } catch (err) {
@@ -247,7 +254,14 @@ export const webhookRoutes: FastifyPluginCallback<{ appLogger?: Logger }> = (app
     incrementWebhookMetric('accepted', { topic: headerTopic });
 
     // 8. Mark Processed (Dedupe)
-    await markWebhookProcessed(redis, shopDomain, headerTopic, webhookId, request.log);
+    await markWebhookProcessed(
+      redis,
+      REDIS_PREFIX,
+      shopDomain,
+      headerTopic,
+      webhookId,
+      request.log
+    );
 
     webhookProcessingDuration.record(Number(process.hrtime.bigint() - startNs) / 1_000_000_000, {
       topic: headerTopic,

@@ -26,7 +26,7 @@
 - [ ] Shopify API credentials valid (test cu API call)
 - [ ] BullMQ Pro token valid
 - [ ] OpenAI API key valid și cu credit suficient
-- [ ] Database credentials configured
+- [ ] Database credentials configured (PgBouncer pentru runtime + MIGRATION_DATABASE_URL direct CT107)
 
 ---
 
@@ -58,30 +58,29 @@
 ### Database Migration
 
 ```bash
-# 1. Verifică migration pending
-pnpm db:migrate:status
+# 1) Backup final (CT107)
+ssh postgres-main "pg_dump -Fc -U postgres -d neanelu_shopify > /var/backups/neanelu/pre_deploy_$(date +%Y%m%d_%H%M).dump"
 
-# 2. Backup final
-docker compose exec db pg_dump -U shopify -Fc neanelu_shopify_prod > /backups/pre_deploy_$(date +%Y%m%d_%H%M).dump
+# 2) Rulează migrații folosind conexiune DIRECTĂ (bypass PgBouncer)
+# (runner de deploy / CI/CD trebuie să seteze MIGRATION_DATABASE_URL către CT107)
+export MIGRATION_DATABASE_URL="postgresql://neanelu_app:***@10.0.1.107:5432/neanelu_shopify"
+pnpm --filter @app/database run migrate
 
-# 3. Run migration
-pnpm db:migrate:prod
-
-# 4. Verify RLS policies
-docker compose exec db psql -U shopify -d neanelu_shopify_prod -c "SELECT tablename, policyname FROM pg_policies;"
+# 3) Verify RLS policies (CT107)
+ssh postgres-main "psql -U postgres -d neanelu_shopify -c \"SELECT tablename, policyname FROM pg_policies;\""
 ```
 
 ### Application Deployment
 
 ```bash
 # 1. Pull new images
-docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml pull
 
 # 2. Graceful stop (finish in-progress jobs)
 docker compose exec backend-worker node scripts/graceful-shutdown.js
 
 # 3. Deploy with zero-downtime
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
+docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
 # 4. Verify containers running
 docker compose ps

@@ -589,6 +589,13 @@
       "when": 1771488000000,
       "tag": "0083_enable_scraper_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1771488001000,
+      "tag": "0084_openai_available_models",
+      "breakpoints": true
     }
   ]
 }

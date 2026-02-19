@@ -148,3 +148,11 @@ __pycache__/
 
 # Local-only docs (do not commit)
 Infrastructura_noua.md
+
+# DB backup dumps (large binary files)
+infra/backups/
+*.dump
+
+# CI/CD state files
+.last_pushed_tag
+infra/scripts/_*_secret_template.env

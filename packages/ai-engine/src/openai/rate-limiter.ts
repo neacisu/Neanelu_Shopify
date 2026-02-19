@@ -29,10 +29,20 @@ function perMinuteToPerSecond(value: number): number {
   return Math.max(1, Math.floor(value)) / 60;
 }
 
+function normalizeRedisPrefix(prefix: string | undefined): string {
+  if (!prefix) return '';
+  return prefix.endsWith(':') ? prefix : `${prefix}:`;
+}
+
 export async function gateOpenAiEmbeddingRequest(params: {
   redis: RedisClient;
   shopId: string;
   estimatedTokens: number;
+  /**
+   * Optional Redis key prefix (recommended) to keep environments isolated when Redis is shared.
+   * If omitted, falls back to a global `neanelu:` namespace for backward compatibility.
+   */
+  redisPrefix?: string;
   config?: OpenAiEmbeddingRateLimitConfig;
 }): Promise<OpenAiEmbeddingRateLimitResult> {
   const config = { ...DEFAULT_CONFIG, ...(params.config ?? {}) };
@@ -43,8 +53,15 @@ export async function gateOpenAiEmbeddingRequest(params: {
 
   const estimatedTokens = clampPositiveInt(params.estimatedTokens, 1);
 
-  const tokenBucketKey = `neanelu:ratelimit:openai-embed:tokens:${shopId}`;
-  const requestBucketKey = `neanelu:ratelimit:openai-embed:requests:${shopId}`;
+  const keyPrefix = normalizeRedisPrefix(params.redisPrefix);
+  const tokenBucketSuffix = `ratelimit:openai-embed:tokens:${shopId}`;
+  const requestBucketSuffix = `ratelimit:openai-embed:requests:${shopId}`;
+  const tokenBucketKey = keyPrefix
+    ? `${keyPrefix}${tokenBucketSuffix}`
+    : `neanelu:${tokenBucketSuffix}`;
+  const requestBucketKey = keyPrefix
+    ? `${keyPrefix}${requestBucketSuffix}`
+    : `neanelu:${requestBucketSuffix}`;
 
   const tokenCheck = await checkAndConsumeCost(params.redis, {
     bucketKey: tokenBucketKey,

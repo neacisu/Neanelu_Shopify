@@ -58,7 +58,7 @@ export function PieChart({
               : {})}
           >
             {data.map((entry, index) => (
-              <Cell key={`cell-${index}`} fill={entry.color} />
+              <Cell key={`cell-${index}`} fill={entry.color ?? '#94a3b8'} />
             ))}
           </Pie>
 

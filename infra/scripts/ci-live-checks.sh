@@ -37,13 +37,12 @@ now_utc() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 say() { echo "[$(now_utc)] $*"; }
 
 py_tcp_check() {
-  # Usage: py_tcp_check host port label
   local host="$1"
   local port="$2"
   local label="$3"
-  python3 - <<'PY'
+  TCP_HOST="$host" TCP_PORT="$port" TCP_LABEL="$label" python3 -c '
 import os, socket, sys
-host=sys.argv[1]; port=int(sys.argv[2]); label=sys.argv[3]
+host=os.environ["TCP_HOST"]; port=int(os.environ["TCP_PORT"]); label=os.environ["TCP_LABEL"]
 timeout=float(os.environ.get("TIMEOUT_S","3"))
 s=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.settimeout(timeout)
@@ -56,7 +55,7 @@ except Exception as e:
 finally:
     try: s.close()
     except Exception: pass
-PY "$host" "$port" "$label"
+'
 }
 
 curl_code() {

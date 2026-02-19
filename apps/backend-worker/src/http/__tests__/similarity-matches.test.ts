@@ -7,6 +7,11 @@ import { similarityMatchesRoutes } from '../../routes/similarity-matches.js';
 
 void mock.module('@app/database', {
   namedExports: {
+    pool: {
+      query: () => Promise.resolve({ rows: [] }),
+      connect: () =>
+        Promise.resolve({ query: () => Promise.resolve({ rows: [] }), release: () => undefined }),
+    },
     withTenantContext: async (
       _shopId: string,
       cb: (client: { query: (sql: string) => Promise<{ rows: unknown[] }> }) => Promise<unknown>

@@ -54,6 +54,7 @@ export const shopAiCredentials = pgTable(
 
     openaiBaseUrl: text('openai_base_url'),
     openaiEmbeddingsModel: text('openai_embeddings_model'),
+    openaiAvailableModels: text('openai_available_models').array(),
     embeddingBatchSize: integer('embedding_batch_size').default(100),
     similarityThreshold: numeric('similarity_threshold', { precision: 3, scale: 2 }).default(
       '0.80'

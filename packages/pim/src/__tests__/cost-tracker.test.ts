@@ -5,6 +5,11 @@ const queryMock = vi.fn();
 vi.mock('../db.js', () => ({
   getDbPool: () => ({
     query: queryMock,
+    connect: () =>
+      Promise.resolve({
+        query: queryMock,
+        release: vi.fn(),
+      }),
   }),
 }));
 
@@ -36,6 +41,8 @@ describe('cost-tracker', () => {
 
   it('computes openai dual budget status', async () => {
     queryMock
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [] }) // set_config
       .mockResolvedValueOnce({
         rows: [
           {

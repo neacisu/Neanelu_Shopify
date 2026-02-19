@@ -62,6 +62,11 @@ function readEnvelope(response: { json: () => unknown }) {
 
 void mock.module('@app/database', {
   namedExports: {
+    pool: {
+      query: () => Promise.resolve({ rows: [] }),
+      connect: () =>
+        Promise.resolve({ query: () => Promise.resolve({ rows: [] }), release: () => undefined }),
+    },
     withTenantContext: async (
       _shopId: string,
       fn: (client: {

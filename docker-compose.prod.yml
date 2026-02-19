@@ -1,0 +1,245 @@
+# =============================================================================
+# Neanelu Shopify Manager - Production Docker Compose
+# =============================================================================
+# Purpose:
+# - Run ONLY application/runtime services on CT111 (prod)
+# - Shared infrastructure is centralized:
+#   - Traefik gateway + OpenBao + observability: orchestrator
+#   - PostgreSQL: CT107 (postgres-main)
+#   - Redis: shared on orchestrator (via HAProxy VIP 10.0.1.10:6379)
+#
+# Usage (on CT111):
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Notes:
+# - Secrets are rendered by OpenBao Agent into a host directory (ideally tmpfs):
+#     ${NEANELU_RENDERED_SECRETS_DIR}/(api|workers|infra)
+# - This file is intentionally aditive; it does NOT include local Traefik/DB/Redis.
+# =============================================================================
+
+name: neanelu
+
+services:
+  # ==========================================================================
+  # OpenBao Agent (API) - renders api env + dynamic DB creds
+  # ==========================================================================
+  openbao-agent-api:
+    image: quay.io/openbao/openbao:2.5.0
+    container_name: neanelu-openbao-agent-api
+    restart: unless-stopped
+    user: '1000:1000'
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETGID
+      - SETUID
+    command: agent -config=/openbao/config/agent-api.hcl
+    environment:
+      NEANELU_ENV: production
+    extra_hosts:
+      # Force OpenBao traffic to stay internal via hz.247 L4 gateway (10.0.1.10:443 -> orchestrator Traefik).
+      - 's3cr3ts.neanelu.ro:10.0.1.10'
+    volumes:
+      - ./infra/config/openbao/agent-api.hcl:/openbao/config/agent-api.hcl:ro
+      - ./infra/config/openbao/templates:/openbao/templates:ro
+      - ${NEANELU_RENDERED_SECRETS_DIR:-/run/neanelu/runtime-secrets}/api:/secrets
+      - ./secrets/prod_api_role_id:/openbao/config/role_id:ro
+      - ./secrets/prod_api_secret_id:/openbao/config/secret_id:ro
+    healthcheck:
+      test: ['CMD', 'test', '-f', '/secrets/neanelu-api.env']
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  # ==========================================================================
+  # OpenBao Agent (Workers)
+  # ==========================================================================
+  openbao-agent-workers:
+    image: quay.io/openbao/openbao:2.5.0
+    container_name: neanelu-openbao-agent-workers
+    restart: unless-stopped
+    user: '1000:1000'
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETGID
+      - SETUID
+    command: agent -config=/openbao/config/agent-workers.hcl
+    environment:
+      NEANELU_ENV: production
+    extra_hosts:
+      - 's3cr3ts.neanelu.ro:10.0.1.10'
+    volumes:
+      - ./infra/config/openbao/agent-workers.hcl:/openbao/config/agent-workers.hcl:ro
+      - ./infra/config/openbao/templates:/openbao/templates:ro
+      - ${NEANELU_RENDERED_SECRETS_DIR:-/run/neanelu/runtime-secrets}/workers:/secrets
+      - ./secrets/prod_workers_role_id:/openbao/config/role_id:ro
+      - ./secrets/prod_workers_secret_id:/openbao/config/secret_id:ro
+    healthcheck:
+      test: ['CMD', 'test', '-f', '/secrets/neanelu-workers.env']
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  # ==========================================================================
+  # OpenBao Agent (Infra) - renders PgBouncer config + auth userlist
+  # ==========================================================================
+  openbao-agent-infra:
+    image: quay.io/openbao/openbao:2.5.0
+    container_name: neanelu-openbao-agent-infra
+    restart: unless-stopped
+    user: '1000:1000'
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETGID
+      - SETUID
+    command: agent -config=/openbao/config/agent-infra.hcl
+    environment:
+      NEANELU_ENV: production
+    extra_hosts:
+      - 's3cr3ts.neanelu.ro:10.0.1.10'
+    volumes:
+      - ./infra/config/openbao/agent-infra.hcl:/openbao/config/agent-infra.hcl:ro
+      - ./infra/config/openbao/templates:/openbao/templates:ro
+      - ${NEANELU_RENDERED_SECRETS_DIR:-/run/neanelu/runtime-secrets}/infra:/secrets
+      - ./secrets/prod_infra_role_id:/openbao/config/role_id:ro
+      - ./secrets/prod_infra_secret_id:/openbao/config/secret_id:ro
+    healthcheck:
+      test: ['CMD', 'test', '-f', '/secrets/pgbouncer.ini']
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  # ==========================================================================
+  # PgBouncer - Transaction pooling (avoid double pooling in app)
+  # ==========================================================================
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: neanelu-pgbouncer
+    restart: unless-stopped
+    user: '1000:1000'
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    volumes:
+      # Rendered by OpenBao Agent Infra (ideally tmpfs on host)
+      - ${NEANELU_RENDERED_SECRETS_DIR:-/run/neanelu/runtime-secrets}/infra:/etc/pgbouncer:ro
+    ports:
+      # Bind locally only; useful for smoke tests from the CT host.
+      - '127.0.0.1:6432:6432'
+    entrypoint: ['/usr/bin/pgbouncer', '/etc/pgbouncer/pgbouncer.ini']
+    depends_on:
+      openbao-agent-infra:
+        condition: service_healthy
+
+  # ==========================================================================
+  # Neanelu API / Worker runtime
+  # ==========================================================================
+  backend-worker:
+    # In production we deploy pre-built images (CI/CD). The CTs do not keep the full repo source.
+    image: ${NEANELU_REGISTRY:-ghcr.io}/${NEANELU_IMAGE_PREFIX:-neacisu/neanelu-shopify}/backend-worker:${NEANELU_VERSION:-latest}
+    container_name: neanelu-backend-worker
+    restart: unless-stopped
+    env_file:
+      - ${NEANELU_RENDERED_SECRETS_DIR:-/run/neanelu/runtime-secrets}/api/neanelu-api.env
+    environment:
+      NODE_ENV: production
+      DOCKER: 'true'
+      PORT: '65000'
+    ports:
+      - '65000:65000'
+    depends_on:
+      openbao-agent-api:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_started
+
+  web-admin:
+    image: ${NEANELU_REGISTRY:-ghcr.io}/${NEANELU_IMAGE_PREFIX:-neacisu/neanelu-shopify}/web-admin:${NEANELU_VERSION:-latest}
+    container_name: neanelu-web-admin
+    restart: unless-stopped
+    env_file:
+      - ${NEANELU_RENDERED_SECRETS_DIR:-/run/neanelu/runtime-secrets}/api/neanelu-api.env
+    environment:
+      NODE_ENV: production
+      DOCKER: 'true'
+      FRONTEND_PORT: '65001'
+    ports:
+      - '65001:65001'
+    depends_on:
+      openbao-agent-api:
+        condition: service_healthy
+
+  # Bull-board is kept as a placeholder until the app exposes queues consistently.
+  # The service is included for topology parity and can be implemented in a later step.
+  bull-board:
+    image: node:24-bookworm-slim
+    container_name: neanelu-bull-board
+    restart: unless-stopped
+    command: ['sh', '-lc', "echo 'bull-board placeholder (not implemented yet)' && sleep infinity"]
+
+  # ==========================================================================
+  # Observability exporters (scraped by central Prometheus via hz.247)
+  # ==========================================================================
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: neanelu-cadvisor
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - '65210:8080'
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+
+  pgbouncer-exporter:
+    image: prometheuscommunity/pgbouncer-exporter:v0.11.1
+    container_name: neanelu-pgbouncer-exporter
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    user: '1000:1000'
+    volumes:
+      - ${NEANELU_RENDERED_SECRETS_DIR:-/run/neanelu/runtime-secrets}/infra/userlist.txt:/secrets/userlist.txt:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        USER=$$(head -1 /secrets/userlist.txt | cut -d'"' -f2)
+        PASS=$$(head -1 /secrets/userlist.txt | cut -d'"' -f4)
+        CS="host=pgbouncer port=6432 user=$${USER} password=$${PASS} dbname=pgbouncer sslmode=disable connect_timeout=10"
+        exec /bin/pgbouncer_exporter \
+          --pgBouncer.connectionString="$${CS}" \
+          --web.listen-address=":9127"
+    ports:
+      - '65211:9127'
+    depends_on:
+      pgbouncer:
+        condition: service_started
+
+  # Node exporter runs with host networking (as-built on CT111).
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    container_name: neanelu-node-exporter
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - '--path.rootfs=/host'
+    volumes:
+      - '/:/host:ro,rslave'

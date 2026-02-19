@@ -8,7 +8,23 @@ export type AppEnv = Readonly<{
   appHost: URL;
 
   databaseUrl: string;
+  /**
+   * Prefer this for schema migrations (bypass PgBouncer).
+   * Optional in dev; recommended/required in staging+production deploy flows.
+   */
+  migrationDatabaseUrl?: string;
+  /**
+   * SSL mode used by DB clients.
+   * - disable: no TLS (dev/local)
+   * - require: TLS but don't verify cert chain (typical internal/L4 gateway)
+   * - verify-full: strict verification (requires CA config)
+   */
+  dbSslMode: 'disable' | 'require' | 'verify-full';
   redisUrl: string;
+  /** Key prefix for Redis isolation (e.g. neanelu:prod:) */
+  redisPrefix: string;
+  /** BullMQ prefix (queue keys namespace). Keep unique per environment. */
+  bullmqPrefix: string;
   bullmqProToken: string;
 
   /** PR-022 (F4.2): BullMQ Pro Groups fairness controls */
@@ -276,6 +292,30 @@ function parseRedisUrl(env: EnvSource, key: string): string {
   return value;
 }
 
+function parseDbSslMode(env: EnvSource): AppEnv['dbSslMode'] {
+  const raw = optionalString(env, 'DB_SSL_MODE') ?? 'disable';
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === 'disable' || normalized === 'require' || normalized === 'verify-full') {
+    return normalized;
+  }
+  throw new Error(`Invalid DB_SSL_MODE: ${raw} (expected disable|require|verify-full)`);
+}
+
+function normalizeKeyPrefix(raw: string, keyName: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    throw new Error(`Invalid ${keyName}: empty`);
+  }
+  if (/\s/.test(trimmed)) {
+    throw new Error(`Invalid ${keyName}: must not contain whitespace`);
+  }
+  // Keep a reasonable length; protects against accidental huge values.
+  if (trimmed.length > 128) {
+    throw new Error(`Invalid ${keyName}: too long`);
+  }
+  return trimmed.endsWith(':') ? trimmed : `${trimmed}:`;
+}
+
 function parseScopes(value: string): readonly string[] {
   const parts = value
     .split(',')
@@ -336,7 +376,21 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
 
   const appHost = parseUrl(env, 'APP_HOST');
   const databaseUrl = requiredString(env, 'DATABASE_URL');
+  const migrationDatabaseUrl = optionalString(env, 'MIGRATION_DATABASE_URL');
+  const dbSslMode = parseDbSslMode(env);
   const redisUrl = parseRedisUrl(env, 'REDIS_URL');
+  // Enforce Redis prefix in non-dev envs to avoid cross-environment key collisions.
+  const redisPrefixRaw =
+    nodeEnv === 'production' || nodeEnv === 'staging'
+      ? requiredString(env, 'REDIS_PREFIX')
+      : (optionalString(env, 'REDIS_PREFIX') ?? 'neanelu:dev:');
+  const redisPrefix = normalizeKeyPrefix(redisPrefixRaw, 'REDIS_PREFIX');
+
+  const bullmqPrefixRaw =
+    nodeEnv === 'production' || nodeEnv === 'staging'
+      ? requiredString(env, 'BULLMQ_PREFIX')
+      : (optionalString(env, 'BULLMQ_PREFIX') ?? redisPrefix);
+  const bullmqPrefix = normalizeKeyPrefix(bullmqPrefixRaw, 'BULLMQ_PREFIX');
   const bullmqProToken = requiredString(env, 'BULLMQ_PRO_TOKEN');
 
   // PR-022 (F4.2.3) defaults: keep aligned with Plan_de_implementare.
@@ -603,7 +657,11 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     port,
     appHost,
     databaseUrl,
+    ...(migrationDatabaseUrl ? { migrationDatabaseUrl } : {}),
+    dbSslMode,
     redisUrl,
+    redisPrefix,
+    bullmqPrefix,
     bullmqProToken,
     maxActivePerShop,
     maxGlobalConcurrency,

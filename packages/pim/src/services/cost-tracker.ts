@@ -69,40 +69,63 @@ export async function trackCost(params: TrackCostParams): Promise<void> {
   const tokensOutput = params.tokensOutput ?? 0;
   const requestCount = params.requestCount ?? 1;
 
-  await pool.query(
-    `INSERT INTO api_usage_log (
-       api_provider,
-       endpoint,
-       request_count,
-       tokens_input,
-       tokens_output,
-       estimated_cost,
-       http_status,
-       response_time_ms,
-       job_id,
-       product_id,
-       shop_id,
-       error_message,
-       metadata,
-       created_at
-     )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now())`,
-    [
-      params.provider,
-      params.endpoint,
-      requestCount,
-      tokensInput || null,
-      tokensOutput || null,
-      params.estimatedCost,
-      params.httpStatus,
-      params.responseTimeMs,
-      params.jobId ?? null,
-      params.productId ?? null,
-      params.shopId ?? null,
-      params.errorMessage ?? null,
-      JSON.stringify({ ...(params.metadata ?? {}), operation: params.operation }),
-    ]
-  );
+  // api_usage_log is protected by RLS in staging/prod; ensure tenant context exists when shopId is provided.
+  const client = await pool.connect();
+  try {
+    if (params.shopId) {
+      // set_config(..., true) is SET LOCAL; it must run within the same transaction as the INSERT.
+      await client.query('BEGIN');
+      await client.query(`SELECT set_config('app.current_shop_id', $1, true)`, [params.shopId]);
+    }
+
+    await client.query(
+      `INSERT INTO api_usage_log (
+         api_provider,
+         endpoint,
+         request_count,
+         tokens_input,
+         tokens_output,
+         estimated_cost,
+         http_status,
+         response_time_ms,
+         job_id,
+         product_id,
+         shop_id,
+         error_message,
+         metadata,
+         created_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now())`,
+      [
+        params.provider,
+        params.endpoint,
+        requestCount,
+        tokensInput || null,
+        tokensOutput || null,
+        params.estimatedCost,
+        params.httpStatus,
+        params.responseTimeMs,
+        params.jobId ?? null,
+        params.productId ?? null,
+        params.shopId ?? null,
+        params.errorMessage ?? null,
+        JSON.stringify({ ...(params.metadata ?? {}), operation: params.operation }),
+      ]
+    );
+    if (params.shopId) {
+      await client.query('COMMIT');
+    }
+  } finally {
+    if (params.shopId) {
+      try {
+        // If we failed after BEGIN, clean up connection state.
+        await client.query('ROLLBACK');
+      } catch {
+        // ignore
+      }
+    }
+    client.release();
+  }
 
   otelUsageCallback?.({
     provider: params.provider,
@@ -120,10 +143,15 @@ export async function checkBudget(
   shopId: string
 ): Promise<UnifiedBudgetStatus> {
   const pool = getDbPool();
+  // Both shop_ai_credentials and api_usage_log are RLS-protected; set tenant context on the same connection.
+  const client = await pool.connect();
+  // set_config(..., true) is SET LOCAL; it must live within an explicit transaction.
+  await client.query('BEGIN');
+  await client.query(`SELECT set_config('app.current_shop_id', $1, true)`, [shopId]);
 
-  if (provider === 'serper') {
-    const [budgetRes, usageRes] = await Promise.all([
-      pool.query<{
+  try {
+    if (provider === 'serper') {
+      const budgetRes = await client.query<{
         serper_daily_budget: number | null;
         serper_budget_alert_threshold: string | null;
       }>(
@@ -131,8 +159,8 @@ export async function checkBudget(
            FROM shop_ai_credentials
           WHERE shop_id = $1`,
         [shopId]
-      ),
-      pool.query<{ used: string }>(
+      );
+      const usageRes = await client.query<{ used: string }>(
         `SELECT COALESCE(SUM(request_count), 0) as used
            FROM api_usage_log
           WHERE api_provider = 'serper'
@@ -140,38 +168,39 @@ export async function checkBudget(
             AND created_at >= date_trunc('day', now())
             AND created_at < date_trunc('day', now()) + interval '1 day'`,
         [shopId]
-      ),
-    ]);
+      );
 
-    const limit = Number(budgetRes.rows[0]?.serper_daily_budget ?? 1000);
-    const alertThreshold = Number(budgetRes.rows[0]?.serper_budget_alert_threshold ?? 0.8);
-    const used = Number(usageRes.rows[0]?.used ?? 0);
-    const ratio = limit > 0 ? used / limit : 1;
+      const limit = Number(budgetRes.rows[0]?.serper_daily_budget ?? 1000);
+      const alertThreshold = Number(budgetRes.rows[0]?.serper_budget_alert_threshold ?? 0.8);
+      const used = Number(usageRes.rows[0]?.used ?? 0);
+      const ratio = limit > 0 ? used / limit : 1;
 
-    return {
-      provider,
-      primary: {
-        unit: 'requests',
-        used,
-        limit,
-        remaining: Math.max(0, limit - used),
-        ratio,
-      },
-      alertThreshold,
-      exceeded: used >= limit,
-      alertTriggered: ratio >= alertThreshold,
-    };
-  }
+      return {
+        provider,
+        primary: {
+          unit: 'requests',
+          used,
+          limit,
+          remaining: Math.max(0, limit - used),
+          ratio,
+        },
+        alertThreshold,
+        exceeded: used >= limit,
+        alertTriggered: ratio >= alertThreshold,
+      };
+    }
 
-  if (provider === 'xai') {
-    const [budgetRes, usageRes] = await Promise.all([
-      pool.query<{ xai_daily_budget: number | null; xai_budget_alert_threshold: string | null }>(
+    if (provider === 'xai') {
+      const budgetRes = await client.query<{
+        xai_daily_budget: number | null;
+        xai_budget_alert_threshold: string | null;
+      }>(
         `SELECT xai_daily_budget, xai_budget_alert_threshold
            FROM shop_ai_credentials
           WHERE shop_id = $1`,
         [shopId]
-      ),
-      pool.query<{ used: string }>(
+      );
+      const usageRes = await client.query<{ used: string }>(
         `SELECT COALESCE(SUM(estimated_cost), 0) as used
            FROM api_usage_log
           WHERE api_provider = 'xai'
@@ -179,31 +208,29 @@ export async function checkBudget(
             AND created_at >= date_trunc('day', now())
             AND created_at < date_trunc('day', now()) + interval '1 day'`,
         [shopId]
-      ),
-    ]);
+      );
 
-    const limit = Number(budgetRes.rows[0]?.xai_daily_budget ?? 1000);
-    const alertThreshold = Number(budgetRes.rows[0]?.xai_budget_alert_threshold ?? 0.8);
-    const used = Number(usageRes.rows[0]?.used ?? 0);
-    const ratio = limit > 0 ? used / limit : 1;
+      const limit = Number(budgetRes.rows[0]?.xai_daily_budget ?? 1000);
+      const alertThreshold = Number(budgetRes.rows[0]?.xai_budget_alert_threshold ?? 0.8);
+      const used = Number(usageRes.rows[0]?.used ?? 0);
+      const ratio = limit > 0 ? used / limit : 1;
 
-    return {
-      provider,
-      primary: {
-        unit: 'dollars',
-        used,
-        limit,
-        remaining: Math.max(0, limit - used),
-        ratio,
-      },
-      alertThreshold,
-      exceeded: used >= limit,
-      alertTriggered: ratio >= alertThreshold,
-    };
-  }
+      return {
+        provider,
+        primary: {
+          unit: 'dollars',
+          used,
+          limit,
+          remaining: Math.max(0, limit - used),
+          ratio,
+        },
+        alertThreshold,
+        exceeded: used >= limit,
+        alertTriggered: ratio >= alertThreshold,
+      };
+    }
 
-  const [budgetRes, usageRes] = await Promise.all([
-    pool.query<{
+    const budgetRes = await client.query<{
       openai_daily_budget: string | null;
       openai_budget_alert_threshold: string | null;
       openai_items_daily_budget: number | null;
@@ -212,8 +239,8 @@ export async function checkBudget(
          FROM shop_ai_credentials
         WHERE shop_id = $1`,
       [shopId]
-    ),
-    pool.query<{ used_cost: string; used_items: string }>(
+    );
+    const usageRes = await client.query<{ used_cost: string; used_items: string }>(
       `SELECT
           COALESCE(SUM(estimated_cost), 0) as used_cost,
           COALESCE(SUM(request_count), 0) as used_items
@@ -223,38 +250,49 @@ export async function checkBudget(
           AND created_at >= date_trunc('day', now())
           AND created_at < date_trunc('day', now()) + interval '1 day'`,
       [shopId]
-    ),
-  ]);
+    );
 
-  const costLimit = Number(budgetRes.rows[0]?.openai_daily_budget ?? 10);
-  const itemsLimit = Number(budgetRes.rows[0]?.openai_items_daily_budget ?? 100000);
-  const alertThreshold = Number(budgetRes.rows[0]?.openai_budget_alert_threshold ?? 0.8);
-  const usedCost = Number(usageRes.rows[0]?.used_cost ?? 0);
-  const usedItems = Number(usageRes.rows[0]?.used_items ?? 0);
-  const costRatio = costLimit > 0 ? usedCost / costLimit : 1;
-  const itemsRatio = itemsLimit > 0 ? usedItems / itemsLimit : 1;
-  const ratio = Math.max(costRatio, itemsRatio);
+    const costLimit = Number(budgetRes.rows[0]?.openai_daily_budget ?? 10);
+    const itemsLimit = Number(budgetRes.rows[0]?.openai_items_daily_budget ?? 100000);
+    const alertThreshold = Number(budgetRes.rows[0]?.openai_budget_alert_threshold ?? 0.8);
+    const usedCost = Number(usageRes.rows[0]?.used_cost ?? 0);
+    const usedItems = Number(usageRes.rows[0]?.used_items ?? 0);
+    const costRatio = costLimit > 0 ? usedCost / costLimit : 1;
+    const itemsRatio = itemsLimit > 0 ? usedItems / itemsLimit : 1;
+    const ratio = Math.max(costRatio, itemsRatio);
 
-  return {
-    provider,
-    primary: {
-      unit: 'dollars',
-      used: usedCost,
-      limit: costLimit,
-      remaining: Math.max(0, costLimit - usedCost),
-      ratio: costRatio,
-    },
-    secondary: {
-      unit: 'items',
-      used: usedItems,
-      limit: itemsLimit,
-      remaining: Math.max(0, itemsLimit - usedItems),
-      ratio: itemsRatio,
-    },
-    alertThreshold,
-    exceeded: usedCost >= costLimit || usedItems >= itemsLimit,
-    alertTriggered: ratio >= alertThreshold,
-  };
+    return {
+      provider,
+      primary: {
+        unit: 'dollars',
+        used: usedCost,
+        limit: costLimit,
+        remaining: Math.max(0, costLimit - usedCost),
+        ratio: costRatio,
+      },
+      secondary: {
+        unit: 'items',
+        used: usedItems,
+        limit: itemsLimit,
+        remaining: Math.max(0, itemsLimit - usedItems),
+        ratio: itemsRatio,
+      },
+      alertThreshold,
+      exceeded: usedCost >= costLimit || usedItems >= itemsLimit,
+      alertTriggered: ratio >= alertThreshold,
+    };
+  } finally {
+    try {
+      await client.query('COMMIT');
+    } catch {
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        // ignore
+      }
+    }
+    client.release();
+  }
 }
 
 export async function checkAllBudgets(shopId: string): Promise<UnifiedBudgetStatus[]> {

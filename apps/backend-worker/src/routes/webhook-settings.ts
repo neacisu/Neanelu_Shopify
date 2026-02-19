@@ -104,6 +104,8 @@ let redisClient: RedisClient | null = null;
 async function getRedisClient(redisUrl: string): Promise<RedisClient> {
   if (redisClient) return redisClient;
   const client = createClient({ url: redisUrl });
+  // Prevent Node.js from crashing on connection errors.
+  client.on('error', () => undefined);
   await client.connect();
   redisClient = client;
   return client;
@@ -111,10 +113,12 @@ async function getRedisClient(redisUrl: string): Promise<RedisClient> {
 
 async function waitForTestResult(
   client: RedisClient,
+  redisPrefix: string,
   testId: string,
   timeoutMs = 5000
 ): Promise<{ ok: boolean; latencyMs?: number }> {
-  const key = `webhook_test:${testId}`;
+  const prefix = redisPrefix.endsWith(':') ? redisPrefix : `${redisPrefix}:`;
+  const key = `${prefix}webhook_test:${testId}`;
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const value = await client.get(key);
@@ -265,7 +269,8 @@ export const webhookSettingsRoutes: FastifyPluginCallback<WebhookSettingsPluginO
           .digest('base64');
 
         const redis = await getRedisClient(env.redisUrl);
-        await redis.set(`webhook_test:${testId}`, 'pending', { EX: 10 });
+        const prefix = env.redisPrefix.endsWith(':') ? env.redisPrefix : `${env.redisPrefix}:`;
+        await redis.set(`${prefix}webhook_test:${testId}`, 'pending', { EX: 10 });
 
         const url = `${env.appHost.origin}/webhooks/${topic}`;
         const response = await fetch(url, {
@@ -287,7 +292,7 @@ export const webhookSettingsRoutes: FastifyPluginCallback<WebhookSettingsPluginO
             .send(errorEnvelope(request.id, 502, 'BAD_GATEWAY', 'Webhook test failed to send'));
         }
 
-        const result = await waitForTestResult(redis, testId);
+        const result = await waitForTestResult(redis, env.redisPrefix, testId);
         if (!result.ok) {
           return reply.send(
             successEnvelope(request.id, { success: false, testId, error: 'Webhook timeout' })

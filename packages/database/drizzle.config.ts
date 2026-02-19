@@ -26,7 +26,8 @@ export default defineConfig({
 
   // Database connection - folosește DATABASE_URL (owner)
   dbCredentials: {
-    url: process.env['DATABASE_URL'] ?? '',
+    // Prefer MIGRATION_DATABASE_URL in staging/prod to bypass PgBouncer.
+    url: process.env['MIGRATION_DATABASE_URL'] ?? process.env['DATABASE_URL'] ?? '',
   },
 
   // Verbose output pentru debugging

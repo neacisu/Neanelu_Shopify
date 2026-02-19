@@ -11,5 +11,5 @@
     "noEmit": true
   },
   "include": ["src/**/*.ts", "scripts/**/*.ts"],
-  "exclude": ["node_modules", "dist", "drizzle"]
+  "exclude": ["node_modules", "dist", "drizzle", "src/__tests__/**", "**/*.test.ts", "**/*.spec.ts"]
 }

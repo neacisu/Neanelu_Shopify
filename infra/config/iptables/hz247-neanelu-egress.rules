@@ -1,0 +1,36 @@
+# === Egress CT111 + CT112 (neanelu) -- ADITIVE pe hz.247 ===
+# Scop: permite CT111/CT112 sa faca egress strict (80/443 + DNS) catre internet.
+#
+# Aplicare (manual, pe hz.247):
+# - adauga liniile in `/etc/iptables.rules` (dupa regulile existente ale altor CT-uri)
+# - apoi: `iptables-restore < /etc/iptables.rules`
+#
+# Nota:
+# - Interfata WAN (outbound) este presupusa `enp98s0f0` (conform audit). Daca difera, inlocuieste in ambele tabele.
+
+*nat
+-A POSTROUTING -s 10.0.1.111/32 -o enp98s0f0 -p tcp -m multiport --dports 80,443 -j MASQUERADE
+-A POSTROUTING -s 10.0.1.111/32 -o enp98s0f0 -p udp -m udp --dport 53 -j MASQUERADE
+-A POSTROUTING -s 10.0.1.111/32 -o enp98s0f0 -p tcp -m tcp --dport 53 -j MASQUERADE
+
+-A POSTROUTING -s 10.0.1.112/32 -o enp98s0f0 -p tcp -m multiport --dports 80,443 -j MASQUERADE
+-A POSTROUTING -s 10.0.1.112/32 -o enp98s0f0 -p udp -m udp --dport 53 -j MASQUERADE
+-A POSTROUTING -s 10.0.1.112/32 -o enp98s0f0 -p tcp -m tcp --dport 53 -j MASQUERADE
+COMMIT
+
+*filter
+-A FORWARD -s 10.0.1.111/32 -o enp98s0f0 -p tcp -m multiport --dports 80,443 -j ACCEPT
+-A FORWARD -s 10.0.1.111/32 -o enp98s0f0 -p udp -m udp --dport 53 -j ACCEPT
+-A FORWARD -s 10.0.1.111/32 -o enp98s0f0 -p tcp -m tcp --dport 53 -j ACCEPT
+-A FORWARD -s 10.0.1.111/32 -o enp98s0f0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+-A FORWARD -d 10.0.1.111/32 -i enp98s0f0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+-A FORWARD -s 10.0.1.111/32 -o enp98s0f0 -j DROP
+
+-A FORWARD -s 10.0.1.112/32 -o enp98s0f0 -p tcp -m multiport --dports 80,443 -j ACCEPT
+-A FORWARD -s 10.0.1.112/32 -o enp98s0f0 -p udp -m udp --dport 53 -j ACCEPT
+-A FORWARD -s 10.0.1.112/32 -o enp98s0f0 -p tcp -m tcp --dport 53 -j ACCEPT
+-A FORWARD -s 10.0.1.112/32 -o enp98s0f0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+-A FORWARD -d 10.0.1.112/32 -i enp98s0f0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+-A FORWARD -s 10.0.1.112/32 -o enp98s0f0 -j DROP
+COMMIT
+

@@ -7,9 +7,9 @@ describe('ProviderComparisonTable', () => {
   it('renders caption and provider rows', () => {
     render(
       <ProviderComparisonTable
-        today={{ serper: 1, xai: 2, openai: 3, total: 6 }}
-        thisWeek={{ serper: 4, xai: 5, openai: 6, total: 15 }}
-        thisMonth={{ serper: 7, xai: 8, openai: 9, total: 24 }}
+        today={{ serper: 1, xai: 2, openai: 3, scraper: 0, total: 6 }}
+        thisWeek={{ serper: 4, xai: 5, openai: 6, scraper: 0, total: 15 }}
+        thisMonth={{ serper: 7, xai: 8, openai: 9, scraper: 0, total: 24 }}
       />
     );
 

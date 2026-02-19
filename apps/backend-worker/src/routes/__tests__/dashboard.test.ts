@@ -139,7 +139,7 @@ void describe('Dashboard Routes', () => {
     await app.register(
       dashboardRoutes as never,
       {
-        env: { redisUrl: 'redis://localhost:6379', shopifyApiSecret: 'test' },
+        env: { redisUrl: 'redis://localhost:6379', shopifyApiSecret: 'test', redisPrefix: '' },
         logger: { warn: () => undefined, info: () => undefined, error: () => undefined },
         sessionConfig: {},
       } as never

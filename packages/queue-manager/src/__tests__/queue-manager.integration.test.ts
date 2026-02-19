@@ -17,14 +17,18 @@ function getRequiredEnv(name: string): string {
 
 interface TestConfig {
   redisUrl: string;
+  bullmqPrefix: string;
   bullmqProToken: string;
 }
 
 function getTestConfig(): TestConfig {
   // Keep this aligned with packages/config loadEnv requirements:
-  // queue-manager uses only REDIS_URL + BULLMQ_PRO_TOKEN.
+  // queue-manager uses REDIS_URL + BULLMQ_PRO_TOKEN + BULLMQ_PREFIX.
   return {
     redisUrl: getRequiredEnv('REDIS_URL'),
+    bullmqPrefix: process.env['BULLMQ_PREFIX']?.trim()
+      ? String(process.env['BULLMQ_PREFIX']).trim()
+      : 'neanelu:test:',
     bullmqProToken: getRequiredEnv('BULLMQ_PRO_TOKEN'),
   };
 }
@@ -149,6 +153,48 @@ void describe('queue-manager (integration)', { skip: !testConfig }, () => {
       await worker.close();
       await events.close();
       await queue.close();
+    }
+  });
+
+  void it('uses BullMQ prefix for Redis keys (Plan G.3)', async () => {
+    assert.ok(testConfig);
+    const cfg = {
+      ...testConfig,
+      // Use a unique prefix so we can assert key isolation.
+      bullmqPrefix: `neanelu:test:${randomUUID()}:`,
+    };
+    const name = `${baseName}-prefix`;
+
+    const queue = createQueue({ config: cfg }, { name });
+    const redis = new IORedis(cfg.redisUrl);
+
+    const scanPrefix = cfg.bullmqPrefix.endsWith(':') ? cfg.bullmqPrefix : `${cfg.bullmqPrefix}:`;
+    const pattern = `${scanPrefix}*`;
+
+    const listKeys = async (): Promise<string[]> => {
+      let cursor = '0';
+      const keys: string[] = [];
+      do {
+        const res = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', '100');
+        cursor = String(res[0]);
+        keys.push(...(res[1] ?? []));
+      } while (cursor !== '0');
+      return keys;
+    };
+
+    try {
+      await queue.add('test', { id: randomUUID(), value: 1 });
+      // BullMQ creates multiple keys; we just need to see at least one under prefix.
+      const keys = await listKeys();
+      assert.ok(keys.length > 0, `Expected BullMQ keys under prefix=${cfg.bullmqPrefix}`);
+    } finally {
+      // Best-effort cleanup: remove the queue and any prefixed keys.
+      await queue.close().catch(() => undefined);
+      const keys = await listKeys().catch(() => []);
+      if (keys.length) {
+        await redis.del(...keys).catch(() => undefined);
+      }
+      await redis.quit().catch(() => undefined);
     }
   });
 

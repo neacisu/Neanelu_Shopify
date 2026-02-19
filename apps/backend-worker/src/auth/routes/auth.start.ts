@@ -25,6 +25,22 @@ export interface AuthStartRouteOptions {
   logger: Logger;
 }
 
+function firstForwarded(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const first = value.split(',')[0]?.trim();
+  return first ?? null;
+}
+
+function getPublicOrigin(request: FastifyRequest, fallbackOrigin: string): string {
+  const proto = firstForwarded(request.headers['x-forwarded-proto']) ?? request.protocol;
+  const host =
+    firstForwarded(request.headers['x-forwarded-host']) ??
+    (typeof request.headers.host === 'string' ? request.headers.host : null) ??
+    request.hostname;
+  if (proto && host) return `${proto}://${host}`;
+  return fallbackOrigin;
+}
+
 export function registerAuthStartRoute(
   server: FastifyInstance,
   options: AuthStartRouteOptions
@@ -74,7 +90,10 @@ export function registerAuthStartRoute(
       const expiresAt = getStateExpiration(10); // 10 minute TTL
 
       // 3. Construiește redirect URI
-      const redirectUri = `${env.appHost.origin}/auth/callback`;
+      // Derive the public origin from the request so staging/prod never "cross" even if APP_HOST
+      // is misconfigured in one environment. APP_HOST is still used elsewhere (webhooks).
+      const origin = getPublicOrigin(request, env.appHost.origin);
+      const redirectUri = `${origin}/auth/callback`;
 
       // 4. Salvează state în DB
       try {

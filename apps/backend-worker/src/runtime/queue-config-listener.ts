@@ -48,9 +48,16 @@ export async function startQueueConfigListener(
   registry: QueueWorkerRegistry
 ): Promise<RedisClient> {
   const redis = createClient({ url: env.redisUrl });
+  // Avoid Node.js "Unhandled 'error' event" crash loops when Redis disconnects.
+  redis.on('error', (error: unknown) => {
+    logger.warn({ error }, 'Redis error (queue config listener)');
+  });
   await redis.connect();
 
-  await redis.subscribe('queue_config_changed', (message) => {
+  // Namespace the pub/sub channel per environment to avoid cross-app collisions
+  // and to match Redis ACL channel patterns (we allow &<prefix>*).
+  const channel = `${env.bullmqPrefix}queue_config_changed`;
+  await redis.subscribe(channel, (message) => {
     const parsed = safeJsonParse<QueueConfigMessage>(message);
     if (!parsed || typeof parsed.queueName !== 'string') return;
     const concurrency = parsed.config?.concurrency;

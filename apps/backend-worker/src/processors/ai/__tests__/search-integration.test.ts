@@ -42,6 +42,11 @@ void mock.module('@app/queue-manager', {
 
 void mock.module('@app/database', {
   namedExports: {
+    pool: {
+      query: () => Promise.resolve({ rows: [] }),
+      connect: () =>
+        Promise.resolve({ query: () => Promise.resolve({ rows: [] }), release: () => undefined }),
+    },
     decryptAesGcm: () => Buffer.from(''),
     encryptAesGcm: () => ({
       ciphertext: Buffer.from(''),
@@ -52,7 +57,7 @@ void mock.module('@app/database', {
     setHnswEfSearch: () => Promise.resolve(),
     withTenantContext: async (_shopId: string, fn: (client: unknown) => Promise<unknown>) => {
       return await fn({
-        query: () => Promise.resolve({ rows: [{ count: 1 }] }),
+        query: () => Promise.resolve({ rows: [{ ok: 1 }], rowCount: 1 }),
       });
     },
   },
@@ -124,6 +129,20 @@ void mock.module(cachePath, {
   },
 });
 
+const openAiConfigPath = new URL('../../../runtime/openai-config.js', import.meta.url).href;
+void mock.module(openAiConfigPath, {
+  namedExports: {
+    getShopOpenAiConfig: () =>
+      Promise.resolve({
+        enabled: true,
+        baseUrl: 'https://api.openai.com',
+        embeddingsModel: 'text-embedding-3-large',
+        embeddingDimensions: 2000,
+        hasApiKey: true,
+      }),
+  },
+});
+
 const { searchRoutes } = await import('../../../routes/search.js');
 
 const env = {
@@ -132,7 +151,10 @@ const env = {
   port: 65000,
   appHost: new URL('https://example.com'),
   databaseUrl: 'postgres://user:pass@localhost:5432/test',
+  dbSslMode: 'disable',
   redisUrl: 'redis://localhost:6379',
+  redisPrefix: 'neanelu:test:',
+  bullmqPrefix: 'neanelu:test:',
   bullmqProToken: 'test-token',
   maxActivePerShop: 5,
   maxGlobalConcurrency: 50,

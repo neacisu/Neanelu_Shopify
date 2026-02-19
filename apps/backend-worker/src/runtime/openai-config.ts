@@ -8,6 +8,11 @@ export type ShopOpenAiConfig = Readonly<{
   openAiBaseUrl?: string;
   openAiEmbeddingsModel: string;
   source: 'shop' | 'env' | 'disabled';
+  /**
+   * Useful for UX/debug: the config exists, but cannot be used.
+   * Most commonly this happens when the AES key changed and the stored ciphertext can't be decrypted.
+   */
+  problem?: 'decrypt_failed';
 }>;
 
 type ShopAiRow = Readonly<{
@@ -105,6 +110,7 @@ export async function getShopOpenAiConfig(params: {
       ...(openAiBaseUrl ? { openAiBaseUrl } : {}),
       openAiEmbeddingsModel,
       source: 'disabled',
+      problem: 'decrypt_failed',
     };
   }
 }

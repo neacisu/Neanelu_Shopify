@@ -17,9 +17,10 @@ const { Pool } = pg;
 const MIGRATION_LOCK_ID = 12345;
 
 async function run(): Promise<void> {
-  const databaseUrl = process.env['DATABASE_URL'];
+  // Prefer MIGRATION_DATABASE_URL to bypass PgBouncer in staging/prod deploys.
+  const databaseUrl = process.env['MIGRATION_DATABASE_URL'] ?? process.env['DATABASE_URL'];
   if (!databaseUrl) {
-    throw new Error('Missing DATABASE_URL');
+    throw new Error('Missing MIGRATION_DATABASE_URL or DATABASE_URL');
   }
 
   const pool = new Pool({

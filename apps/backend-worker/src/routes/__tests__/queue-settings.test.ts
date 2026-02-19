@@ -33,6 +33,7 @@ const redisConnectMock = mock.fn(() => Promise.resolve());
 void mock.module('redis', {
   namedExports: {
     createClient: () => ({
+      on: () => undefined,
       connect: redisConnectMock,
       publish: redisPublishMock,
     }),

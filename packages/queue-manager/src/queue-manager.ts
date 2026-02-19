@@ -34,6 +34,7 @@ function requireNonEmpty(value: string, key: string): string {
 
 export type QueueManagerConfig = Readonly<{
   redisUrl: string;
+  bullmqPrefix: string;
   bullmqProToken: string;
 }>;
 
@@ -136,6 +137,7 @@ const dlqEntriesTotal = meter.createCounter('queue_dlq_entries_total', {
 export function configFromEnv(env: AppEnv): QueueManagerConfig {
   return {
     redisUrl: env.redisUrl,
+    bullmqPrefix: env.bullmqPrefix,
     bullmqProToken: env.bullmqProToken,
   };
 }
@@ -229,6 +231,7 @@ export function createQueue(
   const mergedBackoff = overrideJobOptions.backoff ?? policy.backoff;
 
   return new BullQueue(queue.name, {
+    prefix: options.config.bullmqPrefix,
     connection: buildConnection(options.config, options.connection),
     defaultJobOptions: {
       ...(overrideJobOptions as Omit<JobsProOptions, 'backoff'>),
@@ -252,6 +255,7 @@ export function createQueueEvents(
 ): BullQueueEvents {
   requireNonEmpty(options.config.bullmqProToken, 'BULLMQ_PRO_TOKEN');
   return new BullQueueEvents(queueEvents.name, {
+    prefix: options.config.bullmqPrefix,
     connection: buildConnection(options.config, options.connection),
     ...(queueEvents.queueEventsOptions ?? {}),
   });
@@ -385,6 +389,7 @@ export function createWorker<TData = unknown>(
     : undefined;
 
   const w = new BullWorker<TData>(worker.name, finalProcessor, {
+    prefix: options.config.bullmqPrefix,
     connection: buildConnection(options.config, options.connection),
     settings: {
       backoffStrategy: (attemptsMade: number, type?: string, _err?: Error, job?: MinimalJob) => {

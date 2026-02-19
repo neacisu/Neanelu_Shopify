@@ -1,0 +1,14 @@
+{{/*
+=============================================================================
+OpenBao Agent Template: Neanelu PgBouncer userlist (auth_user only)
+=============================================================================
+Destination: /secrets/userlist.txt
+Notes:
+- This file contains a plaintext password for PgBouncer's auth_user so PgBouncer
+  can connect to PostgreSQL and execute auth_query.
+=============================================================================
+*/}}
+{{- with secret "secret/neanelu/infra/pgbouncer" -}}
+"{{ .Data.auth_user }}" "{{ .Data.auth_password }}"
+{{- end -}}
+

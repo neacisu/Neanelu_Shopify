@@ -725,6 +725,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
 
 async function checkRedisConnection(redisUrl: string, timeoutMs = 1500): Promise<boolean> {
   const client = createClient({ url: redisUrl });
+  // Node-redis emits 'error'; without a listener Node will crash the process.
+  client.on('error', () => undefined);
 
   const timeout = new Promise<never>((_, reject) => {
     setTimeout(() => reject(new Error('redis check timeout')), timeoutMs).unref();

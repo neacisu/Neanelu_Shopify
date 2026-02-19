@@ -25,7 +25,7 @@
     "db:seed:taxonomy": "node --import tsx src/seed/taxonomy.ts",
     "db:seed": "node --import tsx src/seed/products.ts",
     "db:seed:ci": "node --import tsx src/seed/products-ci.ts",
-    "test": "node --test --experimental-test-isolation=none src/**/*.test.ts",
+    "test": "node scripts/test-runner.js",
     "test:schema": "node --test --experimental-test-isolation=none src/__tests__/schema/**/*.test.ts",
     "test:constraints": "node --test --experimental-test-isolation=none src/__tests__/constraints/**/*.test.ts",
     "test:indexes": "node --test --experimental-test-isolation=none src/__tests__/indexes/**/*.test.ts",
@@ -36,6 +36,7 @@
     "test:precommit": "node --test --experimental-test-isolation=none src/__tests__/precommit/**/*.test.ts",
     "test:integrity": "node --test --experimental-test-isolation=none src/__tests__/integrity/**/*.test.ts",
     "test:all": "node --test --experimental-test-isolation=none 'src/**/*.test.ts'",
+    "test:db": "node scripts/test-db.js",
     "generate:tests": "node --import tsx scripts/generate-schema-tests.ts"
   },
   "dependencies": {

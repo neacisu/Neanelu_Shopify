@@ -48,6 +48,7 @@ void describe('openai rate limiter', () => {
       redis: {} as Redis,
       shopId: 'shop-1',
       estimatedTokens: 100,
+      redisPrefix: 'neanelu:test:',
     });
     assert.equal(result.allowed, true);
     assert.equal(result.delayMs, 0);
@@ -59,6 +60,7 @@ void describe('openai rate limiter', () => {
       redis: {} as Redis,
       shopId: 'shop-1',
       estimatedTokens: 100,
+      redisPrefix: 'neanelu:test:',
     });
     assert.equal(result.allowed, false);
     assert.equal(result.delayMs, 500);
@@ -70,6 +72,7 @@ void describe('openai rate limiter', () => {
       redis: {} as Redis,
       shopId: 'shop-1',
       estimatedTokens: 100,
+      redisPrefix: 'neanelu:test:',
     });
     assert.equal(result.allowed, false);
     assert.equal(result.delayMs, 250);

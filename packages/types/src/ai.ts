@@ -90,6 +90,11 @@ export interface AiHealthResponse {
   baseUrl?: string;
   model?: string;
   source?: 'shop' | 'env' | 'disabled';
+  /**
+   * List of embedding-capable models (UI dropdown).
+   * When present, it's derived from /v1/models for the tested key.
+   */
+  availableModels?: string[];
 }
 
 export interface XaiSettingsResponse {

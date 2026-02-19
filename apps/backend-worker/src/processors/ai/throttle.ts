@@ -57,6 +57,7 @@ export async function checkBackfillThrottle(params: {
   const now = new Date();
   const { dayKey, hourKey } = formatKeyDate(now);
   const redis = getRedis();
+  const keyPrefix = env.redisPrefix;
 
   const maxItemsPerShopPerHour =
     params.maxItemsPerShopPerHour ??
@@ -72,10 +73,11 @@ export async function checkBackfillThrottle(params: {
     GLOBAL_HOURLY_LIMIT_DEFAULT;
   const maxItemsPerDay = params.maxItemsPerDay ?? env.openAiEmbeddingDailyBudget;
 
-  const shopHourKey = `embedding:backfill:shop:${params.shopId}:hour:${hourKey}`;
-  const shopDayKey = `embedding:backfill:shop:${params.shopId}:day:${dayKey}`;
-  const globalHourKey = `embedding:backfill:global:hour:${hourKey}`;
-  const globalDayKey = `embedding:backfill:global:day:${dayKey}`;
+  // Always namespace under env.redisPrefix since Redis is shared between environments.
+  const shopHourKey = `${keyPrefix}embedding:backfill:shop:${params.shopId}:hour:${hourKey}`;
+  const shopDayKey = `${keyPrefix}embedding:backfill:shop:${params.shopId}:day:${dayKey}`;
+  const globalHourKey = `${keyPrefix}embedding:backfill:global:hour:${hourKey}`;
+  const globalDayKey = `${keyPrefix}embedding:backfill:global:day:${dayKey}`;
 
   const [shopHourRaw, shopDayRaw, globalHourRaw, globalDayRaw] = await redis.mget(
     shopHourKey,

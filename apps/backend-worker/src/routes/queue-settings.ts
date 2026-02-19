@@ -95,6 +95,8 @@ let redisClient: RedisClient | null = null;
 async function getRedisClient(redisUrl: string): Promise<RedisClient> {
   if (redisClient) return redisClient;
   const client = createClient({ url: redisUrl });
+  // Prevent Node.js from crashing on connection errors.
+  client.on('error', () => undefined);
   await client.connect();
   redisClient = client;
   return client;
@@ -218,8 +220,10 @@ export const queueSettingsRoutes: FastifyPluginCallback<QueueSettingsPluginOptio
         );
 
         const redis = await getRedisClient(env.redisUrl);
+        // Keep pub/sub notifications isolated per environment (matches ACL).
+        const channel = `${env.bullmqPrefix}queue_config_changed`;
         await redis.publish(
-          'queue_config_changed',
+          channel,
           JSON.stringify({ queueName: name, config: payload, timestamp: Date.now() })
         );
 

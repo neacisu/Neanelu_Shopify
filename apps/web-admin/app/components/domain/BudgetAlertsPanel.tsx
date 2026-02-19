@@ -16,11 +16,19 @@ export type BudgetSnapshot = Readonly<{
 export type BudgetAlertsPanelProps = Readonly<{
   budget: BudgetSnapshot | null;
   providers?: readonly {
-    provider: 'serper' | 'xai' | 'openai';
+    provider: 'serper' | 'xai' | 'openai' | 'scraper';
     primary: {
       unit: 'requests' | 'dollars' | 'items';
       used: number;
       limit: number;
+      remaining?: number;
+      ratio: number;
+    };
+    secondary?: {
+      unit: 'items';
+      used: number;
+      limit: number;
+      remaining?: number;
       ratio: number;
     };
     alertThreshold: number;
@@ -130,7 +138,9 @@ export function BudgetAlertsPanel({
                   ? 'Serper'
                   : provider.provider === 'xai'
                     ? 'xAI'
-                    : 'OpenAI';
+                    : provider.provider === 'scraper'
+                      ? 'Scraper'
+                      : 'OpenAI';
               const providerStatus = provider.exceeded
                 ? 'critical'
                 : provider.alertTriggered
