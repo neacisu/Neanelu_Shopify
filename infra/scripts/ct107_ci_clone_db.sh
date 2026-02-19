@@ -117,7 +117,10 @@ fi
 
 clone_template() {
   echo \"clone_template source=${SOURCE_DB} target=${TARGET_DB}\"
-  # TEMPLATE clone is fast but may fail if source has concurrent sessions.
+  # Terminate idle sessions on source so TEMPLATE clone can proceed.
+  # Only kills client backends (not replication, autovacuum, etc.).
+  psql -d postgres -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='${SOURCE_DB}' AND pid <> pg_backend_pid() AND backend_type='client backend';\" || true
+  sleep 0.3
   psql -v ON_ERROR_STOP=1 -d postgres -c \"CREATE DATABASE \\\"${TARGET_DB}\\\" TEMPLATE \\\"${SOURCE_DB}\\\" OWNER neanelu_app;\"
 }
 
