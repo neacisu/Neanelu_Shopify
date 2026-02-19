@@ -789,7 +789,7 @@ jobs:
               WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
             UNION ALL
             SELECT 'drizzle_migrations', count(*)::text
-              FROM __drizzle_migrations
+              FROM drizzle.__drizzle_migrations
             UNION ALL
             SELECT 'has_shopify_products', CASE WHEN EXISTS (SELECT 1 FROM shopify_products LIMIT 1) THEN 'yes' ELSE 'empty' END
             UNION ALL
