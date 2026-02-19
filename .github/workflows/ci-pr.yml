@@ -684,13 +684,7 @@ jobs:
         env:
           NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
 
-      # ── Deploy + Grant DDL permissions to dynamic users on clone DBs ──
-      - name: Deploy updated CI scripts to CT107
-        run: |
-          set -euo pipefail
-          SCP_OPTS="-o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ~/.ssh/ct107_key"
-          scp ${SCP_OPTS} infra/scripts/ct107_ci_grant_db.sh "neanelu-ci@${CI_CT107_HOST}:/opt/neanelu/infra/scripts/ct107_ci_grant_db.sh"
-
+      # ── Grant DDL permissions + transfer ownership to dynamic users on clone DBs ──
       - name: Grant CI user full permissions on clone DBs
         run: |
           set -euo pipefail
