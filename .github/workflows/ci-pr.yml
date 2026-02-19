@@ -529,10 +529,10 @@ jobs:
   # Real Infra CI (CT108): clone DBs + connectivity
   # ============================================
   real-infra-smoke:
-    name: Real Infra (CT108) - Clones + Connectivity
+    name: Real Infra (CT108) - Clone + Migrate + Test
     if: ${{ github.event_name == 'push' && github.actor != 'dependabot[bot]' }}
     runs-on: [self-hosted, neanelu]
-    timeout-minutes: 45
+    timeout-minutes: 55
     needs:
       - lint-typecheck-build
       - test-packages
@@ -659,6 +659,210 @@ jobs:
           print("set_prod_resp", bad[:80].decode("utf-8","replace"))
           ' | tee real-infra.redis.txt
 
+      # ── Node.js + pnpm (needed for migrations and tests) ──
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
+
+      # ── Grant DDL permissions to dynamic users on clone DBs ──
+      - name: Grant CI user full permissions on clone DBs
+        run: |
+          set -euo pipefail
+          SSH_CMD="ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ~/.ssh/ct107_key neanelu-ci@${CI_CT107_HOST}"
+
+          grant_all() {
+            local db="$1" user="$2"
+            ${SSH_CMD} "sudo -u postgres psql -v ON_ERROR_STOP=1 -d '${db}' -c \"
+              GRANT ALL PRIVILEGES ON DATABASE \\\"${db}\\\" TO \\\"${user}\\\";
+              GRANT ALL ON SCHEMA public TO \\\"${user}\\\";
+              GRANT ALL ON ALL TABLES IN SCHEMA public TO \\\"${user}\\\";
+              GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO \\\"${user}\\\";
+              ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO \\\"${user}\\\";
+              ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO \\\"${user}\\\";
+            \""
+          }
+
+          grant_all "${DEV_DB}" "${DEV_USER}"
+          grant_all "${STAGING_DB}" "${STAGING_USER}"
+          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+            grant_all "${PROD_DB}" "${PROD_USER}"
+          fi
+
+      # ── Drizzle migrations on real data clones ──
+      - name: Run Drizzle migrations on clone (dev)
+        run: |
+          set -euo pipefail
+          export DATABASE_URL
+          DATABASE_URL=$(python3 -c "
+          import urllib.parse, os
+          u=urllib.parse.quote(os.environ['DEV_USER'], safe='')
+          p=urllib.parse.quote(os.environ['DEV_PASS'], safe='')
+          print(f\"postgresql://{u}:{p}@${CI_CT107_HOST}:${CI_CT107_PORT}/${DEV_DB}\")
+          ")
+          pnpm --filter @app/database db:migrate 2>&1 | tee real-infra.migrate.dev.txt
+
+      - name: Run Drizzle migrations on clone (staging)
+        run: |
+          set -euo pipefail
+          export DATABASE_URL
+          DATABASE_URL=$(python3 -c "
+          import urllib.parse, os
+          u=urllib.parse.quote(os.environ['STAGING_USER'], safe='')
+          p=urllib.parse.quote(os.environ['STAGING_PASS'], safe='')
+          print(f\"postgresql://{u}:{p}@${CI_CT107_HOST}:${CI_CT107_PORT}/${STAGING_DB}\")
+          ")
+          pnpm --filter @app/database db:migrate 2>&1 | tee real-infra.migrate.staging.txt
+
+      - name: Run Drizzle migrations on clone (prod, main only)
+        if: github.ref_name == 'main'
+        run: |
+          set -euo pipefail
+          export DATABASE_URL
+          DATABASE_URL=$(python3 -c "
+          import urllib.parse, os
+          u=urllib.parse.quote(os.environ['PROD_USER'], safe='')
+          p=urllib.parse.quote(os.environ['PROD_PASS'], safe='')
+          print(f\"postgresql://{u}:{p}@${CI_CT107_HOST}:${CI_CT107_PORT}/${PROD_DB}\")
+          ")
+          pnpm --filter @app/database db:migrate 2>&1 | tee real-infra.migrate.prod.txt
+
+      # ── Integration tests against real data ──
+      - name: Run integration tests (backend-worker, real data)
+        run: |
+          set -euo pipefail
+          export DATABASE_URL
+          DATABASE_URL=$(python3 -c "
+          import urllib.parse, os
+          u=urllib.parse.quote(os.environ['DEV_USER'], safe='')
+          p=urllib.parse.quote(os.environ['DEV_PASS'], safe='')
+          print(f\"postgresql://{u}:{p}@${CI_CT107_HOST}:${CI_CT107_PORT}/${DEV_DB}\")
+          ")
+          export REDIS_URL="redis://${CI_REDIS_USERNAME}:${CI_REDIS_PASSWORD}@${CI_REDIS_HOST}:${CI_REDIS_PORT}"
+          export BULLMQ_PREFIX="neanelu:ci:test:"
+          export RUN_INTEGRATION_TESTS=1
+
+          node --import tsx --test \
+            apps/backend-worker/src/processors/pim/__tests__/consensus.integration.test.ts \
+            2>&1 | tee real-infra.tests.consensus.txt
+        env:
+          APP_HOST: https://example.test
+          SHOPIFY_API_KEY: ci_dummy
+          SHOPIFY_API_SECRET: ci_dummy
+          SCOPES: read_products
+          ENCRYPTION_KEY_VERSION: '1'
+          ENCRYPTION_KEY_256: '0000000000000000000000000000000000000000000000000000000000000000'
+          OTEL_EXPORTER_OTLP_ENDPOINT: ''
+          OTEL_SERVICE_NAME: neanelu-shopify-ci
+          OTEL_SAMPLING_RATIO: '0'
+          OBS_DEBUG: '0'
+          NODE_ENV: test
+          BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
+          NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
+
+      - name: Run PIM tests with real DB
+        run: |
+          set -euo pipefail
+          export DATABASE_URL
+          DATABASE_URL=$(python3 -c "
+          import urllib.parse, os
+          u=urllib.parse.quote(os.environ['DEV_USER'], safe='')
+          p=urllib.parse.quote(os.environ['DEV_PASS'], safe='')
+          print(f\"postgresql://{u}:{p}@${CI_CT107_HOST}:${CI_CT107_PORT}/${DEV_DB}\")
+          ")
+          export PIM_TESTS_WITH_DB=1
+
+          pnpm --filter @app/pim test 2>&1 | tee real-infra.tests.pim.txt
+        env:
+          NODE_ENV: test
+
+      # ── Data integrity validation ──
+      - name: Validate data integrity (post-migration)
+        run: |
+          set -euo pipefail
+          export PGPASSWORD="${DEV_PASS}"
+
+          psql -h "${CI_CT107_HOST}" -p "${CI_CT107_PORT}" \
+               -U "${DEV_USER}" -d "${DEV_DB}" \
+               --no-align --tuples-only -c "
+            SELECT 'schema_tables' AS chk, count(*)::text AS val
+              FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+            UNION ALL
+            SELECT 'drizzle_migrations', count(*)::text
+              FROM __drizzle_migrations
+            UNION ALL
+            SELECT 'has_shopify_products', CASE WHEN EXISTS (SELECT 1 FROM shopify_products LIMIT 1) THEN 'yes' ELSE 'empty' END
+            UNION ALL
+            SELECT 'has_shops', CASE WHEN EXISTS (SELECT 1 FROM shops LIMIT 1) THEN 'yes' ELSE 'empty' END
+            UNION ALL
+            SELECT 'has_prod_master', CASE WHEN EXISTS (SELECT 1 FROM prod_master LIMIT 1) THEN 'yes' ELSE 'empty' END
+            UNION ALL
+            SELECT 'orphan_prod_embeddings',
+              count(*)::text
+              FROM prod_embeddings pe
+              LEFT JOIN prod_master pm ON pm.id = pe.product_id
+              WHERE pm.id IS NULL
+            UNION ALL
+            SELECT 'orphan_prod_specs',
+              count(*)::text
+              FROM prod_specs_normalized psn
+              LEFT JOIN prod_master pm ON pm.id = psn.product_id
+              WHERE pm.id IS NULL
+            UNION ALL
+            SELECT 'orphan_channel_mappings',
+              count(*)::text
+              FROM prod_channel_mappings pcm
+              LEFT JOIN prod_master pm ON pm.id = pcm.product_id
+              WHERE pm.id IS NULL
+            UNION ALL
+            SELECT 'orphan_shop_embeddings',
+              count(*)::text
+              FROM shop_product_embeddings spe
+              LEFT JOIN shopify_products sp ON sp.id = spe.product_id
+              WHERE sp.id IS NULL
+          ;" | tee real-infra.integrity.dev.txt
+
+          echo ""
+          echo "=== Data Integrity Results ==="
+          cat real-infra.integrity.dev.txt
+
+          python3 -c "
+          import sys
+          checks = {}
+          for line in open('real-infra.integrity.dev.txt'):
+            parts = line.strip().split('|')
+            if len(parts) == 2:
+              checks[parts[0]] = parts[1]
+          orphans = {k: int(v) for k, v in checks.items() if k.startswith('orphan_') and v.isdigit()}
+          total = sum(orphans.values())
+          if total > 0:
+            details = ', '.join(f'{k}={v}' for k, v in orphans.items() if v > 0)
+            print(f'::warning::Orphaned records detected: {details}')
+          else:
+            print('All FK integrity checks passed (0 orphans)')
+          tables = int(checks.get('schema_tables', '0'))
+          migrations = int(checks.get('drizzle_migrations', '0'))
+          if tables == 0:
+            print('::error::No tables found in schema - something is wrong')
+            sys.exit(1)
+          if migrations == 0:
+            print('::error::No migrations recorded - migration runner may have failed silently')
+            sys.exit(1)
+          print(f'Schema: {tables} tables, {migrations} migrations applied')
+          "
+
       - name: Upload artifacts (real infra)
         if: always()
         uses: actions/upload-artifact@v4
@@ -669,6 +873,9 @@ jobs:
             ct107_key.pub
             real-infra.psql.*.txt
             real-infra.redis.txt
+            real-infra.migrate.*.txt
+            real-infra.tests.*.txt
+            real-infra.integrity.*.txt
           retention-days: 7
 
       - name: Cleanup DB clones (always)
