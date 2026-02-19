@@ -600,10 +600,9 @@ jobs:
           OPENBAO_DB_ENV_PREFIX=STAGING OPENBAO_DB_CREDS_PATH=neanelu-db/creds/neanelu-staging-dynamic python3 .github/scripts/openbao_db_creds.py
           OPENBAO_DB_ENV_PREFIX=PROD OPENBAO_DB_CREDS_PATH=neanelu-db/creds/neanelu-prod-dynamic python3 .github/scripts/openbao_db_creds.py
 
-      - name: Verify DB clone connectivity (psql)
+      - name: Compute CI DB names
         run: |
-          set -euo pipefail
-          python3 - <<'PY' >> "$GITHUB_ENV"
+          python3 -c '
           import hashlib, os, re
           run_id=os.environ["RUN_ID"]
           clean=re.sub(r"[^a-zA-Z0-9_]+","_",run_id).strip("_")
@@ -611,11 +610,14 @@ jobs:
           h=hashlib.sha1(run_id.encode("utf-8")).hexdigest()[:8]
           clean=(clean[:24] if len(clean)>24 else clean)
           suffix=f"{clean}_{h}" if clean else f"run_{h}"
-          print("DEV_DB="+f"neanelu_shopify_dev_ci_{suffix}")
-          print("STAGING_DB="+f"neanelu_shopify_staging_ci_{suffix}")
-          print("PROD_DB="+f"neanelu_shopify_prod_ci_{suffix}")
-          PY
+          print("DEV_DB=neanelu_shopify_dev_ci_"+suffix)
+          print("STAGING_DB=neanelu_shopify_staging_ci_"+suffix)
+          print("PROD_DB=neanelu_shopify_prod_ci_"+suffix)
+          ' >> "$GITHUB_ENV"
 
+      - name: Verify DB clone connectivity (psql)
+        run: |
+          set -euo pipefail
           export PGPASSWORD="${DEV_PASS}"
           psql -h "${CI_CT107_HOST}" -p "${CI_CT107_PORT}" -U "${DEV_USER}" -d "${DEV_DB}" -c "select 1;" | tee real-infra.psql.dev.txt
 
@@ -632,7 +634,7 @@ jobs:
       - name: Verify Redis CI scope (AUTH + prefix)
         run: |
           set -euo pipefail
-          REDIS_PASS="${CI_REDIS_PASSWORD}" python3 - <<'PY'
+          REDIS_PASS="${CI_REDIS_PASSWORD}" python3 -c '
           import os, socket
           host=os.environ.get("CI_REDIS_HOST","10.0.1.10")
           port=int(os.environ.get("CI_REDIS_PORT","6379"))
@@ -641,11 +643,11 @@ jobs:
           run_id=os.environ["RUN_ID"]
 
           def send(cmd):
-              parts=[b'*'+str(len(cmd)).encode()+b'\r\n']
+              parts=[b"*"+str(len(cmd)).encode()+b"\r\n"]
               for a in cmd:
                   b=a.encode()
-                  parts.append(b'$'+str(len(b)).encode()+b'\r\n'+b+b'\r\n')
-              s.sendall(b''.join(parts))
+                  parts.append(b"$"+str(len(b)).encode()+b"\r\n"+b+b"\r\n")
+              s.sendall(b"".join(parts))
               return s.recv(4096)
 
           s=socket.socket(); s.settimeout(3)
@@ -655,7 +657,7 @@ jobs:
           bad=send(["SET", "neanelu:prod:should_fail", "1"])
           print("set_ci_resp", ok[:40].decode("utf-8","replace"))
           print("set_prod_resp", bad[:80].decode("utf-8","replace"))
-          PY | tee real-infra.redis.txt
+          ' | tee real-infra.redis.txt
 
       - name: Upload artifacts (real infra)
         if: always()
