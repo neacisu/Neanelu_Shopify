@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Grant full permissions on a CI clone database to a specified user.
+# Grant full permissions + transfer ownership on a CI clone database.
 # Run as: sudo -u postgres ct107_ci_grant_db.sh --db <db_name> --user <username>
 #
 # Safety: only operates on databases matching the CI clone naming pattern
@@ -51,19 +51,24 @@ psql -v ON_ERROR_STOP=1 -d "${DB_NAME}" -c "
   GRANT ALL ON ALL SEQUENCES IN SCHEMA drizzle TO \"${GRANT_USER}\";
   ALTER DEFAULT PRIVILEGES IN SCHEMA drizzle GRANT ALL ON TABLES TO \"${GRANT_USER}\";
   ALTER DEFAULT PRIVILEGES IN SCHEMA drizzle GRANT ALL ON SEQUENCES TO \"${GRANT_USER}\";
+
+  -- Transfer ownership (needed for ALTER TABLE ADD COLUMN etc.)
+  DO \$xfer\$
+  DECLARE r RECORD;
+  BEGIN
+    FOR r IN SELECT schemaname, tablename FROM pg_tables WHERE schemaname IN ('public','drizzle') LOOP
+      EXECUTE format('ALTER TABLE %I.%I OWNER TO %I', r.schemaname, r.tablename, '${GRANT_USER}');
+    END LOOP;
+    FOR r IN SELECT schemaname, sequencename FROM pg_sequences WHERE schemaname IN ('public','drizzle') LOOP
+      EXECUTE format('ALTER SEQUENCE %I.%I OWNER TO %I', r.schemaname, r.sequencename, '${GRANT_USER}');
+    END LOOP;
+    FOR r IN SELECT schemaname, viewname FROM pg_views WHERE schemaname IN ('public','drizzle') LOOP
+      EXECUTE format('ALTER VIEW %I.%I OWNER TO %I', r.schemaname, r.viewname, '${GRANT_USER}');
+    END LOOP;
+    FOR r IN SELECT schemaname, matviewname FROM pg_matviews WHERE schemaname IN ('public','drizzle') LOOP
+      EXECUTE format('ALTER MATERIALIZED VIEW %I.%I OWNER TO %I', r.schemaname, r.matviewname, '${GRANT_USER}');
+    END LOOP;
+  END\$xfer\$;
 "
-
-echo "transfer_ownership db=${DB_NAME} user=${GRANT_USER}"
-
-psql -At -d "${DB_NAME}" -c "
-  SELECT format('ALTER TABLE %I.%I OWNER TO %I;', schemaname, tablename, '${GRANT_USER}')
-  FROM pg_tables WHERE schemaname IN ('public','drizzle');
-  SELECT format('ALTER SEQUENCE %I.%I OWNER TO %I;', schemaname, sequencename, '${GRANT_USER}')
-  FROM pg_sequences WHERE schemaname IN ('public','drizzle');
-  SELECT format('ALTER VIEW %I.%I OWNER TO %I;', schemaname, viewname, '${GRANT_USER}')
-  FROM pg_views WHERE schemaname IN ('public','drizzle');
-  SELECT format('ALTER MATERIALIZED VIEW %I.%I OWNER TO %I;', schemaname, matviewname, '${GRANT_USER}')
-  FROM pg_matviews WHERE schemaname IN ('public','drizzle');
-" | psql -v ON_ERROR_STOP=1 -d "${DB_NAME}"
 
 echo "grant_ok db=${DB_NAME} user=${GRANT_USER}"
