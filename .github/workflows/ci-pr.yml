@@ -682,22 +682,10 @@ jobs:
           set -euo pipefail
           SSH_CMD="ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ~/.ssh/ct107_key neanelu-ci@${CI_CT107_HOST}"
 
-          grant_all() {
-            local db="$1" user="$2"
-            ${SSH_CMD} "sudo -u postgres psql -v ON_ERROR_STOP=1 -d '${db}' -c \"
-              GRANT ALL PRIVILEGES ON DATABASE \\\"${db}\\\" TO \\\"${user}\\\";
-              GRANT ALL ON SCHEMA public TO \\\"${user}\\\";
-              GRANT ALL ON ALL TABLES IN SCHEMA public TO \\\"${user}\\\";
-              GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO \\\"${user}\\\";
-              ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO \\\"${user}\\\";
-              ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO \\\"${user}\\\";
-            \""
-          }
-
-          grant_all "${DEV_DB}" "${DEV_USER}"
-          grant_all "${STAGING_DB}" "${STAGING_USER}"
+          ${SSH_CMD} "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_grant_db.sh --db '${DEV_DB}' --user '${DEV_USER}'"
+          ${SSH_CMD} "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_grant_db.sh --db '${STAGING_DB}' --user '${STAGING_USER}'"
           if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
-            grant_all "${PROD_DB}" "${PROD_USER}"
+            ${SSH_CMD} "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_grant_db.sh --db '${PROD_DB}' --user '${PROD_USER}'"
           fi
 
       # ── Drizzle migrations on real data clones ──
