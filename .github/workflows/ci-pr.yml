@@ -674,6 +674,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
+      - name: Configure BullMQ Pro registry auth
+        run: echo "//npm.taskforce.sh/:_authToken=${NPM_TASKFORCESH_TOKEN}" >> .npmrc
+        env:
+          NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
         env:
