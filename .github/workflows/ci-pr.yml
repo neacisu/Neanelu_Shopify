@@ -24,7 +24,6 @@ concurrency:
 permissions:
   contents: read
   security-events: write
-  actions: write
 
 env:
   NODE_VERSION: '24'
@@ -891,35 +890,26 @@ jobs:
   # ============================================
   # CD trigger from CI result (push only)
   # ============================================
-  trigger-cd-deploy:
-    name: Trigger CD deploy (staging/prod)
-    if: ${{ github.event_name == 'push' && github.actor != 'dependabot[bot]' }}
-    runs-on: ubuntu-latest
+  deploy-staging:
+    name: Deploy staging (push on non-main)
+    if: ${{ github.event_name == 'push' && github.actor != 'dependabot[bot]' && github.ref_name != 'main' }}
+    uses: ./.github/workflows/deploy.yml
     needs:
       - real-infra-smoke
       - security-scan
-    steps:
-      - name: Validate upstream CI jobs succeeded
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ "${{ needs.real-infra-smoke.result }}" == "success" ]] || { echo "real-infra-smoke failed"; exit 1; }
-          [[ "${{ needs.security-scan.result }}" == "success" ]] || { echo "security-scan failed"; exit 1; }
+    with:
+      environment: staging
+      version: ${{ github.sha }}
+    secrets: inherit
 
-      - name: Trigger deploy workflow
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const env = context.ref.replace('refs/heads/', '') === 'main' ? 'production' : 'staging';
-            const headBranch = context.ref.replace('refs/heads/', '');
-            const sha = context.sha;
-
-            await github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'deploy.yml',
-              ref: headBranch,
-              inputs: { environment: env, version: sha },
-            });
-
-            core.info(`Triggered deploy.yml env=${env} ref=${headBranch} sha=${sha}`);
+  deploy-production:
+    name: Deploy production (push on main)
+    if: ${{ github.event_name == 'push' && github.actor != 'dependabot[bot]' && github.ref_name == 'main' }}
+    uses: ./.github/workflows/deploy.yml
+    needs:
+      - real-infra-smoke
+      - security-scan
+    with:
+      environment: production
+      version: ${{ github.sha }}
+    secrets: inherit

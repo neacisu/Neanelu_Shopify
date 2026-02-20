@@ -20,6 +20,14 @@
 name: CD - Deploy
 
 on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      version:
+        required: false
+        type: string
   workflow_dispatch:
     inputs:
       environment:
