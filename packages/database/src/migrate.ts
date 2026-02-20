@@ -5,8 +5,13 @@
  * - forward-only migrations (no down migrations)
  * - advisory lock to prevent concurrent migration runners
  * - uses SQL migrations from ./drizzle/migrations
+ *
+ * Uses 'public' schema for migration tracking to avoid permission issues
+ * with OpenBao dynamic credentials that don't have access to the 'drizzle' schema.
  */
 
+import crypto from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 import pg from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
@@ -15,9 +20,66 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 const { Pool } = pg;
 
 const MIGRATION_LOCK_ID = 12345;
+const MIGRATIONS_SCHEMA = 'public';
+const MIGRATIONS_TABLE = '__drizzle_migrations';
+
+/**
+ * One-time bootstrap: if switching from 'drizzle' schema to 'public' schema,
+ * pre-populate the tracking table with hashes of all existing migration SQL files
+ * so Drizzle doesn't try to re-apply them.
+ */
+async function bootstrapMigrationTracking(
+  client: pg.PoolClient,
+  migrationsFolder: string
+): Promise<void> {
+  const tableExists = await client.query(
+    `SELECT 1 FROM information_schema.tables
+     WHERE table_schema = $1 AND table_name = $2`,
+    [MIGRATIONS_SCHEMA, MIGRATIONS_TABLE]
+  );
+
+  if (tableExists.rows.length > 0) return;
+
+  console.info('[db:migrate] bootstrapping migration tracking in public schema');
+
+  const journalPath = path.join(migrationsFolder, 'meta', '_journal.json');
+  if (!fs.existsSync(journalPath)) return;
+
+  interface JournalEntry {
+    tag: string;
+    when: number;
+  }
+  const journal = JSON.parse(fs.readFileSync(journalPath, 'utf-8')) as { entries?: JournalEntry[] };
+  const entries: JournalEntry[] = journal.entries ?? [];
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS ${MIGRATIONS_SCHEMA}.${MIGRATIONS_TABLE} (
+      id serial PRIMARY KEY,
+      hash text NOT NULL,
+      created_at bigint
+    )
+  `);
+
+  for (const entry of entries) {
+    const sqlFile = path.join(migrationsFolder, `${entry.tag}.sql`);
+    if (!fs.existsSync(sqlFile)) continue;
+
+    const sqlContent = fs.readFileSync(sqlFile, 'utf-8');
+    const hash = crypto.createHash('sha256').update(sqlContent).digest('hex');
+
+    await client.query(
+      `INSERT INTO ${MIGRATIONS_SCHEMA}.${MIGRATIONS_TABLE} (hash, created_at)
+       SELECT $1, $2 WHERE NOT EXISTS (
+         SELECT 1 FROM ${MIGRATIONS_SCHEMA}.${MIGRATIONS_TABLE} WHERE hash = $1
+       )`,
+      [hash, entry.when]
+    );
+  }
+
+  console.info(`[db:migrate] bootstrapped ${entries.length} migration records`);
+}
 
 async function run(): Promise<void> {
-  // Prefer MIGRATION_DATABASE_URL to bypass PgBouncer in staging/prod deploys.
   const databaseUrl = process.env['MIGRATION_DATABASE_URL'] ?? process.env['DATABASE_URL'];
   if (!databaseUrl) {
     throw new Error('Missing MIGRATION_DATABASE_URL or DATABASE_URL');
@@ -34,8 +96,11 @@ async function run(): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_ID]);
+
+    await bootstrapMigrationTracking(client, migrationsFolder);
+
     const db = drizzle(client);
-    await migrate(db, { migrationsFolder });
+    await migrate(db, { migrationsFolder, migrationsSchema: MIGRATIONS_SCHEMA });
   } finally {
     try {
       await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_ID]);
