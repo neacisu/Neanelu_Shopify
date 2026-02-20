@@ -117,11 +117,17 @@ fi
 
 clone_template() {
   echo \"clone_template source=${SOURCE_DB} target=${TARGET_DB}\"
-  # Terminate idle sessions on source so TEMPLATE clone can proceed.
-  # Only kills client backends (not replication, autovacuum, etc.).
-  psql -d postgres -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='${SOURCE_DB}' AND pid <> pg_backend_pid() AND backend_type='client backend';\" || true
+  # Block new connections so no client can reconnect between terminate and clone.
+  psql -d postgres -c \"ALTER DATABASE \\\"${SOURCE_DB}\\\" ALLOW_CONNECTIONS false;\" || true
+  psql -d postgres -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='${SOURCE_DB}' AND pid <> pg_backend_pid();\" || true
   sleep 0.3
-  psql -v ON_ERROR_STOP=1 -d postgres -c \"CREATE DATABASE \\\"${TARGET_DB}\\\" TEMPLATE \\\"${SOURCE_DB}\\\" OWNER neanelu_app;\"
+  if psql -v ON_ERROR_STOP=1 -d postgres -c \"CREATE DATABASE \\\"${TARGET_DB}\\\" TEMPLATE \\\"${SOURCE_DB}\\\" OWNER neanelu_app;\"; then
+    psql -d postgres -c \"ALTER DATABASE \\\"${SOURCE_DB}\\\" ALLOW_CONNECTIONS true;\" || true
+    return 0
+  else
+    psql -d postgres -c \"ALTER DATABASE \\\"${SOURCE_DB}\\\" ALLOW_CONNECTIONS true;\" || true
+    return 1
+  fi
 }
 
 clone_dump() {

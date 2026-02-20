@@ -195,8 +195,7 @@ jobs:
           dump="predeploy-backup/${TARGET_ENV}_${DEPLOY_SHA}_${ts}.dump"
           ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes \
             -i ~/.ssh/ct107_key neanelu-ci@10.0.1.107 \
-            "PGPASSWORD='${DB_PASS}' pg_dump -h 127.0.0.1 -p 5432 \
-              -U '${DB_USER}' -d '${DB_NAME}' \
+            "sudo -u postgres pg_dump -d '${DB_NAME}' \
               -Fc --no-owner --no-acl \
               --exclude-schema=drizzle" \
             > "${dump}"
