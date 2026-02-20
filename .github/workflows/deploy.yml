@@ -20,9 +20,6 @@
 name: CD - Deploy
 
 on:
-  workflow_run:
-    workflows: ['CI - Pull Request']
-    types: [completed]
   workflow_dispatch:
     inputs:
       environment:
@@ -36,11 +33,7 @@ on:
         type: string
 
 concurrency:
-  group: >-
-    deploy-${{
-      github.event_name == 'workflow_dispatch' && inputs.environment ||
-      (github.event.workflow_run.head_branch == 'main' && 'production' || 'staging')
-    }}
+  group: deploy-${{ inputs.environment }}
   cancel-in-progress: false
 
 permissions:
@@ -56,11 +49,6 @@ jobs:
   resolve:
     name: Resolve deployment target
     runs-on: ubuntu-latest
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push')
     outputs:
       environment: ${{ steps.resolve.outputs.environment }}
       version: ${{ steps.resolve.outputs.version }}
@@ -71,22 +59,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "environment=${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
-            VER="${{ inputs.version }}"
-            echo "version=${VER:-${{ github.sha }}}" >> "$GITHUB_OUTPUT"
-            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-          else
-            BRANCH="${{ github.event.workflow_run.head_branch }}"
-            SHA="${{ github.event.workflow_run.head_sha }}"
-            if [[ "$BRANCH" == "main" ]]; then
-              echo "environment=production" >> "$GITHUB_OUTPUT"
-            else
-              echo "environment=staging" >> "$GITHUB_OUTPUT"
-            fi
-            echo "version=${SHA}" >> "$GITHUB_OUTPUT"
-            echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
-          fi
+          echo "environment=${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
+          VER="${{ inputs.version }}"
+          echo "version=${VER:-${{ github.sha }}}" >> "$GITHUB_OUTPUT"
+          echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
   build-push:
     name: Build & Push images
