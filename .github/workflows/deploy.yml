@@ -20,6 +20,9 @@
 name: CD - Deploy
 
 on:
+  workflow_run:
+    workflows: ['CI - Pull Request']
+    types: [completed]
   workflow_dispatch:
     inputs:
       environment:
@@ -33,7 +36,11 @@ on:
         type: string
 
 concurrency:
-  group: deploy-${{ inputs.environment }}
+  group: >-
+    deploy-${{
+      github.event_name == 'workflow_dispatch' && inputs.environment ||
+      (github.event.workflow_run.head_branch == 'main' && 'production' || 'staging')
+    }}
   cancel-in-progress: false
 
 permissions:
@@ -46,26 +53,60 @@ env:
   OPENBAO_ADDR: '${{ secrets.OPENBAO_ADDR }}'
 
 jobs:
+  resolve:
+    name: Resolve deployment target
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+    outputs:
+      environment: ${{ steps.resolve.outputs.environment }}
+      version: ${{ steps.resolve.outputs.version }}
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Resolve environment/version/sha
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "environment=${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
+            VER="${{ inputs.version }}"
+            echo "version=${VER:-${{ github.sha }}}" >> "$GITHUB_OUTPUT"
+            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            BRANCH="${{ github.event.workflow_run.head_branch }}"
+            SHA="${{ github.event.workflow_run.head_sha }}"
+            if [[ "$BRANCH" == "main" ]]; then
+              echo "environment=production" >> "$GITHUB_OUTPUT"
+            else
+              echo "environment=staging" >> "$GITHUB_OUTPUT"
+            fi
+            echo "version=${SHA}" >> "$GITHUB_OUTPUT"
+            echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
   build-push:
     name: Build & Push images
     runs-on: [self-hosted, neanelu]
     timeout-minutes: 30
+    needs: [resolve]
     outputs:
       image_tag: ${{ steps.tag.outputs.tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
 
       - name: Compute image tag
         id: tag
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -n "${{ inputs.version }}" ]]; then
-            echo "tag=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-          fi
+          echo "tag=${{ needs.resolve.outputs.version }}" >> "$GITHUB_OUTPUT"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -92,7 +133,7 @@ jobs:
           set -euo pipefail
           TAG="${{ steps.tag.outputs.tag }}"
           test -n "${NPM_TASKFORCESH_TOKEN}" || (echo "Missing NPM_TASKFORCESH_TOKEN" >&2; exit 1)
-          DOCKER_BUILDKIT=1 docker build \
+          DOCKER_BUILDKIT=1 docker build --no-cache \
             -f apps/backend-worker/Dockerfile \
             --secret id=npm_token,env=NPM_TASKFORCESH_TOKEN \
             -t "ghcr.io/neacisu/neanelu-shopify/backend-worker:${TAG}" .
@@ -106,7 +147,7 @@ jobs:
           set -euo pipefail
           TAG="${{ steps.tag.outputs.tag }}"
           test -n "${NPM_TASKFORCESH_TOKEN}" || (echo "Missing NPM_TASKFORCESH_TOKEN" >&2; exit 1)
-          DOCKER_BUILDKIT=1 docker build \
+          DOCKER_BUILDKIT=1 docker build --no-cache \
             -f apps/web-admin/Dockerfile \
             --secret id=npm_token,env=NPM_TASKFORCESH_TOKEN \
             -t "ghcr.io/neacisu/neanelu-shopify/web-admin:${TAG}" .
@@ -116,13 +157,15 @@ jobs:
     name: DB migrations (direct CT107)
     runs-on: [self-hosted, neanelu]
     timeout-minutes: 20
-    needs: [build-push]
+    needs: [build-push, resolve]
     env:
       NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
       BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -144,7 +187,7 @@ jobs:
         env:
           OPENBAO_CICD_ROLE_ID: '${{ secrets.OPENBAO_CICD_ROLE_ID }}'
           OPENBAO_CICD_SECRET_ID: '${{ secrets.OPENBAO_CICD_SECRET_ID }}'
-          TARGET_ENV: '${{ inputs.environment }}'
+          TARGET_ENV: '${{ needs.resolve.outputs.environment }}'
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -179,20 +222,21 @@ jobs:
       - name: Pre-deploy backup (pg_dump, artifact)
         shell: bash
         env:
-          TARGET_ENV: '${{ inputs.environment }}'
+          TARGET_ENV: '${{ needs.resolve.outputs.environment }}'
+          DEPLOY_SHA: '${{ needs.resolve.outputs.sha }}'
         run: |
           set -euo pipefail
           pg_dump --version
           ts="$(date -u +%Y%m%dT%H%M%SZ)"
           mkdir -p predeploy-backup
-          dump="predeploy-backup/${TARGET_ENV}_${GITHUB_SHA}_${ts}.dump"
+          dump="predeploy-backup/${TARGET_ENV}_${DEPLOY_SHA}_${ts}.dump"
           PGPASSWORD="${DB_PASS}" pg_dump -h 10.0.1.107 -p 5432 -U "${DB_USER}" -d "${DB_NAME}" -Fc --no-owner --no-acl -f "${dump}"
           sha256sum "${dump}" > "${dump}.sha256"
 
       - name: Upload pre-deploy backup artifact
         uses: actions/upload-artifact@v4
         with:
-          name: predeploy-backup-${{ inputs.environment }}-${{ github.sha }}
+          name: predeploy-backup-${{ needs.resolve.outputs.environment }}-${{ needs.resolve.outputs.sha }}
           path: predeploy-backup/*
           retention-days: 14
 
@@ -202,10 +246,10 @@ jobs:
 
   deploy:
     name: Deploy to CT111/CT112
-    environment: ${{ inputs.environment }}
+    environment: ${{ needs.resolve.outputs.environment }}
     runs-on: [self-hosted, neanelu]
     timeout-minutes: 25
-    needs: [build-push, migrate]
+    needs: [build-push, migrate, resolve]
     steps:
       - name: Setup SSH key
         shell: bash
@@ -218,7 +262,7 @@ jobs:
       - name: Deploy
         shell: bash
         env:
-          TARGET_ENV: '${{ inputs.environment }}'
+          TARGET_ENV: '${{ needs.resolve.outputs.environment }}'
           TAG: '${{ needs.build-push.outputs.image_tag }}'
         run: |
           set -euo pipefail
@@ -234,13 +278,15 @@ jobs:
             echo "deploy_failed -> rollback" >&2
             ssh -o BatchMode=yes -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "deploy@${HOST}" "\
               set -euo pipefail; \
-              if [[ -f /opt/neanelu/.env.prev ]]; then \
-                sudo cp -f /opt/neanelu/.env.prev /opt/neanelu/.env; \
-                cd /opt/neanelu && sudo docker compose -f ${COMPOSE} pull backend-worker web-admin bull-board || true; \
-                cd /opt/neanelu && sudo docker compose -f ${COMPOSE} up -d || true; \
-              else \
-                echo 'no_prev_env' >&2; \
-              fi"
+              for svc in backend-worker web-admin; do \
+                latest=\$(ls -1t /opt/neanelu/rollback/\${svc}-*.tar.gz 2>/dev/null | head -1); \
+                if [[ -n \"\${latest}\" ]]; then \
+                  echo \"rollback_load \${svc} \${latest}\"; \
+                  sudo gunzip -c \"\${latest}\" | sudo docker load; \
+                fi; \
+              done; \
+              if [[ -f /opt/neanelu/.env.prev ]]; then sudo cp -f /opt/neanelu/.env.prev /opt/neanelu/.env; fi; \
+              cd /opt/neanelu && sudo docker compose -f ${COMPOSE} up -d || true"
           }
           trap rollback ERR
 
@@ -253,6 +299,15 @@ jobs:
           scp -q -o BatchMode=yes -o IdentitiesOnly=yes -i ~/.ssh/deploy_key \
             "./infra/scripts/verify-deployment.sh" \
             "deploy@${HOST}:/opt/neanelu/infra/scripts/verify-deployment.sh"
+          scp -q -o BatchMode=yes -o IdentitiesOnly=yes -i ~/.ssh/deploy_key \
+            "./infra/scripts/rollback-save.sh" \
+            "deploy@${HOST}:/opt/neanelu/infra/scripts/rollback-save.sh"
+          scp -q -o BatchMode=yes -o IdentitiesOnly=yes -i ~/.ssh/deploy_key \
+            "./infra/scripts/post-deploy-cleanup.sh" \
+            "deploy@${HOST}:/opt/neanelu/infra/scripts/post-deploy-cleanup.sh"
+          ssh -o BatchMode=yes -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "deploy@${HOST}" "\
+            chmod 0755 /opt/neanelu/infra/scripts/verify-deployment.sh /opt/neanelu/infra/scripts/rollback-save.sh /opt/neanelu/infra/scripts/post-deploy-cleanup.sh"
+          ssh -o BatchMode=yes -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "deploy@${HOST}" "cd /opt/neanelu && sudo bash /opt/neanelu/infra/scripts/rollback-save.sh ${COMPOSE}"
           ssh -o BatchMode=yes -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "deploy@${HOST}" "\
             set -euo pipefail; \
             if [[ -f /opt/neanelu/.env ]]; then sudo cp -f /opt/neanelu/.env /opt/neanelu/.env.prev; fi; \
@@ -267,7 +322,7 @@ jobs:
       - name: Post-deploy HTTP verification (artifact)
         shell: bash
         env:
-          TARGET_ENV: '${{ inputs.environment }}'
+          TARGET_ENV: '${{ needs.resolve.outputs.environment }}'
         run: |
           set -euo pipefail
           if [[ "${TARGET_ENV}" == "staging" ]]; then
@@ -293,9 +348,23 @@ jobs:
               "${BASE_URL}/auth?shop=unit-test.myshopify.com" || true
           } | tee "${out}"
 
+      - name: Post-deploy cleanup on host
+        shell: bash
+        env:
+          TARGET_ENV: '${{ needs.resolve.outputs.environment }}'
+        run: |
+          set -euo pipefail
+          if [[ "${TARGET_ENV}" == "staging" ]]; then
+            HOST="10.0.1.112"
+          else
+            HOST="10.0.1.111"
+          fi
+          ssh -o BatchMode=yes -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "deploy@${HOST}" \
+            "sudo bash /opt/neanelu/infra/scripts/post-deploy-cleanup.sh"
+
       - name: Upload post-deploy HTTP artifact
         uses: actions/upload-artifact@v4
         with:
-          name: postdeploy-http-${{ inputs.environment }}-${{ github.sha }}
+          name: postdeploy-http-${{ needs.resolve.outputs.environment }}-${{ needs.resolve.outputs.sha }}
           path: postdeploy-http-*.txt
           retention-days: 7
