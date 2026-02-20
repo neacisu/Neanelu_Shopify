@@ -205,7 +205,7 @@ jobs:
               -U '${DB_USER}' -d '${DB_NAME}' \
               -Fc --no-owner --no-acl \
               --exclude-schema=drizzle \
-              --exclude-table=__drizzle_migrations \
+              --exclude-table='__drizzle_migrations*' \
               --enable-row-security" \
             > "${dump}"
           sha256sum "${dump}" > "${dump}.sha256"
