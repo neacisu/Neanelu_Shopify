@@ -106,6 +106,13 @@ jobs:
           secrets: |
             npm_token=${{ secrets.NPM_TASKFORCESH_TOKEN }}
 
+      - name: Reset BuildKit builder
+        run: |
+          docker buildx prune -f 2>/dev/null || true
+          docker builder prune -f 2>/dev/null || true
+
+      - uses: docker/setup-buildx-action@v3
+
       - name: Build & push web-admin
         uses: docker/build-push-action@v6
         with:
