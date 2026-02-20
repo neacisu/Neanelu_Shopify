@@ -32,6 +32,8 @@ template {
   destination = "/secrets/neanelu-api.env"
   perms       = 0600
   error_on_missing_key = true
+  command         = "/bin/sh -c 'touch /secrets/.credentials-rotated'"
+  command_timeout = "10s"
   wait { min = "2s" max = "10s" }
 }
 
