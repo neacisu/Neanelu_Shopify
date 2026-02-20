@@ -60,6 +60,17 @@ async function bootstrapMigrationTracking(
     )
   `);
 
+  try {
+    await client.query(
+      `GRANT ALL ON TABLE ${MIGRATIONS_SCHEMA}.${MIGRATIONS_TABLE} TO neanelu_app`
+    );
+    await client.query(
+      `GRANT USAGE, SELECT ON SEQUENCE ${MIGRATIONS_SCHEMA}.${MIGRATIONS_TABLE}_id_seq TO neanelu_app`
+    );
+  } catch {
+    // Dynamic user may not own the table; safe to ignore.
+  }
+
   for (const entry of entries) {
     const sqlFile = path.join(migrationsFolder, `${entry.tag}.sql`);
     if (!fs.existsSync(sqlFile)) continue;
