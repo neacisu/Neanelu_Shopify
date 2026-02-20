@@ -207,7 +207,7 @@ jobs:
               data=json.loads(r.read().decode('utf-8'))['data']
           u=data['username']; p=data['password']
           # MIGRATION_DATABASE_URL bypass PgBouncer -> CT107 direct
-          url=f\"postgresql://{u}:{p}@10.0.1.107:5432/{db}\"
+          url=f"postgresql://{u}:{p}@10.0.1.107:5432/{db}"
           # GitHub Actions: write to GITHUB_ENV (no stdout)
           env_path=os.environ['GITHUB_ENV']
           with open(env_path,'a',encoding='utf-8') as f:
