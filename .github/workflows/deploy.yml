@@ -28,6 +28,23 @@ on:
       version:
         required: false
         type: string
+    secrets:
+      GHCR_USERNAME:
+        required: true
+      GHCR_TOKEN:
+        required: true
+      OPENBAO_ADDR:
+        required: true
+      OPENBAO_CICD_ROLE_ID:
+        required: true
+      OPENBAO_CICD_SECRET_ID:
+        required: true
+      SSH_KEY_DEPLOY:
+        required: true
+      NPM_TASKFORCESH_TOKEN:
+        required: true
+      BULLMQ_PRO_TOKEN:
+        required: true
   workflow_dispatch:
     inputs:
       environment:
