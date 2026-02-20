@@ -211,11 +211,11 @@ jobs:
           # GitHub Actions: write to GITHUB_ENV (no stdout)
           env_path=os.environ['GITHUB_ENV']
           with open(env_path,'a',encoding='utf-8') as f:
-              f.write('MIGRATION_DATABASE_URL='+url+'\\n')
-              f.write('DATABASE_URL='+url+'\\n')
-              f.write('DB_USER='+u+'\\n')
-              f.write('DB_PASS='+p+'\\n')
-              f.write('DB_NAME='+db+'\\n')
+              f.write('MIGRATION_DATABASE_URL='+url+'\n')
+              f.write('DATABASE_URL='+url+'\n')
+              f.write('DB_USER='+u+'\n')
+              f.write('DB_PASS='+p+'\n')
+              f.write('DB_NAME='+db+'\n')
           PY
 
       - name: Pre-deploy backup (pg_dump, artifact)
