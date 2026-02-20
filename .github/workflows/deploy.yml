@@ -178,16 +178,11 @@ jobs:
               f.write(f'DB_NAME={db}\n')
           PY
 
-      - name: Setup SSH + sync backup script to CT107
+      - name: Setup SSH key (CT107)
         run: |
           install -d -m 0700 ~/.ssh
           echo "${{ secrets.SSH_KEY_DEPLOY }}" > ~/.ssh/ct107_key
           chmod 0600 ~/.ssh/ct107_key
-          SSH_CT107="ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ~/.ssh/ct107_key"
-          SCP_CT107="scp -q -o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ~/.ssh/ct107_key"
-          ${SSH_CT107} neanelu-ci@10.0.1.107 "sudo mkdir -p /opt/neanelu/infra/scripts"
-          ${SCP_CT107} infra/scripts/ct107_ci_pgdump.sh neanelu-ci@10.0.1.107:/tmp/ct107_ci_pgdump.sh
-          ${SSH_CT107} neanelu-ci@10.0.1.107 "sudo mv /tmp/ct107_ci_pgdump.sh /opt/neanelu/infra/scripts/ct107_ci_pgdump.sh && sudo chmod 0755 /opt/neanelu/infra/scripts/ct107_ci_pgdump.sh && sudo chown root:root /opt/neanelu/infra/scripts/ct107_ci_pgdump.sh"
 
       - name: Pre-deploy backup (pg_dump on CT107 via SSH)
         env:
@@ -199,7 +194,11 @@ jobs:
           dump="predeploy-backup/${TARGET_ENV}_${DEPLOY_SHA}_${ts}.dump"
           ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes \
             -i ~/.ssh/ct107_key neanelu-ci@10.0.1.107 \
-            "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_pgdump.sh '${DB_NAME}'" \
+            "PGPASSWORD='${DB_PASS}' pg_dump -h 127.0.0.1 -p 5432 \
+              -U '${DB_USER}' -d '${DB_NAME}' \
+              -Fc --no-owner --no-acl \
+              --exclude-schema=drizzle \
+              --enable-row-security" \
             > "${dump}"
           sha256sum "${dump}" > "${dump}.sha256"
           ls -lh "${dump}"

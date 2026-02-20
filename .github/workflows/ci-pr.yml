@@ -580,20 +580,6 @@ jobs:
           # Public key only (safe) - helps ops allowlist the right key on CT107 if needed.
           ssh-keygen -y -f ~/.ssh/ct107_key | tee ct107_key.pub
 
-      - name: Sync CI scripts to CT107
-        run: |
-          set -euo pipefail
-          SSH_OPTS="-o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ~/.ssh/ct107_key"
-          ssh ${SSH_OPTS} "neanelu-ci@${CI_CT107_HOST}" "sudo mkdir -p /opt/neanelu/infra/scripts && sudo chown neanelu-ci:neanelu-ci /opt/neanelu/infra/scripts"
-          scp -q ${SSH_OPTS} \
-            infra/scripts/ct107_ci_clone_db.sh \
-            infra/scripts/ct107_ci_drop_db.sh \
-            infra/scripts/ct107_ci_grant_db.sh \
-            infra/scripts/ct107_ci_gc_dbs.sh \
-            infra/scripts/ct107_ci_list_ci_dbs.sh \
-            "neanelu-ci@${CI_CT107_HOST}:/opt/neanelu/infra/scripts/"
-          ssh ${SSH_OPTS} "neanelu-ci@${CI_CT107_HOST}" "sudo chmod 0755 /opt/neanelu/infra/scripts/ct107_ci_*.sh && sudo chown root:root /opt/neanelu/infra/scripts/ct107_ci_*.sh"
-
       - name: Clone DBs (dev/staging/prod) on CT107
         run: |
           set -euo pipefail
