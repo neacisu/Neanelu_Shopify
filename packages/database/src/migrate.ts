@@ -60,17 +60,6 @@ async function bootstrapMigrationTracking(
     )
   `);
 
-  try {
-    await client.query(
-      `GRANT ALL ON TABLE ${MIGRATIONS_SCHEMA}.${MIGRATIONS_TABLE} TO neanelu_app`
-    );
-    await client.query(
-      `GRANT USAGE, SELECT ON SEQUENCE ${MIGRATIONS_SCHEMA}.${MIGRATIONS_TABLE}_id_seq TO neanelu_app`
-    );
-  } catch {
-    // Dynamic user may not own the table; safe to ignore.
-  }
-
   for (const entry of entries) {
     const sqlFile = path.join(migrationsFolder, `${entry.tag}.sql`);
     if (!fs.existsSync(sqlFile)) continue;
@@ -106,6 +95,16 @@ async function run(): Promise<void> {
 
   const client = await pool.connect();
   try {
+    // Switch to the persistent app role so any objects created (like the
+    // __drizzle_migrations table) are owned by neanelu_app, not the
+    // transient OpenBao dynamic user. This prevents "permission denied"
+    // errors on subsequent runs with different dynamic credentials.
+    try {
+      await client.query('SET ROLE neanelu_app');
+    } catch {
+      console.info('[db:migrate] SET ROLE neanelu_app not available, using current role');
+    }
+
     await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_ID]);
 
     await bootstrapMigrationTracking(client, migrationsFolder);
@@ -113,6 +112,11 @@ async function run(): Promise<void> {
     const db = drizzle(client);
     await migrate(db, { migrationsFolder, migrationsSchema: MIGRATIONS_SCHEMA });
   } finally {
+    try {
+      await client.query('RESET ROLE');
+    } catch {
+      // Best-effort reset.
+    }
     try {
       await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_ID]);
     } catch {
