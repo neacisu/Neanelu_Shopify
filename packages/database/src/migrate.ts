@@ -22,19 +22,70 @@ const { Pool } = pg;
 const MIGRATION_LOCK_ID = 12345;
 const MIGRATIONS_SCHEMA = 'public';
 const MIGRATIONS_TABLE = '__drizzle_migrations';
+const FQN = `${MIGRATIONS_SCHEMA}.${MIGRATIONS_TABLE}`;
 
 /**
- * One-time bootstrap: if switching from 'drizzle' schema to 'public' schema,
- * pre-populate the tracking table with hashes of all existing migration SQL files
- * so Drizzle doesn't try to re-apply them.
+ * Ensure the tracking table is accessible. With OpenBao dynamic credentials,
+ * the table may exist but be owned by a revoked user (reassigned to postgres).
+ * Strategy:
+ *   1. If the table doesn't exist → do nothing (bootstrap will create it)
+ *   2. If it exists and is accessible → done
+ *   3. If it exists but inaccessible → try SET ROLE neanelu_app
+ *   4. If still inaccessible → try DROP + recreate
+ */
+async function ensureTrackingTableAccess(client: pg.PoolClient): Promise<void> {
+  const exists = await client.query(
+    `SELECT 1 FROM pg_catalog.pg_class c
+     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'r'`,
+    [MIGRATIONS_SCHEMA, MIGRATIONS_TABLE]
+  );
+
+  if (!exists.rows.length) return;
+
+  try {
+    await client.query(`SELECT 1 FROM ${FQN} LIMIT 0`);
+    return;
+  } catch {
+    console.info('[db:migrate] tracking table exists but is inaccessible');
+  }
+
+  try {
+    await client.query('SET ROLE neanelu_app');
+    await client.query(`SELECT 1 FROM ${FQN} LIMIT 0`);
+    console.info('[db:migrate] accessible via SET ROLE neanelu_app');
+    return;
+  } catch {
+    try {
+      await client.query('RESET ROLE');
+    } catch {
+      /* ignore */
+    }
+  }
+
+  console.info('[db:migrate] dropping inaccessible tracking table to recreate');
+  try {
+    await client.query(`DROP TABLE IF EXISTS ${FQN} CASCADE`);
+  } catch {
+    console.info('[db:migrate] cannot drop tracking table — manual intervention needed');
+    throw new Error(
+      `Cannot access or drop ${FQN}. Run as superuser: ALTER TABLE ${FQN} OWNER TO neanelu_app;`
+    );
+  }
+}
+
+/**
+ * One-time bootstrap: pre-populate the tracking table with hashes of all
+ * existing migration SQL files so Drizzle doesn't try to re-apply them.
  */
 async function bootstrapMigrationTracking(
   client: pg.PoolClient,
   migrationsFolder: string
 ): Promise<void> {
   const tableExists = await client.query(
-    `SELECT 1 FROM information_schema.tables
-     WHERE table_schema = $1 AND table_name = $2`,
+    `SELECT 1 FROM pg_catalog.pg_class c
+     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'r'`,
     [MIGRATIONS_SCHEMA, MIGRATIONS_TABLE]
   );
 
@@ -53,7 +104,7 @@ async function bootstrapMigrationTracking(
   const entries: JournalEntry[] = journal.entries ?? [];
 
   await client.query(`
-    CREATE TABLE IF NOT EXISTS ${MIGRATIONS_SCHEMA}.${MIGRATIONS_TABLE} (
+    CREATE TABLE IF NOT EXISTS ${FQN} (
       id serial PRIMARY KEY,
       hash text NOT NULL,
       created_at bigint
@@ -68,9 +119,9 @@ async function bootstrapMigrationTracking(
     const hash = crypto.createHash('sha256').update(sqlContent).digest('hex');
 
     await client.query(
-      `INSERT INTO ${MIGRATIONS_SCHEMA}.${MIGRATIONS_TABLE} (hash, created_at)
+      `INSERT INTO ${FQN} (hash, created_at)
        SELECT $1, $2 WHERE NOT EXISTS (
-         SELECT 1 FROM ${MIGRATIONS_SCHEMA}.${MIGRATIONS_TABLE} WHERE hash = $1
+         SELECT 1 FROM ${FQN} WHERE hash = $1
        )`,
       [hash, entry.when]
     );
@@ -95,18 +146,9 @@ async function run(): Promise<void> {
 
   const client = await pool.connect();
   try {
-    // Switch to the persistent app role so any objects created (like the
-    // __drizzle_migrations table) are owned by neanelu_app, not the
-    // transient OpenBao dynamic user. This prevents "permission denied"
-    // errors on subsequent runs with different dynamic credentials.
-    try {
-      await client.query('SET ROLE neanelu_app');
-    } catch {
-      console.info('[db:migrate] SET ROLE neanelu_app not available, using current role');
-    }
-
     await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_ID]);
 
+    await ensureTrackingTableAccess(client);
     await bootstrapMigrationTracking(client, migrationsFolder);
 
     const db = drizzle(client);
@@ -115,12 +157,12 @@ async function run(): Promise<void> {
     try {
       await client.query('RESET ROLE');
     } catch {
-      // Best-effort reset.
+      /* best-effort */
     }
     try {
       await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_ID]);
     } catch {
-      // Best-effort unlock; connection close will release session locks.
+      /* best-effort */
     }
     client.release();
     await pool.end();
