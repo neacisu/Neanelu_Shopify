@@ -41,8 +41,6 @@ on:
         required: true
       SSH_KEY_DEPLOY:
         required: true
-      CT107_SSH_KEY:
-        required: true
       NPM_TASKFORCESH_TOKEN:
         required: true
       BULLMQ_PRO_TOKEN:
@@ -225,17 +223,16 @@ jobs:
         env:
           TARGET_ENV: '${{ needs.resolve.outputs.environment }}'
           DEPLOY_SHA: '${{ needs.resolve.outputs.sha }}'
-          CT107_SSH_KEY: '${{ secrets.CT107_SSH_KEY }}'
         run: |
           set -euo pipefail
           install -d -m 0700 ~/.ssh
-          echo "${CT107_SSH_KEY}" > ~/.ssh/ct107_key
+          echo "${{ secrets.SSH_KEY_DEPLOY }}" > ~/.ssh/ct107_key
           chmod 0600 ~/.ssh/ct107_key
           ssh-keyscan -H 10.0.1.107 >> ~/.ssh/known_hosts 2>/dev/null || true
           ts="$(date -u +%Y%m%dT%H%M%SZ)"
           mkdir -p predeploy-backup
           dump="predeploy-backup/${TARGET_ENV}_${DEPLOY_SHA}_${ts}.dump"
-          ssh -o BatchMode=yes -o IdentitiesOnly=yes -i ~/.ssh/ct107_key ci-runner@10.0.1.107 \
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ~/.ssh/ct107_key neanelu-ci@10.0.1.107 \
             "PGPASSWORD='${DB_PASS}' pg_dump -h 127.0.0.1 -p 5432 -U '${DB_USER}' -d '${DB_NAME}' -Fc --no-owner --no-acl" \
             > "${dump}"
           sha256sum "${dump}" > "${dump}.sha256"
