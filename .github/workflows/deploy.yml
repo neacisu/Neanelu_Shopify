@@ -6,7 +6,7 @@
 # - PostgreSQL on CT107 (direct for migrations, PgBouncer for runtime)
 #
 # Triggered by:
-# - CI trigger-cd job (gh workflow run) after all checks pass
+# - CI workflow_call from ci-pr.yml after all checks pass
 # - Manual workflow_dispatch for ad-hoc deploys or rollbacks
 #
 # Required GitHub Secrets:
@@ -18,6 +18,14 @@
 name: CD - Deploy
 
 on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       environment:

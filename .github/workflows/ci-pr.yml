@@ -27,7 +27,6 @@ permissions:
   contents: read
   security-events: write
   packages: write
-  actions: write
 
 env:
   NODE_VERSION: '24'
@@ -518,34 +517,27 @@ jobs:
           chmod 0600 ~/.ssh/ct107_key
           ssh-keygen -y -f ~/.ssh/ct107_key | tee ct107_key.pub
 
-      - name: Clone DBs (sequential with retry)
+      - name: Sync CI scripts to CT107
+        run: |
+          set -euo pipefail
+          SCP_OPTS="-o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ~/.ssh/ct107_key"
+          for script in ct107_ci_clone_db.sh ct107_ci_grant_db.sh ct107_ci_drop_db.sh; do
+            scp ${SCP_OPTS} "infra/scripts/${script}" "neanelu-ci@${CI_CT107_HOST}:/opt/neanelu/infra/scripts/${script}"
+          done
+
+      - name: Clone DBs (dev/staging, prod on main only)
         run: |
           set -euo pipefail
           SSH_CMD="ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ~/.ssh/ct107_key"
 
-          clone_with_retry() {
-            local env_name="$1"
-            for attempt in 1 2 3; do
-              echo "clone_attempt env=${env_name} attempt=${attempt}"
-              if ${SSH_CMD} "neanelu-ci@${CI_CT107_HOST}" \
-                "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_clone_db.sh --env ${env_name} --run-id '${RUN_ID}' --strategy template --fallback dump --jobs 4"; then
-                echo "clone_ok env=${env_name}"
-                return 0
-              fi
-              echo "clone_retry env=${env_name} attempt=${attempt}" >&2
-              ${SSH_CMD} "neanelu-ci@${CI_CT107_HOST}" \
-                "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_drop_db.sh --env ${env_name} --run-id '${RUN_ID}'" || true
-              sleep 3
-            done
-            echo "clone_failed env=${env_name} after 3 attempts" >&2
-            return 1
-          }
-
-          clone_with_retry dev
-          clone_with_retry staging
+          ${SSH_CMD} "neanelu-ci@${CI_CT107_HOST}" \
+            "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_clone_db.sh --env dev --run-id '${RUN_ID}' --strategy template --fallback dump --jobs 4"
+          ${SSH_CMD} "neanelu-ci@${CI_CT107_HOST}" \
+            "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_clone_db.sh --env staging --run-id '${RUN_ID}' --strategy template --fallback dump --jobs 4"
 
           if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
-            clone_with_retry prod
+            ${SSH_CMD} "neanelu-ci@${CI_CT107_HOST}" \
+              "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_clone_db.sh --env prod --run-id '${RUN_ID}' --strategy template --fallback dump --jobs 4"
           else
             echo "skip_prod_clone ref=${GITHUB_REF_NAME}"
           fi
@@ -885,58 +877,37 @@ jobs:
           echo "All CI jobs passed (success or skipped)"
 
   # ============================================
-  # Trigger CD (push only, after CI passes)
+  # CD: Deploy Staging (push on non-main)
   # ============================================
-  trigger-cd:
-    name: Trigger CD
+  deploy-staging:
+    name: Deploy staging
     if: >-
       always() &&
       github.event_name == 'push' &&
       github.actor != 'dependabot[bot]' &&
+      github.ref_name != 'main' &&
       needs.ci-status.result == 'success'
     needs: [ci-status]
-    runs-on: [self-hosted, neanelu]
-    timeout-minutes: 5
-    permissions:
-      actions: write
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: staging
+      version: ${{ github.sha }}
+    secrets: inherit
 
-      - name: Determine environment and version
-        id: env
-        run: |
-          set -euo pipefail
-          if [[ "${{ github.ref_name }}" == "main" ]]; then
-            echo "environment=production" >> "$GITHUB_OUTPUT"
-            LATEST_TAG=$(gh api "repos/${{ github.repository }}/tags" --jq '.[].name' 2>/dev/null | grep '^v0\.' | sort -V | tail -1 || true)
-            if [[ -z "$LATEST_TAG" ]]; then
-              echo "version=v0.0.1" >> "$GITHUB_OUTPUT"
-            else
-              PATCH=$(echo "$LATEST_TAG" | sed 's/v0\.0\.//')
-              echo "version=v0.0.$((PATCH + 1))" >> "$GITHUB_OUTPUT"
-            fi
-          else
-            SAFE_BRANCH=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9]/-/g' | cut -c1-20)
-            echo "environment=staging" >> "$GITHUB_OUTPUT"
-            echo "version=${SAFE_BRANCH}-${{ github.sha }}" >> "$GITHUB_OUTPUT"
-          fi
-        env:
-          GH_TOKEN: ${{ github.token }}
-
-      - name: Trigger deploy workflow
-        run: |
-          set -euo pipefail
-          echo "Triggering CD: environment=${{ steps.env.outputs.environment }} version=${{ steps.env.outputs.version }}"
-
-          if ! gh workflow view deploy.yml > /dev/null 2>&1; then
-            echo "SKIP: deploy.yml not yet registered on default branch (will work after merge to main)"
-            exit 0
-          fi
-
-          gh workflow run deploy.yml \
-            --ref "${{ github.ref }}" \
-            -f environment="${{ steps.env.outputs.environment }}" \
-            -f version="${{ steps.env.outputs.version }}"
-        env:
-          GH_TOKEN: ${{ github.token }}
+  # ============================================
+  # CD: Deploy Production (push on main)
+  # ============================================
+  deploy-production:
+    name: Deploy production
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      github.actor != 'dependabot[bot]' &&
+      github.ref_name == 'main' &&
+      needs.ci-status.result == 'success'
+    needs: [ci-status]
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: production
+      version: ${{ github.sha }}
+    secrets: inherit
