@@ -921,7 +921,14 @@ jobs:
 
       - name: Trigger deploy workflow
         run: |
+          set -euo pipefail
           echo "Triggering CD: environment=${{ steps.env.outputs.environment }} version=${{ steps.env.outputs.version }}"
+
+          if ! gh workflow view deploy.yml > /dev/null 2>&1; then
+            echo "SKIP: deploy.yml not yet registered on default branch (will work after merge to main)"
+            exit 0
+          fi
+
           gh workflow run deploy.yml \
             --ref "${{ github.ref }}" \
             -f environment="${{ steps.env.outputs.environment }}" \
