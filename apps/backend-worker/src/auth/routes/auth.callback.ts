@@ -37,6 +37,22 @@ export interface AuthCallbackRouteOptions {
   logger: Logger;
 }
 
+function firstForwarded(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const first = value.split(',')[0]?.trim();
+  return first ?? null;
+}
+
+function getPublicOrigin(request: FastifyRequest, fallbackOrigin: string): string {
+  const proto = firstForwarded(request.headers['x-forwarded-proto']) ?? request.protocol;
+  const host =
+    firstForwarded(request.headers['x-forwarded-host']) ??
+    (typeof request.headers.host === 'string' ? request.headers.host : null) ??
+    request.hostname;
+  if (proto && host) return `${proto}://${host}`;
+  return fallbackOrigin;
+}
+
 type ShopifyShopEmailResponse = Readonly<{
   shop?: {
     email?: string | null;
@@ -135,15 +151,15 @@ export function registerAuthCallbackRoute(
     return trimmed;
   }
 
-  function buildReturnToUrl(returnTo: string | null, shopDomain: string): string {
-    const fallback = new URL('/app/', env.appHost.origin);
+  function buildReturnToUrl(origin: string, returnTo: string | null, shopDomain: string): string {
+    const fallback = new URL('/app/', origin);
     fallback.searchParams.set('shop', shopDomain);
     if (!returnTo) return fallback.toString();
 
     try {
-      const url = new URL(returnTo, env.appHost.origin);
+      const url = new URL(returnTo, origin);
       // Defensive: ensure we never redirect outside our own /app/* UI.
-      if (url.origin !== env.appHost.origin) return fallback.toString();
+      if (url.origin !== origin) return fallback.toString();
       if (!url.pathname.startsWith('/app/')) return fallback.toString();
 
       if (!url.searchParams.get('shop')) {
@@ -157,9 +173,9 @@ export function registerAuthCallbackRoute(
 
   function redirectToUi(
     reply: FastifyReply,
-    params: { shop?: string | null; error: string }
+    params: { origin: string; shop?: string | null; error: string }
   ): FastifyReply {
-    const url = new URL('/app/auth/callback', env.appHost.origin);
+    const url = new URL('/app/auth/callback', params.origin);
     if (params.shop) url.searchParams.set('shop', params.shop);
     url.searchParams.set('error', params.error);
     return reply.redirect(url.toString());
@@ -176,7 +192,8 @@ export function registerAuthCallbackRoute(
       return reply.status(status).send({ success: false, error });
     }
 
-    return redirectToUi(reply, { shop: shopForUi ?? null, error: error.code });
+    const origin = getPublicOrigin(request, env.appHost.origin);
+    return redirectToUi(reply, { origin, shop: shopForUi ?? null, error: error.code });
   }
 
   server.get<{ Querystring: AuthCallbackQuery }>(
@@ -441,7 +458,12 @@ export function registerAuthCallbackRoute(
 
       logger.info({ shop: shopDomain, shopId }, 'Shop credentials saved successfully');
 
-      const returnTo = buildReturnToUrl(normalizeReturnTo(stateRecord.return_to), shopDomain);
+      const origin = getPublicOrigin(request, env.appHost.origin);
+      const returnTo = buildReturnToUrl(
+        origin,
+        normalizeReturnTo(stateRecord.return_to),
+        shopDomain
+      );
 
       // 10. Clear oauth_state cookie
       void reply.clearCookie('oauth_state', {

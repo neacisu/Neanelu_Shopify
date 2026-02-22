@@ -1,23 +1,38 @@
+# syntax=docker/dockerfile:1.6
 FROM node:24-bookworm-slim
 
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 
-RUN corepack enable && corepack prepare pnpm@10.27.0 --activate
+RUN corepack enable && corepack prepare pnpm@10.28.0 --activate
 
 WORKDIR /app
 
-# Copy workspace (deps are installed at runtime; token is provided via env, not baked)
+# Install deps at build time (avoid pnpm install at runtime).
+# Token is provided at build time and written to a temporary user-level .npmrc.
 COPY . .
 
-# pnpm can request confirmation for node_modules cleanup; containers have no TTY.
 ENV CI=true
+RUN --mount=type=secret,id=npm_token \
+  set -eu; \
+  token="$(cat /run/secrets/npm_token)"; \
+  test -n "$token"; \
+  printf '%s\n' \
+    '@taskforcesh:registry=https://npm.taskforce.sh/' \
+    "//npm.taskforce.sh/:_authToken=$token" \
+    'always-auth=true' \
+    > /root/.npmrc; \
+  pnpm install --frozen-lockfile; \
+  rm -f /root/.npmrc
 
 # Playwright runtime dependency for PR-064 scraper fallback.
-# Keep Chromium in runtime stage for prod multi-stage builds.
-# Chromium adds roughly ~300MB, install only this browser.
-RUN npx playwright-core install --with-deps chromium
+# Install Chromium from apt (fast, reliable) instead of Playwright CDN
+# (which is unreachable/slow from the self-hosted runner network).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends chromium && \
+    rm -rf /var/lib/apt/lists/*
+ENV CHROMIUM_PATH=/usr/bin/chromium
 
 EXPOSE 65000
 
-CMD ["sh", "-lc", "pnpm install && cd /app/apps/backend-worker && pnpm dev"]
+CMD ["sh", "-lc", "pnpm --filter @app/backend-worker dev"]

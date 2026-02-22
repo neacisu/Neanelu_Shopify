@@ -19,8 +19,9 @@ export function SafeComponent({
         fallback ?? <ComponentErrorFallback error={error} resetErrorBoundary={resetErrorBoundary} />
       }
       onError={(error, info) => {
-        reportUiError(error, { source: 'component' });
-        onError?.(error, info);
+        const err = error instanceof Error ? error : new Error(String(error));
+        reportUiError(err, { source: 'component' });
+        onError?.(err, info);
       }}
     >
       {children}

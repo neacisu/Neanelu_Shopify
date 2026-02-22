@@ -14,7 +14,8 @@ export function WebhookTester({ topics, onTest, disabled }: WebhookTesterProps) 
 
   useEffect(() => {
     if (!selectedTopic && topics.length > 0) {
-      setSelectedTopic(topics[0]);
+      const first = topics.at(0);
+      if (first) setSelectedTopic(first);
     }
   }, [selectedTopic, topics]);
 

@@ -15,18 +15,19 @@ export function formatUtcDate(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-export function activityKeyForUtcDate(date: Date): string {
-  return `${KEY_PREFIX}${formatUtcDate(date)}`;
+export function activityKeyForUtcDate(date: Date, redisPrefix = ''): string {
+  return `${redisPrefix}${KEY_PREFIX}${formatUtcDate(date)}`;
 }
 
 export async function incrementDashboardActivity(
   redis: Redis,
   jobType: DashboardJobType,
-  amount = 1
+  amount = 1,
+  redisPrefix = ''
 ): Promise<void> {
   if (!Number.isFinite(amount) || amount <= 0) return;
 
-  const key = activityKeyForUtcDate(new Date());
+  const key = activityKeyForUtcDate(new Date(), redisPrefix);
   const pipeline = redis.pipeline();
   pipeline.hincrby(key, jobType, Math.floor(amount));
   pipeline.hincrby(key, 'total', Math.floor(amount));

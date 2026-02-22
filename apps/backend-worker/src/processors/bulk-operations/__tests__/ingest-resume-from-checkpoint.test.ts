@@ -86,6 +86,14 @@ async function installBaseMocks(params: {
   await Promise.resolve(
     mock.module('@app/database', {
       namedExports: {
+        pool: {
+          query: () => Promise.resolve({ rows: [] }),
+          connect: () =>
+            Promise.resolve({
+              query: () => Promise.resolve({ rows: [] }),
+              release: () => undefined,
+            }),
+        },
         decryptAesGcm: () => Buffer.from(''),
         encryptAesGcm: () => ({
           ciphertext: Buffer.from(''),

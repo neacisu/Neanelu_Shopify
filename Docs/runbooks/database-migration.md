@@ -20,6 +20,12 @@ Acest runbook descrie procedura pentru executarea migrațiilor de baze de date �
 - [ ] Rollback script pregătit
 - [ ] Maintenance window comunicată (dacă e necesar)
 
+> [!IMPORTANT]
+> În infrastructura nouă:
+>
+> - runtime app folosește PgBouncer (CT111/CT112)
+> - migrațiile trebuie rulate cu `MIGRATION_DATABASE_URL` direct către Postgres CT107 (bypass PgBouncer)
+
 ---
 
 ## Expand/Contract Pattern
@@ -28,7 +34,7 @@ Acest runbook descrie procedura pentru executarea migrațiilor de baze de date �
 
 Pattern-ul Expand/Contract permite migrații fără downtime prin separarea schimbărilor în două faze:
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │  EXPAND                                                     │
 │  - Adaugă coloane noi (nullable sau cu default)             │
@@ -62,7 +68,7 @@ Pattern-ul Expand/Contract permite migrații fără downtime prin separarea schi
 ls -la /var/backups/postgres/
 
 # Sau cu pg_dump pentru backup manual
-pg_dump -Fc -h localhost -p 65010 -U postgres neanelu_shopify_prod \
+pg_dump -Fc -h 10.0.1.107 -p 5432 -U postgres neanelu_shopify \
   > /var/backups/postgres/pre_migration_$(date +%Y%m%d_%H%M).dump
 
 # Verifică integritatea backup-ului
@@ -94,7 +100,8 @@ free -h
 df -h
 
 # Verifică conexiunile Redis (pentru queue drain)
-redis-cli -p 65011 INFO clients
+# (în prod Redis este shared; folosește credențiale + host corecte)
+redis-cli -u "redis://USER:PASS@10.0.1.10:6379" INFO clients
 ```
 
 ---
@@ -119,10 +126,11 @@ done
 ```bash
 # Cu Drizzle
 cd /var/www/Neanelu_Shopify
-pnpm --filter @app/database run migrate
+MIGRATION_DATABASE_URL="postgresql://USER:PASS@10.0.1.107:5432/neanelu_shopify" \
+  pnpm --filter @app/database run migrate
 
 # Sau manual pentru control granular
-psql -h localhost -p 65010 -U postgres -d neanelu_shopify_prod \
+psql -h 10.0.1.107 -p 5432 -U postgres -d neanelu_shopify \
   -f packages/database/migrations/XXXX_expand_migration.sql
 ```
 
@@ -189,7 +197,7 @@ END $$;
 
 ```bash
 # După ce codul nou rulează stabil (min 24h recomandat)
-psql -h localhost -p 65010 -U postgres -d neanelu_shopify_prod \
+psql -h 10.0.1.107 -p 5432 -U postgres -d neanelu_shopify \
   -f packages/database/migrations/XXXX_contract_migration.sql
 ```
 
@@ -207,7 +215,7 @@ docker compose stop backend-worker
 pnpm --filter @app/database run migrate:rollback
 
 # Sau manual
-psql -h localhost -p 65010 -U postgres -d neanelu_shopify_prod \
+psql -h 10.0.1.107 -p 5432 -U postgres -d neanelu_shopify \
   -f packages/database/migrations/XXXX_rollback.sql
 
 # Repornește cu versiunea veche
@@ -346,4 +354,6 @@ SELECT * FROM pg_stat_progress_create_index;
 
 ---
 
-**Document creat conform AUDIT 2025-12-26 (P2-3.8)**
+## Changelog
+
+- Document creat conform AUDIT 2025-12-26 (P2-3.8)

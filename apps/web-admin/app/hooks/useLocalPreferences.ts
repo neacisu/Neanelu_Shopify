@@ -15,11 +15,18 @@ const STORAGE_KEYS = {
 
 function readFromLocalStorage(): Partial<Preferences> {
   if (typeof window === 'undefined') return {};
-  return {
-    timezone: window.localStorage.getItem(STORAGE_KEYS.timezone) ?? undefined,
-    language:
-      (window.localStorage.getItem(STORAGE_KEYS.language) as Preferences['language']) ?? undefined,
-  };
+  const next: Partial<Preferences> = {};
+  const timezone = window.localStorage.getItem(STORAGE_KEYS.timezone);
+  const language = window.localStorage.getItem(STORAGE_KEYS.language) as
+    | Preferences['language']
+    | null;
+  if (typeof timezone === 'string' && timezone.trim().length > 0) {
+    next.timezone = timezone;
+  }
+  if (typeof language === 'string' && language.trim().length > 0) {
+    next.language = language;
+  }
+  return next;
 }
 
 function writeToLocalStorage(preferences: Preferences) {
@@ -38,7 +45,7 @@ export function useLocalPreferences(api: ApiClient) {
     return {
       timezone: local.timezone ?? 'Europe/Bucharest',
       language: local.language ?? 'ro',
-      notificationsEnabled: undefined,
+      notificationsEnabled: false,
     };
   });
   const [loading, setLoading] = useState(true);

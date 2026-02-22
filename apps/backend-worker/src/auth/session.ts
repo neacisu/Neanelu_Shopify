@@ -8,6 +8,7 @@
 
 import type { FastifyRequest, FastifyReply, HookHandlerDoneFunction } from 'fastify';
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { pool } from '@app/database';
 
 /**
  * Configurare sesiune
@@ -260,26 +261,126 @@ export function clearSessionCookie(reply: FastifyReply, config: SessionConfig): 
  * Middleware pentru verificare sesiune
  */
 export function requireSession(config: SessionConfig) {
-  return (request: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction): void => {
-    const session = getSessionFromRequest(request, config);
-    if (!session) {
-      void reply.status(401).send({
-        success: false,
-        error: {
-          code: 'UNAUTHORIZED',
-          message: 'Session required',
-        },
-        meta: {
-          request_id: request.id,
-          timestamp: new Date().toISOString(),
-        },
-      });
-      done();
-      return;
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  function looksLikeUuid(value: string): boolean {
+    return UUID_RE.test(value);
+  }
+
+  function normalizeShopDomain(value: string | null): string | null {
+    if (!value) return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    // Accept plain hostname, or full URL (dest/iss can be URL-ish).
+    try {
+      if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+        const u = new URL(trimmed);
+        return u.hostname.toLowerCase();
+      }
+    } catch {
+      // ignore
     }
-    // Atașează sesiunea la request pentru utilizare ulterioară
-    (request as FastifyRequest & { session: SessionData }).session = session;
-    done();
+    // Strip path if present (e.g. "admin.shopify.com/store/xyz" or "shop.myshopify.com/admin").
+    const hostOnly = trimmed.split('/')[0] ?? '';
+    return hostOnly.trim().toLowerCase() || null;
+  }
+
+  async function resolveDbShopIdFromRequest(session: SessionData, request: FastifyRequest) {
+    if (looksLikeUuid(session.shopId)) return session.shopId;
+
+    const q = request.query as { shop?: unknown } | undefined;
+    const queryShop = typeof q?.shop === 'string' ? normalizeShopDomain(q.shop) : null;
+    const tokenShop =
+      normalizeShopDomain(session.shopDomain) ?? normalizeShopDomain(session.shopId);
+
+    const shopDomain = queryShop ?? tokenShop;
+    if (!shopDomain) return null;
+
+    const result = await pool.query<{ id: string }>(
+      `SELECT id FROM shops WHERE shopify_domain = $1 LIMIT 1`,
+      [shopDomain]
+    );
+    return result.rows[0]?.id ?? null;
+  }
+
+  function sendUnauthorized(request: FastifyRequest, reply: FastifyReply): void {
+    void reply.status(401).send({
+      success: false,
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'Session required',
+      },
+      meta: {
+        request_id: request.id,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  }
+
+  return (request: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction): void => {
+    void (async () => {
+      const session = getSessionFromRequest(request, config);
+      if (!session) {
+        sendUnauthorized(request, reply);
+        return;
+      }
+
+      const isBudgetStatus =
+        typeof request.url === 'string' &&
+        request.url.includes('/pim/stats/cost-tracking/budget-status');
+      if (isBudgetStatus) {
+        const q = request.query as { shop?: unknown } | undefined;
+        const rawShop = typeof q?.shop === 'string' ? q.shop : null;
+        const hasAuth = typeof request.headers.authorization === 'string';
+        // Avoid logging any token; we only log presence + basic session fields.
+        (request.log as unknown as { info?: (obj: unknown, msg?: string) => void })?.info?.(
+          {
+            kind: 'requireSession_debug_before',
+            url: request.url,
+            hasAuth,
+            queryShop: rawShop,
+            sessionShopId: session.shopId,
+            sessionShopDomain: session.shopDomain,
+            shopIdLooksUuid: looksLikeUuid(session.shopId),
+          },
+          'requireSession debug'
+        );
+      }
+
+      // If the session comes from Shopify App Bridge JWT, `shopId` is not a DB UUID.
+      // Resolve DB shop id once, so all DB-backed endpoints can safely use `session.shopId`.
+      const resolved = await resolveDbShopIdFromRequest(session, request);
+      if (!resolved) {
+        sendUnauthorized(request, reply);
+        return;
+      }
+      session.shopId = resolved;
+
+      if (isBudgetStatus) {
+        (request.log as unknown as { info?: (obj: unknown, msg?: string) => void })?.info?.(
+          {
+            kind: 'requireSession_debug_after',
+            url: request.url,
+            resolvedShopId: session.shopId,
+          },
+          'requireSession debug'
+        );
+      }
+
+      // Atașează sesiunea la request pentru utilizare ulterioară
+      (request as FastifyRequest & { session: SessionData }).session = session;
+    })()
+      .catch((error: unknown) => {
+        // Be conservative: treat resolver failures as unauthorized from the caller POV.
+        (request.log as unknown as { error?: (obj: unknown, msg?: string) => void })?.error?.(
+          { error },
+          'requireSession failed'
+        );
+        sendUnauthorized(request, reply);
+      })
+      .finally(() => {
+        done();
+      });
   };
 }
 

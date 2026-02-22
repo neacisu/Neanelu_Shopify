@@ -182,6 +182,21 @@ Pentru evitarea drift-ului între documentație și implementare, nu mai folosim
 
 ---
 
+## Infrastructure Metrics (shared observability)
+
+În infrastructura nouă, Prometheus central scrape-uiește și metrici de infrastructură pentru Neanelu, cu labels:
+
+- `project=neanelu`
+- `environment=production|staging`
+
+Job-uri tipice (configurate în Prometheus central):
+
+- `neanelu-nodes` (node-exporter)
+- `neanelu-cadvisor` (cAdvisor)
+- `neanelu-pgbouncer` (pgbouncer-exporter)
+
+---
+
 ## PIM API Cost Metrics (F8.4.7)
 
 | Metric                          | Type            | Labels              | Description                                    |

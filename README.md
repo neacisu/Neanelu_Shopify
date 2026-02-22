@@ -46,7 +46,7 @@
 | -------------------- | -------------- | ------------------------------------------------------------- |
 | **Research Scripts** | ✅ Validated   | TypeScript + Python scripts for Shopify Admin API exploration |
 | **Documentation**    | ✅ Complete    | Full architecture, database schema, implementation plan       |
-| **Infrastructure**   | ✅ Ready       | Docker Compose with PostgreSQL 18.1, Redis 8.4, Jaeger        |
+| **Infrastructure**   | ✅ Ready       | Dev local Compose + Prod/Staging pe CT107/CT111/CT112         |
 | **Monorepo Setup**   | 🔄 In Progress | pnpm workspace with ESLint, TypeScript, Husky                 |
 | **Backend Worker**   | 📋 Planned     | Phase F3-F5                                                   |
 | **Web Admin UI**     | 📋 Planned     | Phase F3 (Frontend)                                           |
@@ -105,6 +105,14 @@ cp .env.example .env
 pnpm db:up
 docker compose ps
 \`\`\`
+
+### Staging/Production (infrastructura noua)
+
+- Nu folosi `docker-compose.yml`/`docker-compose.dev.yml` pe CT111/CT112 (acelea sunt pentru dev local).
+- Pentru runtime:
+  - productie: `docker-compose.prod.yml`
+  - staging: `docker-compose.staging.yml`
+- Secretele sunt generate de OpenBao Agent în `/run/neanelu/runtime-secrets/...` și sunt injectate prin `env_file`.
 
 ### Available Scripts
 

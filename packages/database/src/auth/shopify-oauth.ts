@@ -106,8 +106,14 @@ export async function upsertOfflineShopCredentials(params: {
   }
 
   // Defense-in-depth: also persist into shopify_tokens.
+  // `shopify_tokens` has RLS enabled and requires `app.current_shop_id` to match `shop_id`.
+  // Set tenant context in the *same statement* as the insert/upsert, to be robust even if a pooler
+  // changes behavior (or when statements are replayed/parallelized).
   await client.query(
-    `INSERT INTO shopify_tokens (
+    `WITH _tenant AS (
+       SELECT set_config('app.current_shop_id', $7, true)
+     )
+     INSERT INTO shopify_tokens (
        shop_id,
        access_token_ciphertext,
        access_token_iv,
@@ -115,7 +121,16 @@ export async function upsertOfflineShopCredentials(params: {
        key_version,
        scopes,
        rotated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, NULL)
+     )
+     SELECT
+       $1::uuid,
+       $2,
+       $3,
+       $4,
+       $5,
+       $6,
+       NULL
+     FROM _tenant
      ON CONFLICT (shop_id) DO UPDATE SET
        access_token_ciphertext = EXCLUDED.access_token_ciphertext,
        access_token_iv = EXCLUDED.access_token_iv,
@@ -123,7 +138,15 @@ export async function upsertOfflineShopCredentials(params: {
        key_version = EXCLUDED.key_version,
        scopes = EXCLUDED.scopes,
        rotated_at = now()`,
-    [shopId, encryptedToken.ciphertext, encryptedToken.iv, encryptedToken.tag, keyVersion, scopes]
+    [
+      shopId,
+      encryptedToken.ciphertext,
+      encryptedToken.iv,
+      encryptedToken.tag,
+      keyVersion,
+      scopes,
+      String(shopId),
+    ]
   );
 
   return { shopId };

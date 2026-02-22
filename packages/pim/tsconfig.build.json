@@ -4,7 +4,12 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "baseUrl": ".",
-    "paths": {}
+    "paths": {
+      "@app/config": ["../config/dist/index.d.ts"],
+      "@app/types": ["../types/dist/index.d.ts"],
+      "@app/logger": ["../logger/dist/index.d.ts"],
+      "@app/database": ["../database/src/compat.d.ts"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts", "**/__tests__/**"]

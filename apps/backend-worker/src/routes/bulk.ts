@@ -699,6 +699,33 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
       void reply.status(200).send(successEnvelope(request.id, { operation: op }));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'active_bulk_lookup_failed';
+      // Common/expected states during cutover or before first install:
+      // - shop record exists but has no token yet
+      // - shop is flagged for reauth
+      // For UI stability, treat these as "no active operation" (200), not as infra 502.
+      const isAuthState =
+        typeof message === 'string' &&
+        (message.includes('Shop not found or no token') ||
+          message.includes('Shop requires reauthorization') ||
+          message.includes('Session required'));
+
+      if (isAuthState) {
+        logger.warn(
+          { err, shopId: session.shopId },
+          'Shopify bulk operation lookup not authorized'
+        );
+        void reply.status(200).send(
+          successEnvelope(request.id, {
+            operation: null,
+            warning: {
+              code: 'SHOPIFY_AUTH_REQUIRED',
+              message,
+            },
+          })
+        );
+        return;
+      }
+
       logger.error(
         { err, shopId: session.shopId },
         'Failed to fetch current Shopify bulk operation'

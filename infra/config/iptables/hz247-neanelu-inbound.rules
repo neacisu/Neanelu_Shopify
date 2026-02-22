@@ -1,0 +1,29 @@
+# === Ingress/Forward rules (Neanelu) -- ADITIVE pe hz.247 ===
+# Scop:
+# - Traefik (orchestrator 10.0.0.2) -> CT111/CT112 ports (app)
+# - Prometheus (orchestrator 10.0.0.2) -> CT111/CT112 scrape ports
+# - CT111/CT112 -> orchestrator Redis/OpenBao (daca FORWARD default policy nu e ACCEPT)
+#
+# Aplicare (manual, pe hz.247):
+# - adauga liniile in `/etc/iptables.rules` (dupa regulile existente ale altor proiecte)
+# - apoi: `iptables-restore < /etc/iptables.rules`
+#
+# IMPORTANT:
+# - acestea sunt reguli de FORWARD (nu INPUT). Nu expun nimic public; doar permit traficul intre VLAN-uri.
+
+*filter
+# Traefik orchestrator -> app (prod/staging)
+-A FORWARD -s 10.0.0.2/32 -d 10.0.1.111/32 -p tcp -m multiport --dports 65000,65001 -j ACCEPT
+-A FORWARD -s 10.0.0.2/32 -d 10.0.1.112/32 -p tcp -m multiport --dports 65000,65001 -j ACCEPT
+
+# Prometheus orchestrator -> node-exporter + cAdvisor (prod/staging)
+-A FORWARD -s 10.0.0.2/32 -d 10.0.1.111/32 -p tcp -m multiport --dports 65210,65211 -j ACCEPT
+-A FORWARD -s 10.0.0.2/32 -d 10.0.1.112/32 -p tcp -m multiport --dports 65210,65211 -j ACCEPT
+
+# CT111/CT112 -> orchestrator Redis/OpenBao (daca FORWARD policy e restrictiva)
+-A FORWARD -s 10.0.1.111/32 -d 10.0.0.2/32 -p tcp -m tcp --dport 6379 -j ACCEPT
+-A FORWARD -s 10.0.1.111/32 -d 10.0.0.2/32 -p tcp -m tcp --dport 8200 -j ACCEPT
+-A FORWARD -s 10.0.1.112/32 -d 10.0.0.2/32 -p tcp -m tcp --dport 6379 -j ACCEPT
+-A FORWARD -s 10.0.1.112/32 -d 10.0.0.2/32 -p tcp -m tcp --dport 8200 -j ACCEPT
+COMMIT
+

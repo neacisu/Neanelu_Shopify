@@ -42,8 +42,9 @@ async function updateOpenAiStatus(params: {
   shopId: string;
   status: OpenAiConnectionStatus;
   errorMessage: string | null;
+  availableModels?: string[] | null;
 }): Promise<void> {
-  const { shopId, status, errorMessage } = params;
+  const { shopId, status, errorMessage, availableModels = null } = params;
   await withTenantContext(shopId, async (client) => {
     await client.query(
       `INSERT INTO shop_ai_credentials (shop_id)
@@ -57,12 +58,52 @@ async function updateOpenAiStatus(params: {
        SET openai_connection_status = $2,
            openai_last_checked_at = now(),
            openai_last_error = $3,
+           openai_available_models = COALESCE($4, openai_available_models),
            openai_last_success_at = CASE WHEN $2 = 'connected' THEN now() ELSE openai_last_success_at END,
            updated_at = now()
        WHERE shop_id = $1`,
-      [shopId, status, errorMessage]
+      [shopId, status, errorMessage, availableModels]
     );
   });
+}
+
+async function updateOpenAiModels(params: {
+  shopId: string;
+  availableModels: string[];
+}): Promise<void> {
+  const { shopId, availableModels } = params;
+  await withTenantContext(shopId, async (client) => {
+    await client.query(
+      `INSERT INTO shop_ai_credentials (shop_id)
+       VALUES ($1)
+       ON CONFLICT (shop_id) DO NOTHING`,
+      [shopId]
+    );
+    await client.query(
+      `UPDATE shop_ai_credentials
+         SET openai_available_models = $2,
+             updated_at = now()
+       WHERE shop_id = $1`,
+      [shopId, availableModels]
+    );
+  });
+}
+
+function extractEmbeddingModels(payload: unknown): string[] | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const obj = payload as { data?: unknown };
+  if (!Array.isArray(obj.data)) return null;
+
+  const ids: string[] = [];
+  for (const entry of obj.data) {
+    if (!entry || typeof entry !== 'object') continue;
+    const id = (entry as { id?: unknown }).id;
+    if (typeof id === 'string' && id.includes('embedding')) {
+      ids.push(id);
+    }
+  }
+  if (ids.length === 0) return [];
+  return Array.from(new Set(ids)).sort();
 }
 
 export async function runOpenAiHealthCheck(params: {
@@ -72,6 +113,7 @@ export async function runOpenAiHealthCheck(params: {
   apiKeyOverride?: string | null;
   allowStoredWhenDisabled?: boolean;
   persist?: boolean;
+  persistModels?: boolean;
 }): Promise<AiHealthResponse> {
   const {
     shopId,
@@ -80,6 +122,7 @@ export async function runOpenAiHealthCheck(params: {
     apiKeyOverride = null,
     allowStoredWhenDisabled = false,
     persist = true,
+    persistModels = false,
   } = params;
 
   const config = await getShopOpenAiConfig({ shopId, env, logger });
@@ -87,7 +130,31 @@ export async function runOpenAiHealthCheck(params: {
   const baseUrl = config.openAiBaseUrl ?? env.openAiBaseUrl ?? 'https://api.openai.com';
   const model = config.openAiEmbeddingsModel;
 
-  if (!config.enabled && !allowStoredWhenDisabled) {
+  // If we have a stored key but it can't be decrypted (e.g. encryption key rotated),
+  // surface that fact instead of reporting "missing_key".
+  if (config.problem === 'decrypt_failed' && !apiKeyOverride) {
+    const health: AiHealthResponse = {
+      status: 'error',
+      checkedAt,
+      message:
+        'Cheia OpenAI este stocata, dar nu se poate decripta (encryption key mismatch). Reintrodu cheia si salveaza din nou.',
+      baseUrl,
+      model,
+      source: config.source,
+    };
+    if (persist) {
+      await updateOpenAiStatus({
+        shopId,
+        status: mapHealthToStatus(health),
+        errorMessage: health.message ?? 'openai_key_decrypt_failed',
+      });
+    }
+    return health;
+  }
+
+  // "Test conexiune" should be able to validate an override key even when the shop is disabled.
+  // Only block when we rely on stored config (no override).
+  if (!config.enabled && !allowStoredWhenDisabled && !apiKeyOverride) {
     const health: AiHealthResponse = {
       status: 'disabled',
       checkedAt,
@@ -96,7 +163,9 @@ export async function runOpenAiHealthCheck(params: {
       model,
       source: config.source,
     };
-    if (persist) await updateOpenAiStatus({ shopId, status: 'disabled', errorMessage: null });
+    if (persist) {
+      await updateOpenAiStatus({ shopId, status: 'disabled', errorMessage: null });
+    }
     return health;
   }
 
@@ -115,6 +184,7 @@ export async function runOpenAiHealthCheck(params: {
       );
       return result.rows[0];
     });
+    let decryptFailed: string | null = null;
     if (row?.openai_api_key_ciphertext && row.openai_api_key_iv && row.openai_api_key_tag) {
       try {
         apiKey = decryptAesGcm(
@@ -124,8 +194,29 @@ export async function runOpenAiHealthCheck(params: {
           row.openai_api_key_tag
         ).toString('utf-8');
       } catch (error) {
+        decryptFailed = error instanceof Error ? error.message : String(error);
         logger.warn({ shopId, error }, 'Failed to decrypt stored OpenAI API key');
       }
+    }
+
+    if (!apiKey && decryptFailed) {
+      const health: AiHealthResponse = {
+        status: 'error',
+        checkedAt,
+        message:
+          'Cheia OpenAI este stocata, dar nu se poate decripta (encryption key mismatch). Reintrodu cheia si salveaza din nou.',
+        baseUrl,
+        model,
+        source: config.source,
+      };
+      if (persist) {
+        await updateOpenAiStatus({
+          shopId,
+          status: mapHealthToStatus(health),
+          errorMessage: health.message ?? 'openai_key_decrypt_failed',
+        });
+      }
+      return health;
     }
   }
 
@@ -138,7 +229,9 @@ export async function runOpenAiHealthCheck(params: {
       model,
       source: config.source,
     };
-    if (persist) await updateOpenAiStatus({ shopId, status: 'missing_key', errorMessage: null });
+    if (persist) {
+      await updateOpenAiStatus({ shopId, status: 'missing_key', errorMessage: null });
+    }
     return health;
   }
 
@@ -179,6 +272,15 @@ export async function runOpenAiHealthCheck(params: {
       return health;
     }
 
+    // Best-effort: parse models list (some mocks/tests might not provide a JSON body).
+    let availableModels: string[] | null = null;
+    try {
+      const payload: unknown = await response.json();
+      availableModels = extractEmbeddingModels(payload);
+    } catch {
+      availableModels = null;
+    }
+
     const health: AiHealthResponse = {
       status: 'ok',
       checkedAt,
@@ -187,9 +289,17 @@ export async function runOpenAiHealthCheck(params: {
       baseUrl,
       model,
       source: config.source,
+      ...(availableModels !== null ? { availableModels } : {}),
     };
     if (persist) {
-      await updateOpenAiStatus({ shopId, status: mapHealthToStatus(health), errorMessage: null });
+      await updateOpenAiStatus({
+        shopId,
+        status: mapHealthToStatus(health),
+        errorMessage: null,
+        availableModels,
+      });
+    } else if (persistModels && Array.isArray(availableModels)) {
+      await updateOpenAiModels({ shopId, availableModels });
     }
     return health;
   } catch (error) {

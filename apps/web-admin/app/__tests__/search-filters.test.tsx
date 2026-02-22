@@ -33,6 +33,7 @@ describe('SearchFilters', () => {
           productTypes: ['Shoes'],
           priceRange: { min: 10, max: 100 },
           categories: [{ id: 'cat-1', name: 'Footwear' }],
+          enrichmentStatus: [],
         }}
         onChange={() => undefined}
         onReset={onReset}

@@ -4,7 +4,9 @@ import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 
 const requireSessionMock = () => (req: unknown, _reply: unknown) => {
-  (req as { session?: { shopId: string } }).session = { shopId: 'shop-1' };
+  (req as { session?: { shopId: string } }).session = {
+    shopId: '00000000-0000-0000-0000-000000000001',
+  };
   return Promise.resolve();
 };
 const queueState = {
@@ -78,6 +80,11 @@ void mock.module('@app/pim', {
 
 void mock.module('@app/database', {
   namedExports: {
+    pool: {
+      query: () => Promise.resolve({ rows: [] }),
+      connect: () =>
+        Promise.resolve({ query: () => Promise.resolve({ rows: [] }), release: () => undefined }),
+    },
     withTenantContext: (
       _shopId: string,
       fn: (client: { query: (sql: string) => Promise<{ rows: unknown[] }> }) => unknown

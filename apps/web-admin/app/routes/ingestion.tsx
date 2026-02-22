@@ -104,9 +104,16 @@ export const loader = apiLoader(async (args: LoaderFunctionArgs) => {
   const currentRun = runId
     ? await api.getApi<BulkRun | null>(`/bulk/${encodeURIComponent(runId)}`)
     : await api.getApi<BulkRun | null>('/bulk/current');
-  const activeShopifyOperation = await api.getApi<{ operation: ShopifyBulkOperation | null }>(
-    '/bulk/active-shopify'
-  );
+  // Best-effort: Shopify bulk lookup can fail when shop token is missing/needs reauth.
+  // The page should still load and show the local ingestion state.
+  let activeShopifyOperation: { operation: ShopifyBulkOperation | null } = { operation: null };
+  try {
+    activeShopifyOperation = await api.getApi<{ operation: ShopifyBulkOperation | null }>(
+      '/bulk/active-shopify'
+    );
+  } catch {
+    // ignore; keep operation null
+  }
   const completedRuns = await api.getApi<{ runs: BulkRun[] }>(`/bulk?limit=5&status=completed`);
   const recentRuns = await api.getApi<{ runs: BulkRun[] }>(`/bulk?limit=5`);
 

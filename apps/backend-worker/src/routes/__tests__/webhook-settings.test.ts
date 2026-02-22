@@ -41,6 +41,11 @@ void mock.module(tokenLifecyclePath, {
 
 void mock.module('@app/database', {
   namedExports: {
+    pool: {
+      query: () => Promise.resolve({ rows: [] }),
+      connect: () =>
+        Promise.resolve({ query: () => Promise.resolve({ rows: [] }), release: () => undefined }),
+    },
     withTenantContext: async (
       _shopId: string,
       fn: (client: {
@@ -81,6 +86,7 @@ const redisConnectMock = mock.fn(() => Promise.resolve());
 void mock.module('redis', {
   namedExports: {
     createClient: () => ({
+      on: () => undefined,
       connect: redisConnectMock,
       get: redisGetMock,
       set: redisSetMock,
@@ -112,6 +118,7 @@ void describe('webhook settings routes', () => {
         appHost: new URL('https://example.com'),
         shopifyApiSecret: 'test-secret',
         redisUrl: 'redis://localhost:6379',
+        redisPrefix: 'neanelu:test:',
       },
       logger: console,
       sessionConfig: { secret: 'test', cookieName: 'neanelu_session', maxAge: 10 },
@@ -136,6 +143,7 @@ void describe('webhook settings routes', () => {
         appHost: new URL('https://example.com'),
         shopifyApiSecret: 'test-secret',
         redisUrl: 'redis://localhost:6379',
+        redisPrefix: 'neanelu:test:',
       },
       logger: console,
       sessionConfig: { secret: 'test', cookieName: 'neanelu_session', maxAge: 10 },
@@ -157,6 +165,7 @@ void describe('webhook settings routes', () => {
         appHost: new URL('https://example.com'),
         shopifyApiSecret: 'test-secret',
         redisUrl: 'redis://localhost:6379',
+        redisPrefix: 'neanelu:test:',
       },
       logger: console,
       sessionConfig: { secret: 'test', cookieName: 'neanelu_session', maxAge: 10 },
@@ -186,6 +195,7 @@ void describe('webhook settings routes', () => {
         appHost: new URL('https://example.com'),
         shopifyApiSecret: 'test-secret',
         redisUrl: 'redis://localhost:6379',
+        redisPrefix: 'neanelu:test:',
         encryptionKeyHex: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       },
       logger: console,

@@ -31,6 +31,8 @@ void mock.module('@app/database', {
         }
         return Promise.resolve({ rows: [] });
       },
+      connect: () =>
+        Promise.resolve({ query: () => Promise.resolve({ rows: [] }), release: () => undefined }),
     },
   },
 });

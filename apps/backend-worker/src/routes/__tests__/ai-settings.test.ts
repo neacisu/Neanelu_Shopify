@@ -72,6 +72,11 @@ let dbRow: DbRow | null = null;
 
 void mock.module('@app/database', {
   namedExports: {
+    pool: {
+      query: () => Promise.resolve({ rows: [] }),
+      connect: () =>
+        Promise.resolve({ query: () => Promise.resolve({ rows: [] }), release: () => undefined }),
+    },
     decryptAesGcm: () => Buffer.from(''),
     encryptAesGcm: () => ({
       ciphertext: Buffer.from('cipher'),

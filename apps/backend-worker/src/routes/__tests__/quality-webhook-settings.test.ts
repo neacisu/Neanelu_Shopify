@@ -30,6 +30,11 @@ void mock.module('../../queue/quality-webhook-queue.js', {
 
 void mock.module('@app/database', {
   namedExports: {
+    pool: {
+      query: () => Promise.resolve({ rows: [] }),
+      connect: () =>
+        Promise.resolve({ query: () => Promise.resolve({ rows: [] }), release: () => undefined }),
+    },
     withTenantContext: (
       _shopId: string,
       fn: (client: { query: () => Promise<{ rows: unknown[] }> }) => unknown

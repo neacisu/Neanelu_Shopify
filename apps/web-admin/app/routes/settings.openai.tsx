@@ -140,6 +140,9 @@ export default function SettingsOpenAi() {
         data = await api.getApi<AiHealthResponse>('/settings/ai/health');
       }
       setAiHealthResult(data);
+      if (Array.isArray(data.availableModels)) {
+        setAiModels(data.availableModels);
+      }
       if (usingStoredKey) {
         setLastCheckedAt(new Date().toISOString());
         if (data.status === 'ok') {
@@ -193,11 +196,13 @@ export default function SettingsOpenAi() {
       if (aiApiKeyDirty) {
         payload.apiKey = aiApiKey;
       }
-      const data = await api.getApi<AiSettingsResponse>('/settings/ai', {
-        method: 'PUT',
-        body: JSON.stringify(payload),
-      });
+      // Use putApi so Content-Type is set and backend parses JSON body.
+      const data = await api.putApi<AiSettingsResponse, AiSettingsUpdateRequest>(
+        '/settings/ai',
+        payload
+      );
       setAiHasApiKey(data.hasApiKey);
+      setAiModels(data.availableModels ?? []);
       setConnectionStatus(normalizeStatus(data.connectionStatus));
       setLastCheckedAt(coerceNullableString(data.lastCheckedAt));
       setLastSuccessAt(coerceNullableString(data.lastSuccessAt));
@@ -224,10 +229,11 @@ export default function SettingsOpenAi() {
         enabled: false,
         apiKey: '',
       };
-      const data = await api.getApi<AiSettingsResponse>('/settings/ai', {
-        method: 'PUT',
-        body: JSON.stringify(payload),
-      });
+      // Use putApi so Content-Type is set and backend parses JSON body.
+      const data = await api.putApi<AiSettingsResponse, AiSettingsUpdateRequest>(
+        '/settings/ai',
+        payload
+      );
       setAiEnabled(false);
       setAiHasApiKey(data.hasApiKey);
       setConnectionStatus(normalizeStatus(data.connectionStatus));

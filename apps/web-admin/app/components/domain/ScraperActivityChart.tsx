@@ -16,7 +16,8 @@ export function ScraperActivityChart({ data }: { data: readonly ScraperActivityD
     <div className="rounded-lg border border-muted/20 bg-background p-4">
       <div className="mb-2 text-xs text-muted">Scraper activity (7 zile)</div>
       <div className="h-64">
-        <ResponsiveContainer width="100%" height="100%">
+        {/* In tabs/hidden panels Recharts can see width/height as -1; guard via min sizes. */}
+        <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
           <AreaChart data={data}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="date" />

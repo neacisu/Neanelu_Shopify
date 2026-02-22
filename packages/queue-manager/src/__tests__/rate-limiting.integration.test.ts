@@ -20,12 +20,16 @@ function getRequiredEnv(name: string): string {
 
 interface TestConfig {
   redisUrl: string;
+  bullmqPrefix: string;
   bullmqProToken: string;
 }
 
 function getTestConfig(): TestConfig {
   return {
     redisUrl: getRequiredEnv('REDIS_URL'),
+    bullmqPrefix: process.env['BULLMQ_PREFIX']?.trim()
+      ? String(process.env['BULLMQ_PREFIX']).trim()
+      : 'neanelu:test:',
     bullmqProToken: getRequiredEnv('BULLMQ_PRO_TOKEN'),
   };
 }

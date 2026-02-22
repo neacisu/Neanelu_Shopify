@@ -32,8 +32,8 @@ Toate serviciile folosesc porturi în range-ul **65xxx** pentru a evita conflict
 
 | Serviciu            | Port Dev | Port Prod | Intern/Extern        | Note                      |
 |---------------------|----------|-----------|----------------------|---------------------------|
-| PostgreSQL 18.1     | 65010    | N/A       | Intern only în prod  | Service name: `db`        |
-| Redis 8.4           | 65011    | N/A       | Intern only în prod  | Container name: `redis`   |
+| PostgreSQL 18.1     | 65010    | N/A       | Dev only (local)     | Service name: `db`        |
+| Redis 8.4           | 65011    | N/A       | Dev only (local)     | Container name: `redis`   |
 
 ### Observability Services (652xx)
 
@@ -113,7 +113,13 @@ GRAFANA_URL=http://localhost:65024
 
 ## Producție (Bare Metal)
 
-În producție, doar porturile esențiale sunt expuse prin Traefik reverse proxy:
+În producție (infrastructura noua), aplicația rulează pe CT-uri dedicate și folosește servicii shared:
+
+- Postgres: CT107 (direct) + PgBouncer pe CT111/CT112
+- Redis: shared (VIP 10.0.1.10:6379)
+- Ingress: Traefik pe orchestrator (TLS termination)
+
+Doar porturile esențiale sunt expuse public prin Traefik reverse proxy:
 
 | Path       | Target      | Port  |
 |------------|-------------|-------|
@@ -123,6 +129,20 @@ GRAFANA_URL=http://localhost:65024
 | `/jaeger`  | jaeger      | 65020 |
 
 Toate celelalte servicii comunică pe rețeaua internă Docker (`neanelu_network`).
+
+### Observability exporters (prod/staging)
+
+Exporterele sunt expuse pentru Prometheus central prin VIP (hz.247) cu porturi dedicate:
+
+- Node exporter:
+  - prod: `10.0.1.10:29200` -> CT111:9100
+  - staging: `10.0.1.10:19200` -> CT112:9100
+- cAdvisor:
+  - prod: `10.0.1.10:29210` -> CT111:65210
+  - staging: `10.0.1.10:19210` -> CT112:65210
+- PgBouncer exporter:
+  - prod: `10.0.1.10:29211` -> CT111:65211
+  - staging: `10.0.1.10:19211` -> CT112:65211
 
 **Network model (standardizat):**
 

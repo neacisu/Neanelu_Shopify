@@ -61,6 +61,14 @@ await (async () => {
   await Promise.resolve(
     mock.module('@app/database', {
       namedExports: {
+        pool: {
+          query: () => Promise.resolve({ rows: [] }),
+          connect: () =>
+            Promise.resolve({
+              query: () => Promise.resolve({ rows: [] }),
+              release: () => undefined,
+            }),
+        },
         withTenantContext: async (
           _shopId: string,
           fn: (client: { query: () => Promise<{ rows: unknown[] }> }) => Promise<unknown>

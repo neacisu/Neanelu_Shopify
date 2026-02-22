@@ -1,7 +1,7 @@
 import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
-import { withTenantContext } from '@app/database';
+import { pool, withTenantContext } from '@app/database';
 import {
   configFromEnv,
   createQueue,
@@ -29,6 +29,49 @@ interface RequestWithSession {
   session?: {
     shopId: string;
   };
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function looksLikeUuid(value: string): boolean {
+  return UUID_RE.test(value);
+}
+
+function normalizeShopDomain(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return new URL(trimmed).hostname.toLowerCase();
+    }
+  } catch {
+    // ignore
+  }
+  const hostOnly = trimmed.split('/')[0] ?? '';
+  return hostOnly.trim().toLowerCase() || null;
+}
+
+async function resolveTenantShopId(
+  session: { shopId: string } & Partial<{ shopDomain: string }>,
+  request: { query: unknown }
+): Promise<string | null> {
+  if (looksLikeUuid(session.shopId)) return session.shopId;
+
+  const q = request.query as { shop?: unknown } | undefined;
+  const queryShop = normalizeShopDomain(q?.shop);
+  const sessionShopDomain = normalizeShopDomain((session as { shopDomain?: unknown }).shopDomain);
+  const sessionShopIdAsDomain = normalizeShopDomain(session.shopId);
+
+  const shopDomain = queryShop ?? sessionShopDomain ?? sessionShopIdAsDomain;
+  if (!shopDomain) return null;
+
+  const result = await pool.query<{ id: string }>(
+    'SELECT id FROM shops WHERE shopify_domain = $1 LIMIT 1',
+    [shopDomain]
+  );
+  const resolved = result.rows[0]?.id ?? null;
+  return resolved && looksLikeUuid(resolved) ? resolved : null;
 }
 
 type WsConnection = Readonly<{
@@ -1339,8 +1382,23 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
       }
 
       try {
-        const budgets = await checkAllBudgets(session.shopId);
-        const scraperRatio = await withTenantContext(session.shopId, async (client) => {
+        const tenantShopId = await resolveTenantShopId(session as never, request);
+        if (!tenantShopId) {
+          return reply
+            .status(401)
+            .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+        }
+
+        // Defensive: avoid passing non-primitive / invalid values to pg (can show up as "" via coercion).
+        const shopId = String(tenantShopId);
+        if (!looksLikeUuid(shopId)) {
+          return reply
+            .status(401)
+            .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+        }
+
+        const budgets = await checkAllBudgets(shopId);
+        const scraperRatio = await withTenantContext(shopId, async (client) => {
           const usage = await client.query<{ used: string }>(
             `SELECT COALESCE(SUM(request_count),0)::text AS used
              FROM api_usage_log
@@ -1348,7 +1406,7 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
                AND api_provider = 'scraper'
                AND created_at >= date_trunc('day', now())
                AND created_at < date_trunc('day', now()) + interval '1 day'`,
-            [session.shopId]
+            [shopId]
           );
           const used = Number(usage.rows[0]?.used ?? 0);
           const limit = 10000;
@@ -1556,9 +1614,23 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
           .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
       }
       try {
-        const budgets = await checkAllBudgets(session.shopId);
+        const tenantShopId = await resolveTenantShopId(session as never, request);
+        if (!tenantShopId) {
+          return reply
+            .status(401)
+            .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+        }
+
+        const shopId = String(tenantShopId);
+        if (!looksLikeUuid(shopId)) {
+          return reply
+            .status(401)
+            .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+        }
+
+        const budgets = await checkAllBudgets(shopId);
         const queueStatus = await readCostSensitiveQueueStatus(configFromEnv(env));
-        const scraperRatio = await withTenantContext(session.shopId, async (client) => {
+        const scraperRatio = await withTenantContext(shopId, async (client) => {
           const usage = await client.query<{ used: string }>(
             `SELECT COALESCE(SUM(request_count),0)::text AS used
              FROM api_usage_log
@@ -1566,7 +1638,7 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
                AND api_provider = 'scraper'
                AND created_at >= date_trunc('day', now())
                AND created_at < date_trunc('day', now()) + interval '1 day'`,
-            [session.shopId]
+            [shopId]
           );
           const used = Number(usage.rows[0]?.used ?? 0);
           const limit = 10000;
@@ -1662,8 +1734,22 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
       }
 
       try {
-        await withTenantContext(session.shopId, async (client) => {
-          values.push(session.shopId);
+        const tenantShopId = await resolveTenantShopId(session as never, request);
+        if (!tenantShopId) {
+          return reply
+            .status(401)
+            .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+        }
+
+        const shopId = String(tenantShopId);
+        if (!looksLikeUuid(shopId)) {
+          return reply
+            .status(401)
+            .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+        }
+
+        await withTenantContext(shopId, async (client) => {
+          values.push(shopId);
           await client.query(
             `UPDATE shop_ai_credentials
                 SET ${updates.join(', ')},
@@ -1679,7 +1765,7 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
           }
         ).redis;
         if (maybeRedis) {
-          await maybeRedis.del('pim:budget:max_ratios');
+          await maybeRedis.del(`${env.redisPrefix}pim:budget:max_ratios`);
         }
 
         return reply.send(successEnvelope(request.id, { updated: true }));

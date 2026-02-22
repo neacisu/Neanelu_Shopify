@@ -28,19 +28,30 @@ function normalizeQuery(text: string): string {
   return normalizeSearchQuery(text);
 }
 
+function normalizeRedisPrefix(prefix?: string): string {
+  if (!prefix) return '';
+  return prefix.endsWith(':') ? prefix : `${prefix}:`;
+}
+
+function withRedisPrefix(prefix: string, key: string): string {
+  return prefix ? `${prefix}${key}` : key;
+}
+
 export function getSearchCacheKey(shopId: string, queryHash: string): string {
   return `cache:search:${shopId}:${queryHash}`;
 }
 
 export async function getCachedSearchResult(params: {
   redis: Redis;
+  redisPrefix?: string;
   shopId: string;
   queryText: string;
   config?: Partial<SearchCacheConfig>;
 }): Promise<CachedSearchResult | null> {
   const normalized = normalizeQuery(params.queryText);
   if (!normalized) return null;
-  const key = getSearchCacheKey(params.shopId, sha256Hex(normalized));
+  const prefix = normalizeRedisPrefix(params.redisPrefix);
+  const key = withRedisPrefix(prefix, getSearchCacheKey(params.shopId, sha256Hex(normalized)));
   const raw = await params.redis.get(key);
   if (!raw) return null;
   try {
@@ -60,6 +71,7 @@ export async function getCachedSearchResult(params: {
 
 export async function setCachedSearchResult(params: {
   redis: Redis;
+  redisPrefix?: string;
   shopId: string;
   queryText: string;
   result: ProductSearchResult[];
@@ -73,7 +85,8 @@ export async function setCachedSearchResult(params: {
 
   const normalized = normalizeQuery(params.queryText);
   if (!normalized) return;
-  const key = getSearchCacheKey(params.shopId, sha256Hex(normalized));
+  const prefix = normalizeRedisPrefix(params.redisPrefix);
+  const key = withRedisPrefix(prefix, getSearchCacheKey(params.shopId, sha256Hex(normalized)));
 
   const payload: CachedSearchResult = {
     results: params.result,
@@ -90,12 +103,14 @@ export async function setCachedSearchResult(params: {
 
 export async function invalidateSearchCache(params: {
   redis: Redis;
+  redisPrefix?: string;
   shopId: string;
   config?: Partial<SearchCacheConfig>;
 }): Promise<number> {
   const config = params.config ?? {};
   const maxKeys = config.maxKeysToDelete ?? DEFAULT_MAX_KEYS_TO_DELETE;
-  const pattern = `cache:search:${params.shopId}:*`;
+  const prefix = normalizeRedisPrefix(params.redisPrefix);
+  const pattern = withRedisPrefix(prefix, `cache:search:${params.shopId}:*`);
 
   let cursor = '0';
   let deleted = 0;

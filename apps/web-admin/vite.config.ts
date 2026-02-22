@@ -15,6 +15,9 @@ export default defineConfig({
     host: true,
     port: frontendPort,
     strictPort: true,
+    // In Docker behind Traefik, requests come with the public Host header.
+    // Vite dev server blocks unknown hosts by default.
+    ...(isDocker ? { allowedHosts: true as const } : {}),
     proxy: {
       '/api': {
         target: isDocker ? 'http://backend-worker:65000' : 'http://localhost:65000',

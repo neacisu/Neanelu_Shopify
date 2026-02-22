@@ -112,10 +112,12 @@ const START_SYNC_COOLDOWN_KEY_PREFIX = 'dashboard:start-sync:cooldown:v1:';
 const CLEAR_CACHE_MAX_KEYS = 2000;
 const CLEAR_CACHE_SCAN_COUNT = 500;
 const CLEAR_CACHE_ALLOWED_PATTERNS = new Set<string>([
+  // Backward-compatible inputs; they will be expanded under env.redisPrefix.
   'dashboard:*',
   'cache:*',
-  'neanelu:*',
   'shopify:*',
+  // Preferred: explicitly namespaced patterns.
+  'neanelu:*',
 ]);
 
 type ClearCacheBody = Readonly<{
@@ -167,6 +169,7 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
   opts
 ): Promise<void> => {
   const { env, logger, sessionConfig } = opts;
+  const keyPrefix = env.redisPrefix;
 
   const redis = createRedisConnection({
     redisUrl: env.redisUrl,
@@ -270,7 +273,7 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
       d.setUTCDate(d.getUTCDate() - i);
-      const key = activityKeyForUtcDate(d);
+      const key = activityKeyForUtcDate(d, keyPrefix);
       const hash = await redis.hgetall(key);
 
       const get = (field: string) => {
@@ -357,7 +360,7 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
       return;
     }
 
-    const cooldownKey = `${START_SYNC_COOLDOWN_KEY_PREFIX}${session.shopId}`;
+    const cooldownKey = `${keyPrefix}${START_SYNC_COOLDOWN_KEY_PREFIX}${session.shopId}`;
     const ok = await redis.set(cooldownKey, '1', 'EX', START_SYNC_COOLDOWN_SECONDS, 'NX');
     if (ok !== 'OK') {
       void reply
@@ -434,11 +437,17 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
       return;
     }
 
+    const expandPattern = (pattern: string) => {
+      if (pattern.startsWith(keyPrefix)) return pattern;
+      if (pattern === 'neanelu:*') return `${keyPrefix}*`;
+      return `${keyPrefix}${pattern}`;
+    };
+
     let deletedKeys = 0;
-    for (const pattern of allowed) {
+    for (const rawPattern of allowed) {
       const remaining = Math.max(0, CLEAR_CACHE_MAX_KEYS - deletedKeys);
       if (!remaining) break;
-      deletedKeys += await scanDeletePattern(redis, pattern, remaining);
+      deletedKeys += await scanDeletePattern(redis, expandPattern(rawPattern), remaining);
     }
 
     const truncated = deletedKeys >= CLEAR_CACHE_MAX_KEYS;

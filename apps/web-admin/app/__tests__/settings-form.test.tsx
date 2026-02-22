@@ -54,10 +54,26 @@ const mockPostApi = vi.fn((path: string) => {
   return Promise.resolve({});
 });
 
+const mockPutApi = vi.fn((path: string) => {
+  if (path === '/settings/ai') {
+    return Promise.resolve({
+      enabled: true,
+      hasApiKey: true,
+      openaiBaseUrl: 'https://api.openai.com',
+      openaiEmbeddingsModel: 'text-embedding-3-large',
+      embeddingBatchSize: 100,
+      similarityThreshold: 0.8,
+      availableModels: ['text-embedding-3-large'],
+    });
+  }
+  return Promise.resolve({});
+});
+
 vi.mock('../hooks/use-api', () => ({
   useApiClient: () => ({
     getApi: mockGetApi,
     postApi: mockPostApi,
+    putApi: mockPutApi,
   }),
 }));
 
@@ -65,6 +81,7 @@ describe('settings form', () => {
   beforeEach(() => {
     mockGetApi.mockClear();
     mockPostApi.mockClear();
+    mockPutApi.mockClear();
   });
 
   it('renders shop info from API', async () => {
@@ -90,10 +107,7 @@ describe('settings form', () => {
     await user.click(saveButton);
 
     await waitFor(() => {
-      expect(mockGetApi).toHaveBeenCalledWith(
-        '/settings/ai',
-        expect.objectContaining({ method: 'PUT' })
-      );
+      expect(mockPutApi).toHaveBeenCalledWith('/settings/ai', expect.objectContaining({}));
     });
     expect(await screen.findByText(/Setările OpenAI au fost salvate/i)).toBeInTheDocument();
   });

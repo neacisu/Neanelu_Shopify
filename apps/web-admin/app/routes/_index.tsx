@@ -1,8 +1,11 @@
 import { Activity, AlertTriangle, Cpu, Package, RefreshCw } from 'lucide-react';
 
 import type { ComponentType } from 'react';
+import { useCallback, useState } from 'react';
 import type { LoaderFunctionArgs } from 'react-router-dom';
 import { useLoaderData, useRevalidator } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
 import { PolarisCard } from '../../components/polaris/index.js';
 import { Button } from '../components/ui/button';
@@ -38,12 +41,36 @@ interface Kpi {
 export default function DashboardIndex() {
   const { summary } = useLoaderData<RouteLoaderData>();
   const revalidator = useRevalidator();
+  const queryClient = useQueryClient();
+  const [refreshing, setRefreshing] = useState(false);
   const numberFormatter = new Intl.NumberFormat('ro-RO');
   const percentFormatter = new Intl.NumberFormat('ro-RO', {
     style: 'percent',
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+
+  const refreshAll = useCallback(() => {
+    if (refreshing || revalidator.state === 'loading') return;
+    setRefreshing(true);
+    toast.message('Reincarc datele…');
+
+    // Loader-backed summary
+    void revalidator.revalidate();
+
+    // React Query-backed panels
+    void queryClient
+      .refetchQueries({ queryKey: ['dashboard'], type: 'active' })
+      .then(() => {
+        toast.success('Date reincarcate');
+      })
+      .catch((err: unknown) => {
+        toast.error(err instanceof Error ? err.message : 'Reincarcarea a esuat');
+      })
+      .finally(() => {
+        setRefreshing(false);
+      });
+  }, [queryClient, refreshing, revalidator]);
 
   const kpis: Kpi[] = [
     {
@@ -80,10 +107,14 @@ export default function DashboardIndex() {
           <p className="mt-1 text-body text-muted">Prezentare sistem si status de sanatate</p>
         </div>
 
-        <Button variant="secondary" onClick={() => void revalidator.revalidate()}>
+        <Button
+          variant="secondary"
+          disabled={refreshing || revalidator.state === 'loading'}
+          onClick={refreshAll}
+        >
           <span className="inline-flex items-center gap-2">
             <RefreshCw className="size-4" />
-            Reincarca datele
+            {refreshing || revalidator.state === 'loading' ? 'Se reincarca…' : 'Reincarca datele'}
           </span>
         </Button>
       </header>

@@ -19,6 +19,12 @@ void mock.module(sessionPath, {
 let queryCount = 0;
 void mock.module('@app/database', {
   namedExports: {
+    pool: {
+      query: () => Promise.resolve({ rows: [] }),
+      connect: () =>
+        Promise.resolve({ query: () => Promise.resolve({ rows: [] }), release: () => undefined }),
+    },
+    db: {},
     withTenantContext: (
       _shopId: string,
       fn: (client: {

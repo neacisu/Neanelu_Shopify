@@ -133,7 +133,14 @@ async function loadPayloadFromRedis(
     throw new Error('payload_ref_missing');
   }
 
-  const raw = await redis.get(ref);
+  const prefix = env.redisPrefix.endsWith(':') ? env.redisPrefix : `${env.redisPrefix}:`;
+  const candidates = ref.startsWith(prefix) ? [ref] : [ref, `${prefix}${ref}`];
+
+  let raw: string | null = null;
+  for (const key of candidates) {
+    raw = await redis.get(key);
+    if (raw) break;
+  }
   if (!raw) {
     throw new Error('payload_ref_not_found');
   }
@@ -323,7 +330,9 @@ export function startWebhookWorker(logger: Logger): WebhookWorkerHandle {
           }
 
           // Best-effort activity timeline counter.
-          await incrementDashboardActivity(redis, 'webhook', 1).catch(() => undefined);
+          await incrementDashboardActivity(redis, 'webhook', 1, env.redisPrefix).catch(
+            () => undefined
+          );
         }
       });
     },

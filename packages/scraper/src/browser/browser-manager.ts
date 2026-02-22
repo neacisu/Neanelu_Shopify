@@ -53,9 +53,11 @@ class BrowserManager {
       return this.browser;
     }
     try {
+      const chromiumPath = process.env['CHROMIUM_PATH'];
       this.browser = await chromium.launch({
         headless: true,
         args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+        ...(chromiumPath ? { executablePath: chromiumPath } : {}),
       });
       this.restartAttempts = 0;
       return this.browser;

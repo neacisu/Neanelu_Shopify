@@ -53,7 +53,9 @@ export function startSyncWorker(logger: Logger): SyncWorkerHandle {
           );
         } finally {
           // Count this job as processed for the activity timeline (best-effort).
-          await incrementDashboardActivity(redis, 'sync', 1).catch(() => undefined);
+          await incrementDashboardActivity(redis, 'sync', 1, env.redisPrefix).catch(
+            () => undefined
+          );
         }
       });
     },

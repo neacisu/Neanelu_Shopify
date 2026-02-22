@@ -31,6 +31,11 @@ void mock.module('@app/queue-manager', {
 
 void mock.module('@app/database', {
   namedExports: {
+    pool: {
+      query: () => Promise.resolve({ rows: [] }),
+      connect: () =>
+        Promise.resolve({ query: () => Promise.resolve({ rows: [] }), release: () => undefined }),
+    },
     withTenantContext: (
       _shopId: string,
       fn: (client: { query: () => Promise<{ rows: unknown[] }> }) => unknown

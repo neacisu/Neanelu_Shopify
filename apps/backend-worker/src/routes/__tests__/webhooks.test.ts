@@ -12,6 +12,7 @@ void mock.module('@app/config', {
     loadEnv: () => ({
       shopifyApiSecret: 'test-secret',
       redisUrl: 'redis://localhost:6379',
+      redisPrefix: 'neanelu:test:',
     }),
   },
 });

@@ -74,8 +74,14 @@ function isEmbeddedContextForAppBridge(): boolean {
 function maybeRedirectToOAuthStartOnUnauthorized(): void {
   if (typeof window === 'undefined') return;
   if (import.meta.env.MODE === 'test') return;
-  // In embedded context, App Bridge (forceRedirect) is the canonical path.
-  if (isEmbeddedContextForAppBridge()) return;
+  // In embedded context, App Bridge (forceRedirect) is the canonical path *only when configured*.
+  // If VITE_SHOPIFY_API_KEY is missing (or host param is missing), we must fall back to a full-page
+  // redirect to /auth; otherwise the UI will loop on 401 forever inside the iframe.
+  const embedded = isEmbeddedContextForAppBridge();
+  const appBridgeApiKey = import.meta.env['VITE_SHOPIFY_API_KEY'] as string | undefined;
+  const host = getShopifyHostFromUrl();
+  // Only skip OAuth redirects when App Bridge can realistically mint a JWT.
+  if (embedded && appBridgeApiKey && host) return;
 
   // Only attempt to start OAuth from within our UI routes.
   if (!window.location.pathname.startsWith('/app/')) return;
@@ -117,7 +123,9 @@ function maybeRedirectToOAuthStartOnUnauthorized(): void {
   const url = new URL('/auth', window.location.origin);
   url.searchParams.set('shop', shop);
   url.searchParams.set('returnTo', returnTo);
-  window.location.assign(url.toString());
+  // Embedded: navigate the top-level frame when possible.
+  if (embedded && window.top && window.top !== window) window.top.location.assign(url.toString());
+  else window.location.assign(url.toString());
 }
 
 async function fetchShopifyAppBridgeSessionToken(): Promise<string | null> {

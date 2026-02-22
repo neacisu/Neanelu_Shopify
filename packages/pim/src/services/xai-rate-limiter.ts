@@ -1,14 +1,16 @@
 import { Redis } from 'ioredis';
+import { loadEnv } from '@app/config';
 
 let redisClient: Redis | null = null;
 
 function getRedis(): Redis {
   if (!redisClient) {
-    const redisUrl = process.env['REDIS_URL'] ?? 'redis://localhost:6379';
-    redisClient = new Redis(redisUrl, {
+    const env = loadEnv();
+    redisClient = new Redis(env.redisUrl, {
       enableReadyCheck: true,
       connectTimeout: 10_000,
       maxRetriesPerRequest: null,
+      keyPrefix: env.redisPrefix,
     });
   }
   return redisClient;

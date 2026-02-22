@@ -15,12 +15,14 @@ import type { Logger } from '@app/logger';
  */
 export async function isDuplicateWebhook(
   redis: Redis,
+  redisPrefix: string,
   shopDomain: string,
   topic: string,
   webhookId: string,
   logger: Logger
 ): Promise<boolean> {
-  const key = `webhook:processed:${shopDomain}:${topic}:${webhookId}`;
+  const prefix = redisPrefix.endsWith(':') ? redisPrefix : `${redisPrefix}:`;
+  const key = `${prefix}webhook:processed:${shopDomain}:${topic}:${webhookId}`;
 
   try {
     const exists = await redis.exists(key);
@@ -41,13 +43,15 @@ export async function isDuplicateWebhook(
  */
 export async function markWebhookProcessed(
   redis: Redis,
+  redisPrefix: string,
   shopDomain: string,
   topic: string,
   webhookId: string,
   logger: Logger,
   ttlSeconds = 300 // 5 minute default
 ): Promise<void> {
-  const key = `webhook:processed:${shopDomain}:${topic}:${webhookId}`;
+  const prefix = redisPrefix.endsWith(':') ? redisPrefix : `${redisPrefix}:`;
+  const key = `${prefix}webhook:processed:${shopDomain}:${topic}:${webhookId}`;
 
   try {
     await redis.set(key, '1', 'EX', ttlSeconds);

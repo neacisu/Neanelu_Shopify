@@ -16,6 +16,18 @@ import pg from 'pg';
 
 const { Pool } = pg;
 
+function parseDbSslMode(value: string | undefined): 'disable' | 'require' | 'verify-full' {
+  const raw = (value ?? 'disable').trim().toLowerCase();
+  if (raw === 'disable' || raw === 'require' || raw === 'verify-full') return raw;
+  throw new Error(`Invalid DB_SSL_MODE: ${String(value)} (expected disable|require|verify-full)`);
+}
+
+function getDefaultPoolSize(nodeEnv: string | undefined): number {
+  // In staging/prod we run behind PgBouncer; keep app pool small to avoid double pooling.
+  if (nodeEnv === 'production' || nodeEnv === 'staging') return 3;
+  return 10;
+}
+
 // ============================================
 // CONFIGURARE POOL
 // ============================================
@@ -26,12 +38,20 @@ const { Pool } = pg;
  */
 const poolConfig: pg.PoolConfig = {
   connectionString: process.env['DATABASE_URL_TEST'] ?? process.env['DATABASE_URL'],
-  max: Number(process.env['DB_POOL_SIZE'] ?? 10),
+  max: Number(process.env['DB_POOL_SIZE'] ?? getDefaultPoolSize(process.env['NODE_ENV'])),
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
   // Recomandare: statement_timeout pentru queries lungi
   // Se poate adăuga ca parametru în connection string sau aici
 };
+
+const dbSslMode = parseDbSslMode(process.env['DB_SSL_MODE']);
+if (dbSslMode === 'require') {
+  // Internal gateways often terminate/forward TLS without a public CA chain.
+  poolConfig.ssl = { rejectUnauthorized: false };
+} else if (dbSslMode === 'verify-full') {
+  poolConfig.ssl = { rejectUnauthorized: true };
+}
 
 /**
  * Shared pg Pool instance
