@@ -62,16 +62,12 @@ jobs:
     outputs:
       image_tag: ${{ steps.tag.outputs.tag }}
     steps:
+      - name: Purge stale git state
+        run: rm -rf .git
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-
-      - name: Ensure complete working tree
-        run: |
-          git config core.sparseCheckout false 2>/dev/null || true
-          git config core.sparseCheckoutCone false 2>/dev/null || true
-          rm -f .git/info/sparse-checkout
-          git read-tree -mu HEAD
 
       - name: Compute image tag
         id: tag
@@ -118,16 +114,12 @@ jobs:
       NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
       BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
     steps:
+      - name: Purge stale git state
+        run: rm -rf .git
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-
-      - name: Ensure complete working tree
-        run: |
-          git config core.sparseCheckout false 2>/dev/null || true
-          git config core.sparseCheckoutCone false 2>/dev/null || true
-          rm -f .git/info/sparse-checkout
-          git read-tree -mu HEAD
 
       - uses: pnpm/action-setup@v4
         with:
@@ -225,16 +217,12 @@ jobs:
     timeout-minutes: 15
     needs: [build-push, migrate]
     steps:
+      - name: Purge stale git state
+        run: rm -rf .git
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-
-      - name: Ensure complete working tree
-        run: |
-          git config core.sparseCheckout false 2>/dev/null || true
-          git config core.sparseCheckoutCone false 2>/dev/null || true
-          rm -f .git/info/sparse-checkout
-          git read-tree -mu HEAD
 
       - name: Deploy
         shell: bash

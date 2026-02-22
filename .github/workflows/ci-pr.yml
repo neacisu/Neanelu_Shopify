@@ -479,14 +479,10 @@ jobs:
     needs:
       - lint-typecheck-build
     steps:
-      - uses: actions/checkout@v4
+      - name: Purge stale git state
+        run: rm -rf .git
 
-      - name: Ensure complete working tree
-        run: |
-          git config core.sparseCheckout false 2>/dev/null || true
-          git config core.sparseCheckoutCone false 2>/dev/null || true
-          rm -f .git/info/sparse-checkout
-          git read-tree -mu HEAD
+      - uses: actions/checkout@v4
 
       - name: OpenBao login (AppRole)
         env:
