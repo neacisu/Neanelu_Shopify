@@ -5,9 +5,9 @@
 # - Shared services: Traefik/OpenBao/Redis/Observability on orchestrator
 # - PostgreSQL on CT107 (direct for migrations, PgBouncer for runtime)
 #
-# IMPORTANT:
-# - Requires self-hosted runner on CT108 for internal network access
-# - Requires GitHub Secrets (see below)
+# Triggered by:
+# - CI trigger-cd job (gh workflow run) after all checks pass
+# - Manual workflow_dispatch for ad-hoc deploys or rollbacks
 #
 # Required GitHub Secrets:
 # - GHCR_USERNAME / GHCR_TOKEN: GHCR registry auth
@@ -18,31 +18,6 @@
 name: CD - Deploy
 
 on:
-  workflow_call:
-    inputs:
-      environment:
-        required: true
-        type: string
-      version:
-        required: false
-        type: string
-    secrets:
-      GHCR_USERNAME:
-        required: true
-      GHCR_TOKEN:
-        required: true
-      OPENBAO_ADDR:
-        required: true
-      OPENBAO_CICD_ROLE_ID:
-        required: true
-      OPENBAO_CICD_SECRET_ID:
-        required: true
-      SSH_KEY_DEPLOY:
-        required: true
-      NPM_TASKFORCESH_TOKEN:
-        required: true
-      BULLMQ_PRO_TOKEN:
-        required: true
   workflow_dispatch:
     inputs:
       environment:
@@ -51,8 +26,8 @@ on:
         type: choice
         options: [staging, production]
       version:
-        description: 'Docker image tag (e.g. sha, v1.2.3). Default: github.sha'
-        required: false
+        description: 'Docker image tag (e.g. sha, v0.0.X). Required.'
+        required: true
         type: string
 
 concurrency:
@@ -60,7 +35,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 env:
@@ -68,7 +43,7 @@ env:
   PNPM_VERSION: '10.28.0'
   OPENBAO_ADDR: '${{ secrets.OPENBAO_ADDR }}'
   TARGET_ENV: '${{ inputs.environment }}'
-  DEPLOY_VERSION: '${{ inputs.version || github.sha }}'
+  DEPLOY_VERSION: '${{ inputs.version }}'
 
 jobs:
   # ── Build images & push to GHCR ─────────────────────────
@@ -101,17 +76,11 @@ jobs:
           context: .
           file: apps/backend-worker/Dockerfile
           push: true
-          no-cache: true
           tags: ghcr.io/neacisu/neanelu-shopify/backend-worker:${{ steps.tag.outputs.tag }}
+          cache-from: type=gha,scope=backend-worker
+          cache-to: type=gha,scope=backend-worker,mode=max
           secrets: |
             npm_token=${{ secrets.NPM_TASKFORCESH_TOKEN }}
-
-      - name: Reset BuildKit builder
-        run: |
-          docker buildx prune -f 2>/dev/null || true
-          docker builder prune -f 2>/dev/null || true
-
-      - uses: docker/setup-buildx-action@v3
 
       - name: Build & push web-admin
         uses: docker/build-push-action@v6
@@ -119,8 +88,9 @@ jobs:
           context: .
           file: apps/web-admin/Dockerfile
           push: true
-          no-cache: true
           tags: ghcr.io/neacisu/neanelu-shopify/web-admin:${{ steps.tag.outputs.tag }}
+          cache-from: type=gha,scope=web-admin
+          cache-to: type=gha,scope=web-admin,mode=max
           secrets: |
             npm_token=${{ secrets.NPM_TASKFORCESH_TOKEN }}
 
@@ -261,9 +231,11 @@ jobs:
               set -euo pipefail; \
               for svc in backend-worker web-admin; do \
                 latest=\$(ls -1t /opt/neanelu/rollback/\${svc}-*.tar.gz 2>/dev/null | head -1); \
-                if [[ -n \"\${latest}\" ]]; then \
+                if [[ -n \"\${latest}\" && -f \"\${latest}\" ]]; then \
                   echo \"rollback_load \${svc} \${latest}\"; \
                   sudo gunzip -c \"\${latest}\" | sudo docker load; \
+                else \
+                  echo \"WARN: no rollback image for \${svc}\" >&2; \
                 fi; \
               done; \
               if [[ -f /opt/neanelu/.env.prev ]]; then sudo cp -f /opt/neanelu/.env.prev /opt/neanelu/.env; fi; \
@@ -271,7 +243,6 @@ jobs:
           }
           trap rollback ERR
 
-          # Prepare host directories + copy all files in one batch
           $SSH "deploy@${HOST}" "mkdir -p /opt/neanelu/infra/scripts"
           $SCP \
             "./${COMPOSE}" \
@@ -283,20 +254,17 @@ jobs:
             mv -f /opt/neanelu/verify-deployment.sh /opt/neanelu/rollback-save.sh /opt/neanelu/post-deploy-cleanup.sh /opt/neanelu/infra/scripts/ 2>/dev/null || true; \
             chmod 0755 /opt/neanelu/infra/scripts/verify-deployment.sh /opt/neanelu/infra/scripts/rollback-save.sh /opt/neanelu/infra/scripts/post-deploy-cleanup.sh"
 
-          # Save current images for rollback + backup .env
           $SSH "deploy@${HOST}" "\
             cd /opt/neanelu && sudo bash /opt/neanelu/infra/scripts/rollback-save.sh ${COMPOSE}; \
             if [[ -f /opt/neanelu/.env ]]; then sudo cp -f /opt/neanelu/.env /opt/neanelu/.env.prev; fi; \
             printf 'NEANELU_VERSION=%s\nNEANELU_REGISTRY=ghcr.io\nNEANELU_IMAGE_PREFIX=neacisu/neanelu-shopify\n' '${TAG}' > /opt/neanelu/.env"
 
-          # Pull new images + restart
           $SSH "deploy@${HOST}" "\
             echo '${{ secrets.GHCR_TOKEN }}' | sudo docker login ghcr.io -u '${{ secrets.GHCR_USERNAME }}' --password-stdin && \
             cd /opt/neanelu && \
             sudo docker compose -f ${COMPOSE} pull backend-worker web-admin bull-board && \
             sudo docker compose -f ${COMPOSE} up -d"
 
-          # Verify deployment health
           $SSH "deploy@${HOST}" "sudo bash /opt/neanelu/infra/scripts/verify-deployment.sh"
 
       - name: Post-deploy HTTP verification
@@ -316,6 +284,15 @@ jobs:
             curl -skI --max-time 8 -o /dev/null -w "http_code=%{http_code} redirect=%{redirect_url}\n" \
               "${BASE_URL}/auth?shop=unit-test.myshopify.com" || true
           } | tee "${out}"
+
+      - name: Create Git tag (production)
+        if: inputs.environment == 'production'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${DEPLOY_VERSION}" -m "Release ${DEPLOY_VERSION} (auto-generated by CD)"
+          git push origin "${DEPLOY_VERSION}"
 
       - name: Post-deploy cleanup
         run: |

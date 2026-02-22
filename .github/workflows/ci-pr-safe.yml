@@ -38,7 +38,7 @@ jobs:
           # Provide required vars for config validation (avoid ?: failures)
           TRAEFIK_DASHBOARD_USERS='ci:$$2y$$05$$abcdefghijklmnopqrstuv' \
             docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.dev.yml config --quiet
-          echo "✅ Docker Compose configuration is valid"
+          echo "Docker Compose configuration is valid"
 
       - name: Verify service images exist
         run: |

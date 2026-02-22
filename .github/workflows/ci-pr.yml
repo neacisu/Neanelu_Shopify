@@ -1,12 +1,15 @@
 # ============================================
 # Neanelu Shopify - CI Pull Request Workflow
 # ============================================
-# Runs on every pull request to main/develop branches
-# Includes: lint, typecheck, test, security scan
+# Runs on every pull request to main/develop branches and on push.
+# Includes: lint, typecheck, test, security scan, real infra smoke.
+# CD is triggered separately via workflow_dispatch (trigger-cd job).
 #
 # Required GitHub Secrets:
 # - NPM_TASKFORCESH_TOKEN: BullMQ Pro registry token
 # - BULLMQ_PRO_TOKEN: BullMQ Pro license token
+# - OPENBAO_ADDR / OPENBAO_CICD_ROLE_ID / OPENBAO_CICD_SECRET_ID
+# - SSH_KEY_DEPLOY
 
 name: CI - Pull Request
 
@@ -20,19 +23,30 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Permissions required for SARIF upload to GitHub Security tab
 permissions:
   contents: read
   security-events: write
   packages: write
+  actions: write
 
 env:
   NODE_VERSION: '24'
   PNPM_VERSION: '10.28.0'
+  APP_HOST: https://example.test
+  SHOPIFY_API_KEY: ci_dummy
+  SHOPIFY_API_SECRET: ci_dummy
+  SCOPES: read_products
+  ENCRYPTION_KEY_VERSION: '1'
+  ENCRYPTION_KEY_256: '0000000000000000000000000000000000000000000000000000000000000000'
+  OTEL_EXPORTER_OTLP_ENDPOINT: ''
+  OTEL_SERVICE_NAME: neanelu-shopify-ci
+  OTEL_SAMPLING_RATIO: '0'
+  OBS_DEBUG: '0'
 
 jobs:
   # ============================================
-  # Main CI Job: Lint, TypeCheck, Test
+  # Gate Job: Lint, TypeCheck, Build
+  # All other jobs depend on this (fail-fast).
   # ============================================
   lint-typecheck-build:
     name: Lint, TypeCheck & Build
@@ -41,28 +55,13 @@ jobs:
     timeout-minutes: 12
     env:
       NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
-      # BullMQ Pro license token (required for running BullMQ Pro codepaths in CI)
       BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
-      # Required runtime env (strict validation)
-      APP_HOST: https://example.test
-      SHOPIFY_API_KEY: ci_dummy
-      SHOPIFY_API_SECRET: ci_dummy
-      SCOPES: read_products
-      ENCRYPTION_KEY_VERSION: '1'
-      # Quote to avoid YAML parsing this as numeric 0.
-      ENCRYPTION_KEY_256: '0000000000000000000000000000000000000000000000000000000000000000'
-      # CI: keep OTel disabled (endpoint empty)
-      OTEL_EXPORTER_OTLP_ENDPOINT: ''
-      OTEL_SERVICE_NAME: neanelu-shopify-ci
-      # Keep OTel effectively disabled (0% sampling)
-      OTEL_SAMPLING_RATIO: '0'
-      OBS_DEBUG: '0'
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Validate required secrets (no output)
+      - name: Validate required secrets
         shell: bash
         run: |
           set -euo pipefail
@@ -99,6 +98,7 @@ jobs:
   # ============================================
   test-packages:
     name: Test (packages)
+    needs: [lint-typecheck-build]
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]' }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
@@ -134,13 +134,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Validate required secrets (no output)
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${NPM_TASKFORCESH_TOKEN}" || (echo "Missing NPM_TASKFORCESH_TOKEN" >&2; exit 1)
-          test -n "${BULLMQ_PRO_TOKEN}" || (echo "Missing BULLMQ_PRO_TOKEN" >&2; exit 1)
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -179,35 +172,18 @@ jobs:
   # ============================================
   test-backend-worker-unit:
     name: Test (backend-worker unit)
+    needs: [lint-typecheck-build]
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
       BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
-      APP_HOST: https://example.test
-      SHOPIFY_API_KEY: ci_dummy
-      SHOPIFY_API_SECRET: ci_dummy
-      SCOPES: read_products
-      ENCRYPTION_KEY_VERSION: '1'
-      # Quote to avoid YAML parsing this as numeric 0.
-      ENCRYPTION_KEY_256: '0000000000000000000000000000000000000000000000000000000000000000'
-      OTEL_EXPORTER_OTLP_ENDPOINT: ''
-      OTEL_SERVICE_NAME: neanelu-shopify-ci
-      OTEL_SAMPLING_RATIO: '0'
-      OBS_DEBUG: '0'
       NODE_ENV: test
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Validate required secrets (no output)
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${NPM_TASKFORCESH_TOKEN}" || (echo "Missing NPM_TASKFORCESH_TOKEN" >&2; exit 1)
-          test -n "${BULLMQ_PRO_TOKEN}" || (echo "Missing BULLMQ_PRO_TOKEN" >&2; exit 1)
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -241,36 +217,19 @@ jobs:
   # ============================================
   test-backend-worker-integration:
     name: Test (backend-worker integration)
+    needs: [lint-typecheck-build]
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
       BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
-      APP_HOST: https://example.test
-      SHOPIFY_API_KEY: ci_dummy
-      SHOPIFY_API_SECRET: ci_dummy
-      SCOPES: read_products
-      ENCRYPTION_KEY_VERSION: '1'
-      ENCRYPTION_KEY_256: '0000000000000000000000000000000000000000000000000000000000000000'
-      OTEL_EXPORTER_OTLP_ENDPOINT: ''
-      OTEL_SERVICE_NAME: neanelu-shopify-ci
-      OTEL_SAMPLING_RATIO: '0'
-      OBS_DEBUG: '0'
       NODE_ENV: test
-      # Plan G.4: run integration tests via Testcontainers (no fixed local DB services).
       BACKEND_TESTS_WITH_CONTAINERS: '1'
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Validate required secrets (no output)
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${NPM_TASKFORCESH_TOKEN}" || (echo "Missing NPM_TASKFORCESH_TOKEN" >&2; exit 1)
-          test -n "${BULLMQ_PRO_TOKEN}" || (echo "Missing BULLMQ_PRO_TOKEN" >&2; exit 1)
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -299,8 +258,6 @@ jobs:
           code="${PIPESTATUS[0]}"
           set -e
 
-          # Node/Testcontainers flake we observed in CI: "Error: write EPIPE".
-          # One retry is enough to avoid noisy red builds while we investigate root cause.
           if [[ "$code" -ne 0 ]] && grep -q "Error: write EPIPE" "$log"; then
             echo "retry_due_to_epipe=1"
             pnpm --filter @app/backend-worker test:containers
@@ -324,34 +281,17 @@ jobs:
   # ============================================
   db-schema-tests:
     name: Database Schema Tests
+    needs: [lint-typecheck-build]
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
-      # Required runtime env (strict validation)
-      APP_HOST: https://example.test
-      SHOPIFY_API_KEY: ci_dummy
-      SHOPIFY_API_SECRET: ci_dummy
-      SCOPES: read_products
-      ENCRYPTION_KEY_VERSION: '1'
-      # Quote to avoid YAML parsing this as numeric 0.
-      ENCRYPTION_KEY_256: '0000000000000000000000000000000000000000000000000000000000000000'
-      # CI: keep OTel disabled (endpoint empty)
-      OTEL_EXPORTER_OTLP_ENDPOINT: ''
-      OTEL_SERVICE_NAME: neanelu-shopify-ci
-      # Plan G.4: run schema tests via Testcontainers.
       DATABASE_TESTS_WITH_CONTAINERS: '1'
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Validate required secrets (no output)
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${NPM_TASKFORCESH_TOKEN}" || (echo "Missing NPM_TASKFORCESH_TOKEN" >&2; exit 1)
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -377,6 +317,7 @@ jobs:
   # ============================================
   security-scan:
     name: Security Scan (Trivy FS)
+    needs: [lint-typecheck-build]
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -391,7 +332,6 @@ jobs:
           scan-type: 'fs'
           scan-ref: '.'
           severity: 'CRITICAL,HIGH'
-          # Keep SARIF + artifacts, but don't block CI (findings are reviewed in Security tab).
           exit-code: '0'
           ignore-unfixed: true
           format: 'sarif'
@@ -418,6 +358,7 @@ jobs:
   # ============================================
   docker-compose-validate:
     name: Docker Compose Validation
+    needs: [lint-typecheck-build]
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -428,10 +369,9 @@ jobs:
 
       - name: Validate docker-compose config
         run: |
-          # Provide required vars for config validation (avoid ?: failures)
           TRAEFIK_DASHBOARD_USERS='ci:$$2y$$05$$abcdefghijklmnopqrstuv' \
             docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.dev.yml config --quiet
-          echo "✅ Docker Compose configuration is valid"
+          echo "Docker Compose configuration is valid"
 
       - name: Verify service images exist
         run: |
@@ -439,14 +379,14 @@ jobs:
             docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.dev.yml config --images
 
   # ============================================
-  # Docker Smoke Test (backend-worker build)
+  # Docker Smoke Test (build all images)
   # ============================================
   docker-smoke:
     name: Docker Build Smoke Test
+    needs: [lint-typecheck-build]
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [lint-typecheck-build]
     env:
       NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
 
@@ -465,8 +405,8 @@ jobs:
           push: false
           load: true
           tags: neanelu-backend-worker:ci-smoke
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=backend-worker
+          cache-to: type=gha,scope=backend-worker,mode=max
           secrets: |
             npm_token=${{ secrets.NPM_TASKFORCESH_TOKEN }}
 
@@ -478,8 +418,8 @@ jobs:
           push: false
           load: true
           tags: neanelu-web-admin:ci-smoke
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=web-admin
+          cache-to: type=gha,scope=web-admin,mode=max
           secrets: |
             npm_token=${{ secrets.NPM_TASKFORCESH_TOKEN }}
 
@@ -491,8 +431,8 @@ jobs:
           push: false
           load: true
           tags: neanelu-postgres:ci-smoke
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=postgres
+          cache-to: type=gha,scope=postgres,mode=max
 
       - name: 'Smoke: backend-worker can install deps'
         run: |
@@ -520,7 +460,7 @@ jobs:
 
           for i in $(seq 1 30); do
             if docker exec pg-smoke pg_isready -U test -d test_db; then
-              echo "✅ postgres ready"
+              echo "postgres ready"
               break
             fi
             sleep 2
@@ -536,7 +476,7 @@ jobs:
     name: Real Infra (CT108) - Clone + Migrate + Test
     if: ${{ github.event_name == 'push' && github.actor != 'dependabot[bot]' }}
     runs-on: [self-hosted, neanelu]
-    timeout-minutes: 55
+    timeout-minutes: 35
     needs:
       - lint-typecheck-build
       - test-packages
@@ -574,23 +514,40 @@ jobs:
         run: |
           set -euo pipefail
           install -d -m 0700 ~/.ssh
-          # Reuse deploy key secret; key is also allowlisted on CT107 for user neanelu-ci.
           echo "${{ secrets.SSH_KEY_DEPLOY }}" > ~/.ssh/ct107_key
           chmod 0600 ~/.ssh/ct107_key
-          # Public key only (safe) - helps ops allowlist the right key on CT107 if needed.
           ssh-keygen -y -f ~/.ssh/ct107_key | tee ct107_key.pub
 
-      - name: Clone DBs (dev/staging/prod) on CT107
+      - name: Sync CI scripts to CT107
         run: |
           set -euo pipefail
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ~/.ssh/ct107_key "neanelu-ci@${CI_CT107_HOST}" \
-            "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_clone_db.sh --env dev --run-id '${RUN_ID}' --strategy template --fallback dump --jobs 4"
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ~/.ssh/ct107_key "neanelu-ci@${CI_CT107_HOST}" \
-            "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_clone_db.sh --env staging --run-id '${RUN_ID}' --strategy template --fallback dump --jobs 4"
+          SSH_OPTS="-o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ~/.ssh/ct107_key"
+          scp ${SSH_OPTS} \
+            infra/scripts/ct107_ci_clone_db.sh \
+            infra/scripts/ct107_ci_grant_db.sh \
+            infra/scripts/ct107_ci_drop_db.sh \
+            "neanelu-ci@${CI_CT107_HOST}:/tmp/"
+          ssh ${SSH_OPTS} "neanelu-ci@${CI_CT107_HOST}" \
+            "sudo cp /tmp/ct107_ci_clone_db.sh /tmp/ct107_ci_grant_db.sh /tmp/ct107_ci_drop_db.sh /opt/neanelu/infra/scripts/ && sudo chmod 755 /opt/neanelu/infra/scripts/ct107_ci_clone_db.sh /opt/neanelu/infra/scripts/ct107_ci_grant_db.sh /opt/neanelu/infra/scripts/ct107_ci_drop_db.sh"
 
-          # Prod clone is heavy; only gate it on main.
+      - name: Clone DBs (dev+staging parallel, prod serial on main)
+        run: |
+          set -euo pipefail
+          SSH_CMD="ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ~/.ssh/ct107_key"
+
+          ${SSH_CMD} "neanelu-ci@${CI_CT107_HOST}" \
+            "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_clone_db.sh --env dev --run-id '${RUN_ID}' --strategy template --fallback dump --jobs 4" &
+          PID_DEV=$!
+
+          ${SSH_CMD} "neanelu-ci@${CI_CT107_HOST}" \
+            "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_clone_db.sh --env staging --run-id '${RUN_ID}' --strategy template --fallback dump --jobs 4" &
+          PID_STAGING=$!
+
+          wait $PID_DEV || { echo "ERROR: dev clone failed"; exit 1; }
+          wait $PID_STAGING || { echo "ERROR: staging clone failed"; exit 1; }
+
           if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
-            ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ~/.ssh/ct107_key "neanelu-ci@${CI_CT107_HOST}" \
+            ${SSH_CMD} "neanelu-ci@${CI_CT107_HOST}" \
               "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_clone_db.sh --env prod --run-id '${RUN_ID}' --strategy template --fallback dump --jobs 4"
           else
             echo "skip_prod_clone ref=${GITHUB_REF_NAME}"
@@ -663,7 +620,6 @@ jobs:
           print("set_prod_resp", bad[:80].decode("utf-8","replace"))
           ' | tee real-infra.redis.txt
 
-      # ── Node.js + pnpm (needed for migrations and tests) ──
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -685,7 +641,6 @@ jobs:
         env:
           NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
 
-      # ── Grant DDL permissions + transfer ownership to dynamic users on clone DBs ──
       - name: Grant CI user full permissions on clone DBs
         run: |
           set -euo pipefail
@@ -697,7 +652,6 @@ jobs:
             ${SSH_CMD} "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_grant_db.sh --db '${PROD_DB}' --user '${PROD_USER}'"
           fi
 
-      # ── Drizzle migrations on real data clones ──
       - name: Run Drizzle migrations on clone (dev)
         run: |
           set -euo pipefail
@@ -735,7 +689,6 @@ jobs:
           ")
           pnpm --filter @app/database db:migrate 2>&1 | tee real-infra.migrate.prod.txt
 
-      # ── Integration tests against real data ──
       - name: Run integration tests (backend-worker, real data)
         run: |
           set -euo pipefail
@@ -754,16 +707,6 @@ jobs:
             apps/backend-worker/src/processors/pim/__tests__/consensus.integration.test.ts \
             2>&1 | tee real-infra.tests.consensus.txt
         env:
-          APP_HOST: https://example.test
-          SHOPIFY_API_KEY: ci_dummy
-          SHOPIFY_API_SECRET: ci_dummy
-          SCOPES: read_products
-          ENCRYPTION_KEY_VERSION: '1'
-          ENCRYPTION_KEY_256: '0000000000000000000000000000000000000000000000000000000000000000'
-          OTEL_EXPORTER_OTLP_ENDPOINT: ''
-          OTEL_SERVICE_NAME: neanelu-shopify-ci
-          OTEL_SAMPLING_RATIO: '0'
-          OBS_DEBUG: '0'
           NODE_ENV: test
           BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
           NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
@@ -784,7 +727,6 @@ jobs:
         env:
           NODE_ENV: test
 
-      # ── Data integrity validation ──
       - name: Validate data integrity (post-migration)
         run: |
           set -euo pipefail
@@ -889,28 +831,95 @@ jobs:
           fi
 
   # ============================================
-  # CD trigger from CI result (push only)
+  # CI Status Aggregation
   # ============================================
-  deploy-staging:
-    name: Deploy staging (push on non-main)
-    if: ${{ github.event_name == 'push' && github.actor != 'dependabot[bot]' && github.ref_name != 'main' }}
-    uses: ./.github/workflows/deploy.yml
+  ci-status:
+    name: CI Status
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
     needs:
-      - real-infra-smoke
+      - lint-typecheck-build
+      - test-packages
+      - test-backend-worker-unit
+      - test-backend-worker-integration
+      - db-schema-tests
       - security-scan
-    with:
-      environment: staging
-      version: ${{ github.sha }}
-    secrets: inherit
+      - docker-compose-validate
+      - docker-smoke
+      - real-infra-smoke
+    steps:
+      - name: Check all job results
+        run: |
+          results=(
+            "${{ needs.lint-typecheck-build.result }}"
+            "${{ needs.test-packages.result }}"
+            "${{ needs.test-backend-worker-unit.result }}"
+            "${{ needs.test-backend-worker-integration.result }}"
+            "${{ needs.db-schema-tests.result }}"
+            "${{ needs.security-scan.result }}"
+            "${{ needs.docker-compose-validate.result }}"
+            "${{ needs.docker-smoke.result }}"
+            "${{ needs.real-infra-smoke.result }}"
+          )
+          failed=0
+          for r in "${results[@]}"; do
+            if [[ "$r" == "failure" ]]; then
+              failed=1
+            fi
+          done
+          if [[ "$failed" == "1" ]]; then
+            echo "CI failed - one or more jobs returned failure"
+            exit 1
+          fi
+          echo "All CI jobs passed (success or skipped)"
 
-  deploy-production:
-    name: Deploy production (push on main)
-    if: ${{ github.event_name == 'push' && github.actor != 'dependabot[bot]' && github.ref_name == 'main' }}
-    uses: ./.github/workflows/deploy.yml
-    needs:
-      - real-infra-smoke
-      - security-scan
-    with:
-      environment: production
-      version: ${{ github.sha }}
-    secrets: inherit
+  # ============================================
+  # Trigger CD (push only, after CI passes)
+  # ============================================
+  trigger-cd:
+    name: Trigger CD
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      github.actor != 'dependabot[bot]' &&
+      needs.ci-status.result == 'success'
+    needs: [ci-status]
+    runs-on: [self-hosted, neanelu]
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine environment and version
+        id: env
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
+            echo "environment=production" >> "$GITHUB_OUTPUT"
+            LATEST_TAG=$(gh api "repos/${{ github.repository }}/tags" --jq '.[].name' 2>/dev/null | grep '^v0\.' | sort -V | tail -1 || true)
+            if [[ -z "$LATEST_TAG" ]]; then
+              echo "version=v0.0.1" >> "$GITHUB_OUTPUT"
+            else
+              PATCH=$(echo "$LATEST_TAG" | sed 's/v0\.0\.//')
+              echo "version=v0.0.$((PATCH + 1))" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            SAFE_BRANCH=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9]/-/g' | cut -c1-20)
+            echo "environment=staging" >> "$GITHUB_OUTPUT"
+            echo "version=${SAFE_BRANCH}-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Trigger deploy workflow
+        run: |
+          echo "Triggering CD: environment=${{ steps.env.outputs.environment }} version=${{ steps.env.outputs.version }}"
+          gh workflow run deploy.yml \
+            --ref "${{ github.ref }}" \
+            -f environment="${{ steps.env.outputs.environment }}" \
+            -f version="${{ steps.env.outputs.version }}"
+        env:
+          GH_TOKEN: ${{ github.token }}

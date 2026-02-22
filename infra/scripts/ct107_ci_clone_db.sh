@@ -9,8 +9,9 @@ set -euo pipefail
 # - ruleaza ca `postgres` (de obicei prin `sudo -u postgres`).
 #
 # Design:
-# - locking global (flock) pentru a evita coliziuni intre run-uri concurente.
+# - locking per-environment (flock) permite clone-uri paralele pentru env-uri diferite.
 # - default: incearca TEMPLATE (rapid), fallback: pg_dump/pg_restore (robust).
+# - template clone: retry loop cu pg_terminate_backend + verify 0 connections.
 # - evita parametri presupusi: env->source db mapping este explicita aici.
 #
 # Exemple:
@@ -88,7 +89,7 @@ case "${ENVIRONMENT}" in
   prod|production) TARGET_DB="neanelu_shopify_prod_ci_${sanitized}" ;;
 esac
 
-LOCK_FILE="/var/lock/neanelu_ci_db.lock"
+LOCK_FILE="/var/lock/neanelu_ci_db_${ENVIRONMENT}.lock"
 
 echo "ct107_ci_clone_db start ts=${ts} env=${ENVIRONMENT} source=${SOURCE_DB} target=${TARGET_DB} strategy=${STRATEGY} force=${FORCE} jobs=${JOBS}"
 
@@ -117,10 +118,26 @@ fi
 
 clone_template() {
   echo \"clone_template source=${SOURCE_DB} target=${TARGET_DB}\"
-  # Block new connections so no client can reconnect between terminate and clone.
   psql -d postgres -c \"ALTER DATABASE \\\"${SOURCE_DB}\\\" ALLOW_CONNECTIONS false;\" || true
-  psql -d postgres -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='${SOURCE_DB}' AND pid <> pg_backend_pid();\" || true
-  sleep 0.3
+
+  local max_retries=5
+  local remaining=999
+  for attempt in \$(seq 1 \$max_retries); do
+    psql -d postgres -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='${SOURCE_DB}' AND pid <> pg_backend_pid();\" || true
+    sleep 1
+    remaining=\$(psql -Atc \"SELECT count(*) FROM pg_stat_activity WHERE datname='${SOURCE_DB}' AND pid <> pg_backend_pid();\")
+    if [[ \"\${remaining}\" == \"0\" ]]; then
+      break
+    fi
+    echo \"terminate_retry attempt=\${attempt} remaining=\${remaining}\"
+  done
+
+  if [[ \"\${remaining}\" != \"0\" ]]; then
+    echo \"WARN: still \${remaining} sessions after \${max_retries} retries\" >&2
+    psql -d postgres -c \"ALTER DATABASE \\\"${SOURCE_DB}\\\" ALLOW_CONNECTIONS true;\" || true
+    return 1
+  fi
+
   if psql -v ON_ERROR_STOP=1 -d postgres -c \"CREATE DATABASE \\\"${TARGET_DB}\\\" TEMPLATE \\\"${SOURCE_DB}\\\" OWNER neanelu_app;\"; then
     psql -d postgres -c \"ALTER DATABASE \\\"${SOURCE_DB}\\\" ALLOW_CONNECTIONS true;\" || true
     return 0
