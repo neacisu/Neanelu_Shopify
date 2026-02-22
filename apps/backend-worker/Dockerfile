@@ -28,7 +28,7 @@ RUN --mount=type=secret,id=npm_token \
 # Playwright runtime dependency for PR-064 scraper fallback.
 # Keep Chromium in runtime stage for prod multi-stage builds.
 # Chromium adds roughly ~300MB, install only this browser.
-ENV PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=120000
+ENV PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=600000
 RUN for attempt in 1 2 3; do \
       npx playwright-core install --with-deps chromium && break; \
       echo "playwright install attempt $attempt failed, retrying..."; \

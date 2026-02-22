@@ -270,12 +270,11 @@ jobs:
             "./infra/scripts/post-deploy-cleanup.sh" \
             "deploy@${HOST}:${STAGING_TMP}/"
           $SSH "deploy@${HOST}" "\
-            sudo mkdir -p /opt/neanelu/infra/scripts && \
+            mkdir -p /opt/neanelu/infra/scripts && \
             sudo cp -f ${STAGING_TMP}/${COMPOSE} /opt/neanelu/${COMPOSE} && \
             sudo cp -f ${STAGING_TMP}/verify-deployment.sh /opt/neanelu/infra/scripts/verify-deployment.sh && \
             sudo cp -f ${STAGING_TMP}/rollback-save.sh /opt/neanelu/infra/scripts/rollback-save.sh && \
             sudo cp -f ${STAGING_TMP}/post-deploy-cleanup.sh /opt/neanelu/infra/scripts/post-deploy-cleanup.sh && \
-            sudo chmod 0755 /opt/neanelu/infra/scripts/verify-deployment.sh /opt/neanelu/infra/scripts/rollback-save.sh /opt/neanelu/infra/scripts/post-deploy-cleanup.sh && \
             rm -rf ${STAGING_TMP}"
 
           $SSH "deploy@${HOST}" "\
