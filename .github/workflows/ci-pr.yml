@@ -475,7 +475,7 @@ jobs:
     name: Real Infra (CT108) - Clone + Migrate + Test
     if: ${{ github.event_name == 'push' && github.actor != 'dependabot[bot]' }}
     runs-on: [self-hosted, neanelu]
-    timeout-minutes: 35
+    timeout-minutes: 45
     needs:
       - lint-typecheck-build
       - test-packages
@@ -517,27 +517,19 @@ jobs:
           chmod 0600 ~/.ssh/ct107_key
           ssh-keygen -y -f ~/.ssh/ct107_key | tee ct107_key.pub
 
-      - name: Sync CI scripts to CT107
-        run: |
-          set -euo pipefail
-          SCP_OPTS="-o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ~/.ssh/ct107_key"
-          for script in ct107_ci_clone_db.sh ct107_ci_grant_db.sh ct107_ci_drop_db.sh; do
-            scp ${SCP_OPTS} "infra/scripts/${script}" "neanelu-ci@${CI_CT107_HOST}:/opt/neanelu/infra/scripts/${script}"
-          done
-
       - name: Clone DBs (dev/staging, prod on main only)
         run: |
           set -euo pipefail
           SSH_CMD="ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ~/.ssh/ct107_key"
 
           ${SSH_CMD} "neanelu-ci@${CI_CT107_HOST}" \
-            "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_clone_db.sh --env dev --run-id '${RUN_ID}' --strategy template --fallback dump --jobs 4"
+            "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_clone_db.sh --env dev --run-id '${RUN_ID}' --strategy dump --jobs 4"
           ${SSH_CMD} "neanelu-ci@${CI_CT107_HOST}" \
-            "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_clone_db.sh --env staging --run-id '${RUN_ID}' --strategy template --fallback dump --jobs 4"
+            "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_clone_db.sh --env staging --run-id '${RUN_ID}' --strategy dump --jobs 4"
 
           if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
             ${SSH_CMD} "neanelu-ci@${CI_CT107_HOST}" \
-              "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_clone_db.sh --env prod --run-id '${RUN_ID}' --strategy template --fallback dump --jobs 4"
+              "sudo -u postgres /opt/neanelu/infra/scripts/ct107_ci_clone_db.sh --env prod --run-id '${RUN_ID}' --strategy dump --jobs 4"
           else
             echo "skip_prod_clone ref=${GITHUB_REF_NAME}"
           fi
