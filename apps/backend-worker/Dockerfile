@@ -26,14 +26,12 @@ RUN --mount=type=secret,id=npm_token \
   rm -f /root/.npmrc
 
 # Playwright runtime dependency for PR-064 scraper fallback.
-# Keep Chromium in runtime stage for prod multi-stage builds.
-# Chromium adds roughly ~300MB, install only this browser.
-ENV PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=600000
-RUN for attempt in 1 2 3; do \
-      npx playwright-core install --with-deps chromium && break; \
-      echo "playwright install attempt $attempt failed, retrying..."; \
-      sleep 10; \
-    done
+# Install Chromium from apt (fast, reliable) instead of Playwright CDN
+# (which is unreachable/slow from the self-hosted runner network).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends chromium && \
+    rm -rf /var/lib/apt/lists/*
+ENV CHROMIUM_PATH=/usr/bin/chromium
 
 EXPOSE 65000
 

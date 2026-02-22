@@ -59,7 +59,12 @@ function getDomain(url: string): string {
 async function probeBrowserStatus(): Promise<ScraperHealthResponse> {
   const started = Date.now();
   try {
-    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+    const chromiumPath = process.env['CHROMIUM_PATH'];
+    const browser = await chromium.launch({
+      headless: true,
+      args: ['--no-sandbox'],
+      ...(chromiumPath ? { executablePath: chromiumPath } : {}),
+    });
     const version = browser.version();
     await browser.close();
     return {
