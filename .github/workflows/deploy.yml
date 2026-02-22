@@ -257,21 +257,27 @@ jobs:
           }
           trap rollback ERR
 
-          $SSH "deploy@${HOST}" "mkdir -p /opt/neanelu/infra/scripts"
+          STAGING_TMP="/tmp/neanelu-deploy-$$"
+          $SSH "deploy@${HOST}" "mkdir -p ${STAGING_TMP}"
           $SCP \
             "./${COMPOSE}" \
             "./infra/scripts/verify-deployment.sh" \
             "./infra/scripts/rollback-save.sh" \
             "./infra/scripts/post-deploy-cleanup.sh" \
-            "deploy@${HOST}:/opt/neanelu/"
+            "deploy@${HOST}:${STAGING_TMP}/"
           $SSH "deploy@${HOST}" "\
-            mv -f /opt/neanelu/verify-deployment.sh /opt/neanelu/rollback-save.sh /opt/neanelu/post-deploy-cleanup.sh /opt/neanelu/infra/scripts/ 2>/dev/null || true; \
-            chmod 0755 /opt/neanelu/infra/scripts/verify-deployment.sh /opt/neanelu/infra/scripts/rollback-save.sh /opt/neanelu/infra/scripts/post-deploy-cleanup.sh"
+            sudo mkdir -p /opt/neanelu/infra/scripts && \
+            sudo cp -f ${STAGING_TMP}/${COMPOSE} /opt/neanelu/${COMPOSE} && \
+            sudo cp -f ${STAGING_TMP}/verify-deployment.sh /opt/neanelu/infra/scripts/verify-deployment.sh && \
+            sudo cp -f ${STAGING_TMP}/rollback-save.sh /opt/neanelu/infra/scripts/rollback-save.sh && \
+            sudo cp -f ${STAGING_TMP}/post-deploy-cleanup.sh /opt/neanelu/infra/scripts/post-deploy-cleanup.sh && \
+            sudo chmod 0755 /opt/neanelu/infra/scripts/verify-deployment.sh /opt/neanelu/infra/scripts/rollback-save.sh /opt/neanelu/infra/scripts/post-deploy-cleanup.sh && \
+            rm -rf ${STAGING_TMP}"
 
           $SSH "deploy@${HOST}" "\
             cd /opt/neanelu && sudo bash /opt/neanelu/infra/scripts/rollback-save.sh ${COMPOSE}; \
             if [[ -f /opt/neanelu/.env ]]; then sudo cp -f /opt/neanelu/.env /opt/neanelu/.env.prev; fi; \
-            printf 'NEANELU_VERSION=%s\nNEANELU_REGISTRY=ghcr.io\nNEANELU_IMAGE_PREFIX=neacisu/neanelu-shopify\n' '${TAG}' > /opt/neanelu/.env"
+            printf 'NEANELU_VERSION=%s\nNEANELU_REGISTRY=ghcr.io\nNEANELU_IMAGE_PREFIX=neacisu/neanelu-shopify\n' '${TAG}' | sudo tee /opt/neanelu/.env > /dev/null"
 
           $SSH "deploy@${HOST}" "\
             echo '${{ secrets.GHCR_TOKEN }}' | sudo docker login ghcr.io -u '${{ secrets.GHCR_USERNAME }}' --password-stdin && \
