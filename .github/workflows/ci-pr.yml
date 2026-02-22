@@ -518,18 +518,6 @@ jobs:
           chmod 0600 ~/.ssh/ct107_key
           ssh-keygen -y -f ~/.ssh/ct107_key | tee ct107_key.pub
 
-      - name: Sync CI scripts to CT107
-        run: |
-          set -euo pipefail
-          SSH_OPTS="-o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ~/.ssh/ct107_key"
-          scp ${SSH_OPTS} \
-            infra/scripts/ct107_ci_clone_db.sh \
-            infra/scripts/ct107_ci_grant_db.sh \
-            infra/scripts/ct107_ci_drop_db.sh \
-            "neanelu-ci@${CI_CT107_HOST}:/tmp/"
-          ssh ${SSH_OPTS} "neanelu-ci@${CI_CT107_HOST}" \
-            "sudo -u postgres cp /tmp/ct107_ci_clone_db.sh /tmp/ct107_ci_grant_db.sh /tmp/ct107_ci_drop_db.sh /opt/neanelu/infra/scripts/ && sudo -u postgres chmod 755 /opt/neanelu/infra/scripts/ct107_ci_clone_db.sh /opt/neanelu/infra/scripts/ct107_ci_grant_db.sh /opt/neanelu/infra/scripts/ct107_ci_drop_db.sh"
-
       - name: Clone DBs (dev+staging parallel, prod serial on main)
         run: |
           set -euo pipefail
