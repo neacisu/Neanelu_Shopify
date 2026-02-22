@@ -86,6 +86,7 @@ jobs:
           context: .
           file: apps/backend-worker/Dockerfile
           push: true
+          provenance: false
           tags: ghcr.io/neacisu/neanelu-shopify/backend-worker:${{ steps.tag.outputs.tag }}
           cache-from: type=gha,scope=backend-worker
           cache-to: type=gha,scope=backend-worker,mode=max
@@ -98,6 +99,7 @@ jobs:
           context: .
           file: apps/web-admin/Dockerfile
           push: true
+          provenance: false
           tags: ghcr.io/neacisu/neanelu-shopify/web-admin:${{ steps.tag.outputs.tag }}
           cache-from: type=gha,scope=web-admin
           cache-to: type=gha,scope=web-admin,mode=max
