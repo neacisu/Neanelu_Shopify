@@ -214,11 +214,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-          sparse-checkout: |
-            docker-compose.staging.yml
-            docker-compose.prod.yml
-            infra/scripts
-          sparse-checkout-cone-mode: false
 
       - name: Deploy
         shell: bash

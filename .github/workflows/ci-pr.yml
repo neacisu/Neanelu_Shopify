@@ -478,12 +478,6 @@ jobs:
     timeout-minutes: 45
     needs:
       - lint-typecheck-build
-      - test-packages
-      - test-backend-worker-unit
-      - test-backend-worker-integration
-      - db-schema-tests
-      - docker-compose-validate
-      - docker-smoke
     steps:
       - uses: actions/checkout@v4
 
