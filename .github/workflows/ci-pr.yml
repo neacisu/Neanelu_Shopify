@@ -518,23 +518,27 @@ jobs:
         run: |
           set -euo pipefail
           SSH_CMD="ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ~/.ssh/ct107_key"
-          CLONE="/tmp/ct107_ci_clone_db_${GITHUB_RUN_ID}.sh"
-
-          ${SSH_CMD} "neanelu-ci@${CI_CT107_HOST}" "cat > ${CLONE} && chmod +x ${CLONE}" < infra/scripts/ct107_ci_clone_db.sh
+          SCRIPT="/opt/neanelu/infra/scripts/ct107_ci_clone_db.sh"
 
           ${SSH_CMD} "neanelu-ci@${CI_CT107_HOST}" \
-            "sudo -u postgres bash ${CLONE} --env dev --run-id '${RUN_ID}' --strategy template --fallback dump --jobs 4"
+            "sudo -u postgres ${SCRIPT} --env dev --run-id '${RUN_ID}' --strategy dump --jobs 4" &
+          PID_DEV=$!
           ${SSH_CMD} "neanelu-ci@${CI_CT107_HOST}" \
-            "sudo -u postgres bash ${CLONE} --env staging --run-id '${RUN_ID}' --strategy template --fallback dump --jobs 4"
+            "sudo -u postgres ${SCRIPT} --env staging --run-id '${RUN_ID}' --strategy dump --jobs 4" &
+          PID_STG=$!
+
+          FAIL=0
+          wait ${PID_DEV} || { echo "ERROR: dev clone failed" >&2; FAIL=1; }
+          wait ${PID_STG} || { echo "ERROR: staging clone failed" >&2; FAIL=1; }
 
           if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
             ${SSH_CMD} "neanelu-ci@${CI_CT107_HOST}" \
-              "sudo -u postgres bash ${CLONE} --env prod --run-id '${RUN_ID}' --strategy template --fallback dump --jobs 4"
+              "sudo -u postgres ${SCRIPT} --env prod --run-id '${RUN_ID}' --strategy dump --jobs 4"
           else
             echo "skip_prod_clone ref=${GITHUB_REF_NAME}"
           fi
 
-          ${SSH_CMD} "neanelu-ci@${CI_CT107_HOST}" "rm -f ${CLONE}"
+          [[ ${FAIL} -eq 0 ]] || exit 1
 
       - name: Fetch dynamic DB creds (dev/staging/prod)
         env:
