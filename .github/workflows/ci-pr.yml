@@ -521,10 +521,10 @@ jobs:
           SCRIPT="/opt/neanelu/infra/scripts/ct107_ci_clone_db.sh"
 
           ${SSH_CMD} "neanelu-ci@${CI_CT107_HOST}" \
-            "sudo -u postgres ${SCRIPT} --env dev --run-id '${RUN_ID}' --strategy dump --jobs 4" &
+            "sudo -u postgres ${SCRIPT} --env dev --run-id '${RUN_ID}' --strategy template --fallback dump --jobs 4" &
           PID_DEV=$!
           ${SSH_CMD} "neanelu-ci@${CI_CT107_HOST}" \
-            "sudo -u postgres ${SCRIPT} --env staging --run-id '${RUN_ID}' --strategy dump --jobs 4" &
+            "sudo -u postgres ${SCRIPT} --env staging --run-id '${RUN_ID}' --strategy template --fallback dump --jobs 4" &
           PID_STG=$!
 
           FAIL=0
@@ -533,7 +533,7 @@ jobs:
 
           if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
             ${SSH_CMD} "neanelu-ci@${CI_CT107_HOST}" \
-              "sudo -u postgres ${SCRIPT} --env prod --run-id '${RUN_ID}' --strategy dump --jobs 4"
+              "sudo -u postgres ${SCRIPT} --env prod --run-id '${RUN_ID}' --strategy template --fallback dump --jobs 4"
           else
             echo "skip_prod_clone ref=${GITHUB_REF_NAME}"
           fi
