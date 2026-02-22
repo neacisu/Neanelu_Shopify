@@ -481,6 +481,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Ensure complete working tree
+        run: git checkout -f HEAD -- .
+
       - name: OpenBao login (AppRole)
         env:
           OPENBAO_ADDR: ${{ secrets.OPENBAO_ADDR }}
