@@ -528,7 +528,7 @@ jobs:
             infra/scripts/ct107_ci_drop_db.sh \
             "neanelu-ci@${CI_CT107_HOST}:/tmp/"
           ssh ${SSH_OPTS} "neanelu-ci@${CI_CT107_HOST}" \
-            "sudo cp /tmp/ct107_ci_clone_db.sh /tmp/ct107_ci_grant_db.sh /tmp/ct107_ci_drop_db.sh /opt/neanelu/infra/scripts/ && sudo chmod 755 /opt/neanelu/infra/scripts/ct107_ci_clone_db.sh /opt/neanelu/infra/scripts/ct107_ci_grant_db.sh /opt/neanelu/infra/scripts/ct107_ci_drop_db.sh"
+            "sudo -u postgres cp /tmp/ct107_ci_clone_db.sh /tmp/ct107_ci_grant_db.sh /tmp/ct107_ci_drop_db.sh /opt/neanelu/infra/scripts/ && sudo -u postgres chmod 755 /opt/neanelu/infra/scripts/ct107_ci_clone_db.sh /opt/neanelu/infra/scripts/ct107_ci_grant_db.sh /opt/neanelu/infra/scripts/ct107_ci_drop_db.sh"
 
       - name: Clone DBs (dev+staging parallel, prod serial on main)
         run: |
