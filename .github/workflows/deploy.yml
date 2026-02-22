@@ -251,44 +251,39 @@ jobs:
                 latest=\$(ls -1t /opt/neanelu/rollback/\${svc}-*.tar.gz 2>/dev/null | head -1); \
                 if [[ -n \"\${latest}\" && -f \"\${latest}\" ]]; then \
                   echo \"rollback_load \${svc} \${latest}\"; \
-                  sudo gunzip -c \"\${latest}\" | sudo docker load; \
+                  gunzip -c \"\${latest}\" | docker load; \
                 else \
                   echo \"WARN: no rollback image for \${svc}\" >&2; \
                 fi; \
               done; \
-              if [[ -f /opt/neanelu/.env.prev ]]; then sudo cp -f /opt/neanelu/.env.prev /opt/neanelu/.env; fi; \
-              cd /opt/neanelu && sudo docker compose -f ${COMPOSE} up -d || true"
+              if [[ -f /opt/neanelu/.env.prev ]]; then cp -f /opt/neanelu/.env.prev /opt/neanelu/.env; fi; \
+              cd /opt/neanelu && docker compose -f ${COMPOSE} up -d || true"
           }
           trap rollback ERR
 
-          STAGING_TMP="/tmp/neanelu-deploy-$$"
-          $SSH "deploy@${HOST}" "mkdir -p ${STAGING_TMP}"
+          $SSH "deploy@${HOST}" "mkdir -p /opt/neanelu/infra/scripts"
           $SCP \
             "./${COMPOSE}" \
             "./infra/scripts/verify-deployment.sh" \
             "./infra/scripts/rollback-save.sh" \
             "./infra/scripts/post-deploy-cleanup.sh" \
-            "deploy@${HOST}:${STAGING_TMP}/"
+            "deploy@${HOST}:/opt/neanelu/"
           $SSH "deploy@${HOST}" "\
-            mkdir -p /opt/neanelu/infra/scripts && \
-            sudo cp -f ${STAGING_TMP}/${COMPOSE} /opt/neanelu/${COMPOSE} && \
-            sudo cp -f ${STAGING_TMP}/verify-deployment.sh /opt/neanelu/infra/scripts/verify-deployment.sh && \
-            sudo cp -f ${STAGING_TMP}/rollback-save.sh /opt/neanelu/infra/scripts/rollback-save.sh && \
-            sudo cp -f ${STAGING_TMP}/post-deploy-cleanup.sh /opt/neanelu/infra/scripts/post-deploy-cleanup.sh && \
-            rm -rf ${STAGING_TMP}"
+            mv -f /opt/neanelu/verify-deployment.sh /opt/neanelu/rollback-save.sh /opt/neanelu/post-deploy-cleanup.sh /opt/neanelu/infra/scripts/ 2>/dev/null || true; \
+            chmod 0755 /opt/neanelu/infra/scripts/verify-deployment.sh /opt/neanelu/infra/scripts/rollback-save.sh /opt/neanelu/infra/scripts/post-deploy-cleanup.sh"
 
           $SSH "deploy@${HOST}" "\
-            cd /opt/neanelu && sudo bash /opt/neanelu/infra/scripts/rollback-save.sh ${COMPOSE}; \
-            if [[ -f /opt/neanelu/.env ]]; then sudo cp -f /opt/neanelu/.env /opt/neanelu/.env.prev; fi; \
-            printf 'NEANELU_VERSION=%s\nNEANELU_REGISTRY=ghcr.io\nNEANELU_IMAGE_PREFIX=neacisu/neanelu-shopify\n' '${TAG}' | sudo tee /opt/neanelu/.env > /dev/null"
+            cd /opt/neanelu && bash /opt/neanelu/infra/scripts/rollback-save.sh ${COMPOSE}; \
+            if [[ -f /opt/neanelu/.env ]]; then cp -f /opt/neanelu/.env /opt/neanelu/.env.prev; fi; \
+            printf 'NEANELU_VERSION=%s\nNEANELU_REGISTRY=ghcr.io\nNEANELU_IMAGE_PREFIX=neacisu/neanelu-shopify\n' '${TAG}' > /opt/neanelu/.env"
 
           $SSH "deploy@${HOST}" "\
-            echo '${{ secrets.GHCR_TOKEN }}' | sudo docker login ghcr.io -u '${{ secrets.GHCR_USERNAME }}' --password-stdin && \
+            echo '${{ secrets.GHCR_TOKEN }}' | docker login ghcr.io -u '${{ secrets.GHCR_USERNAME }}' --password-stdin && \
             cd /opt/neanelu && \
-            sudo docker compose -f ${COMPOSE} pull backend-worker web-admin bull-board && \
-            sudo docker compose -f ${COMPOSE} up -d"
+            docker compose -f ${COMPOSE} pull backend-worker web-admin bull-board && \
+            docker compose -f ${COMPOSE} up -d"
 
-          $SSH "deploy@${HOST}" "sudo bash /opt/neanelu/infra/scripts/verify-deployment.sh"
+          $SSH "deploy@${HOST}" "bash /opt/neanelu/infra/scripts/verify-deployment.sh"
 
       - name: Post-deploy HTTP verification
         env:
@@ -323,7 +318,7 @@ jobs:
           if [[ "${TARGET_ENV}" == "staging" ]]; then HOST="10.0.1.112"; else HOST="10.0.1.111"; fi
           ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes \
             -i ~/.ssh/deploy_key "deploy@${HOST}" \
-            "sudo bash /opt/neanelu/infra/scripts/post-deploy-cleanup.sh"
+            "bash /opt/neanelu/infra/scripts/post-deploy-cleanup.sh"
 
       - uses: actions/upload-artifact@v4
         with:
