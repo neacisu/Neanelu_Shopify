@@ -634,7 +634,12 @@ jobs:
           NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: |
+          pnpm install --frozen-lockfile || {
+            echo "pnpm install failed (likely corrupted store on self-hosted runner), retrying with clean store..."
+            pnpm store prune || true
+            pnpm install --frozen-lockfile --force
+          }
         env:
           NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
 

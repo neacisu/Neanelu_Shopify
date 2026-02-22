@@ -117,7 +117,12 @@ jobs:
           cache: 'pnpm'
 
       - name: Install deps
-        run: pnpm install --frozen-lockfile
+        run: |
+          pnpm install --frozen-lockfile || {
+            echo "pnpm install failed (likely corrupted store on self-hosted runner), retrying with clean store..."
+            pnpm store prune || true
+            pnpm install --frozen-lockfile --force
+          }
 
       - name: Fetch OpenBao dynamic DB creds
         shell: bash
