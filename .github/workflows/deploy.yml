@@ -9,8 +9,7 @@
 # - CI workflow_call from ci-pr.yml after all checks pass
 # - Manual workflow_dispatch for ad-hoc deploys or rollbacks
 #
-# Required GitHub Secrets:
-# - GHCR_USERNAME / GHCR_TOKEN: GHCR registry auth (used for pull on CT111/CT112)
+# Required GitHub Secrets (GHCR uses GITHUB_TOKEN, no PAT needed):
 # - OPENBAO_ADDR / OPENBAO_CICD_ROLE_ID / OPENBAO_CICD_SECRET_ID: OpenBao AppRole
 # - SSH_KEY_DEPLOY: private key for deploy@CT111/CT112 AND neanelu-ci@CT107
 # - NPM_TASKFORCESH_TOKEN / BULLMQ_PRO_TOKEN: private registry tokens
@@ -278,7 +277,7 @@ jobs:
             printf 'NEANELU_VERSION=%s\nNEANELU_REGISTRY=ghcr.io\nNEANELU_IMAGE_PREFIX=neacisu/neanelu-shopify\n' '${TAG}' > /opt/neanelu/.env"
 
           $SSH "deploy@${HOST}" "\
-            echo '${{ secrets.GHCR_TOKEN }}' | docker login ghcr.io -u '${{ secrets.GHCR_USERNAME }}' --password-stdin && \
+            echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin && \
             cd /opt/neanelu && \
             docker compose -f ${COMPOSE} pull backend-worker web-admin bull-board && \
             docker compose -f ${COMPOSE} up -d"
