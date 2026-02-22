@@ -482,7 +482,11 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Ensure complete working tree
-        run: git checkout -f HEAD -- .
+        run: |
+          git config core.sparseCheckout false 2>/dev/null || true
+          git config core.sparseCheckoutCone false 2>/dev/null || true
+          rm -f .git/info/sparse-checkout
+          git read-tree -mu HEAD
 
       - name: OpenBao login (AppRole)
         env:
