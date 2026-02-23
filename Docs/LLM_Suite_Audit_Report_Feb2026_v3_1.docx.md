@@ -1,3 +1,5 @@
+#DEPRECATED! use instead updated infor from /var/www/Neanelu_Shopify/Docs/LLM_Suite_Audit_Report_v5_0.docx.md
+
 # AUDIT TEHNIC & SUITA LLM OPTIMĂ
 
 Analiză Comparativă Paralelă: Neanelu\_Shopify & Cerniq.app
