@@ -1158,16 +1158,21 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
       return;
     }
 
-    const idsLiteral = shopifyIds.map((id) => `"${id}"`).join(',');
+    // Shopify Bulk Operations require at least one "connection" in the query.
+    // `nodes(ids: [...])` is not a connection and will be rejected.
+    // Use `products(...) { edges { node { ... } } }` with an id-based query filter.
+    const queryFilter = shopifyIds.map((gid) => `id:${gid}`).join(' OR ');
     const graphqlQuery = `query {
-  nodes(ids: [${idsLiteral}]) {
-    ... on Product {
-      id
-      title
-      handle
-      updatedAt
-      vendor
-      status
+  products(first: 250, query: ${JSON.stringify(queryFilter)}) {
+    edges {
+      node {
+        id
+        title
+        handle
+        updatedAt
+        vendor
+        status
+      }
     }
   }
 }`;
@@ -1180,6 +1185,11 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
       graphqlQuery,
       triggeredBy: 'manual',
       requestedAt: Date.now(),
+      // IMPORTANT: manual Force Sync must be re-runnable.
+      // The default idempotencyKey derivation is deterministic (same query => same key),
+      // which can cause repeated clicks to be no-ops if a previous run is stuck/failed/DLQ.
+      // Keep it BullMQ-jobId-safe (no ':').
+      idempotencyKey: `manual_${request.id}`,
     };
 
     await enqueueBulkOrchestratorJob(payload, logger);

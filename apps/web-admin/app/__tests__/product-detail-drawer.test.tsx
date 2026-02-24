@@ -37,7 +37,7 @@ describe('ProductDetailDrawer', () => {
             variants: [],
           }}
           onClose={() => undefined}
-          onForceSync={() => undefined}
+          onForceSync={() => Promise.resolve(undefined)}
           onEdit={() => undefined}
         />
       </MemoryRouter>

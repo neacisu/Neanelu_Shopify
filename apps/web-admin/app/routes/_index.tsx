@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 
 import { PolarisCard } from '../../components/polaris/index.js';
 import { Button } from '../components/ui/button';
+import { InfoTooltip } from '../components/ui/info-tooltip';
 import { SafeComponent } from '../components/errors/safe-component';
 import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
 import { ActivityTimeline } from './dashboard/components/ActivityTimeline';
@@ -36,6 +37,7 @@ interface Kpi {
   value: string;
   subtext: string;
   icon: ComponentType<{ className?: string }>;
+  tooltip: string;
 }
 
 export default function DashboardIndex() {
@@ -78,24 +80,32 @@ export default function DashboardIndex() {
       value: numberFormatter.format(summary.totalProducts),
       subtext: 'Total produse în Shopify mirror',
       icon: Package,
+      tooltip:
+        'Numărul total de produse din magazinul tău Shopify care sunt sincronizate în aplicație. Acest număr reflectă câte produse au fost importate și sunt gestionate de Neanelu. Dacă vezi o diferență față de Shopify, poți lansa o sincronizare din panoul de acțiuni rapide.',
     },
     {
       title: 'Procese Active',
       value: numberFormatter.format(summary.activeBulkRuns),
       subtext: 'Bulk runs în status pending/running',
       icon: Cpu,
+      tooltip:
+        'Câte operațiuni de prelucrare în masă rulează în acest moment sau așteaptă să fie procesate. Acestea includ sincronizări de produse, îmbogățiri AI sau actualizări în lot. Dacă valoarea e 0, sistemul este în repaus — nicio operațiune majoră nu e în desfășurare.',
     },
     {
       title: 'Rata Erori API',
       value: summary.apiErrorRate != null ? percentFormatter.format(summary.apiErrorRate) : 'N/A',
       subtext: 'Ultimele 24h',
       icon: AlertTriangle,
+      tooltip:
+        'Procentul de cereri API care au întâmpinat erori în ultimele 24 de ore. O valoare aproape de 0% înseamnă că sistemul funcționează stabil. Dacă rata crește peste 5%, ar putea indica probleme de conectivitate cu Shopify sau cu serviciile AI. „N/A" apare când nu au existat cereri în ultimele 24h.',
     },
     {
       title: 'API Latency p95',
       value: summary.apiLatencyP95Ms != null ? `${Math.round(summary.apiLatencyP95Ms)} ms` : 'N/A',
       subtext: 'Ultimele 24h',
       icon: Activity,
+      tooltip:
+        'Timpul de răspuns al sistemului, măsurat la percentila 95 — adică 95% din cereri au fost procesate mai rapid decât această valoare. Sub 500 ms este excelent, între 500-2000 ms este acceptabil, iar peste 2000 ms indică o posibilă încetinire. „N/A" apare când nu au existat cereri în ultimele 24h.',
     },
   ];
 
@@ -107,34 +117,57 @@ export default function DashboardIndex() {
           <p className="mt-1 text-body text-muted">Prezentare sistem si status de sanatate</p>
         </div>
 
-        <Button
-          variant="secondary"
-          disabled={refreshing || revalidator.state === 'loading'}
-          onClick={refreshAll}
-        >
-          <span className="inline-flex items-center gap-2">
-            <RefreshCw className="size-4" />
-            {refreshing || revalidator.state === 'loading' ? 'Se reincarca…' : 'Reincarca datele'}
-          </span>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            disabled={refreshing || revalidator.state === 'loading'}
+            onClick={refreshAll}
+            className="transition-all duration-300 ease-out hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 active:shadow-sm"
+          >
+            <span className="inline-flex items-center gap-2">
+              <RefreshCw
+                className={`size-4 transition-transform duration-500 ${
+                  refreshing || revalidator.state === 'loading' ? 'animate-spin' : ''
+                }`}
+              />
+              {refreshing || revalidator.state === 'loading' ? 'Se reincarca…' : 'Reincarca datele'}
+            </span>
+          </Button>
+          <InfoTooltip title="Reîncarcă datele" side="bottom">
+            Reîmprospătează toate informațiile afișate pe dashboard: numărul de produse, procesele
+            active, rata de erori, graficul de activitate și alertele de sistem. Este mai rapid
+            decât un refresh complet al paginii — reîncarcă doar datele, nu întreaga interfață.
+          </InfoTooltip>
+        </div>
       </header>
 
       <SafeComponent>
         <SystemAlertsBanner />
 
         <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {kpis.map((kpi) => {
+          {kpis.map((kpi, index) => {
             const Icon = kpi.icon;
 
             return (
               <PolarisCard key={kpi.title}>
-                <div className="rounded-md border border-muted/20 bg-background p-4 shadow-sm">
+                <div
+                  className="group/kpi rounded-md border border-muted/20 bg-background p-4 shadow-sm
+                             transition-all duration-300 ease-out
+                             hover:shadow-md hover:-translate-y-1 hover:border-primary/30
+                             animate-[fadeSlideUp_0.4s_ease-out_both]"
+                  style={{ animationDelay: `${index * 80}ms` }}
+                >
                   <div className="flex items-start justify-between">
                     <div>
-                      <div className="text-caption text-muted">{kpi.title}</div>
-                      <div className="mt-1 text-h3">{kpi.value}</div>
+                      <div className="flex items-center gap-1 text-caption text-muted">
+                        {kpi.title}
+                        <InfoTooltip title={kpi.title}>{kpi.tooltip}</InfoTooltip>
+                      </div>
+                      <div className="mt-1 text-h3 transition-colors duration-200 group-hover/kpi:text-primary">
+                        {kpi.value}
+                      </div>
                     </div>
-                    <Icon className="size-5 text-muted" />
+                    <Icon className="size-5 text-muted transition-all duration-300 group-hover/kpi:text-primary group-hover/kpi:scale-110" />
                   </div>
                   <div className="mt-3 text-caption text-muted">{kpi.subtext}</div>
                 </div>
@@ -144,8 +177,15 @@ export default function DashboardIndex() {
         </section>
 
         <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <ActivityTimeline />
-          <QuickActionsPanel />
+          <div className="animate-[fadeIn_0.5s_ease-out_both]" style={{ animationDelay: '350ms' }}>
+            <ActivityTimeline />
+          </div>
+          <div
+            className="animate-[fadeSlideUp_0.4s_ease-out_both]"
+            style={{ animationDelay: '450ms' }}
+          >
+            <QuickActionsPanel />
+          </div>
         </section>
       </SafeComponent>
     </div>

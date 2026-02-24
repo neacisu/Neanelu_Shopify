@@ -24,9 +24,16 @@ out/
 .env.local
 .env.production
 .env.staging
+.env.infra
 # Fișierul cu secretele aplicației
 .env.txt
 Research Produse/.env.txt
+
+# OpenBao AppRole credentials (sensitive)
+secrets/
+
+# Vector agent runtime data
+vector-agent/data/
 
 # Local OAuth helper (contains secrets)
 oauth-callback-server.log

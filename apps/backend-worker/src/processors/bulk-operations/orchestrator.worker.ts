@@ -686,20 +686,27 @@ export function startBulkOrchestratorWorker(logger: Logger): BulkOrchestratorWor
                   status: 'completed',
                 });
 
-                await logAuditEvent('bulk_operation_started', {
-                  actorType: payload.triggeredBy === 'manual' ? 'user' : 'system',
-                  shopId: payload.shopId,
-                  resourceType: 'bulk_runs',
-                  resourceId: run.id,
-                  details: {
-                    operationType: payload.operationType,
-                    queryType: isMutationPayload(payload)
-                      ? payload.mutationType
-                      : (payload.queryType ?? null),
-                    idempotencyKey,
-                    shopifyOperationId: bulkOperationId,
-                  },
-                });
+                try {
+                  await logAuditEvent('bulk_operation_started', {
+                    actorType: 'system',
+                    shopId: payload.shopId,
+                    resourceType: 'bulk_runs',
+                    resourceId: run.id,
+                    details: {
+                      operationType: payload.operationType,
+                      queryType: isMutationPayload(payload)
+                        ? payload.mutationType
+                        : (payload.queryType ?? null),
+                      idempotencyKey,
+                      shopifyOperationId: bulkOperationId,
+                    },
+                  });
+                } catch (err) {
+                  logger.warn(
+                    { err, event: 'audit.bulk_operation_started', bulkRunId: run.id },
+                    'Audit log insert failed (continuing)'
+                  );
+                }
 
                 const pollerPayload: BulkPollerJobPayload = {
                   shopId: payload.shopId,

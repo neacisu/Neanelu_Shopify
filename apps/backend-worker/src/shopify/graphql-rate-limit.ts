@@ -2,6 +2,23 @@ import { checkAndConsumeCost } from '@app/queue-manager';
 import { ShopifyRateLimitedError, type ShopifyGraphqlThrottleStatus } from '@app/shopify-client';
 import type { Redis } from 'ioredis';
 
+function resolveRedisKeyPrefix(env: Record<string, string | undefined> = process.env): string {
+  return (env['REDIS_PREFIX'] ?? env['BULLMQ_PREFIX'] ?? '').trim();
+}
+
+function graphqlBucketKey(
+  shopId: string,
+  env: Record<string, string | undefined> = process.env
+): string {
+  const prefix = resolveRedisKeyPrefix(env);
+  const baseKey = `ratelimit:graphql:${shopId}`;
+
+  // Match BullMQ key composition: BullMQ itself appends `:${queueName}` to the prefix.
+  // In our envs, prefixes can intentionally end with ':' which results in a double-colon
+  // namespace like `neanelu:dev::bulk-queue:*`. Keep the same behavior for custom keys.
+  return prefix ? `${prefix}:${baseKey}` : baseKey;
+}
+
 export type ShopifyGraphqlRateLimitConfig = Readonly<{
   maxTokens: number;
   refillPerSecond: number;
@@ -41,7 +58,7 @@ export async function gateShopifyGraphqlRequest(params: {
   config?: ShopifyGraphqlRateLimitConfig;
 }): Promise<void> {
   const cfg = params.config ?? getShopifyGraphqlRateLimitConfig();
-  const bucketKey = `neanelu:ratelimit:graphql:${params.shopId}`;
+  const bucketKey = graphqlBucketKey(params.shopId);
 
   // If someone configures a smaller bucket capacity than our chosen cost estimate,
   // the token bucket would deny forever. Cap cost to capacity for robustness.
@@ -80,7 +97,7 @@ export async function syncShopifyGraphqlThrottleStatus(params: {
   config?: ShopifyGraphqlRateLimitConfig;
 }): Promise<void> {
   const cfg = params.config ?? getShopifyGraphqlRateLimitConfig();
-  const bucketKey = `neanelu:ratelimit:graphql:${params.shopId}`;
+  const bucketKey = graphqlBucketKey(params.shopId);
 
   const available = Math.max(0, Math.floor(params.throttleStatus.currentlyAvailable));
   const tokens = Math.min(cfg.maxTokens, available);

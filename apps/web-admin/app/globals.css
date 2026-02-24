@@ -34,3 +34,25 @@ body {
   background: rgb(var(--color-background));
   color: rgb(var(--color-foreground));
 }
+
+/* Staggered entrance animation for dashboard cards */
+@keyframes fadeSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Opacity-only fade for containers with charts (transform breaks Recharts sizing) */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

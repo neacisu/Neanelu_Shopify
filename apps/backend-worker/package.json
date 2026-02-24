@@ -7,6 +7,7 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "dev": "tsx --import ./src/otel/register.ts src/main.ts",
+    "dev:watch": "tsx watch --import ./src/otel/register.ts src/main.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node --import ./dist/otel/register.js ./dist/main.js",
     "test": "node --experimental-test-module-mocks --import tsx --test src/**/*.test.ts",
@@ -37,7 +38,6 @@
     "@opentelemetry/semantic-conventions": "^1.39.0",
     "bullmq": "^5.69.1",
     "cron-parser": "^5.5.0",
-    "dotenv": "^17.3.1",
     "fastify": "^5.7.4",
     "form-data": "^4.0.5",
     "ioredis": "^5.9.3",

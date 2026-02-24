@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import { Redis as IORedis } from 'ioredis';
 
 import { loadEnv } from '@app/config';

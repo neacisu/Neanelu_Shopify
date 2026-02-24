@@ -60,7 +60,18 @@ async function evalBulkLock(
 function lockKeyForShop(shopId: string): string {
   const groupId = normalizeShopIdToGroupId(shopId);
   if (!groupId) throw new Error('bulk_lock_invalid_shop_id');
-  return `bulk-lock:${groupId}`;
+
+  const baseKey = `bulk-lock:${groupId}`;
+  const prefix = process.env['REDIS_PREFIX']?.trim() ?? process.env['BULLMQ_PREFIX']?.trim() ?? '';
+
+  // Redis in staging/dev can be locked down via ACL to only allow keys under a specific prefix.
+  // BullMQ already uses BULLMQ_PREFIX; the bulk lock must follow the same namespace.
+  // Note: some environments intentionally include a trailing ':' in the prefix.
+  if (prefix) {
+    return `${prefix}:${baseKey}`;
+  }
+
+  return baseKey;
 }
 
 export async function acquireBulkLock(

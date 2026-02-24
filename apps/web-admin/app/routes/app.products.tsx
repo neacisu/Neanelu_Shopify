@@ -307,6 +307,30 @@ export default function ProductsPage() {
       return;
     }
     await api.postApi('/products/bulk-sync', { productIds: idsToSync });
+
+    // When syncing a single product from the drawer, refresh the drawer payload once
+    // the backend creates the PIM mapping (pim.masterId). The bulk sync is async.
+    if (singleProductId && activeProduct?.id === singleProductId) {
+      void (async () => {
+        const maxAttempts = 12;
+        const delayMs = 5_000;
+
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          try {
+            const detail = await api.getApi<ProductDetail>(
+              `/products/${singleProductId}?includeVariants=false`
+            );
+            if (detail.pim?.masterId) {
+              setActiveProduct(detail);
+              break;
+            }
+          } catch {
+            // best-effort
+          }
+        }
+      })();
+    }
   };
 
   const onExport = () => setExportOpen(true);
@@ -436,7 +460,15 @@ export default function ProductsPage() {
 
           <ProductsBulkActions
             selectedCount={selectedIds.size}
-            onForceSync={() => void onForceSync()}
+            onForceSync={() => {
+              void onForceSync()
+                .then(() => {
+                  toast.success('Sync pornit');
+                })
+                .catch((error) => {
+                  toast.error(error instanceof Error ? error.message : 'Force Sync a esuat');
+                });
+            }}
             onExport={onExport}
             onAssignCategory={() => void onAssignCategory()}
             onAddToCollection={() => void onAddToCollection()}
@@ -476,7 +508,7 @@ export default function ProductsPage() {
         open={drawerOpen}
         product={activeProduct}
         onClose={() => setDrawerOpen(false)}
-        onForceSync={() => (activeProduct ? void onForceSync(activeProduct.id) : undefined)}
+        onForceSync={() => (activeProduct ? onForceSync(activeProduct.id) : undefined)}
         onEdit={() => {
           if (activeProduct) void navigate(`/products/${activeProduct.id}/edit`);
         }}

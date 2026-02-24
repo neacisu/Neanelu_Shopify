@@ -1,0 +1,16 @@
+name: neanelu
+
+services:
+  vector-agent:
+    image: timberio/vector:0.53.0-debian
+    container_name: neanelu-vector-agent
+    restart: unless-stopped
+    command: ['--config', '/etc/vector/vector.toml']
+    extra_hosts:
+      - 'logs-neanelu.neanelu.ro:10.0.1.10'
+    volumes:
+      - ./vector-agent/vector.toml:/etc/vector/vector.toml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/log:/var/log:ro
+      - ./vector-agent/data:/var/lib/vector

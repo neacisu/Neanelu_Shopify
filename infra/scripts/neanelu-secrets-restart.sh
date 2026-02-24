@@ -11,7 +11,7 @@ set -euo pipefail
 # =============================================================================
 
 NEANELU_ENV="${1:-}"
-COMPOSE_DIR="/opt/neanelu"
+COMPOSE_DIR="/var/www/Neanelu_Shopify"
 LOG_TAG="neanelu-secrets-restart"
 LOCK_FILE="/run/neanelu-secrets-restart-${NEANELU_ENV}.lock"
 COOLDOWN_SECONDS=30

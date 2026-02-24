@@ -66,14 +66,38 @@ export async function runXaiHealthCheck(params: {
 
   const baseUrl = row.xai_base_url ?? DEFAULT_BASE_URL;
   const model = row.xai_model ?? DEFAULT_MODEL;
-  const apiKey =
-    apiKeyOverride ??
-    decryptAesGcm(
-      row.xai_api_key_ciphertext!,
-      buildEncryptionKey(env),
-      row.xai_api_key_iv!,
-      row.xai_api_key_tag!
-    ).toString('utf-8');
+  let apiKey: string;
+  if (apiKeyOverride) {
+    apiKey = apiKeyOverride;
+  } else {
+    try {
+      apiKey = decryptAesGcm(
+        row.xai_api_key_ciphertext!,
+        buildEncryptionKey(env),
+        row.xai_api_key_iv!,
+        row.xai_api_key_tag!
+      ).toString('utf-8');
+    } catch {
+      const result: XaiHealthResponse = {
+        status: 'error',
+        checkedAt: nowIso(),
+        message: 'Encryption key mismatch — please re-save the API key',
+      };
+      if (persist) {
+        await withTenantContext(shopId, async (client) => {
+          await client.query(
+            `UPDATE shop_ai_credentials
+                SET xai_connection_status = 'error',
+                    xai_last_checked_at = now(),
+                    xai_last_error = $1
+              WHERE shop_id = $2`,
+            [result.message, shopId]
+          );
+        });
+      }
+      return result;
+    }
+  }
   const start = Date.now();
   let httpStatus: number | undefined;
 

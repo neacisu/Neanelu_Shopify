@@ -1,0 +1,27 @@
+# syntax=docker/dockerfile:1.6
+FROM node:24-bookworm-slim
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+
+RUN corepack enable && corepack prepare pnpm@10.28.0 --activate
+
+WORKDIR /app
+
+COPY . .
+
+RUN --mount=type=secret,id=npm_token \
+  set -eu; \
+  token="$(cat /run/secrets/npm_token)"; \
+  test -n "$token"; \
+  printf '%s\n' \
+    '@taskforcesh:registry=https://npm.taskforce.sh/' \
+    "//npm.taskforce.sh/:_authToken=$token" \
+    'always-auth=true' \
+    > /root/.npmrc; \
+  pnpm install --frozen-lockfile; \
+  rm -f /root/.npmrc
+
+EXPOSE 65001
+
+CMD ["sh", "-lc", "export VITE_SHOPIFY_API_KEY=$SHOPIFY_API_KEY && pnpm --filter @app/web-admin dev"]

@@ -1,0 +1,42 @@
+data_dir = "/var/lib/vector"
+
+[sources.docker_logs]
+type = "docker_logs"
+
+# Only ship logs for the neanelu compose project on this host.
+[transforms.only_neanelu]
+type = "filter"
+inputs = ["docker_logs"]
+condition = 'exists(.label."com.docker.compose.project") && .label."com.docker.compose.project" == "neanelu"'
+
+[transforms.normalize]
+type = "remap"
+inputs = ["only_neanelu"]
+source = '''
+if exists(.label."com.docker.compose.service") {
+  .service = .label."com.docker.compose.service"
+} else {
+  .service = .container_name
+}
+.stack = "neanelu"
+.host = "hz.164"
+.environment = "dev"
+'''
+
+[sinks.loki]
+type = "loki"
+inputs = ["normalize"]
+endpoint = "https://logs-neanelu.neanelu.ro"
+path = "/loki/api/v1/push"
+out_of_order_action = "accept"
+
+[sinks.loki.labels]
+host = "{{ host }}"
+stack = "{{ stack }}"
+service = "{{ service }}"
+container = "{{ container_name }}"
+environment = "{{ environment }}"
+
+[sinks.loki.encoding]
+codec = "json"
+

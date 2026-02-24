@@ -257,8 +257,8 @@ jobs:
                   echo \"WARN: no rollback image for \${svc}\" >&2; \
                 fi; \
               done; \
-              if [[ -f /opt/neanelu/.env.prev ]]; then cp -f /opt/neanelu/.env.prev /opt/neanelu/.env; fi; \
-              cd /opt/neanelu && docker compose -f ${COMPOSE} up -d || true"
+              if [[ -f /opt/neanelu/deploy.env.prev ]]; then cp -f /opt/neanelu/deploy.env.prev /opt/neanelu/deploy.env; fi; \
+              cd /opt/neanelu && docker compose -f ${COMPOSE} --env-file deploy.env up -d || true"
           }
           trap rollback ERR
 
@@ -275,14 +275,14 @@ jobs:
 
           $SSH "deploy@${HOST}" "\
             cd /opt/neanelu && bash /opt/neanelu/infra/scripts/rollback-save.sh ${COMPOSE}; \
-            if [[ -f /opt/neanelu/.env ]]; then cp -f /opt/neanelu/.env /opt/neanelu/.env.prev; fi; \
-            printf 'NEANELU_VERSION=%s\nNEANELU_REGISTRY=ghcr.io\nNEANELU_IMAGE_PREFIX=neacisu/neanelu-shopify\n' '${TAG}' > /opt/neanelu/.env"
+            if [[ -f /opt/neanelu/deploy.env ]]; then cp -f /opt/neanelu/deploy.env /opt/neanelu/deploy.env.prev; fi; \
+            printf 'NEANELU_VERSION=%s\nNEANELU_REGISTRY=ghcr.io\nNEANELU_IMAGE_PREFIX=neacisu/neanelu-shopify\n' '${TAG}' > /opt/neanelu/deploy.env"
 
           $SSH "deploy@${HOST}" "\
             echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin && \
             cd /opt/neanelu && \
-            docker compose -f ${COMPOSE} pull backend-worker web-admin bull-board && \
-            docker compose -f ${COMPOSE} up -d"
+            docker compose -f ${COMPOSE} --env-file deploy.env pull backend-worker web-admin bull-board && \
+            docker compose -f ${COMPOSE} --env-file deploy.env up -d"
 
           $SSH "deploy@${HOST}" "bash /opt/neanelu/infra/scripts/verify-deployment.sh"
 

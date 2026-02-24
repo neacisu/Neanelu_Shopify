@@ -114,14 +114,27 @@ export async function runSerperHealthCheck(params: {
     return health;
   }
 
-  const apiKey = apiKeyOverride
-    ? Buffer.from(apiKeyOverride, 'utf-8')
-    : decryptAesGcm(
+  let apiKey: Buffer;
+  if (apiKeyOverride) {
+    apiKey = Buffer.from(apiKeyOverride, 'utf-8');
+  } else {
+    try {
+      apiKey = decryptAesGcm(
         storedRow!.serperApiKeyCiphertext!,
         buildEncryptionKey(env),
         storedRow!.serperApiKeyIv!,
         storedRow!.serperApiKeyTag!
       );
+    } catch {
+      const health: SerperHealthResponse = {
+        status: 'error',
+        message: 'Encryption key mismatch — please re-save the API key',
+      };
+      if (persist)
+        await updateSerperStatus({ shopId, status: 'error', errorMessage: health.message! });
+      return health;
+    }
+  }
 
   const startedAt = Date.now();
   const response = await fetch('https://google.serper.dev/search', {

@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { DashboardActivityResponse } from '@app/types';
 import { useQuery } from '@tanstack/react-query';
-import { LineChart as RechartsLineChart, Line, ResponsiveContainer, XAxis, YAxis } from 'recharts';
+import { LineChart as RechartsLineChart, Line, XAxis, YAxis } from 'recharts';
 
 import { createApiClient } from '../../../lib/api-client';
 import { getSessionAuthHeaders } from '../../../lib/session-auth';
@@ -59,34 +59,33 @@ export function ActivityTooltipContent({ active, payload }: ActivityTooltipProps
 }
 
 export function ActivityTimeline() {
-  const [isClientMounted, setIsClientMounted] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const [containerReady, setContainerReady] = useState(false);
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const [chartDims, setChartDims] = useState<{ w: number; h: number } | null>(null);
 
-  useEffect(() => {
-    // In embedded/hydrated layouts, Recharts can briefly measure 0x0 (reported as -1/-1).
-    // Defer chart mount to the first client paint to avoid false warnings.
-    setIsClientMounted(true);
+  const containerCallbackRef = useCallback((node: HTMLDivElement | null) => {
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
+
+    if (!node || typeof ResizeObserver === 'undefined') return;
+
+    const measure = () => {
+      const { width, height } = node.getBoundingClientRect();
+      if (width > 0 && height > 0) {
+        setChartDims({ w: Math.floor(width), h: Math.floor(height) });
+      }
+    };
+
+    measure();
+
+    observerRef.current = new ResizeObserver(measure);
+    observerRef.current.observe(node);
   }, []);
 
   useEffect(() => {
-    if (!isClientMounted) return;
-    const node = containerRef.current;
-    if (!node || typeof ResizeObserver === 'undefined') {
-      setContainerReady(true);
-      return;
-    }
-
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      const width = entry?.contentRect?.width ?? 0;
-      const height = entry?.contentRect?.height ?? 0;
-      setContainerReady(width > 0 && height > 0);
-    });
-
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [isClientMounted]);
+    return () => observerRef.current?.disconnect();
+  }, []);
 
   const query = useQuery({
     queryKey: ['dashboard', 'activity', 7],
@@ -125,13 +124,18 @@ export function ActivityTimeline() {
           onRetry={() => void query.refetch()}
         />
       ) : (
-        <div
-          ref={containerRef}
-          style={{ width: '100%', height: '100%', minHeight: 1, minWidth: 1 }}
-        >
-          {isClientMounted && containerReady ? (
-            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-              <RechartsLineChart data={data} margin={{ top: 8, right: 12, bottom: 8, left: 12 }}>
+        <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+          <div
+            ref={containerCallbackRef}
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+          >
+            {chartDims ? (
+              <RechartsLineChart
+                width={chartDims.w}
+                height={chartDims.h}
+                data={data}
+                margin={{ top: 8, right: 12, bottom: 8, left: 12 }}
+              >
                 <ChartGrid strokeDasharray="3 3" vertical={false} className="opacity-30" />
                 <XAxis dataKey="date" tickLine={false} axisLine={false} />
                 <YAxis tickLine={false} axisLine={false} width={40} />
@@ -152,8 +156,8 @@ export function ActivityTimeline() {
                   activeDot={{ r: 4 }}
                 />
               </RechartsLineChart>
-            </ResponsiveContainer>
-          ) : null}
+            ) : null}
+          </div>
         </div>
       )}
     </ChartContainer>

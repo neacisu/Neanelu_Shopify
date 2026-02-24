@@ -2,21 +2,21 @@ import type { ProductDetail } from '@app/types';
 import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 
+import { useApiClient } from '../../hooks/use-api';
 import { Button } from '../ui/button';
 import { JsonViewer } from '../ui/JsonViewer';
+import { ConflictIndicator } from './ConflictIndicator';
+import { ConsensusStatusBadge } from './ConsensusStatusBadge';
 import { QualityLevelBadge } from './QualityLevelBadge';
 import { ShopifyAdminLink } from './ShopifyAdminLink';
-import { useApiClient } from '../../hooks/use-api';
-import { ConsensusStatusBadge } from './ConsensusStatusBadge';
-import { ConflictIndicator } from './ConflictIndicator';
-import { QualityScoreBreakdown } from './QualityScoreBreakdown';
 
 type ProductDetailDrawerProps = Readonly<{
   open: boolean;
   product: ProductDetail | null;
   onClose: () => void;
-  onForceSync: () => void;
+  onForceSync: () => void | Promise<void>;
   onEdit: () => void;
 }>;
 
@@ -27,10 +27,11 @@ export function ProductDetailDrawer({
   onForceSync,
   onEdit,
 }: ProductDetailDrawerProps) {
-  if (!open || !product) return null;
   const api = useApiClient();
   const navigate = useNavigate();
-  const [variants, setVariants] = useState(product.variants);
+
+  const [syncing, setSyncing] = useState(false);
+  const [variants, setVariants] = useState(product?.variants ?? []);
   const [matches, setMatches] = useState<
     {
       id: string;
@@ -52,57 +53,53 @@ export function ProductDetailDrawer({
   const [similarProducts, setSimilarProducts] = useState<
     { id: string; title: string; similarity: number }[]
   >([]);
-  const [consensus, setConsensus] = useState<{
-    qualityScore: number;
-    qualityBreakdown: {
-      completeness: number;
-      accuracy: number;
-      consistency: number;
-      sourceWeight: number;
-    };
-    sourceCount: number;
-    conflicts: { attributeName: string }[];
-  } | null>(null);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !product) return;
+
+    setVariants(product.variants);
+
     void api
       .getApi<{ variants: typeof variants }>(`/products/${product.id}/variants`)
       .then((data) => setVariants(data.variants))
       .catch(() => undefined);
+
     void api
       .getApi<{ matches: typeof matches }>(`/products/${product.id}/matches`)
       .then((data) => setMatches(data.matches))
       .catch(() => undefined);
+
     void api
       .getApi<{ events: typeof events }>(`/products/${product.id}/quality-events`)
       .then((data) => setEvents(data.events))
       .catch(() => undefined);
+
     void api
       .getApi<{ results: { id: string; title: string; similarity: number }[] }>(
         `/products/search?q=${encodeURIComponent(product.title)}&limit=5&threshold=0.7`
       )
       .then((data) => setSimilarProducts(data.results))
       .catch(() => undefined);
-    void api
-      .getApi<{
-        qualityScore: number;
-        qualityBreakdown: {
-          completeness: number;
-          accuracy: number;
-          consistency: number;
-          sourceWeight: number;
-        };
-        sourceCount: number;
-        conflicts: { attributeName: string }[];
-      }>(`/products/${product.id}/consensus`)
-      .then((data) => setConsensus(data))
-      .catch(() => undefined);
-  }, [api, open, product.id]);
+  }, [api, open, product?.id]);
+
+  if (!open || !product) return null;
+
+  const handleForceSync = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      await Promise.resolve(onForceSync());
+      toast.success('Sync pornit');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Force Sync a esuat');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   return (
-    <div className="fixed inset-0 z-40 flex justify-end bg-black/40">
-      <div className="flex h-full w-[500px] flex-col bg-background shadow-xl">
+    <div className="fixed inset-0 z-50 flex justify-end bg-foreground/20">
+      <div className="flex h-full w-[500px] flex-col border-l border-muted/20 bg-amber-50 shadow-xl">
         <div className="flex items-center justify-between border-b p-4">
           <div className="space-y-1">
             <div className="text-sm text-muted">Product</div>
@@ -153,29 +150,22 @@ export function ProductDetailDrawer({
           <div className="rounded-md border bg-muted/5 p-3">
             <div className="text-xs font-semibold text-muted">Consensus Status</div>
             <div className="mt-2 flex items-center gap-3">
-              <ConsensusStatusBadge
-                status={
-                  consensus?.conflicts?.length
-                    ? 'conflicts'
-                    : consensus?.sourceCount
-                      ? 'computed'
-                      : 'pending'
-                }
-              />
-              <ConflictIndicator count={consensus?.conflicts?.length ?? 0} />
+              <ConsensusStatusBadge status="pending" />
+              <ConflictIndicator count={0} />
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => void navigate(`/pim/consensus?productId=${product.id}`)}
+                onClick={() => {
+                  const masterId = product.pim?.masterId;
+                  if (!masterId) {
+                    toast.error('Produsul nu are inca PIM masterId (ruleaza Force Sync)');
+                    return;
+                  }
+                  void navigate(`/pim/consensus?productId=${masterId}`);
+                }}
               >
                 View details
               </Button>
-            </div>
-            <div className="mt-3">
-              <QualityScoreBreakdown
-                breakdown={consensus?.qualityBreakdown ?? null}
-                score={consensus?.qualityScore ?? null}
-              />
             </div>
           </div>
 
@@ -284,8 +274,8 @@ export function ProductDetailDrawer({
         </div>
 
         <div className="flex items-center justify-between border-t p-4">
-          <Button variant="secondary" onClick={onForceSync}>
-            Force Sync
+          <Button variant="secondary" onClick={() => void handleForceSync()} disabled={syncing}>
+            {syncing ? 'Syncing…' : 'Force Sync'}
           </Button>
           <div className="flex gap-2">
             <ShopifyAdminLink resourceType="products" resourceId={product.id}>
