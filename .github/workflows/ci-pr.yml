@@ -932,7 +932,7 @@ jobs:
           echo "All CI jobs passed (success or skipped)"
 
   # ============================================
-  # CD: Deploy Staging (push on non-main)
+  # CD: Deploy Staging (push on develop)
   # ============================================
   deploy-staging:
     name: Deploy staging
@@ -940,7 +940,7 @@ jobs:
       always() &&
       github.event_name == 'push' &&
       github.actor != 'dependabot[bot]' &&
-      github.ref_name != 'main' &&
+      github.ref_name == 'develop' &&
       needs.ci-status.result == 'success'
     needs: [ci-status]
     uses: ./.github/workflows/deploy.yml

@@ -77,8 +77,8 @@ jobs:
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.GHCR_USERNAME != '' && secrets.GHCR_USERNAME || github.repository_owner }}
+          password: ${{ secrets.GHCR_TOKEN != '' && secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Build & push backend-worker
         uses: docker/build-push-action@v6
@@ -130,6 +130,15 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
+
+      - name: Configure BullMQ Pro registry auth
+        shell: bash
+        run: |
+          {
+            echo "@taskforcesh:registry=https://npm.taskforce.sh/"
+            echo "//npm.taskforce.sh/:_authToken=${NPM_TASKFORCESH_TOKEN}"
+            echo "always-auth=true"
+          } >> ~/.npmrc
 
       - name: Install deps
         run: |
@@ -279,7 +288,7 @@ jobs:
             printf 'NEANELU_VERSION=%s\nNEANELU_REGISTRY=ghcr.io\nNEANELU_IMAGE_PREFIX=neacisu/neanelu-shopify\n' '${TAG}' > /opt/neanelu/deploy.env"
 
           $SSH "deploy@${HOST}" "\
-            echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin && \
+            echo '${{ secrets.GHCR_TOKEN != '' && secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ secrets.GHCR_USERNAME != '' && secrets.GHCR_USERNAME || github.repository_owner }}' --password-stdin && \
             cd /opt/neanelu && \
             docker compose -f ${COMPOSE} --env-file deploy.env pull backend-worker web-admin bull-board && \
             docker compose -f ${COMPOSE} --env-file deploy.env up -d"
