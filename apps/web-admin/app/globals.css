@@ -57,34 +57,198 @@ body {
   }
 }
 
-/* Real-time queue status: subtle live indicator pulse */
+/* Real-time queue status: subtle live indicator pulse (opacity only for perf) */
 @keyframes queueLivePulse {
   0%,
   100% {
     opacity: 1;
-    box-shadow: 0 0 0 0 rgb(var(--color-success) / 0.35);
   }
   50% {
-    opacity: 0.95;
-    box-shadow: 0 0 0 6px rgb(var(--color-success) / 0.12);
+    opacity: 0.75;
   }
 }
 
-/* Success burst when a real snapshot is received (proves non-mock refresh) */
+/* Success burst when a real snapshot is received (transform + opacity only for perf) */
 @keyframes queueRefreshBurst {
   0% {
-    opacity: 0.9;
+    opacity: 0.85;
     transform: scale(1);
-    box-shadow: 0 0 0 0 rgb(var(--color-success) / 0.5);
   }
-  40% {
+  50% {
     opacity: 1;
-    transform: scale(1.02);
-    box-shadow: 0 0 0 12px rgb(var(--color-success) / 0);
+    transform: scale(1.03);
   }
   100% {
     opacity: 1;
     transform: scale(1);
-    box-shadow: 0 0 0 0 rgb(var(--color-success) / 0);
   }
+}
+
+/* Queue overview cards: entrance stagger (same pattern as worker cards) */
+@keyframes queueCardEnter {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Worker cards: entrance stagger + hover lift */
+@keyframes workerCardEnter {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Worker online indicator: subtle breathing pulse (opacity only for perf) */
+@keyframes workerOnlinePulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* Worker busy (processing job): soft shimmer on accent bar */
+@keyframes workerBusyShimmer {
+  0%,
+  100% {
+    opacity: 0.85;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Gauge chart: subtle entrance */
+@keyframes gaugeEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Gauge value text: gentle pop when value updates */
+@keyframes gaugeValuePop {
+  from {
+    opacity: 0.6;
+    transform: scale(1.08);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Queue metrics charts: subtle fade-in on mount */
+@keyframes chartFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Sidebar nav link: staggered entrance */
+@keyframes sidebarLinkEnter {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Sidebar: subtle hover glow on footer cards */
+@keyframes sidebarFooterCardHover {
+  to {
+    box-shadow: 0 2px 8px -2px rgb(0 0 0 / 0.08);
+  }
+}
+
+.animate-sidebar-link-enter {
+  animation: sidebarLinkEnter 0.35s ease-out forwards;
+}
+
+/* Reduce motion for accessibility and perf when user prefers reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.15s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.15s !important;
+  }
+}
+
+/* Date range picker card – state-of-the-art calendar theme (Feb 2026) */
+.date-range-picker-calendar.rdp-root {
+  --rdp-accent-color: #0ea5e9;
+  --rdp-accent-background-color: #e0f2fe;
+  --rdp-day_button-border-radius: 10px;
+  --rdp-day_button-height: 38px;
+  --rdp-day_button-width: 38px;
+  --rdp-today-color: #0284c7;
+  --rdp-outside-opacity: 0.4;
+  --rdp-weekday-opacity: 0.85;
+  --rdp-range_middle-background-color: #e0f2fe;
+  --rdp-nav_button-height: 2rem;
+  --rdp-nav_button-width: 2rem;
+  --rdp-animation_duration: 0.2s;
+  --rdp-animation_timing: cubic-bezier(0.34, 1.2, 0.64, 1);
+}
+
+.date-range-picker-calendar.rdp-root .rdp-caption_label {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: rgb(15 23 42);
+}
+
+.date-range-picker-calendar.rdp-root .rdp-weekday {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: rgb(100 116 139);
+}
+
+.date-range-picker-calendar.rdp-root .rdp-day_button {
+  transition:
+    background-color 0.2s,
+    color 0.2s,
+    transform 0.15s;
+}
+
+.date-range-picker-calendar.rdp-root .rdp-day_button:hover:not([disabled]) {
+  background-color: rgb(241 245 249);
+  transform: scale(1.05);
+}
+
+.date-range-picker-calendar.rdp-root .rdp-nav_button {
+  border-radius: 8px;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
+}
+
+.date-range-picker-calendar.rdp-root .rdp-nav_button:hover:not([disabled]) {
+  background-color: rgb(226 232 240);
+  color: rgb(15 23 42);
 }

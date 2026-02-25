@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useId, useMemo } from 'react';
 
 export type GaugeThreshold = Readonly<{ value: number; color: string }>;
 
@@ -21,8 +21,8 @@ export type GaugeChartProps = Readonly<{
 }>;
 
 const DEFAULT_SIZE = 84;
-const DEFAULT_TRACK_COLOR = '#e4e5e7';
-const DEFAULT_FILL_COLOR = '#008060';
+const DEFAULT_TRACK_COLOR = '#e2e8f0';
+const DEFAULT_FILL_COLOR = '#0ea5e9';
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -54,6 +54,25 @@ function resolveColor(
   return color;
 }
 
+/** Lighten hex color by a factor (0–1). Returns same color if not hex. */
+function lightenHex(hex: string, factor: number): string {
+  const n = hex.replace(/^#/, '');
+  if (!/^[0-9a-fA-F]{6}$/.test(n)) return hex;
+  const r = Math.min(
+    255,
+    Math.round(parseInt(n.slice(0, 2), 16) + (255 - parseInt(n.slice(0, 2), 16)) * factor)
+  );
+  const g = Math.min(
+    255,
+    Math.round(parseInt(n.slice(2, 4), 16) + (255 - parseInt(n.slice(2, 4), 16)) * factor)
+  );
+  const b = Math.min(
+    255,
+    Math.round(parseInt(n.slice(4, 6), 16) + (255 - parseInt(n.slice(4, 6), 16)) * factor)
+  );
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
 export function GaugeChart({
   value,
   min = 0,
@@ -68,6 +87,7 @@ export function GaugeChart({
   trackColor = DEFAULT_TRACK_COLOR,
   ariaLabel,
 }: GaugeChartProps) {
+  const uid = useId().replace(/:/g, '');
   const safeMax = Number.isFinite(max) && max > min ? max : min + 1;
   const safeValue = Number.isFinite(value) ? value : min;
   const pct = clamp((safeValue - min) / (safeMax - min), 0, 1);
@@ -78,17 +98,28 @@ export function GaugeChart({
     return Number.isFinite(safeValue) ? String(Math.round(safeValue)) : '—';
   }, [formatValue, safeValue, showValue]);
 
-  // Semi-circle gauge: angles from -180 (left) to 0 (right)
   const startAngle = -180;
   const endAngle = 0;
   const needleAngle = startAngle + pct * (endAngle - startAngle);
 
-  const strokeWidth = Math.max(6, Math.floor(size / 14));
+  const strokeWidth = Math.max(5, Math.floor(size / 12));
   const r = (size - strokeWidth) / 2;
   const cx = size / 2;
   const cy = size / 2;
 
   const progressColor = resolveColor(safeValue, thresholds, fillColor);
+  const arcLength = Math.PI * r;
+  const dashOffset = arcLength * (1 - pct);
+
+  const fullArcD = useMemo(
+    () => describeArc(cx, cy, r, startAngle, endAngle),
+    [cx, cy, r, startAngle, endAngle]
+  );
+
+  const gradientFrom = progressColor.startsWith('#')
+    ? lightenHex(progressColor, 0.5)
+    : progressColor;
+  const gradientTo = progressColor;
 
   const zoneSegments = useMemo(() => {
     const segs: { from: number; to: number; color: string }[] = [];
@@ -96,8 +127,8 @@ export function GaugeChart({
       thresholds?.length
         ? thresholds
         : [
-            { value: min + 0.75 * (safeMax - min), color: '#ffc453' },
-            { value: min + 0.9 * (safeMax - min), color: '#d72c0d' },
+            { value: min + 0.75 * (safeMax - min), color: '#f59e0b' },
+            { value: min + 0.9 * (safeMax - min), color: '#ef4444' },
           ]
     )
       .slice()
@@ -119,65 +150,126 @@ export function GaugeChart({
 
   const toAngle = (v: number) => startAngle + clamp((v - min) / (safeMax - min), 0, 1) * 180;
 
-  const progressArc = describeArc(cx, cy, r, startAngle, startAngle + pct * 180);
-
   return (
     <div
-      className={className}
-      style={{ width: size, height: size, position: 'relative' }}
+      className={`gauge-chart ${className ?? ''}`}
+      style={{
+        width: size,
+        height: size,
+        position: 'relative',
+        animation: 'gaugeEnter 0.5s ease-out both',
+      }}
       role="img"
       aria-label={ariaLabel ?? `Gauge ${displayValue}${label ? ` ${label}` : ''}`}
     >
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
-        {/* zones */}
+      <svg
+        width={size}
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
+        aria-hidden="true"
+        className="overflow-visible"
+      >
+        <defs>
+          <linearGradient
+            id={`gauge-grad-${uid}`}
+            gradientUnits="userSpaceOnUse"
+            x1={0}
+            y1={cy}
+            x2={size}
+            y2={cy}
+          >
+            <stop offset="0%" stopColor={gradientFrom} stopOpacity={0.9} />
+            <stop offset="100%" stopColor={gradientTo} stopOpacity={1} />
+          </linearGradient>
+          <filter id={`gauge-glow-${uid}`} x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="1.2" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
+        {/* Track: full semicircle, soft and rounded */}
+        <path
+          d={fullArcD}
+          fill="none"
+          stroke={trackColor}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          opacity={0.25}
+          style={{ transition: 'opacity 0.3s ease' }}
+        />
+
+        {/* Zone segments (threshold bands) – optional background tint */}
         {zoneSegments.map((seg, idx) => (
           <path
             key={`zone-${idx}`}
             d={describeArc(cx, cy, r, toAngle(seg.from), toAngle(seg.to))}
+            fill="none"
             stroke={seg.color}
             strokeWidth={strokeWidth}
-            fill="none"
             strokeLinecap="round"
-            opacity={0.35}
+            opacity={0.2}
+            style={{ transition: 'opacity 0.3s ease' }}
           />
         ))}
 
-        {/* progress */}
+        {/* Progress arc: animated fill via stroke-dashoffset */}
         <path
-          d={progressArc}
-          stroke={progressColor}
-          strokeWidth={strokeWidth}
+          d={fullArcD}
           fill="none"
+          stroke={thresholds?.length ? progressColor : `url(#gauge-grad-${uid})`}
+          strokeWidth={strokeWidth}
           strokeLinecap="round"
+          strokeDasharray={arcLength}
+          strokeDashoffset={dashOffset}
+          filter={thresholds?.length ? undefined : `url(#gauge-glow-${uid})`}
+          style={{
+            transformOrigin: `${cx}px ${cy}px`,
+            transition: 'stroke-dashoffset 0.8s cubic-bezier(0.34, 1.2, 0.64, 1)',
+          }}
         />
 
-        {/* needle */}
+        {/* Needle: smooth spring-like transition */}
         <g
           aria-hidden="true"
           style={{
             transformOrigin: `${cx}px ${cy}px`,
             transform: `rotate(${needleAngle}deg)`,
-            transition: 'transform 500ms ease',
+            transition: 'transform 0.7s cubic-bezier(0.34, 1.2, 0.64, 1)',
           }}
         >
           <line
             x1={cx}
             y1={cy}
             x2={cx}
-            y2={cy - r + strokeWidth}
+            y2={cy - r + strokeWidth + 2}
             stroke="currentColor"
             strokeWidth={2}
-            opacity={0.65}
+            strokeLinecap="round"
+            opacity={0.85}
+            className="text-slate-600"
           />
         </g>
-        <circle cx={cx} cy={cy} r={3} fill="currentColor" opacity={0.65} />
+        <circle
+          cx={cx}
+          cy={cy}
+          r={4}
+          fill="white"
+          stroke="currentColor"
+          strokeWidth={1.5}
+          opacity={0.9}
+          className="text-slate-400"
+        />
       </svg>
 
       {showValue || label ? (
         <div
+          className="pointer-events-none"
           style={{
             position: 'absolute',
-            top: '56%',
+            top: '58%',
             left: '50%',
             transform: 'translate(-50%, -50%)',
             textAlign: 'center',
@@ -185,8 +277,20 @@ export function GaugeChart({
             width: '100%',
           }}
         >
-          {showValue ? <div className="text-xs font-mono font-medium">{displayValue}</div> : null}
-          {label ? <div className="text-[10px] text-muted">{label}</div> : null}
+          {showValue ? (
+            <div
+              key={displayValue}
+              className="text-xs font-semibold tabular-nums text-slate-700"
+              style={{ animation: 'gaugeValuePop 0.4s ease-out both' }}
+            >
+              {displayValue}
+            </div>
+          ) : null}
+          {label ? (
+            <div className="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-500">
+              {label}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -201,11 +305,9 @@ export function calculateDynamicMax(memoryInfo: {
   heapTotal?: number | undefined;
   rss?: number | undefined;
 }): { heapMax: number; rssMax: number } {
-  // Use actual heapTotal if available, otherwise default to 512MB
   const heapMax =
     memoryInfo.heapTotal && memoryInfo.heapTotal > 0 ? memoryInfo.heapTotal : 512 * 1024 * 1024;
 
-  // For RSS, use 2x heapTotal as a reasonable max, or 1GB default
   const rssMax =
     memoryInfo.heapTotal && memoryInfo.heapTotal > 0
       ? memoryInfo.heapTotal * 2

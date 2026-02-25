@@ -60,14 +60,14 @@ export function IngestionProgress({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="text-h3">Ingestion in progress</div>
-          <div className="text-caption text-muted">
+          <h3 className="text-lg font-semibold text-slate-800">Ingestie în curs</h3>
+          <p className="mt-0.5 text-sm text-slate-500">
             {status === 'failed'
-              ? 'Last run failed. Review logs to continue.'
+              ? 'Ultima rulare a eșuat. Verifică log-urile pentru a continua.'
               : status === 'completed'
-                ? 'Ingestion completed successfully.'
-                : 'Processing data in the background.'}
-          </div>
+                ? 'Ingestia s-a finalizat cu succes.'
+                : 'Datele se procesează în fundal.'}
+          </p>
         </div>
         {onAbort ? (
           <Button
@@ -75,8 +75,9 @@ export function IngestionProgress({
             onClick={() => setConfirmOpen(true)}
             disabled={abortDisabled}
             loading={abortDisabled ?? false}
+            className="transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
           >
-            Abort
+            Oprește
           </Button>
         ) : null}
       </div>
@@ -90,19 +91,19 @@ export function IngestionProgress({
             return (
               <div key={step} className="flex items-center gap-2">
                 {isCompleted ? (
-                  <CheckCircle className="size-5 text-emerald-500" />
+                  <CheckCircle className="size-5 text-emerald-500" aria-hidden />
                 ) : isActive ? (
-                  <Loader2 className="size-5 animate-spin text-blue-400" />
+                  <Loader2 className="size-5 animate-spin text-blue-500" aria-hidden />
                 ) : (
-                  <Circle className="size-5 text-gray-400" />
+                  <Circle className="size-5 text-slate-300" aria-hidden />
                 )}
                 <span
                   className={
                     isActive
-                      ? 'text-sm font-medium text-foreground'
+                      ? 'text-sm font-medium text-slate-800'
                       : isCompleted
-                        ? 'text-sm text-foreground'
-                        : 'text-sm text-muted'
+                        ? 'text-sm text-slate-700'
+                        : 'text-sm text-slate-500'
                   }
                 >
                   {stepLabels[step]}
@@ -112,21 +113,23 @@ export function IngestionProgress({
           })}
         </div>
 
-        <div className="rounded-md border bg-muted/10 px-4 py-3">
-          <div className="flex items-center justify-between text-xs text-muted">
-            <span>{overallLabel ?? 'Overall progress'}</span>
-            <span>{Math.min(Math.max(progress, 0), 100)}%</span>
+        <div className="rounded-lg border border-slate-200/80 bg-slate-50/50 px-4 py-3">
+          <div className="flex items-center justify-between text-sm text-slate-600">
+            <span>{overallLabel ?? 'Progres total'}</span>
+            <span className="font-medium tabular-nums">
+              {Math.min(Math.max(progress, 0), 100)}%
+            </span>
           </div>
           <div className="mt-2">
             <PolarisProgressBar progress={Math.min(Math.max(progress, 0), 100)} />
           </div>
           {overallProcessedLabel || overallTotalLabel || overallSpeedLabel || overallEtaLabel ? (
-            <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted">
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
               <span>
                 {overallProcessedLabel ?? '—'}
                 {overallTotalLabel ? ` / ${overallTotalLabel}` : ''}
               </span>
-              {overallSpeedLabel ? <span>Speed: {overallSpeedLabel}</span> : null}
+              {overallSpeedLabel ? <span>Viteză: {overallSpeedLabel}</span> : null}
               {overallEtaLabel ? <span>ETA: {overallEtaLabel}</span> : null}
             </div>
           ) : null}
@@ -138,18 +141,21 @@ export function IngestionProgress({
               const normalizedProgress = Math.min(Math.max(stage.progress ?? 0, 0), 100);
 
               return (
-                <div key={stage.id} className="rounded-md border bg-muted/10 p-3">
-                  <div className="text-sm font-medium">{stage.label}</div>
+                <div
+                  key={stage.id}
+                  className="rounded-lg border border-slate-200/80 bg-slate-50/50 p-3"
+                >
+                  <div className="text-sm font-medium text-slate-700">{stage.label}</div>
                   <div className="mt-2">
                     <PolarisProgressBar progress={normalizedProgress} />
                   </div>
-                  <div className="mt-2 space-y-1 text-xs text-muted">
+                  <div className="mt-2 space-y-1 text-xs text-slate-500">
                     <div>
                       {stage.processedLabel ?? '—'}
                       {stage.totalLabel ? ` / ${stage.totalLabel}` : ''}
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <span>Speed: {stage.speedLabel ?? '—'}</span>
+                    <div className="flex flex-wrap gap-x-3 gap-y-0">
+                      <span>Viteză: {stage.speedLabel ?? '—'}</span>
                       <span>ETA: {stage.etaLabel ?? '—'}</span>
                     </div>
                   </div>
@@ -162,10 +168,10 @@ export function IngestionProgress({
 
       <ConfirmDialog
         open={confirmOpen}
-        title="Abort ingestion?"
-        message="This will cancel the current ingestion run. You can retry it later from history."
-        confirmLabel="Abort"
-        cancelLabel="Cancel"
+        title="Oprești ingestia?"
+        message="Rularea curentă va fi anulată. Poți reîncerca mai târziu din istoric."
+        confirmLabel="Oprește"
+        cancelLabel="Anulare"
         confirmTone="critical"
         confirmDisabled={abortDisabled ?? false}
         confirmLoading={abortDisabled ?? false}

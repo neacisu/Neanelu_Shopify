@@ -123,11 +123,11 @@ export function SearchInput(props: SearchInputProps) {
 
   const statusText = useMemo(() => {
     if (disabled) return '';
-    if (loading) return 'Loading suggestions';
+    if (loading) return 'Se încarcă sugestii';
     if (!canOpen) return '';
     if (!open) return '';
-    if (filtered.length === 0) return 'No suggestions';
-    return `${filtered.length} suggestion${filtered.length === 1 ? '' : 's'} available`;
+    if (filtered.length === 0) return 'Nicio sugestie';
+    return `${filtered.length} sugestie${filtered.length === 1 ? '' : 'i'} disponibile`;
   }, [canOpen, disabled, filtered.length, loading, open]);
 
   const commitSearch = useCallback(
@@ -221,7 +221,7 @@ export function SearchInput(props: SearchInputProps) {
     disabled,
     placeholder,
     className:
-      'mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-60',
+      'mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-[var(--shadow-sm)] outline-none transition-colors placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60',
     role: 'combobox',
     'aria-controls': listboxId,
     'aria-expanded': shouldShowMenu,
@@ -252,7 +252,10 @@ export function SearchInput(props: SearchInputProps) {
 
   return (
     <div className={className}>
-      <label htmlFor={inputId} className="text-caption text-muted">
+      <label
+        htmlFor={inputId}
+        className="text-xs font-medium uppercase tracking-wider text-slate-500"
+      >
         {label}
       </label>
       <div className="relative">
@@ -274,8 +277,8 @@ export function SearchInput(props: SearchInputProps) {
           />
         )}
         {loading ? (
-          <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted">
-            Loading…
+          <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-500">
+            Se încarcă…
           </div>
         ) : null}
 
@@ -287,7 +290,7 @@ export function SearchInput(props: SearchInputProps) {
 
         {shouldShowMenu ? (
           <div
-            className="absolute z-50 mt-1 w-full overflow-hidden rounded-md border bg-background shadow"
+            className="absolute z-50 mt-1.5 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[var(--shadow-md)]"
             role="listbox"
             id={listboxId}
           >
@@ -303,8 +306,8 @@ export function SearchInput(props: SearchInputProps) {
                   aria-selected={active}
                   tabIndex={-1}
                   className={
-                    'flex w-full items-center justify-between px-3 py-2 text-left text-sm ' +
-                    (active ? 'bg-muted/40' : 'hover:bg-muted/20')
+                    'flex w-full items-center justify-between px-3 py-2.5 text-left text-sm text-slate-700 transition-colors ' +
+                    (active ? 'bg-slate-100' : 'hover:bg-slate-50')
                   }
                   onMouseEnter={() => setActiveIndex(idx)}
                   onMouseDown={(ev) => {

@@ -1,6 +1,5 @@
 import type { ComponentType, ReactNode } from 'react';
 
-import { PolarisCard } from '../../../components/polaris/index.js';
 import { Button } from '../ui/button';
 
 export function EmptyState({
@@ -17,23 +16,25 @@ export function EmptyState({
   onAction?: () => void;
 }) {
   return (
-    <PolarisCard>
-      <div className="rounded-md border border-muted/20 bg-background p-6 text-center shadow-sm">
-        {Icon ? (
-          <div className="mx-auto mb-3 flex size-10 items-center justify-center rounded-full bg-muted/10">
-            <Icon className="size-5 text-muted" />
-          </div>
-        ) : null}
-        <div className="text-h4">{title}</div>
-        {description ? <div className="mt-2 text-body text-muted">{description}</div> : null}
-        {actionLabel && onAction ? (
-          <div className="mt-4 flex justify-center">
-            <Button variant="secondary" onClick={onAction}>
-              {actionLabel}
-            </Button>
-          </div>
-        ) : null}
-      </div>
-    </PolarisCard>
+    <div className="rounded-xl border border-slate-200/90 bg-slate-50/50 p-8 text-center shadow-[var(--shadow-sm)]">
+      {Icon ? (
+        <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-white shadow-[var(--shadow-sm)] ring-1 ring-slate-200/80">
+          <Icon className="size-6 text-slate-500" />
+        </div>
+      ) : null}
+      <h3 className="text-lg font-semibold text-slate-800">{title}</h3>
+      {description ? <p className="mt-2 text-sm text-slate-500">{description}</p> : null}
+      {actionLabel && onAction ? (
+        <div className="mt-5 flex justify-center">
+          <Button
+            variant="secondary"
+            onClick={onAction}
+            className="transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
+          >
+            {actionLabel}
+          </Button>
+        </div>
+      ) : null}
+    </div>
   );
 }

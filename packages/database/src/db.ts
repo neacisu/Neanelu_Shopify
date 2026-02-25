@@ -9,6 +9,10 @@
  * Pool sizing (bare metal, 10 worker containers):
  * - DB_POOL_SIZE=5 în staging/prod (default 10 pentru dev)
  * - Total conexiuni ≈ (replicas_api + 10 workers) × DB_POOL_SIZE + overhead
+ *
+ * Hot-reload: exporturile `pool` și `db` sunt Proxy-uri JavaScript care
+ * deleghează către instanța activă. La rotația credențialelor, pool-ul vechi
+ * este drenat graceful (30s) iar unul nou preia toate conexiunile noi.
  */
 
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
@@ -23,53 +27,119 @@ function parseDbSslMode(value: string | undefined): 'disable' | 'require' | 'ver
 }
 
 function getDefaultPoolSize(nodeEnv: string | undefined): number {
-  // In staging/prod we run behind PgBouncer; keep app pool small to avoid double pooling.
   if (nodeEnv === 'production' || nodeEnv === 'staging') return 3;
   return 10;
 }
 
 // ============================================
-// CONFIGURARE POOL
+// POOL CONFIG (read once, reused on rotation)
 // ============================================
 
-/**
- * Pool configuration from environment variables
- * DATABASE_URL format: postgresql://user:password@host:port/database
- */
 const poolConfig: pg.PoolConfig = {
   connectionString: process.env['DATABASE_URL_TEST'] ?? process.env['DATABASE_URL'],
   max: Number(process.env['DB_POOL_SIZE'] ?? getDefaultPoolSize(process.env['NODE_ENV'])),
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
-  // Recomandare: statement_timeout pentru queries lungi
-  // Se poate adăuga ca parametru în connection string sau aici
 };
 
 const dbSslMode = parseDbSslMode(process.env['DB_SSL_MODE']);
 if (dbSslMode === 'require') {
-  // Internal gateways often terminate/forward TLS without a public CA chain.
   poolConfig.ssl = { rejectUnauthorized: false };
 } else if (dbSslMode === 'verify-full') {
   poolConfig.ssl = { rejectUnauthorized: true };
 }
 
-/**
- * Shared pg Pool instance
- * Exportat pentru:
- * - pg-copy-streams (COPY FROM STDIN pentru bulk ingest)
- * - Direct queries când Drizzle nu e suficient
- */
-export const pool = new Pool(poolConfig);
-
 // ============================================
-// DRIZZLE CLIENT
+// POOL MANAGER (hot-swap via Proxy)
 // ============================================
 
+function attachPoolErrorHandler(p: pg.Pool): void {
+  p.on('error', (err) => {
+    console.error('[DB] Idle client error (non-fatal, pool continues):', err.message);
+  });
+}
+
+let _pool = new Pool(poolConfig);
+attachPoolErrorHandler(_pool);
+
+let _db: NodePgDatabase = drizzle(_pool);
+let _currentConnectionString = poolConfig.connectionString;
+
+let _drainTimer: ReturnType<typeof setTimeout> | null = null;
+
 /**
- * Drizzle ORM client
- * Type-safe queries pentru toate operațiunile standard
+ * Proxy transparent — consumatorii (68+ fișiere) văd același `pool`.
+ * Toate apelurile (connect, query, on, end, etc.) sunt delegate la _pool curent.
  */
-export const db: NodePgDatabase = drizzle(pool);
+export const pool: pg.Pool = new Proxy(Object.create(null) as pg.Pool, {
+  get(_, prop) {
+    const target = _pool;
+    const value = Reflect.get(target, prop, target) as unknown;
+    return typeof value === 'function'
+      ? (value as (...args: unknown[]) => unknown).bind(target)
+      : value;
+  },
+});
+
+/**
+ * Proxy transparent pentru Drizzle ORM.
+ */
+export const db: NodePgDatabase = new Proxy(Object.create(null) as NodePgDatabase, {
+  get(_, prop) {
+    const target = _db;
+    const value = Reflect.get(target, prop, target) as unknown;
+    return typeof value === 'function'
+      ? (value as (...args: unknown[]) => unknown).bind(target)
+      : value;
+  },
+});
+
+const DRAIN_TIMEOUT_MS = 30_000;
+
+/**
+ * Rotește pool-ul DB cu o nouă connection string.
+ * 1. Creează pool nou + health check
+ * 2. Swap atomic (JS single-threaded)
+ * 3. Drain graceful al pool-ului vechi (30s)
+ */
+export async function rotatePool(newConnectionString: string): Promise<void> {
+  const newPoolConfig: pg.PoolConfig = { ...poolConfig, connectionString: newConnectionString };
+  const newPool = new Pool(newPoolConfig);
+  attachPoolErrorHandler(newPool);
+
+  const client = await newPool.connect();
+  try {
+    await client.query('SELECT 1');
+  } finally {
+    client.release();
+  }
+
+  const oldPool = _pool;
+
+  _pool = newPool;
+  _db = drizzle(newPool);
+  _currentConnectionString = newConnectionString;
+
+  if (_drainTimer) {
+    clearTimeout(_drainTimer);
+    _drainTimer = null;
+  }
+
+  _drainTimer = setTimeout(() => {
+    _drainTimer = null;
+    oldPool.end().catch((err: unknown) => {
+      console.error('[DB] Error draining old pool:', err);
+    });
+  }, DRAIN_TIMEOUT_MS);
+}
+
+/**
+ * Returns the current DATABASE_URL (connection string) used by the active pool.
+ * Used by credential watcher to detect actual changes.
+ */
+export function getCurrentConnectionString(): string | undefined {
+  return _currentConnectionString;
+}
 
 // ============================================
 // HEALTH CHECK
@@ -79,10 +149,6 @@ interface HealthCheckRow {
   health: number;
 }
 
-/**
- * Verifică conectivitatea la baza de date
- * Folosit de health endpoints și startup checks
- */
 export async function checkDatabaseConnection(): Promise<boolean> {
   try {
     const client = await pool.connect();
@@ -102,12 +168,12 @@ export async function checkDatabaseConnection(): Promise<boolean> {
 // GRACEFUL SHUTDOWN
 // ============================================
 
-/**
- * Închide toate conexiunile din pool
- * Apelat la shutdown pentru cleanup curat
- */
 export async function closePool(): Promise<void> {
-  await pool.end();
+  if (_drainTimer) {
+    clearTimeout(_drainTimer);
+    _drainTimer = null;
+  }
+  await _pool.end();
 }
 
 // ============================================
@@ -132,21 +198,9 @@ export async function closePool(): Promise<void> {
  * ```
  */
 export async function setTenantContext(client: pg.PoolClient, shopId: string): Promise<void> {
-  // Cast este ::uuid (tipul standard PostgreSQL), NU ::UUIDv7
   await client.query(`SELECT set_config('app.current_shop_id', $1::text, true)`, [shopId]);
 }
 
-/**
- * Execută o funcție în contextul unui tenant specific
- * Wrapper convenabil pentru operațiuni cu RLS
- *
- * @example
- * ```ts
- * const products = await withTenantContext(shopId, async (client) => {
- *   return client.query('SELECT * FROM products');
- * });
- * ```
- */
 export async function withTenantContext<T>(
   shopId: string,
   fn: (client: pg.PoolClient) => Promise<T>
@@ -166,10 +220,6 @@ export async function withTenantContext<T>(
   }
 }
 
-/**
- * Helper pentru a executa o funcție cu RLS activ folosind Drizzle-style
- * Acceptă un callback care primește clientul pg.
- */
 export async function withShopContext<T>(
   shopId: string,
   fn: (client: pg.PoolClient) => Promise<T>

@@ -55,6 +55,9 @@ echo "--- create roles if missing"
 if ! sudo -u postgres psql -Atc "select 1 from pg_roles where rolname='neanelu_vault'" | grep -q "^1$"; then
   sudo -u postgres psql -v ON_ERROR_STOP=1 -d postgres -c "CREATE ROLE neanelu_vault LOGIN PASSWORD '${vault_pw}';"
 fi
+if ! sudo -u postgres psql -Atc "select 1 from pg_roles where rolname='neanelu_runtime'" | grep -q "^1$"; then
+  sudo -u postgres psql -v ON_ERROR_STOP=1 -d postgres -c "CREATE ROLE neanelu_runtime NOLOGIN;"
+fi
 if ! sudo -u postgres psql -Atc "select 1 from pg_roles where rolname='neanelu_app'" | grep -q "^1$"; then
   sudo -u postgres psql -v ON_ERROR_STOP=1 -d postgres -c "CREATE ROLE neanelu_app LOGIN PASSWORD '${app_pw}';"
 fi
@@ -74,6 +77,8 @@ echo "--- OpenBao DB engine prerequisites (Neanelu-scoped only)"
 # OpenBao database secrets engine must be able to create roles and assign membership into neanelu_app.
 sudo -u postgres psql -v ON_ERROR_STOP=1 -d postgres -c "ALTER ROLE neanelu_vault CREATEROLE;"
 sudo -u postgres psql -v ON_ERROR_STOP=1 -d postgres -c "GRANT neanelu_app TO neanelu_vault WITH ADMIN OPTION;"
+sudo -u postgres psql -v ON_ERROR_STOP=1 -d postgres -c "GRANT neanelu_runtime TO neanelu_vault WITH ADMIN OPTION;"
+sudo -u postgres psql -v ON_ERROR_STOP=1 -d postgres -c "GRANT neanelu_runtime TO neanelu_app;"
 
 for db in neanelu_shopify neanelu_shopify_staging neanelu_shopify_dev; do
   echo "--- extensions/grants on ${db}"
@@ -91,11 +96,19 @@ for db in neanelu_shopify neanelu_shopify_staging neanelu_shopify_dev; do
   sudo -u postgres psql -v ON_ERROR_STOP=1 -d "${db}" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO neanelu_app;"
   sudo -u postgres psql -v ON_ERROR_STOP=1 -d "${db}" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO neanelu_app;"
   sudo -u postgres psql -v ON_ERROR_STOP=1 -d "${db}" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO neanelu_app;"
+
+  sudo -u postgres psql -v ON_ERROR_STOP=1 -d "${db}" -c "GRANT ALL ON SCHEMA public TO neanelu_runtime;"
+  sudo -u postgres psql -v ON_ERROR_STOP=1 -d "${db}" -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO neanelu_runtime;"
+  sudo -u postgres psql -v ON_ERROR_STOP=1 -d "${db}" -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO neanelu_runtime;"
+  sudo -u postgres psql -v ON_ERROR_STOP=1 -d "${db}" -c "GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO neanelu_runtime;"
+  sudo -u postgres psql -v ON_ERROR_STOP=1 -d "${db}" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO neanelu_runtime;"
+  sudo -u postgres psql -v ON_ERROR_STOP=1 -d "${db}" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO neanelu_runtime;"
+  sudo -u postgres psql -v ON_ERROR_STOP=1 -d "${db}" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO neanelu_runtime;"
 done
 
 echo "--- minimal verification"
 sudo -u postgres psql -Atc "select datname from pg_database where datname like 'neanelu_%' order by 1;"
-sudo -u postgres psql -Atc "select rolname from pg_roles where rolname in ('neanelu_app','neanelu_vault') order by 1;"
+sudo -u postgres psql -Atc "select rolname from pg_roles where rolname in ('neanelu_app','neanelu_runtime','neanelu_vault') order by 1;"
 sudo -u postgres psql -d neanelu_shopify -Atc "select extname from pg_extension where extname in ('vector','pg_stat_statements','citext') order by 1;"
 
 echo "--- done"

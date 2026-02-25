@@ -13,7 +13,6 @@ import { toast } from 'sonner';
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { Tabs } from '../components/ui/tabs';
 import { ScheduleForm, ConfirmDialog } from '../components/domain/index.js';
-import { PolarisCard } from '../../components/polaris/index.js';
 import { apiAction, type ActionData, createActionApiClient } from '../utils/actions';
 import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
 
@@ -113,7 +112,7 @@ export const action = apiAction(async (args: ActionFunctionArgs) => {
     intent,
     toast: { type: 'success', message: 'Schedule updated' },
   } satisfies ScheduleActionResult);
-});
+}) as unknown as (args: ActionFunctionArgs) => Promise<ScheduleActionResult>;
 
 type RouteLoaderData = LoaderData<typeof loader>;
 type RouteActionData = ActionData<typeof action>;
@@ -146,17 +145,17 @@ export default function IngestionSchedulePage() {
 
   const breadcrumbs = useMemo(
     () => [
-      { label: 'Home', href: '/' },
-      { label: 'Ingestion', href: '/ingestion' },
-      { label: 'Schedule', href: location.pathname },
+      { label: 'Acasă', href: '/' },
+      { label: 'Ingestie', href: '/ingestion' },
+      { label: 'Programare', href: location.pathname },
     ],
     [location.pathname]
   );
 
   const tabs = [
-    { label: 'Overview', value: 'overview', to: '/ingestion' },
-    { label: 'History', value: 'history', to: '/ingestion/history' },
-    { label: 'Schedule', value: 'schedule', to: '/ingestion/schedule' },
+    { label: 'Prezentare', value: 'overview', to: '/ingestion' },
+    { label: 'Istoric', value: 'history', to: '/ingestion/history' },
+    { label: 'Programare', value: 'schedule', to: '/ingestion/schedule' },
   ];
 
   const submitSchedule = (schedule: {
@@ -186,8 +185,14 @@ export default function IngestionSchedulePage() {
   };
 
   return (
-    <div className="space-y-4">
-      <Breadcrumbs items={breadcrumbs} />
+    <div className="space-y-6">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-1">
+          <Breadcrumbs items={breadcrumbs} />
+          <h1 className="text-2xl font-bold tracking-tight text-slate-800">Programare ingestie</h1>
+          <p className="text-sm text-slate-500">Planifică sincronizări automate cu Shopify</p>
+        </div>
+      </header>
 
       <div className="flex flex-wrap items-center gap-4">
         <Tabs
@@ -200,7 +205,7 @@ export default function IngestionSchedulePage() {
         />
       </div>
 
-      <PolarisCard className="p-4">
+      <article className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-[var(--shadow-sm)]">
         <ScheduleForm
           schedule={activeSchedule ?? null}
           onSubmit={submitSchedule}
@@ -210,21 +215,21 @@ export default function IngestionSchedulePage() {
           <div className="mt-4 flex justify-end">
             <button
               type="button"
-              className="text-sm text-red-600 hover:underline"
+              className="text-sm font-medium text-red-600 transition-colors hover:text-red-700 hover:underline"
               onClick={() => setConfirmDeleteOpen(true)}
             >
-              Delete schedule
+              Șterge programarea
             </button>
           </div>
         ) : null}
-      </PolarisCard>
+      </article>
 
       <ConfirmDialog
         open={confirmDeleteOpen}
-        title="Delete schedule?"
-        message="This will remove the current schedule."
-        confirmLabel="Delete"
-        cancelLabel="Cancel"
+        title="Ștergi programarea?"
+        message="Programarea curentă va fi eliminată."
+        confirmLabel="Șterge"
+        cancelLabel="Anulare"
         confirmTone="critical"
         onCancel={() => setConfirmDeleteOpen(false)}
         onConfirm={() => {

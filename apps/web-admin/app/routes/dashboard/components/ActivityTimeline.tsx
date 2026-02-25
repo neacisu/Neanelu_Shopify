@@ -30,28 +30,31 @@ export function ActivityTooltipContent({ active, payload }: ActivityTooltipProps
   if (!active || !datum) return null;
 
   return (
-    <div className="rounded-md border bg-background p-2 text-xs shadow-sm">
-      <div className="mb-1 font-medium">{datum.date}</div>
-      <div className="space-y-0.5">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-muted">Total</span>
-          <span className="font-mono">{datum.total}</span>
+    <div
+      className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs shadow-lg ring-1 ring-slate-200/80"
+      style={{ minWidth: 160 }}
+    >
+      <div className="mb-2 font-semibold text-slate-800">{datum.date}</div>
+      <div className="space-y-1">
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-slate-500">Total</span>
+          <span className="font-mono font-medium tabular-nums text-slate-800">{datum.total}</span>
         </div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-muted">Sync</span>
-          <span className="font-mono">{datum.sync}</span>
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-slate-500">Sync</span>
+          <span className="font-mono tabular-nums text-slate-700">{datum.sync}</span>
         </div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-muted">Webhook</span>
-          <span className="font-mono">{datum.webhook}</span>
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-slate-500">Webhook</span>
+          <span className="font-mono tabular-nums text-slate-700">{datum.webhook}</span>
         </div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-muted">Bulk</span>
-          <span className="font-mono">{datum.bulk}</span>
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-slate-500">Bulk</span>
+          <span className="font-mono tabular-nums text-slate-700">{datum.bulk}</span>
         </div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-muted">AI Batch</span>
-          <span className="font-mono">{datum.aiBatch}</span>
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-slate-500">AI Batch</span>
+          <span className="font-mono tabular-nums text-slate-700">{datum.aiBatch}</span>
         </div>
       </div>
     </div>
@@ -112,7 +115,9 @@ export function ActivityTimeline() {
       title="Timeline activitate"
       description="Job-uri procesate pe zi (ultimele 7 zile)"
       height={260}
-      actions={query.isFetching ? <div className="text-caption text-muted">Actualizez…</div> : null}
+      actions={
+        query.isFetching ? <span className="text-xs text-slate-500">Se actualizează…</span> : null
+      }
     >
       {query.isLoading ? (
         <LoadingState label="Se incarca activitatea…" />
@@ -136,9 +141,19 @@ export function ActivityTimeline() {
                 data={data}
                 margin={{ top: 8, right: 12, bottom: 8, left: 12 }}
               >
-                <ChartGrid strokeDasharray="3 3" vertical={false} className="opacity-30" />
-                <XAxis dataKey="date" tickLine={false} axisLine={false} />
-                <YAxis tickLine={false} axisLine={false} width={40} />
+                <ChartGrid strokeDasharray="3 3" vertical={false} className="stroke-slate-200/60" />
+                <XAxis
+                  dataKey="date"
+                  tickLine={false}
+                  axisLine={{ stroke: '#e2e8f0' }}
+                  tick={{ fontSize: 11, fill: '#64748b' }}
+                />
+                <YAxis
+                  tickLine={false}
+                  axisLine={false}
+                  width={40}
+                  tick={{ fontSize: 11, fill: '#64748b' }}
+                />
 
                 <ChartTooltip
                   content={(p) => (
@@ -150,10 +165,13 @@ export function ActivityTimeline() {
                   type="monotone"
                   dataKey="total"
                   name="Total"
-                  stroke="#008060"
+                  stroke="#0ea5e9"
                   strokeWidth={2}
                   dot={false}
-                  activeDot={{ r: 4 }}
+                  activeDot={{ r: 4, fill: '#0ea5e9', stroke: '#fff', strokeWidth: 2 }}
+                  isAnimationActive
+                  animationDuration={400}
+                  animationEasing="ease-out"
                 />
               </RechartsLineChart>
             ) : null}

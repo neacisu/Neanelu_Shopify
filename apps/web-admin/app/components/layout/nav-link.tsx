@@ -32,22 +32,32 @@ export function NavLink({ to, icon: Icon, badge, tooltip, tooltipTitle, children
     <ShopifyLink
       to={to}
       className={
-        'group flex items-center justify-between gap-3 rounded-md px-3 py-2 text-body outline-none transition-all duration-200 ease-in-out ' +
+        'group/link flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-sm font-medium outline-none transition-all duration-200 ease-out ' +
         (isActive
-          ? 'border-l-4 border-primary bg-primary/10 text-foreground shadow-sm'
-          : 'border-l-4 border-transparent text-foreground/70 hover:bg-muted/15 hover:text-foreground hover:border-black/5 hover:translate-x-1') +
-        ' focus-visible:ring-2 focus-visible:ring-primary/40'
+          ? 'border-l-4 border-blue-500 bg-blue-50/80 text-slate-800 shadow-[var(--shadow-sm)]'
+          : 'border-l-4 border-transparent text-slate-600 hover:translate-x-0.5 hover:bg-slate-100 hover:text-slate-800 hover:shadow-[var(--shadow-sm)]') +
+        ' focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2'
       }
       aria-current={isActive ? 'page' : undefined}
     >
       <span className="inline-flex min-w-0 items-center gap-3">
-        {Icon ? <Icon className="size-4 shrink-0 text-muted group-hover:text-foreground" /> : null}
+        {Icon ? (
+          <span
+            className={
+              'flex shrink-0 items-center justify-center transition-colors duration-200 ' +
+              (isActive ? 'text-blue-600' : 'text-slate-400 group-hover/link:text-slate-600')
+            }
+          >
+            <Icon className="size-4" />
+          </span>
+        ) : null}
         <span className="inline-flex min-w-0 items-center gap-1.5">
           <span className="truncate">{children}</span>
           {tooltip ? (
             <InfoTooltip
               title={tooltipTitle ?? (typeof children === 'string' ? children : 'Info')}
               side="bottom"
+              portalToBody
             >
               {tooltip}
             </InfoTooltip>
@@ -56,7 +66,7 @@ export function NavLink({ to, icon: Icon, badge, tooltip, tooltipTitle, children
       </span>
 
       {badge !== undefined ? (
-        <span className="rounded-full bg-muted/15 px-2 py-0.5 text-caption text-muted">
+        <span className="shrink-0 rounded-full bg-slate-200/80 px-2 py-0.5 text-xs font-medium text-slate-600">
           {badge}
         </span>
       ) : null}

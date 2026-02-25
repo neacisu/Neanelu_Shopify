@@ -134,10 +134,14 @@ def main() -> int:
     req_json("POST", f"{bao_addr}/v1/{args.mount_path}/config/{args.config_name}", token, cfg_payload)
     print("db_config_written", args.config_name)
 
-    # Roles: create a dynamic login role that is member of neanelu_app.
+    # Roles: create a dynamic login role that inherits stable runtime grants.
+    # We keep membership in neanelu_app for backward compatibility, but
+    # effective application privileges should come from neanelu_runtime.
     creation = (
-        "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';\n"
+        "CREATE ROLE \"{{name}}\" WITH INHERIT LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';\n"
+        "GRANT neanelu_runtime TO \"{{name}}\";\n"
         "GRANT neanelu_app TO \"{{name}}\";\n"
+        "ALTER ROLE \"{{name}}\" INHERIT;\n"
     )
     for role_name, ttl, max_ttl in [
         ("neanelu-prod-dynamic", "1h", "24h"),

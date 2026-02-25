@@ -2,7 +2,12 @@ import { Redis as IORedis } from 'ioredis';
 
 import { loadEnv } from '@app/config';
 import { createLogger } from '@app/logger';
-import { withTenantContext } from '@app/database';
+import {
+  withTenantContext,
+  closePool,
+  startCredentialWatcher,
+  stopCredentialWatcher,
+} from '@app/database';
 import { getMaxBudgetRatios, registerBudgetGuardHooks, registerOtelCallback } from '@app/pim';
 import { closeEnrichmentQueue, configFromEnv } from '@app/queue-manager';
 
@@ -497,6 +502,9 @@ try {
     },
   });
   logger.info({}, 'queue config listener started');
+
+  await startCredentialWatcher();
+  logger.info({}, 'credential watcher started');
 } catch (error) {
   logger.fatal({ error }, 'server failed to start');
   process.exitCode = 1;
@@ -820,6 +828,11 @@ const shutdown = async (signal: string): Promise<void> => {
     await closeQualityWebhookQueue();
     await closeConsensusQueue();
     await closeEnrichmentQueue();
+
+    stopCredentialWatcher();
+    await closePool();
+    logger.info({ signal }, 'database pool closed');
+
     await server.close();
     logger.info({ signal }, 'shutdown complete');
   } catch (error) {

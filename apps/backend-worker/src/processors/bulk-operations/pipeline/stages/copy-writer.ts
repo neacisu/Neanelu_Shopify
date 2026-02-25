@@ -1,4 +1,4 @@
-import { PgCopyStreamsManager } from '@app/database';
+import { withTenantContext } from '@app/database';
 
 import type {
   StitchedRecord,
@@ -20,31 +20,6 @@ function extractLegacyResourceId(gid: string): number | null {
   if (!Number.isFinite(n)) return null;
   const i = Math.trunc(n);
   return i > 0 ? i : null;
-}
-
-function encodeCopyText(value: string): string {
-  // COPY text format escaping for tab/newline/carriage return/backslash.
-  return value
-    .replace(/\\/g, '\\\\')
-    .replace(/\t/g, '\\t')
-    .replace(/\n/g, '\\n')
-    .replace(/\r/g, '\\r');
-}
-
-function encodeCopyNullable(value: string | null | undefined): string {
-  if (value == null) return '\\N';
-  return encodeCopyText(value);
-}
-
-function encodeCopyNullableJson(value: unknown): string {
-  if (value == null) return '\\N';
-  return encodeCopyText(JSON.stringify(value));
-}
-
-function encodeTextArray(values: readonly string[]): string {
-  // Postgres array literal: {"a","b"}
-  const escaped = values.map((v) => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
-  return `{${escaped.join(',')}}`;
 }
 
 export type CopyWriterCounters = Readonly<{
@@ -94,7 +69,6 @@ type StagingVariantMediaRowShape = Readonly<{
 }>;
 
 export class StagingCopyWriter {
-  private readonly copyManager: PgCopyStreamsManager;
   private readonly shopId: string;
   private readonly bulkRunId: string;
 
@@ -129,13 +103,11 @@ export class StagingCopyWriter {
   constructor(params: {
     shopId: string;
     bulkRunId: string;
-    copyManager?: PgCopyStreamsManager;
     batchMaxRows: number;
     batchMaxBytes: number;
   }) {
     this.shopId = params.shopId;
     this.bulkRunId = params.bulkRunId;
-    this.copyManager = params.copyManager ?? new PgCopyStreamsManager();
     this.batchMaxRows = Math.max(1, Math.trunc(params.batchMaxRows));
     this.batchMaxBytes = Math.max(1024, Math.trunc(params.batchMaxBytes));
   }
@@ -280,6 +252,34 @@ export class StagingCopyWriter {
     return rows >= this.batchMaxRows || this.bufferedBytes >= this.batchMaxBytes;
   }
 
+  private async insertRows(params: {
+    table: string;
+    columns: readonly string[];
+    rows: readonly (readonly unknown[])[];
+  }): Promise<void> {
+    if (params.rows.length === 0) return;
+    const columnCount = params.columns.length;
+    // Keep bind parameter count comfortably below protocol/driver limits.
+    const maxParamsPerQuery = 10_000;
+    const rowsPerChunk = Math.max(1, Math.floor(maxParamsPerQuery / columnCount));
+
+    await withTenantContext(this.shopId, async (client) => {
+      for (let start = 0; start < params.rows.length; start += rowsPerChunk) {
+        const chunk = params.rows.slice(start, start + rowsPerChunk);
+        const values: unknown[] = [];
+        const tuples = chunk.map((row, rowIdx) => {
+          const placeholders = row.map((value, colIdx) => {
+            values.push(value);
+            return `$${rowIdx * columnCount + colIdx + 1}`;
+          });
+          return `(${placeholders.join(', ')})`;
+        });
+        const sql = `INSERT INTO ${params.table} (${params.columns.join(', ')}) VALUES ${tuples.join(', ')}`;
+        await client.query(sql, values);
+      }
+    });
+  }
+
   private async copyProducts(rows: readonly StagingProductRowShape[]): Promise<void> {
     await withBulkSpan(
       'bulk.copy.batch',
@@ -292,86 +292,71 @@ export class StagingCopyWriter {
         span.setAttribute('bulk.copy_kind', 'products');
         span.setAttribute('bulk.batch_rows', rows.length);
 
-        const cmd = {
-          sql: `COPY staging_products (
-                  bulk_run_id,
-                  shop_id,
-                  shopify_gid,
-                  legacy_resource_id,
-                  title,
-                  handle,
-                  description,
-                  description_html,
-                  vendor,
-                  product_type,
-                  status,
-                  tags,
-                  options,
-                  seo,
-                  featured_image_url,
-                  price_range,
-                  compare_at_price_range,
-                  published_at,
-                  template_suffix,
-                  has_only_default_variant,
-                  total_inventory,
-                  collections,
-                  raw_data,
-                  validation_status,
-                  merge_status
-                ) FROM STDIN WITH (FORMAT text)`,
-        };
-
-        await this.copyManager.withCopyFrom({
-          shopId: this.shopId,
-          command: cmd,
-          write: async (stream) => {
-            for (const row of rows) {
-              const legacy = extractLegacyResourceId(row.shopify_gid);
-              const title = row.title;
-              const handle = row.handle;
-              const status = row.status;
-
-              // If required fields are missing, stage as invalid for later inspection.
-              const isValid = Boolean(legacy && title && handle && status);
-
-              const line = [
-                this.bulkRunId,
-                this.shopId,
-                row.shopify_gid,
-                legacy != null ? String(legacy) : '\\N',
-                encodeCopyNullable(title),
-                encodeCopyNullable(handle),
-                encodeCopyNullable(row.description),
-                encodeCopyNullable(row.description_html),
-                encodeCopyNullable(row.vendor),
-                encodeCopyNullable(row.product_type),
-                encodeCopyNullable(status),
-                row.tags.length > 0
-                  ? encodeCopyText(encodeTextArray(row.tags))
-                  : encodeCopyText('{}'),
-                encodeCopyNullableJson(row.options),
-                encodeCopyNullableJson(row.seo),
-                encodeCopyNullable(row.featured_image_url),
-                encodeCopyNullableJson(row.price_range),
-                encodeCopyNullableJson(row.compare_at_price_range),
-                encodeCopyNullable(row.published_at),
-                encodeCopyNullable(row.template_suffix),
-                row.has_only_default_variant != null ? String(row.has_only_default_variant) : '\\N',
-                row.total_inventory != null ? String(row.total_inventory) : '\\N',
-                encodeCopyNullableJson(row.collections),
-                encodeCopyNullableJson(row.raw_data),
-                isValid ? 'valid' : 'invalid',
-                'pending',
-              ].join('\t');
-
-              if (!stream.write(`${line}\n`)) {
-                await new Promise<void>((resolve) => stream.once('drain', () => resolve()));
-              }
-            }
-
-            stream.end();
-          },
+        const tuples = rows.map((row) => {
+          const legacy = extractLegacyResourceId(row.shopify_gid);
+          const title = row.title;
+          const handle = row.handle;
+          const status = row.status;
+          // If required fields are missing, stage as invalid for later inspection.
+          const isValid = Boolean(legacy && title && handle && status);
+          return [
+            this.bulkRunId,
+            this.shopId,
+            row.shopify_gid,
+            legacy,
+            title,
+            handle,
+            row.description,
+            row.description_html,
+            row.vendor,
+            row.product_type,
+            status,
+            row.tags,
+            asJsonColumn(row.options),
+            asJsonColumn(row.seo),
+            row.featured_image_url,
+            asJsonColumn(row.price_range),
+            asJsonColumn(row.compare_at_price_range),
+            row.published_at,
+            row.template_suffix,
+            row.has_only_default_variant,
+            row.total_inventory,
+            asJsonColumn(row.collections),
+            asJsonColumn(row.raw_data),
+            isValid ? 'valid' : 'invalid',
+            'pending',
+          ] as const;
+        });
+        await this.insertRows({
+          table: 'staging_products',
+          columns: [
+            'bulk_run_id',
+            'shop_id',
+            'shopify_gid',
+            'legacy_resource_id',
+            'title',
+            'handle',
+            'description',
+            'description_html',
+            'vendor',
+            'product_type',
+            'status',
+            'tags',
+            'options',
+            'seo',
+            'featured_image_url',
+            'price_range',
+            'compare_at_price_range',
+            'published_at',
+            'template_suffix',
+            'has_only_default_variant',
+            'total_inventory',
+            'collections',
+            'raw_data',
+            'validation_status',
+            'merge_status',
+          ],
+          rows: tuples,
         });
       }
     );
@@ -389,65 +374,52 @@ export class StagingCopyWriter {
         span.setAttribute('bulk.copy_kind', 'variants');
         span.setAttribute('bulk.batch_rows', rows.length);
 
-        const cmd = {
-          sql: `COPY staging_variants (
-                  bulk_run_id,
-                  shop_id,
-                  shopify_gid,
-                  legacy_resource_id,
-                  title,
-                  sku,
-                  barcode,
-                  price,
-                  compare_at_price,
-                  inventory_quantity,
-                  inventory_item_id,
-                  selected_options,
-                  image_url,
-                  raw_data,
-                  validation_status,
-                  merge_status
-                ) FROM STDIN WITH (FORMAT text)`,
-        };
-
-        await this.copyManager.withCopyFrom({
-          shopId: this.shopId,
-          command: cmd,
-          write: async (stream) => {
-            for (const row of rows) {
-              const legacy = extractLegacyResourceId(row.shopify_gid);
-              const title = row.title;
-              const price = row.price;
-
-              const compareAt = row.compare_at_price ?? row.price;
-              const isValid = Boolean(legacy && title && price);
-
-              const line = [
-                this.bulkRunId,
-                this.shopId,
-                row.shopify_gid,
-                legacy != null ? String(legacy) : '\\N',
-                encodeCopyNullable(title),
-                encodeCopyNullable(row.sku),
-                encodeCopyNullable(row.barcode),
-                encodeCopyNullable(price),
-                encodeCopyNullable(compareAt),
-                row.inventory_quantity != null ? String(row.inventory_quantity) : '\\N',
-                encodeCopyNullable(row.inventory_item_id),
-                encodeCopyNullableJson(row.selected_options),
-                encodeCopyNullable(row.image_url),
-                encodeCopyNullableJson(row.raw_data),
-                isValid ? 'valid' : 'invalid',
-                'pending',
-              ].join('\t');
-
-              if (!stream.write(`${line}\n`)) {
-                await new Promise<void>((resolve) => stream.once('drain', () => resolve()));
-              }
-            }
-
-            stream.end();
-          },
+        const tuples = rows.map((row) => {
+          const legacy = extractLegacyResourceId(row.shopify_gid);
+          const title = row.title;
+          const price = row.price;
+          const compareAt = row.compare_at_price ?? row.price;
+          const isValid = Boolean(legacy && title && price);
+          return [
+            this.bulkRunId,
+            this.shopId,
+            row.shopify_gid,
+            legacy,
+            title,
+            row.sku,
+            row.barcode,
+            price,
+            compareAt,
+            row.inventory_quantity,
+            row.inventory_item_id,
+            asJsonColumn(row.selected_options),
+            row.image_url,
+            asJsonColumn(row.raw_data),
+            isValid ? 'valid' : 'invalid',
+            'pending',
+          ] as const;
+        });
+        await this.insertRows({
+          table: 'staging_variants',
+          columns: [
+            'bulk_run_id',
+            'shop_id',
+            'shopify_gid',
+            'legacy_resource_id',
+            'title',
+            'sku',
+            'barcode',
+            'price',
+            'compare_at_price',
+            'inventory_quantity',
+            'inventory_item_id',
+            'selected_options',
+            'image_url',
+            'raw_data',
+            'validation_status',
+            'merge_status',
+          ],
+          rows: tuples,
         });
       }
     );
@@ -465,66 +437,54 @@ export class StagingCopyWriter {
         span.setAttribute('bulk.copy_kind', 'media');
         span.setAttribute('bulk.batch_rows', rows.length);
 
-        const cmd = {
-          sql: `COPY staging_media (
-                  bulk_run_id,
-                  shop_id,
-                  shopify_gid,
-                  legacy_resource_id,
-                  media_type,
-                  alt,
-                  status,
-                  mime_type,
-                  file_size,
-                  width,
-                  height,
-                  duration,
-                  url,
-                  preview_url,
-                  sources,
-                  metadata,
-                  raw_data,
-                  validation_status,
-                  merge_status
-                ) FROM STDIN WITH (FORMAT text)`,
-        };
-
-        await this.copyManager.withCopyFrom({
-          shopId: this.shopId,
-          command: cmd,
-          write: async (stream) => {
-            for (const row of rows) {
-              const legacy = row.legacy_resource_id;
-              const isValid = Boolean(row.shopify_gid && row.media_type);
-              const line = [
-                this.bulkRunId,
-                this.shopId,
-                row.shopify_gid,
-                legacy != null ? String(legacy) : '\\N',
-                encodeCopyNullable(row.media_type),
-                encodeCopyNullable(row.alt),
-                encodeCopyNullable(row.status),
-                encodeCopyNullable(row.mime_type),
-                row.file_size != null ? String(row.file_size) : '\\N',
-                row.width != null ? String(row.width) : '\\N',
-                row.height != null ? String(row.height) : '\\N',
-                row.duration != null ? String(row.duration) : '\\N',
-                encodeCopyNullable(row.url),
-                encodeCopyNullable(row.preview_url),
-                encodeCopyNullableJson(row.sources),
-                encodeCopyNullableJson(row.metadata),
-                encodeCopyNullableJson(row.raw_data),
-                isValid ? 'valid' : 'invalid',
-                'pending',
-              ].join('\t');
-
-              if (!stream.write(`${line}\n`)) {
-                await new Promise<void>((resolve) => stream.once('drain', () => resolve()));
-              }
-            }
-
-            stream.end();
-          },
+        const tuples = rows.map((row) => {
+          const isValid = Boolean(row.shopify_gid && row.media_type);
+          return [
+            this.bulkRunId,
+            this.shopId,
+            row.shopify_gid,
+            row.legacy_resource_id,
+            row.media_type,
+            row.alt,
+            row.status,
+            row.mime_type,
+            row.file_size,
+            row.width,
+            row.height,
+            row.duration,
+            row.url,
+            row.preview_url,
+            asJsonColumn(row.sources),
+            asJsonColumn(row.metadata),
+            asJsonColumn(row.raw_data),
+            isValid ? 'valid' : 'invalid',
+            'pending',
+          ] as const;
+        });
+        await this.insertRows({
+          table: 'staging_media',
+          columns: [
+            'bulk_run_id',
+            'shop_id',
+            'shopify_gid',
+            'legacy_resource_id',
+            'media_type',
+            'alt',
+            'status',
+            'mime_type',
+            'file_size',
+            'width',
+            'height',
+            'duration',
+            'url',
+            'preview_url',
+            'sources',
+            'metadata',
+            'raw_data',
+            'validation_status',
+            'merge_status',
+          ],
+          rows: tuples,
         });
       }
     );
@@ -542,43 +502,32 @@ export class StagingCopyWriter {
         span.setAttribute('bulk.copy_kind', 'product_media');
         span.setAttribute('bulk.batch_rows', rows.length);
 
-        const cmd = {
-          sql: `COPY staging_product_media (
-                  bulk_run_id,
-                  shop_id,
-                  product_shopify_gid,
-                  media_shopify_gid,
-                  position,
-                  is_featured,
-                  validation_status,
-                  merge_status
-                ) FROM STDIN WITH (FORMAT text)`,
-        };
-
-        await this.copyManager.withCopyFrom({
-          shopId: this.shopId,
-          command: cmd,
-          write: async (stream) => {
-            for (const row of rows) {
-              const isValid = Boolean(row.product_shopify_gid && row.media_shopify_gid);
-              const line = [
-                this.bulkRunId,
-                this.shopId,
-                row.product_shopify_gid,
-                row.media_shopify_gid,
-                String(row.position),
-                row.is_featured ? 'true' : 'false',
-                isValid ? 'valid' : 'invalid',
-                'pending',
-              ].join('\t');
-
-              if (!stream.write(`${line}\n`)) {
-                await new Promise<void>((resolve) => stream.once('drain', () => resolve()));
-              }
-            }
-
-            stream.end();
-          },
+        const tuples = rows.map((row) => {
+          const isValid = Boolean(row.product_shopify_gid && row.media_shopify_gid);
+          return [
+            this.bulkRunId,
+            this.shopId,
+            row.product_shopify_gid,
+            row.media_shopify_gid,
+            row.position,
+            row.is_featured,
+            isValid ? 'valid' : 'invalid',
+            'pending',
+          ] as const;
+        });
+        await this.insertRows({
+          table: 'staging_product_media',
+          columns: [
+            'bulk_run_id',
+            'shop_id',
+            'product_shopify_gid',
+            'media_shopify_gid',
+            'position',
+            'is_featured',
+            'validation_status',
+            'merge_status',
+          ],
+          rows: tuples,
         });
       }
     );
@@ -596,41 +545,30 @@ export class StagingCopyWriter {
         span.setAttribute('bulk.copy_kind', 'variant_media');
         span.setAttribute('bulk.batch_rows', rows.length);
 
-        const cmd = {
-          sql: `COPY staging_variant_media (
-                  bulk_run_id,
-                  shop_id,
-                  variant_shopify_gid,
-                  media_shopify_gid,
-                  position,
-                  validation_status,
-                  merge_status
-                ) FROM STDIN WITH (FORMAT text)`,
-        };
-
-        await this.copyManager.withCopyFrom({
-          shopId: this.shopId,
-          command: cmd,
-          write: async (stream) => {
-            for (const row of rows) {
-              const isValid = Boolean(row.variant_shopify_gid && row.media_shopify_gid);
-              const line = [
-                this.bulkRunId,
-                this.shopId,
-                row.variant_shopify_gid,
-                row.media_shopify_gid,
-                String(row.position),
-                isValid ? 'valid' : 'invalid',
-                'pending',
-              ].join('\t');
-
-              if (!stream.write(`${line}\n`)) {
-                await new Promise<void>((resolve) => stream.once('drain', () => resolve()));
-              }
-            }
-
-            stream.end();
-          },
+        const tuples = rows.map((row) => {
+          const isValid = Boolean(row.variant_shopify_gid && row.media_shopify_gid);
+          return [
+            this.bulkRunId,
+            this.shopId,
+            row.variant_shopify_gid,
+            row.media_shopify_gid,
+            row.position,
+            isValid ? 'valid' : 'invalid',
+            'pending',
+          ] as const;
+        });
+        await this.insertRows({
+          table: 'staging_variant_media',
+          columns: [
+            'bulk_run_id',
+            'shop_id',
+            'variant_shopify_gid',
+            'media_shopify_gid',
+            'position',
+            'validation_status',
+            'merge_status',
+          ],
+          rows: tuples,
         });
       }
     );
@@ -645,6 +583,11 @@ function approxBytes(value: unknown): number {
   }
 }
 
+function asJsonColumn(value: unknown): string | null {
+  if (value == null) return null;
+  return JSON.stringify(value);
+}
+
 function asString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
@@ -653,9 +596,7 @@ function asNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-function extractImageNode(
-  node: Record<string, unknown>
-): {
+function extractImageNode(node: Record<string, unknown>): {
   id: string;
   url: string;
   altText: string | null;

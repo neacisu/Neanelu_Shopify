@@ -55,7 +55,7 @@ describe('SearchPage debounce timing', () => {
       </MemoryRouter>
     );
 
-    const input = screen.getByPlaceholderText('Search products...');
+    const input = screen.getByPlaceholderText('Caută produse...');
     fireEvent.change(input, { target: { value: 'result' } });
 
     const searchCalls = getApi.mock.calls.filter(([path]) =>

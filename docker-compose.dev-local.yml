@@ -20,7 +20,14 @@ services:
     image: neanelu-backend-worker:local-dev
     volumes:
       - ./apps/backend-worker/src:/app/apps/backend-worker/src
-    command: ['sh', '-lc', 'pnpm --filter @app/backend-worker dev:watch']
+      - ./packages/database/src:/app/packages/database/src
+      - /run/neanelu-dev/runtime-secrets/api:/secrets:ro
+    command:
+      [
+        'sh',
+        '-lc',
+        'export DATABASE_URL="$$MIGRATION_DATABASE_URL"; pnpm --filter @app/backend-worker dev:watch',
+      ]
     networks:
       default:
         aliases:

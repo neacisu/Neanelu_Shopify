@@ -1,4 +1,6 @@
 import {
+  Area,
+  AreaChart,
   CartesianGrid,
   Cell,
   Line,
@@ -11,8 +13,6 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-
-import { PolarisCard } from '../../../components/polaris/index.js';
 
 export type QueueMetricsPoint = Readonly<{
   ts: number;
@@ -30,13 +30,46 @@ export interface QueueStatusDistribution {
   readonly completed: number;
 }
 
+const CHART_HEIGHT = 200;
+const PIE_SIZE = 160;
+
+const COLORS = {
+  throughput: '#3b82f6',
+  throughputFill: 'url(#throughputGradient)',
+  completed: '#22c55e',
+  completedFill: 'url(#completedGradient)',
+  failed: '#ef4444',
+  failedFill: 'url(#failedGradient)',
+  waiting: '#f59e0b',
+  active: '#3b82f6',
+  delayed: '#a855f7',
+  distFailed: '#ef4444',
+  distCompleted: '#22c55e',
+} as const;
+
 function formatTs(ts: number): string {
   try {
-    return new Date(ts).toLocaleTimeString();
+    return new Date(ts).toLocaleTimeString('ro-RO', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
   } catch {
     return '';
   }
 }
+
+const cardBase =
+  'overflow-hidden rounded-xl border border-slate-200/90 bg-white p-4 shadow-[var(--shadow-sm)] transition-shadow hover:shadow-[var(--shadow-md)]';
+
+const tooltipContentStyle = {
+  padding: '10px 14px',
+  borderRadius: '10px',
+  border: '1px solid rgb(226 232 240)',
+  background: 'white',
+  boxShadow: '0 4px 12px rgb(0 0 0 / 0.08)',
+  fontSize: '12px',
+};
 
 export function QueueMetricsCharts(props: {
   points: QueueMetricsPoint[];
@@ -46,68 +79,190 @@ export function QueueMetricsCharts(props: {
 
   const distData = distribution
     ? [
-        { name: 'Waiting', value: distribution.waiting, color: '#f59e0b' },
-        { name: 'Active', value: distribution.active, color: '#3b82f6' },
-        { name: 'Delayed', value: distribution.delayed, color: '#a855f7' },
-        { name: 'Failed', value: distribution.failed, color: '#ef4444' },
-        { name: 'Completed', value: distribution.completed, color: '#22c55e' },
-      ]
+        { name: 'În așteptare', value: distribution.waiting, color: COLORS.waiting },
+        { name: 'Active', value: distribution.active, color: COLORS.active },
+        { name: 'Amânate', value: distribution.delayed, color: COLORS.delayed },
+        { name: 'Eșuate', value: distribution.failed, color: COLORS.distFailed },
+        { name: 'Finalizate', value: distribution.completed, color: COLORS.distCompleted },
+      ].filter((d) => d.value > 0)
     : [];
 
+  const totalDist = distData.reduce((s, d) => s + d.value, 0);
+
   return (
-    <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-      <PolarisCard className="p-4">
-        <div className="mb-2 text-h4">Throughput (jobs/sec)</div>
-        <div style={{ width: '100%', height: 220, minWidth: 1, minHeight: 1 }}>
-          <ResponsiveContainer width="100%" height={220} minWidth={1} minHeight={1}>
-            <LineChart data={points} margin={{ left: 8, right: 8, top: 8, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="ts" tickFormatter={formatTs} />
-              <YAxis />
-              <Tooltip labelFormatter={(v) => formatTs(Number(v))} />
+    <>
+      <article className={cardBase}>
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Throughput (jobs/s)
+        </h3>
+        <div style={{ width: '100%', height: CHART_HEIGHT, minHeight: 1 }}>
+          <ResponsiveContainer width="100%" height={CHART_HEIGHT} minWidth={1} minHeight={1}>
+            <AreaChart
+              data={points}
+              margin={{ left: 0, right: 8, top: 8, bottom: 0 }}
+              style={{ animation: 'chartFadeIn 0.5s ease-out' }}
+            >
+              <defs>
+                <linearGradient id="throughputGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={COLORS.throughput} stopOpacity={0.35} />
+                  <stop offset="100%" stopColor={COLORS.throughput} stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+              <XAxis
+                dataKey="ts"
+                tickFormatter={formatTs}
+                tick={{ fontSize: 11, fill: '#64748b' }}
+                axisLine={{ stroke: '#e2e8f0' }}
+                tickLine={false}
+              />
+              <YAxis
+                tick={{ fontSize: 11, fill: '#64748b' }}
+                axisLine={false}
+                tickLine={false}
+                width={28}
+              />
+              <Tooltip
+                contentStyle={tooltipContentStyle}
+                labelFormatter={(v) => formatTs(Number(v))}
+                formatter={(value: number | undefined) => [
+                  `${Number(value ?? 0).toFixed(2)} jobs/s`,
+                  'Throughput',
+                ]}
+              />
               <ReferenceLine
                 y={50}
                 stroke="#ef4444"
                 strokeDasharray="4 4"
-                label={{ value: 'Limit 50 jobs/sec', position: 'insideTopRight', fill: '#ef4444' }}
+                strokeOpacity={0.8}
+                label={{
+                  value: 'Limit 50',
+                  position: 'insideTopRight',
+                  fill: '#ef4444',
+                  fontSize: 10,
+                }}
               />
-              <Line type="monotone" dataKey="throughputJobsPerSec" stroke="#2563eb" dot={false} />
+              <Area
+                type="monotone"
+                dataKey="throughputJobsPerSec"
+                stroke={COLORS.throughput}
+                strokeWidth={2}
+                fill={COLORS.throughputFill}
+                isAnimationActive
+                animationDuration={300}
+                animationEasing="ease-out"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </article>
+
+      <article className={cardBase}>
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Rezultate (delta)
+        </h3>
+        <div style={{ width: '100%', height: CHART_HEIGHT, minHeight: 1 }}>
+          <ResponsiveContainer width="100%" height={CHART_HEIGHT} minWidth={1} minHeight={1}>
+            <LineChart
+              data={points}
+              margin={{ left: 0, right: 8, top: 8, bottom: 0 }}
+              style={{ animation: 'chartFadeIn 0.5s ease-out 0.05s both' }}
+            >
+              <defs>
+                <linearGradient id="completedGradient" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stopColor={COLORS.completed} stopOpacity={0.9} />
+                  <stop offset="100%" stopColor={COLORS.completed} stopOpacity={0.6} />
+                </linearGradient>
+                <linearGradient id="failedGradient" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stopColor={COLORS.failed} stopOpacity={0.9} />
+                  <stop offset="100%" stopColor={COLORS.failed} stopOpacity={0.6} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+              <XAxis
+                dataKey="ts"
+                tickFormatter={formatTs}
+                tick={{ fontSize: 11, fill: '#64748b' }}
+                axisLine={{ stroke: '#e2e8f0' }}
+                tickLine={false}
+              />
+              <YAxis
+                tick={{ fontSize: 11, fill: '#64748b' }}
+                axisLine={false}
+                tickLine={false}
+                width={28}
+              />
+              <Tooltip
+                contentStyle={tooltipContentStyle}
+                labelFormatter={(v) => formatTs(Number(v))}
+                formatter={(value: number | undefined, name: string | undefined) => [
+                  value ?? 0,
+                  name === 'completedDelta' ? 'Finalizate' : 'Eșuate',
+                ]}
+              />
+              <Line
+                type="monotone"
+                dataKey="completedDelta"
+                stroke={COLORS.completed}
+                strokeWidth={2}
+                dot={false}
+                isAnimationActive
+                animationDuration={300}
+                animationEasing="ease-out"
+              />
+              <Line
+                type="monotone"
+                dataKey="failedDelta"
+                stroke={COLORS.failed}
+                strokeWidth={2}
+                dot={false}
+                isAnimationActive
+                animationDuration={300}
+                animationEasing="ease-out"
+              />
             </LineChart>
           </ResponsiveContainer>
         </div>
-      </PolarisCard>
+      </article>
 
-      <PolarisCard className="p-4">
-        <div className="mb-2 text-h4">Outcomes (delta)</div>
-        <div style={{ width: '100%', height: 220, minWidth: 1, minHeight: 1 }}>
-          <ResponsiveContainer width="100%" height={220} minWidth={1} minHeight={1}>
-            <LineChart data={points} margin={{ left: 8, right: 8, top: 8, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="ts" tickFormatter={formatTs} />
-              <YAxis />
-              <Tooltip labelFormatter={(v) => formatTs(Number(v))} />
-              <Line type="monotone" dataKey="completedDelta" stroke="#16a34a" dot={false} />
-              <Line type="monotone" dataKey="failedDelta" stroke="#dc2626" dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </PolarisCard>
-
-      <PolarisCard className="p-4 lg:col-span-2">
-        <div className="mb-2 text-h4">Status distribution</div>
-        {distData.length ? (
-          <div style={{ width: '100%', height: 280, minWidth: 1, minHeight: 1 }}>
-            <ResponsiveContainer width="100%" height={280} minWidth={1} minHeight={1}>
-              <PieChart>
-                <Tooltip />
+      <article className={cardBase}>
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Distribuție status
+        </h3>
+        {distData.length > 0 ? (
+          <div
+            style={{ width: '100%', height: CHART_HEIGHT + 24, minHeight: 1 }}
+            className="relative flex items-center justify-center"
+          >
+            <ResponsiveContainer width="100%" height={PIE_SIZE + 24} minWidth={1} minHeight={1}>
+              <PieChart
+                style={{
+                  animation: 'chartFadeIn 0.5s ease-out 0.1s both',
+                }}
+              >
+                <Tooltip
+                  contentStyle={tooltipContentStyle}
+                  formatter={(value: number | undefined, name: string | undefined) => {
+                    const v = value ?? 0;
+                    return [
+                      `${v} (${totalDist ? ((v / totalDist) * 100).toFixed(0) : 0}%)`,
+                      name ?? '',
+                    ];
+                  }}
+                />
                 <Pie
                   data={distData}
                   dataKey="value"
                   nameKey="name"
                   cx="50%"
                   cy="50%"
-                  outerRadius={110}
-                  label
+                  innerRadius={PIE_SIZE * 0.45}
+                  outerRadius={PIE_SIZE * 0.5}
+                  paddingAngle={2}
+                  stroke="none"
+                  isAnimationActive
+                  animationDuration={350}
+                  animationEasing="ease-out"
                 >
                   {distData.map((d) => (
                     <Cell key={d.name} fill={d.color} />
@@ -115,11 +270,19 @@ export function QueueMetricsCharts(props: {
                 </Pie>
               </PieChart>
             </ResponsiveContainer>
+            {totalDist > 0 && (
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+                <span className="text-2xl font-bold tabular-nums text-slate-800">{totalDist}</span>
+                <span className="text-[10px] uppercase tracking-wide text-slate-500">total</span>
+              </div>
+            )}
           </div>
         ) : (
-          <div className="text-sm text-muted">No distribution data.</div>
+          <div className="flex h-[200px] items-center justify-center text-sm text-slate-500">
+            Fără date de distribuție
+          </div>
         )}
-      </PolarisCard>
-    </div>
+      </article>
+    </>
   );
 }

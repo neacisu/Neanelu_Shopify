@@ -45,16 +45,19 @@ date +%s > "${LOCK_FILE}.last"
 case "$NEANELU_ENV" in
   dev)
     COMPOSE_FILE="docker-compose.staging.yml"
+    COMPOSE_OVERRIDE="-f docker-compose.dev-local.yml"
     COMPOSE_ARGS="--profile dev"
     SERVICES="backend-worker-dev web-admin-dev"
     ;;
   staging)
     COMPOSE_FILE="docker-compose.staging.yml"
+    COMPOSE_OVERRIDE=""
     COMPOSE_ARGS=""
     SERVICES="backend-worker web-admin"
     ;;
   prod)
     COMPOSE_FILE="docker-compose.prod.yml"
+    COMPOSE_OVERRIDE=""
     COMPOSE_ARGS=""
     SERVICES="backend-worker web-admin"
     ;;
@@ -68,7 +71,7 @@ log "Credentials rotated for env=$NEANELU_ENV — recreating containers: $SERVIC
 
 cd "$COMPOSE_DIR"
 # shellcheck disable=SC2086
-if docker compose -f "$COMPOSE_FILE" $COMPOSE_ARGS up -d $SERVICES 2>&1 | while read -r line; do log "$line"; done; then
+if docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE $COMPOSE_ARGS up -d $SERVICES 2>&1 | while read -r line; do log "$line"; done; then
   log "Containers recreated successfully for env=$NEANELU_ENV"
 else
   log_err "Failed to recreate containers for env=$NEANELU_ENV (exit=$?)"

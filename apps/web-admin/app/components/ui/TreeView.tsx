@@ -136,8 +136,8 @@ function TreeRow(props: {
       aria-expanded={flat.hasChildren ? isExpanded : undefined}
       tabIndex={tabIndex}
       onFocus={onFocus}
-      className={`flex items-center gap-2 rounded-sm px-2 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-        isSelected ? 'bg-muted/20' : 'hover:bg-muted/10'
+      className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-slate-700 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-500/30 ${
+        isSelected ? 'bg-slate-100' : 'hover:bg-slate-50'
       } ${itemClassName ?? ''}`}
       style={{ paddingLeft: indentPx }}
       data-dnd-over={droppable.isOver ? 'true' : 'false'}
@@ -145,9 +145,9 @@ function TreeRow(props: {
       {flat.hasChildren ? (
         <button
           type="button"
-          className="h-6 w-6 shrink-0 rounded-sm hover:bg-black/5"
+          className="h-6 w-6 shrink-0 rounded-md hover:bg-slate-200/80 transition-colors"
           onClick={() => onToggleExpand(flat.id)}
-          aria-label={isExpanded ? 'Collapse' : 'Expand'}
+          aria-label={isExpanded ? 'Restrânge' : 'Extinde'}
         >
           {isExpanded ? '▾' : '▸'}
         </button>
@@ -165,12 +165,12 @@ function TreeRow(props: {
         {flat.node.label}
       </button>
 
-      {isLoadingChildren ? <span className="text-xs text-muted">Loading…</span> : null}
+      {isLoadingChildren ? <span className="text-xs text-slate-500">Se încarcă…</span> : null}
 
       {draggable ? (
         <button
           type="button"
-          className="cursor-grab select-none rounded-sm px-2 py-1 text-xs text-muted hover:bg-black/5"
+          className="cursor-grab select-none rounded-md px-2 py-1 text-xs text-slate-500 transition-colors hover:bg-slate-200/80"
           {...draggableHook.attributes}
           {...draggableHook.listeners}
           ref={draggableHook.setNodeRef}

@@ -99,24 +99,17 @@ export default function SearchPage() {
 
   const breadcrumbs = useMemo(
     () => [
-      { label: 'Home', href: '/' },
-      { label: 'Search', href: location.pathname },
+      { label: 'Acasă', href: '/' },
+      { label: 'Căutare', href: location.pathname },
     ],
     [location.pathname]
   );
 
   useEffect(() => {
-    const nextTyping = Boolean(query.trim()) && debouncedQuery !== query;
-    console.info('[SearchDebug] typing-state', {
-      query,
-      debouncedQuery,
-      nextTyping,
-    });
-    setTyping(nextTyping);
+    setTyping(Boolean(query.trim()) && debouncedQuery !== query);
   }, [debouncedQuery, query]);
 
   useEffect(() => {
-    console.info('[SearchDebug] showJson', { showJson });
     if (!showJson) setActiveJson(null);
   }, [showJson]);
 
@@ -132,54 +125,28 @@ export default function SearchPage() {
     if (filters.categoryId) next.set('categoryId', filters.categoryId);
     const nextString = next.toString();
     const currentString = searchParams.toString();
-    console.info('[SearchDebug] sync-url', {
-      current: currentString,
-      next: nextString,
-      query,
-      limit,
-      threshold,
-      filters,
-    });
     if (nextString !== currentString) {
       setSearchParams(next, { replace: true });
     }
   }, [filters, limit, query, searchParams, setSearchParams, threshold]);
 
   const fetchFilters = useCallback(async () => {
-    console.info('[SearchDebug] fetch-filters:start');
     try {
       const data = await api.getApi<ProductFiltersResponse>('/products/filters');
-      console.info('[SearchDebug] fetch-filters:success', {
-        vendors: data.vendors.length,
-        productTypes: data.productTypes.length,
-        categories: data.categories.length,
-      });
       setFiltersOptions(data);
-    } catch (err) {
-      console.info('[SearchDebug] fetch-filters:error', {
-        message: err instanceof Error ? err.message : String(err),
-      });
+    } catch {
       setFiltersOptions(emptyFilterOptions);
     }
   }, [api]);
 
   useEffect(() => {
-    console.info('[SearchDebug] useEffect:fetchFilters');
     void fetchFilters();
   }, [fetchFilters]);
 
   const runSearch = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
-      console.info('[SearchDebug] runSearch:start', {
-        text,
-        trimmed,
-        limit,
-        threshold,
-        filters,
-      });
       if (!trimmed) {
-        console.info('[SearchDebug] runSearch:empty-query');
         setResults([]);
         setVectorSearchTimeMs(null);
         setTotalCount(0);
@@ -203,39 +170,28 @@ export default function SearchPage() {
         const response = await api.getApi<ProductSearchResponse>(
           `/products/search?${params.toString()}`
         );
-        console.info('[SearchDebug] runSearch:success', {
-          results: response.results.length,
-          totalCount: response.totalCount,
-          vectorSearchTimeMs: response.vectorSearchTimeMs,
-          cached: response.cached,
-        });
         setResults(response.results);
         setVectorSearchTimeMs(response.vectorSearchTimeMs);
         setTotalCount(response.totalCount);
         addRecent(trimmed);
       } catch (err) {
-        console.info('[SearchDebug] runSearch:error', {
-          message: err instanceof Error ? err.message : String(err),
-        });
-        setError(err instanceof Error ? err.message : 'Search failed');
+        setError(err instanceof Error ? err.message : 'Căutarea a eșuat');
         setTotalCount(0);
       } finally {
         setLoading(false);
-        console.info('[SearchDebug] runSearch:done');
       }
     },
     [api, filters, limit, addRecent, threshold]
   );
 
   useEffect(() => {
-    console.info('[SearchDebug] useEffect:debouncedQuery', { debouncedQuery });
     void runSearch(debouncedQuery);
   }, [debouncedQuery, runSearch]);
 
   const resultsHeader = useMemo(() => {
     if (!results.length) return null;
-    const timeLabel = vectorSearchTimeMs ? `in ${vectorSearchTimeMs}ms` : '';
-    return `Found ${results.length} results ${timeLabel}`.trim();
+    const timeLabel = vectorSearchTimeMs ? ` (${vectorSearchTimeMs} ms)` : '';
+    return `${results.length} rezultate${timeLabel}`;
   }, [results.length, vectorSearchTimeMs]);
 
   const onExecute = () => {
@@ -249,168 +205,200 @@ export default function SearchPage() {
   };
 
   return (
-    <div className="space-y-4">
-      <Breadcrumbs items={breadcrumbs} />
-      <div className="flex items-center justify-between">
-        <h1 className="text-h2">AI Search Playground</h1>
+    <div className="space-y-6">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-1">
+          <Breadcrumbs items={breadcrumbs} />
+          <h1 className="text-2xl font-bold tracking-tight text-slate-800">Căutare produse</h1>
+          <p className="text-sm text-slate-500">
+            Căutare semantica (AI) în catalogul de produse. Ajustează filtrele și pragul pentru
+            rezultate relevante.
+          </p>
+        </div>
         {results.length > 0 ? (
-          <Button variant="secondary" onClick={() => setExportOpen(true)}>
-            Export
+          <Button
+            variant="secondary"
+            onClick={() => setExportOpen(true)}
+            className="shrink-0 transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
+          >
+            Exportă
           </Button>
         ) : null}
-      </div>
+      </header>
 
-      <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-        <div className="space-y-4">
-          <div
-            ref={containerRef}
-            onFocusCapture={() => setRecentOpen(true)}
-            onBlurCapture={(e) => {
-              const next = e.relatedTarget as HTMLElement | null;
-              if (next && containerRef.current?.contains(next)) return;
-              setRecentOpen(false);
-            }}
-            className="space-y-2"
-          >
-            <SearchInput
-              value={query}
-              onChange={setQuery}
-              label="Query"
-              placeholder="Search products..."
+      <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
+        <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white p-4 shadow-[var(--shadow-sm)]">
+          <div className="space-y-4">
+            <div
+              ref={containerRef}
+              onFocusCapture={() => setRecentOpen(true)}
+              onBlurCapture={(e) => {
+                const next = e.relatedTarget as HTMLElement | null;
+                if (next && containerRef.current?.contains(next)) return;
+                setRecentOpen(false);
+              }}
+              className="space-y-2"
+            >
+              <SearchInput
+                value={query}
+                onChange={setQuery}
+                label="Interogare"
+                placeholder="Caută produse..."
+                loading={loading}
+                debounceMs={0}
+                multiline
+              />
+              {recentOpen && query.trim().length === 0 ? (
+                <RecentSearchesDropdown
+                  searches={recent.entries}
+                  onSelect={onSelectRecent}
+                  onClear={recent.clear}
+                />
+              ) : null}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="space-y-1.5">
+                <span className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                  Prag
+                </span>
+                <input
+                  type="range"
+                  min={0.1}
+                  max={1}
+                  step={0.05}
+                  value={threshold}
+                  onChange={(e) => {
+                    const next = clampNumber(Number(e.target.value), 0.1, 1);
+                    setThreshold(next);
+                  }}
+                  className="mt-1 block w-full accent-blue-600"
+                />
+                <div className="text-sm font-medium text-slate-700">{threshold.toFixed(2)}</div>
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                  Limită
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={limit}
+                  onChange={(e) => {
+                    const next = clampNumber(Number(e.target.value), 1, 100);
+                    setLimit(next);
+                  }}
+                  className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 shadow-[var(--shadow-sm)] transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+              </label>
+            </div>
+
+            <label className="flex cursor-pointer items-center gap-3 text-sm text-slate-700">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={showJson}
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:ring-offset-2 ${
+                  showJson ? 'bg-blue-600' : 'bg-slate-200'
+                }`}
+                onClick={() => setShowJson(!showJson)}
+              >
+                <span
+                  className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                    showJson ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+              <span>Afișează metadate JSON la click pe card</span>
+            </label>
+
+            <Button
+              variant="primary"
+              className="w-full transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
+              onClick={onExecute}
+            >
+              Caută
+            </Button>
+
+            <SearchFilters
+              filters={filters}
+              options={filtersOptions}
               loading={loading}
-              debounceMs={0}
-              multiline
+              onChange={setFilters}
+              onReset={() => setFilters(emptyFilters)}
             />
-            {recentOpen && query.trim().length === 0 ? (
-              <RecentSearchesDropdown
-                searches={recent.entries}
-                onSelect={onSelectRecent}
-                onClear={recent.clear}
+          </div>
+        </article>
+
+        <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white p-4 shadow-[var(--shadow-sm)] sm:p-6">
+          <div className="space-y-4">
+            {resultsHeader ? (
+              <p className="text-sm font-medium text-slate-600">{resultsHeader}</p>
+            ) : null}
+
+            {typing ? (
+              <div className="rounded-xl border border-slate-100 bg-slate-50/50 py-8 text-center text-sm text-slate-500">
+                Se actualizează...
+              </div>
+            ) : null}
+
+            {loading ? (
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {Array.from({ length: 6 }).map((_, idx) => (
+                  <div
+                    key={`skeleton-${idx}`}
+                    className="h-52 animate-pulse rounded-xl border border-slate-200/80 bg-slate-100/50"
+                  />
+                ))}
+              </div>
+            ) : null}
+
+            {!loading && error ? (
+              <div className="rounded-xl border border-red-200/90 bg-red-50/80 p-4 text-sm text-red-800">
+                <p>{error}</p>
+                <Button
+                  variant="ghost"
+                  className="mt-3 text-red-700 hover:bg-red-100"
+                  onClick={() => void runSearch(query)}
+                >
+                  Reîncearcă
+                </Button>
+              </div>
+            ) : null}
+
+            {!loading && !typing && results.length === 0 && query.trim().length === 0 ? (
+              <EmptyState
+                icon={Search}
+                title="Nicio căutare încă"
+                description="Introdu o interogare pentru a rula căutarea semantică în catalog."
               />
             ) : null}
+
+            {!loading && !typing && results.length === 0 && query.trim().length > 0 ? (
+              <EmptyState
+                icon={Search}
+                title="Nu am găsit rezultate"
+                description="Încearcă să ajustezi filtrele sau să scazi pragul (threshold)."
+              />
+            ) : null}
+
+            {!loading && results.length > 0 ? (
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {results.map((result) => (
+                  <VectorResultCard
+                    key={result.id}
+                    result={result}
+                    onClick={() => {
+                      if (!showJson) return;
+                      setActiveJson(result);
+                    }}
+                  />
+                ))}
+              </div>
+            ) : null}
           </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <label className="space-y-1 text-xs text-muted">
-              Threshold
-              <input
-                type="range"
-                min={0.1}
-                max={1}
-                step={0.05}
-                value={threshold}
-                onChange={(e) => {
-                  const next = clampNumber(Number(e.target.value), 0.1, 1);
-                  setThreshold(next);
-                }}
-              />
-              <div className="text-sm text-foreground">{threshold.toFixed(2)}</div>
-            </label>
-            <label className="space-y-1 text-xs text-muted">
-              Limit
-              <input
-                type="number"
-                min={1}
-                max={100}
-                value={limit}
-                onChange={(e) => {
-                  const next = clampNumber(Number(e.target.value), 1, 100);
-                  setLimit(next);
-                }}
-                className="h-9 w-full rounded-md border bg-background px-2 text-sm"
-              />
-            </label>
-          </div>
-
-          <label className="flex items-center gap-2 text-sm">
-            <button
-              type="button"
-              role="switch"
-              aria-checked={showJson}
-              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                showJson ? 'bg-primary' : 'bg-muted/30'
-              }`}
-              onClick={() => setShowJson(!showJson)}
-            >
-              <span
-                className={`absolute top-0.5 h-4 w-4 rounded-full bg-background shadow transition-transform ${
-                  showJson ? 'translate-x-4' : 'translate-x-0.5'
-                }`}
-              />
-            </button>
-            Show JSON metadata
-          </label>
-
-          <Button variant="secondary" className="w-full" onClick={onExecute}>
-            Execută
-          </Button>
-
-          <SearchFilters
-            filters={filters}
-            options={filtersOptions}
-            loading={loading}
-            onChange={setFilters}
-            onReset={() => setFilters(emptyFilters)}
-          />
-        </div>
-
-        <div className="space-y-3">
-          {resultsHeader ? <div className="text-sm text-muted">{resultsHeader}</div> : null}
-
-          {typing ? (
-            <div className="rounded-md border bg-muted/10 p-4 text-center text-sm text-muted">
-              Tastezi...
-            </div>
-          ) : null}
-
-          {loading ? (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {Array.from({ length: 6 }).map((_, idx) => (
-                <div key={`skeleton-${idx}`} className="h-48 rounded-lg border bg-muted/10" />
-              ))}
-            </div>
-          ) : null}
-
-          {!loading && error ? (
-            <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-              <div>{error}</div>
-              <Button variant="ghost" className="mt-2" onClick={() => void runSearch(query)}>
-                Reincearca
-              </Button>
-            </div>
-          ) : null}
-
-          {!loading && !typing && results.length === 0 && query.trim().length === 0 ? (
-            <EmptyState
-              icon={Search}
-              title="Nu exista cautari inca"
-              description="Introdu o interogare pentru a rula cautarea semantica."
-            />
-          ) : null}
-
-          {!loading && !typing && results.length === 0 && query.trim().length > 0 ? (
-            <EmptyState
-              icon={Search}
-              title="Nu am gasit rezultate"
-              description="Incearca sa ajustezi filtrele sau sa scazi pragul (threshold)."
-            />
-          ) : null}
-
-          {!loading && results.length > 0 ? (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {results.map((result) => (
-                <VectorResultCard
-                  key={result.id}
-                  result={result}
-                  onClick={() => {
-                    if (!showJson) return;
-                    setActiveJson(result);
-                  }}
-                />
-              ))}
-            </div>
-          ) : null}
-        </div>
+        </article>
       </div>
 
       <ExportResultsModal
@@ -457,12 +445,16 @@ export default function SearchPage() {
 
       {showJson && activeJson ? (
         <PolarisModal open={Boolean(activeJson)} onClose={() => setActiveJson(null)}>
-          <div className="space-y-3 p-4">
-            <div className="text-h3">Vector metadata</div>
+          <div className="space-y-4 p-4">
+            <h2 className="text-lg font-semibold text-slate-800">Metadate rezultat</h2>
             <JsonViewer value={activeJson} />
             <div className="flex justify-end">
-              <Button variant="ghost" onClick={() => setActiveJson(null)}>
-                Inchide
+              <Button
+                variant="secondary"
+                onClick={() => setActiveJson(null)}
+                className="transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
+              >
+                Închide
               </Button>
             </div>
           </div>

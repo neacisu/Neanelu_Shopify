@@ -7,7 +7,6 @@ import { useLoaderData, useRevalidator } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
-import { PolarisCard } from '../../components/polaris/index.js';
 import { Button } from '../components/ui/button';
 import { InfoTooltip } from '../components/ui/info-tooltip';
 import { SafeComponent } from '../components/errors/safe-component';
@@ -113,8 +112,8 @@ export default function DashboardIndex() {
     <div className="space-y-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-h1">Neanelu Monitor</h1>
-          <p className="mt-1 text-body text-muted">Prezentare sistem si status de sanatate</p>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-800">Neanelu Monitor</h1>
+          <p className="mt-1 text-sm text-slate-500">Prezentare sistem și status de sănătate</p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -122,7 +121,7 @@ export default function DashboardIndex() {
             variant="secondary"
             disabled={refreshing || revalidator.state === 'loading'}
             onClick={refreshAll}
-            className="transition-all duration-300 ease-out hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 active:shadow-sm"
+            className="transition-all duration-300 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-md)] active:translate-y-0"
           >
             <span className="inline-flex items-center gap-2">
               <RefreshCw
@@ -130,7 +129,7 @@ export default function DashboardIndex() {
                   refreshing || revalidator.state === 'loading' ? 'animate-spin' : ''
                 }`}
               />
-              {refreshing || revalidator.state === 'loading' ? 'Se reincarca…' : 'Reincarca datele'}
+              {refreshing || revalidator.state === 'loading' ? 'Se reîncarcă…' : 'Reîncarcă datele'}
             </span>
           </Button>
           <InfoTooltip title="Reîncarcă datele" side="bottom">
@@ -144,34 +143,41 @@ export default function DashboardIndex() {
       <SafeComponent>
         <SystemAlertsBanner />
 
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <section
+          aria-labelledby="dashboard-kpis-heading"
+          className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"
+        >
+          <h2 id="dashboard-kpis-heading" className="sr-only">
+            Indicatori cheie
+          </h2>
           {kpis.map((kpi, index) => {
             const Icon = kpi.icon;
 
             return (
-              <PolarisCard key={kpi.title}>
-                <div
-                  className="group/kpi rounded-md border border-muted/20 bg-background p-4 shadow-sm
-                             transition-all duration-300 ease-out
-                             hover:shadow-md hover:-translate-y-1 hover:border-primary/30
-                             animate-[fadeSlideUp_0.4s_ease-out_both]"
-                  style={{ animationDelay: `${index * 80}ms` }}
-                >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center gap-1 text-caption text-muted">
-                        {kpi.title}
-                        <InfoTooltip title={kpi.title}>{kpi.tooltip}</InfoTooltip>
-                      </div>
-                      <div className="mt-1 text-h3 transition-colors duration-200 group-hover/kpi:text-primary">
-                        {kpi.value}
-                      </div>
+              <article
+                key={kpi.title}
+                className="group/kpi overflow-hidden rounded-xl border border-slate-200/90 bg-white p-4 shadow-[var(--shadow-sm)] transition-all duration-300 ease-out hover:-translate-y-0.5 hover:border-slate-300/80 hover:shadow-[var(--shadow-md)] focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:ring-offset-2"
+                style={{
+                  animation: `fadeSlideUp 0.4s ease-out both`,
+                  animationDelay: `${index * 80}ms`,
+                }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex shrink-0 items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-500">
+                      {kpi.title}
+                      <InfoTooltip title={kpi.title}>{kpi.tooltip}</InfoTooltip>
                     </div>
-                    <Icon className="size-5 text-muted transition-all duration-300 group-hover/kpi:text-primary group-hover/kpi:scale-110" />
+                    <p className="mt-1.5 text-xl font-bold tabular-nums text-slate-800 transition-colors duration-200 group-hover/kpi:text-blue-600">
+                      {kpi.value}
+                    </p>
                   </div>
-                  <div className="mt-3 text-caption text-muted">{kpi.subtext}</div>
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 transition-all duration-300 group-hover/kpi:bg-blue-50 group-hover/kpi:text-blue-600">
+                    <Icon className="size-5" />
+                  </div>
                 </div>
-              </PolarisCard>
+                <p className="mt-3 text-xs text-slate-500">{kpi.subtext}</p>
+              </article>
             );
           })}
         </section>

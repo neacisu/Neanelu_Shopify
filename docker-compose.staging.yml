@@ -196,6 +196,8 @@ services:
       NODE_ENV: staging
       DOCKER: 'true'
       PORT: '65000'
+    volumes:
+      - ${NEANELU_RENDERED_SECRETS_DIR:-/run/neanelu/runtime-secrets}/api:/secrets:ro
     ports:
       - '65000:65000'
     depends_on:
@@ -215,6 +217,8 @@ services:
     environment:
       DOCKER: 'true'
       PORT: '65000'
+    volumes:
+      - /run/neanelu-dev/runtime-secrets/api:/secrets:ro
     ports:
       - '65100:65000'
     depends_on:

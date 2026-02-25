@@ -120,7 +120,7 @@ export function AppShell({
   );
 
   return (
-    <div className="min-h-screen">
+    <div className="flex h-screen min-h-0 flex-col">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-3 focus:py-2 focus:text-body focus:shadow-md"
@@ -128,59 +128,83 @@ export function AppShell({
         Skip to content
       </a>
 
-      <div className="grid min-h-screen grid-cols-1 md:grid-cols-[280px_1fr]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[280px_1fr]">
         <aside
           className={
-            'border-r border-muted/20 bg-background md:block ' + (sidebarOpen ? 'block' : 'hidden')
+            'h-full min-h-0 flex-col border-r border-slate-200/90 bg-white shadow-[var(--shadow-sm)] md:flex ' +
+            (sidebarOpen ? 'flex' : 'hidden')
           }
         >
-          <nav role="navigation" className="flex h-full flex-col gap-2 p-4">
-            <div className="text-h6">Neanelu</div>
-            <div className="mt-1 text-caption text-muted">Shopify Manager</div>
-
-            <div className="mt-4 flex flex-col gap-1">
-              {navItems.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  {...(item.icon ? { icon: item.icon } : {})}
-                  {...(item.badge !== undefined ? { badge: item.badge } : {})}
-                  {...(item.tooltip
-                    ? { tooltip: item.tooltip, tooltipTitle: item.tooltipTitle }
-                    : {})}
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <nav role="navigation" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="shrink-0 p-4 pb-2">
+                <div className="text-lg font-semibold tracking-tight text-slate-800">Neanelu</div>
+                <div className="mt-0.5 text-xs text-slate-500">Shopify Manager</div>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+                <div className="flex flex-col gap-0.5">
+                  {navItems.map((item, index) => (
+                    <div
+                      key={item.to}
+                      className="animate-sidebar-link-enter opacity-0"
+                      style={{ animationDelay: `${index * 35}ms` }}
+                    >
+                      <NavLink
+                        to={item.to}
+                        {...(item.icon ? { icon: item.icon } : {})}
+                        {...(item.badge !== undefined ? { badge: item.badge } : {})}
+                        {...(item.tooltip
+                          ? { tooltip: item.tooltip, tooltipTitle: item.tooltipTitle }
+                          : {})}
+                      >
+                        {item.label}
+                      </NavLink>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </nav>
+          </div>
+          <footer className="shrink-0 border-t border-slate-200/80 bg-slate-50/70 px-3 py-2">
+            <div className="flex flex-col gap-2">
+              <div className="rounded-lg border border-slate-200/80 bg-white px-2.5 py-2 shadow-[var(--shadow-sm)] transition-all duration-200 hover:border-slate-300/80 hover:shadow-[var(--shadow-sm)]">
+                <ShopSelector compact />
+              </div>
+              <div className="group/user flex items-center gap-2 rounded-lg border border-slate-200/80 bg-white px-2.5 py-2 shadow-[var(--shadow-sm)] transition-all duration-200 hover:border-slate-300/80 hover:shadow-[var(--shadow-sm)]">
+                <div
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 transition-colors duration-200 group-hover/user:bg-blue-50 group-hover/user:text-blue-600"
+                  aria-hidden
                 >
-                  {item.label}
-                </NavLink>
-              ))}
+                  <UserRound className="size-3.5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
+                    Utilizator
+                  </div>
+                  <div className="truncate text-xs font-medium text-slate-700">Admin</div>
+                </div>
+              </div>
             </div>
-          </nav>
+          </footer>
         </aside>
 
-        <div className="flex min-w-0 flex-col">
-          <header className="border-b border-muted/20 bg-background">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <header className="shrink-0 border-b border-slate-200/90 bg-white shadow-[var(--shadow-sm)]">
             <div className="flex items-center justify-between gap-3 px-4 py-3">
               <button
                 type="button"
-                className="inline-flex items-center gap-2 rounded-md border border-muted/20 bg-background px-3 py-2 text-caption text-foreground shadow-sm hover:bg-muted/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 md:hidden"
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200/90 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-[var(--shadow-sm)] transition-all duration-200 hover:bg-slate-50 hover:shadow-[var(--shadow-sm)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 md:hidden"
                 onClick={toggleSidebar}
-                aria-label="Toggle sidebar"
+                aria-label="Deschide meniul"
               >
                 <Menu className="size-4" />
-                Menu
+                Meniu
               </button>
 
-              <ShopSelector />
+              <div className="min-w-0 flex-1 md:flex-none" />
 
               <div className="flex items-center gap-2">
                 <NotificationBell />
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-2 rounded-md border border-muted/20 bg-background px-3 py-2 text-caption text-foreground shadow-sm hover:bg-muted/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                  aria-label="Open user menu"
-                >
-                  <UserRound className="size-4" />
-                  Admin
-                </button>
               </div>
             </div>
           </header>

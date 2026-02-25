@@ -12,6 +12,6 @@ describe('ChartContainer', () => {
     );
 
     expect(screen.getByText('Demo')).toBeInTheDocument();
-    expect(screen.getByText('Loading…')).toBeInTheDocument();
+    expect(screen.getByText('Se încarcă…')).toBeInTheDocument();
   });
 });

@@ -33,24 +33,24 @@ export function VectorResultCard({ result, onClick, showScore = true }: VectorRe
     <button
       type="button"
       onClick={onClick}
-      className="group flex w-full flex-col overflow-hidden rounded-lg border bg-background text-left shadow-sm transition hover:border-muted/60 hover:shadow"
+      className="group flex w-full flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white text-left shadow-[var(--shadow-sm)] transition-all duration-200 hover:border-slate-300 hover:shadow-[var(--shadow-md)]"
     >
-      <div className="relative aspect-[4/3] w-full overflow-hidden bg-muted/10">
+      <div className="relative aspect-[4/3] w-full overflow-hidden bg-slate-100/50">
         {result.featuredImageUrl ? (
           <img
             src={result.featuredImageUrl}
             alt={result.title}
-            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
             loading="lazy"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center text-xs text-muted">
-            No image
+          <div className="flex h-full w-full items-center justify-center text-xs text-slate-400">
+            Fără imagine
           </div>
         )}
         {showScore ? (
           <span
-            className={`absolute right-3 top-3 rounded-full px-2 py-1 text-[11px] font-semibold ${scoreClass(
+            className={`absolute right-3 top-3 rounded-lg px-2 py-1 text-[11px] font-semibold shadow-sm ${scoreClass(
               result.similarity
             )}`}
           >
@@ -59,9 +59,9 @@ export function VectorResultCard({ result, onClick, showScore = true }: VectorRe
         ) : null}
       </div>
       <div className="flex flex-1 flex-col gap-1 p-3">
-        <div className="text-sm font-semibold text-foreground line-clamp-2">{result.title}</div>
-        {result.vendor ? <div className="text-xs text-muted">{result.vendor}</div> : null}
-        {priceLabel ? <div className="text-sm text-foreground">{priceLabel}</div> : null}
+        <div className="text-sm font-semibold text-slate-800 line-clamp-2">{result.title}</div>
+        {result.vendor ? <div className="text-xs text-slate-500">{result.vendor}</div> : null}
+        {priceLabel ? <div className="text-sm font-medium text-slate-700">{priceLabel}</div> : null}
       </div>
     </button>
   );

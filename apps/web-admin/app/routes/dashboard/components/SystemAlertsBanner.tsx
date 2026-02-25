@@ -90,24 +90,24 @@ export function SystemAlertsBanner() {
   if (!visibleAlerts.length) return null;
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {visibleAlerts.map((a) => (
         <div
           key={a.id}
           role="status"
           className={
             a.severity === 'critical'
-              ? 'rounded-md border border-red-500/30 bg-red-500/10 p-3'
-              : 'rounded-md border border-amber-500/30 bg-amber-500/10 p-3'
+              ? 'rounded-xl border border-red-200/80 bg-red-50/80 p-4 shadow-[var(--shadow-sm)]'
+              : 'rounded-xl border border-amber-200/80 bg-amber-50/80 p-4 shadow-[var(--shadow-sm)]'
           }
         >
           <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-sm font-medium">{a.title}</div>
-              <div className="mt-1 text-xs text-muted">{a.description}</div>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold text-slate-800">{a.title}</div>
+              <div className="mt-1 text-xs text-slate-600">{a.description}</div>
             </div>
-            <Button variant="secondary" onClick={() => dismiss(a.id)}>
-              Dismiss
+            <Button variant="secondary" size="sm" onClick={() => dismiss(a.id)}>
+              Închide
             </Button>
           </div>
         </div>

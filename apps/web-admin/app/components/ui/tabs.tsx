@@ -16,7 +16,7 @@ export interface TabsProps {
 export function Tabs({ items, value, onValueChange, className, ariaLabel }: TabsProps) {
   return (
     <div
-      className={`inline-flex h-10 items-center justify-center rounded-md bg-muted/10 p-1 text-muted-foreground ${className ?? ''}`}
+      className={`inline-flex items-center gap-0.5 rounded-xl border border-slate-200/90 bg-slate-50/50 p-1 shadow-[var(--shadow-sm)] ${className ?? ''}`}
       role="tablist"
       aria-label={ariaLabel ?? 'Tabs'}
     >
@@ -28,11 +28,11 @@ export function Tabs({ items, value, onValueChange, className, ariaLabel }: Tabs
             type="button"
             onClick={() => onValueChange(item.value)}
             className={`
-              inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50
+              inline-flex items-center justify-center whitespace-nowrap rounded-lg px-4 py-2.5 text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50
               ${
                 isActive
-                  ? 'bg-white text-foreground shadow-sm'
-                  : 'hover:bg-black/5 hover:text-foreground'
+                  ? 'bg-white text-slate-800 shadow-sm ring-1 ring-slate-200/80'
+                  : 'text-slate-600 hover:bg-white/70 hover:text-slate-800 hover:shadow-[var(--shadow-sm)]'
               }
             `}
             role="tab"

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Calendar, ChevronDown, X } from 'lucide-react';
 import { DayPicker, type DateRange } from 'react-day-picker';
 import type { Locale } from 'date-fns';
+
+import 'react-day-picker/style.css';
 
 import { Button } from './button';
 import {
@@ -55,7 +58,6 @@ export function DateRangePicker(props: DateRangePickerProps) {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const firstPresetRef = useRef<HTMLButtonElement | null>(null);
   const clearButtonRef = useRef<HTMLButtonElement | null>(null);
-
   const panelRef = useRef<HTMLDivElement | null>(null);
 
   const close = useCallback(() => {
@@ -80,8 +82,8 @@ export function DateRangePicker(props: DateRangePickerProps) {
     const onPointerDown = (e: MouseEvent) => {
       const target = e.target as Node | null;
       if (!target) return;
-      if (!panelRef.current) return;
-      if (panelRef.current.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      if (panelRef.current?.contains(target)) return;
       close();
     };
 
@@ -102,8 +104,10 @@ export function DateRangePicker(props: DateRangePickerProps) {
 
   return (
     <div className={className}>
-      <div className="text-caption text-muted">{label}</div>
-      <div className="relative mt-1" ref={panelRef}>
+      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-slate-500">
+        {label}
+      </label>
+      <div className="mt-1">
         <Button
           type="button"
           variant="secondary"
@@ -113,17 +117,26 @@ export function DateRangePicker(props: DateRangePickerProps) {
           aria-expanded={open}
           aria-controls={open ? popupId : undefined}
           onClick={() => setOpen((v) => !v)}
+          className="inline-flex w-full items-center justify-between gap-2 rounded-xl border-slate-200/90 bg-white px-4 py-2.5 text-left text-sm font-medium text-slate-700 shadow-[var(--shadow-sm)] transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 hover:shadow-[var(--shadow-sm)] sm:w-auto"
         >
-          {labelText}
+          <span className="inline-flex items-center gap-2">
+            <Calendar className="size-4 text-slate-500" aria-hidden />
+            <span>{labelText}</span>
+          </span>
+          <ChevronDown
+            className={`size-4 shrink-0 text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+            aria-hidden
+          />
         </Button>
 
         {open ? (
           <div
+            ref={panelRef}
             role="dialog"
             aria-label={label}
             id={popupId}
             aria-modal="false"
-            className="absolute z-50 mt-2 w-[min(720px,calc(100vw-2rem))] rounded-md border bg-background p-3 shadow"
+            className="date-range-picker-card mt-3 w-full min-w-0 max-w-[min(720px,100%)] animate-[fadeSlideUp_0.25s_ease-out] rounded-2xl border border-slate-200/90 bg-white shadow-[var(--shadow-lg)] ring-1 ring-slate-900/5"
             onKeyDown={(e) => {
               if (e.key === 'Escape') {
                 e.preventDefault();
@@ -131,52 +144,65 @@ export function DateRangePicker(props: DateRangePickerProps) {
               }
             }}
           >
-            <div className="flex flex-col gap-3 md:flex-row">
-              <div className="w-full md:w-44">
-                <div className="text-caption text-muted">Presets</div>
-                <div className="mt-2 space-y-2">
+            <div className="border-b border-slate-100 px-4 py-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-slate-800">Selectează intervalul</h3>
+                <button
+                  type="button"
+                  onClick={close}
+                  className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                  aria-label="Închide"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-0 md:flex-row">
+              <aside className="shrink-0 border-b border-slate-100 bg-slate-50/50 px-4 py-4 md:w-48 md:border-b-0 md:border-r">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  Rapid
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5 md:flex-col">
                   {presets.map((p, idx) => (
-                    <Button
+                    <button
                       key={p.id}
                       type="button"
-                      variant="ghost"
-                      className="w-full justify-start"
                       ref={idx === 0 ? firstPresetRef : undefined}
                       onClick={() => {
                         onChange(p.range);
                         close();
                       }}
+                      className="rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-600 transition-all duration-200 hover:bg-white hover:text-slate-800 hover:shadow-[var(--shadow-sm)]"
                     >
                       {p.label}
-                    </Button>
+                    </button>
                   ))}
                 </div>
-              </div>
+              </aside>
 
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 p-4">
                 <DayPicker
                   mode="range"
                   numberOfMonths={2}
                   selected={draft}
                   onSelect={setDraft}
                   showOutsideDays
+                  className="date-range-picker-calendar"
                   {...(minDate ? { fromDate: minDate } : {})}
                   {...(maxDate ? { toDate: maxDate } : {})}
                   {...(locale ? { locale } : {})}
                 />
 
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                  <Button
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/50 px-4 py-3">
+                  <button
                     type="button"
-                    variant="ghost"
                     ref={clearButtonRef}
-                    onClick={() => {
-                      setDraft(undefined);
-                    }}
+                    onClick={() => setDraft(undefined)}
+                    className="text-sm font-medium text-slate-500 transition-colors hover:text-slate-700"
                   >
-                    Clear
-                  </Button>
-
+                    Șterge
+                  </button>
                   <div className="flex items-center gap-2">
                     <Button
                       type="button"
@@ -185,8 +211,9 @@ export function DateRangePicker(props: DateRangePickerProps) {
                         close();
                         setDraft(value);
                       }}
+                      className="rounded-lg transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
                     >
-                      Cancel
+                      Anulare
                     </Button>
                     <Button
                       type="button"
@@ -195,8 +222,9 @@ export function DateRangePicker(props: DateRangePickerProps) {
                         onChange(draft);
                         close();
                       }}
+                      className="rounded-lg transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
                     >
-                      Apply
+                      Aplică
                     </Button>
                   </div>
                 </div>

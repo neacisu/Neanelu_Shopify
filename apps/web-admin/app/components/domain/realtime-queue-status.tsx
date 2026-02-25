@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import { ro } from 'date-fns/locale';
 
@@ -11,6 +12,54 @@ export type RealtimeQueueStatusProps = Readonly<{
   error: string | null;
   snapshotError: string | null;
 }>;
+
+/** Wrapper that owns countdown state so the parent page does not re-render every second. */
+export type RealtimeQueueStatusWithCountdownProps = Readonly<{
+  connected: boolean;
+  lastSnapshotAt: number | null;
+  showRefreshBurst: boolean;
+  error: string | null;
+  snapshotError: string | null;
+}>;
+
+export function RealtimeQueueStatusWithCountdown({
+  connected,
+  lastSnapshotAt,
+  showRefreshBurst,
+  error,
+  snapshotError,
+}: RealtimeQueueStatusWithCountdownProps) {
+  const [countdownRemainingSec, setCountdownRemainingSec] = useState(REFRESH_INTERVAL_SEC);
+
+  useEffect(() => {
+    if (lastSnapshotAt !== null) setCountdownRemainingSec(REFRESH_INTERVAL_SEC);
+  }, [lastSnapshotAt]);
+
+  useEffect(() => {
+    if (!connected) return;
+    const id = window.setInterval(() => {
+      setCountdownRemainingSec((prev) => Math.max(0, prev - 1));
+    }, 1_000);
+    return () => window.clearInterval(id);
+  }, [connected]);
+
+  useEffect(() => {
+    if (!connected || countdownRemainingSec !== 0) return;
+    const t = window.setTimeout(() => setCountdownRemainingSec(REFRESH_INTERVAL_SEC), 1_000);
+    return () => window.clearTimeout(t);
+  }, [connected, countdownRemainingSec]);
+
+  return (
+    <RealtimeQueueStatus
+      connected={connected}
+      lastSnapshotAt={lastSnapshotAt}
+      countdownRemainingSec={countdownRemainingSec}
+      showRefreshBurst={showRefreshBurst}
+      error={error}
+      snapshotError={snapshotError}
+    />
+  );
+}
 
 export function RealtimeQueueStatus({
   connected,

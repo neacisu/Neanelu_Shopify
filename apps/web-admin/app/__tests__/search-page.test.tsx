@@ -72,7 +72,7 @@ describe('SearchPage integration', () => {
       </MemoryRouter>
     );
 
-    const input = screen.getByPlaceholderText('Search products...');
+    const input = screen.getByPlaceholderText('Caută produse...');
     await user.type(input, 'result');
 
     expect(await screen.findByText('Result Product')).toBeInTheDocument();
@@ -93,13 +93,13 @@ describe('SearchPage integration', () => {
       </MemoryRouter>
     );
 
-    const query = screen.getByLabelText('Query');
+    const query = screen.getByLabelText('Interogare');
     expect(query).toHaveValue('shoe');
 
-    const limit = screen.getByLabelText('Limit');
+    const limit = screen.getByLabelText('Limită');
     expect(limit).toHaveValue(30);
 
-    const threshold = screen.getByLabelText(/Threshold/);
+    const threshold = screen.getByLabelText(/Prag/);
     expect(threshold).toHaveValue('0.9');
 
     fireEvent.change(limit, { target: { value: '50' } });

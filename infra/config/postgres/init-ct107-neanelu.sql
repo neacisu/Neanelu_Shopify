@@ -8,6 +8,9 @@
 -- === Users (daca nu exista) ===
 DO $$
 BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'neanelu_runtime') THEN
+    CREATE ROLE neanelu_runtime NOLOGIN;
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'neanelu_vault') THEN
     CREATE USER neanelu_vault WITH PASSWORD 'INITIAL_STRONG_PASSWORD_CHANGE_ME';
   END IF;
@@ -36,6 +39,8 @@ END $$;
 -- - ADMIN OPTION pe rolul de grup neanelu_app (ca sa poata adauga userii dinamici in rol)
 ALTER USER neanelu_vault CREATEROLE;
 GRANT neanelu_app TO neanelu_vault WITH ADMIN OPTION;
+GRANT neanelu_runtime TO neanelu_vault WITH ADMIN OPTION;
+GRANT neanelu_runtime TO neanelu_app;
 
 -- === Prod DB extensions/grants ===
 \connect neanelu_shopify
@@ -54,6 +59,13 @@ GRANT ALL ON SCHEMA public TO neanelu_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO neanelu_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO neanelu_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO neanelu_app;
+GRANT ALL ON SCHEMA public TO neanelu_runtime;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO neanelu_runtime;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO neanelu_runtime;
+GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO neanelu_runtime;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO neanelu_runtime;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO neanelu_runtime;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO neanelu_runtime;
 
 -- === Staging DB extensions/grants ===
 \connect neanelu_shopify_staging
@@ -72,6 +84,13 @@ GRANT ALL ON SCHEMA public TO neanelu_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO neanelu_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO neanelu_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO neanelu_app;
+GRANT ALL ON SCHEMA public TO neanelu_runtime;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO neanelu_runtime;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO neanelu_runtime;
+GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO neanelu_runtime;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO neanelu_runtime;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO neanelu_runtime;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO neanelu_runtime;
 
 -- === Dev DB extensions/grants ===
 \connect neanelu_shopify_dev
@@ -90,4 +109,11 @@ GRANT ALL ON SCHEMA public TO neanelu_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO neanelu_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO neanelu_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO neanelu_app;
+GRANT ALL ON SCHEMA public TO neanelu_runtime;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO neanelu_runtime;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO neanelu_runtime;
+GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO neanelu_runtime;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO neanelu_runtime;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO neanelu_runtime;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO neanelu_runtime;
 

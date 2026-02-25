@@ -17,7 +17,6 @@ import { toast } from 'sonner';
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { Tabs } from '../components/ui/tabs';
 import { ErrorDetailsRow, IngestionHistoryTable, RetryDialog } from '../components/domain/index.js';
-import { PolarisCard } from '../../components/polaris/index.js';
 import { apiAction, type ActionData, createActionApiClient } from '../utils/actions';
 import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
 
@@ -187,9 +186,9 @@ export default function IngestionHistoryPage() {
 
   const breadcrumbs = useMemo(
     () => [
-      { label: 'Home', href: '/' },
-      { label: 'Ingestion', href: '/ingestion' },
-      { label: 'History', href: location.pathname },
+      { label: 'Acasă', href: '/' },
+      { label: 'Ingestie', href: '/ingestion' },
+      { label: 'Istoric', href: location.pathname },
     ],
     [location.pathname]
   );
@@ -201,14 +200,20 @@ export default function IngestionHistoryPage() {
   };
 
   const tabs = [
-    { label: 'Overview', value: 'overview', to: '/ingestion' },
-    { label: 'History', value: 'history', to: '/ingestion/history' },
-    { label: 'Schedule', value: 'schedule', to: '/ingestion/schedule' },
+    { label: 'Prezentare', value: 'overview', to: '/ingestion' },
+    { label: 'Istoric', value: 'history', to: '/ingestion/history' },
+    { label: 'Programare', value: 'schedule', to: '/ingestion/schedule' },
   ];
 
   return (
-    <div className="space-y-4">
-      <Breadcrumbs items={breadcrumbs} />
+    <div className="space-y-6">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-1">
+          <Breadcrumbs items={breadcrumbs} />
+          <h1 className="text-2xl font-bold tracking-tight text-slate-800">Istoric ingestie</h1>
+          <p className="text-sm text-slate-500">Rulări trecute, filtre și reîncercare</p>
+        </div>
+      </header>
 
       <div className="flex flex-wrap items-center gap-4">
         <Tabs
@@ -221,7 +226,7 @@ export default function IngestionHistoryPage() {
         />
       </div>
 
-      <PolarisCard className="p-4">
+      <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white p-4 shadow-[var(--shadow-sm)]">
         <IngestionHistoryTable
           runs={runs}
           total={total}
@@ -233,9 +238,9 @@ export default function IngestionHistoryPage() {
           expandedRunId={errorsForRunId}
           expandedContent={(runId) => (
             <div className="space-y-3">
-              <div className="text-h4">Errors for run {runId}</div>
+              <h4 className="text-sm font-semibold text-slate-800">Erori pentru rularea {runId}</h4>
               {errors.length === 0 ? (
-                <div className="text-caption text-muted">Nu exista detalii de eroare.</div>
+                <p className="text-sm text-slate-500">Nu există detalii de eroare.</p>
               ) : (
                 errors.map((error) => (
                   <ErrorDetailsRow
@@ -289,7 +294,7 @@ export default function IngestionHistoryPage() {
         />
 
         {errorsForRunId ? null : null}
-      </PolarisCard>
+      </article>
 
       <RetryDialog
         open={Boolean(retryRunId)}

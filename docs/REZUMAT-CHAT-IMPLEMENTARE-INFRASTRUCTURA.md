@@ -1,6 +1,8 @@
 # Rezumat complet – Chat implementare și infrastructură Neanelu
 
-Document de referință cu **informații 100% reale și factuale** despre aplicația Neanelu Shopify Manager, infrastructura curentă și modificările implementate în acest chat.
+Document de referință cu **informații 100% reale și factuale** despre aplicația Neanelu Shopify Manager, infrastructura curentă și modificările implementate în aceste chat-uri.
+
+**Acoperire**: Infrastructură (mașini, Traefik, DB, Redis); secrets și OpenBao; eliminare .env; hot-reload dev (docker-compose.dev-local.yml, volume mounts, backend-worker-dev, web-admin-dev); CD deploy; dashboard UI (InfoTooltip, KPI, Recharts, QuickActions); backend (serper/xai, bulk-lock, teste); pagina Queues (etichete RO, tooltip-uri, queue-display.ts); status „In timp real” (interval 15s, RealtimeQueueStatus, animații); fix WebSocket „Aștept primul snapshot…” (cauză @fastify/websocket v11, modificări queues/bulk/pim-stats, frontend lastSnapshotAt/session_required); proxy WS (vite.proxy-ws.ts, vite.config.ts, tsconfig); script test test-queues-ws.ts (tipizare, token din DB, @types/ws); eliminare scripturi redundante (.mjs, .py); pagina Queues tab Workeri – fix afișare tooltip-uri (boundaryRef, portal, limitare la card); commit-uri (244c6f6, ab73f82, 1dd6c3e).
 
 ---
 
@@ -109,7 +111,7 @@ Runtime folosește PgBouncer (port 6432, fără TLS – `DB_SSL_MODE=disable`). 
 - **web-admin-dev**:
   - Build: `apps/web-admin/Dockerfile.dev`.
   - Image: `neanelu-web-admin:local-dev`.
-  - Volume: `./apps/web-admin/app`, `./apps/web-admin/components`, `./apps/web-admin/public`.
+  - Volume: `./apps/web-admin/app`, `./apps/web-admin/components`, `./apps/web-admin/public`, `./apps/web-admin/vite.config.ts`, `./apps/web-admin/vite.proxy-ws.ts`, `./apps/web-admin/vite.shopify-hmr.ts`.
   - CMD: Vite dev server (`pnpm --filter @app/web-admin dev`); port 65001.
 - **Secrets**: `npm_token` din env `NPM_TASKFORCESH_TOKEN` (injectat de `with-secrets.sh` din fișierul OpenBao).
 
@@ -163,10 +165,11 @@ Runtime folosește PgBouncer (port 6432, fără TLS – `DB_SSL_MODE=disable`). 
 ### 6.1 Componenta InfoTooltip
 
 - **Locație**: `apps/web-admin/app/components/ui/info-tooltip.tsx`.
-- **Props**: `title`, `children` (conținut tooltip), `side?: 'top' | 'bottom'`, `maxWidth?: number` (implicit 425px).
+- **Props**: `title`, `children` (conținut tooltip), `side?: 'top' | 'bottom'`, `maxWidth?: number` (implicit 425px), `boundaryRef?: React.RefObject<HTMLElement | null>` (opțional; v. §17).
 - **Comportament**:
   - Tooltip cu lățime fixă (maxWidth), poziționare verticală sus/jos.
-  - **Aliniere orizontală dinamică** (`align`: 'start' | 'center' | 'end') pentru a nu ieși din viewport:
+  - **Când `boundaryRef` e furnizat**: tooltip-ul se randează în portal (position: fixed), poziția orizontală este limitată la dreptunghiul elementului referit (ex. card), astfel nu se ascunde sub elemente vecine (v. §17).
+  - **Când `boundaryRef` nu e furnizat** – aliniere orizontală dinamică (`align`: 'start' | 'center' | 'end') pentru a nu ieși din viewport:
     - **Margine stângă**: se folosește `getContentAreaLeft(trigger)` – parcurge DOM-ul în sus până la primul parent cu `overflow: auto|scroll|hidden` și folosește `getBoundingClientRect().left` + 8px (evită suprapunerea cu sidebar-ul).
     - **Margine dreaptă**: `window.innerWidth - 16`.
     - Dacă tooltip-ul ar depăși stânga → `align = 'start'` (tooltip la stânga, săgeata în stânga). Dacă ar depăși dreapta → `align = 'end'`. Altfel centrat.
@@ -242,11 +245,12 @@ Runtime folosește PgBouncer (port 6432, fără TLS – `DB_SSL_MODE=disable`). 
 
 ---
 
-## 10. Commit recent (acest chat)
+## 10. Commit-uri (acest chat și anterioare)
 
 - **Branch**: `work/llm-suite-selfhosted`.
-- **Commit**: `244c6f6` – *feat: hot-reload dev, eliminate .env, dashboard UI enhancements*.
-- Include: hot-reload dev, eliminare .env, OpenBao template derivations, InfoTooltip cu poziționare dinamică, fix Recharts ActivityTimeline, fix serper/xai decryption, eliminare View Logs, docker-compose.dev-local.yml, Dockerfile.dev, with-secrets.sh, vector-agent config, deploy.env în CD, lint fixes (bulk-lock ??, test onForceSync).
+- **Commit anterior (chat infrastructură/dashboard)**: `244c6f6` – *feat: hot-reload dev, eliminate .env, dashboard UI enhancements*. Include: hot-reload dev, eliminare .env, OpenBao template derivations, InfoTooltip cu poziționare dinamică, fix Recharts ActivityTimeline, fix serper/xai decryption, eliminare View Logs, docker-compose.dev-local.yml, Dockerfile.dev, with-secrets.sh, vector-agent config, deploy.env în CD, lint fixes (bulk-lock ??, test onForceSync).
+- **Commit (chat WebSocket/Queues)**: `ab73f82` – *feat(queues): WebSocket real-time status + @fastify/websocket v11 fix*. Include: fix handler WebSocket pentru @fastify/websocket v11 în queues.ts, bulk.ts, pim-stats.ts și bulk.test.ts; componenta RealtimeQueueStatus; plugin Vite vite.proxy-ws.ts; script TypeScript test-queues-ws.ts; volume mounts pentru config Vite în docker-compose.dev-local.yml; @types/ws.
+- **Commit**: `1dd6c3e` – *chore: remove redundant Python WS test script*. Șterge scripts/test-queues-ws.py (înlocuit de test-queues-ws.ts).
 
 ---
 
@@ -309,11 +313,104 @@ Textele tooltip sunt derivate din workeri și producători din `apps/backend-wor
 
 - **Interval refresh**: În `apps/backend-worker/src/routes/queues.ts`, handler-ul WebSocket (`GET /queues/ws`) folosește `setInterval(..., 15_000)` (15 secunde). La fiecare tick se apelează `listQueueSummaries(env)` și se trimite evenimentul `queues.snapshot` cu array-ul de cozi către client.
 - **Componenta RealtimeQueueStatus**: Locație `apps/web-admin/app/components/domain/realtime-queue-status.tsx`. Afișează:
-  - Când e conectat: badge „In timp real” cu punct verde; text „Ultimul refresh: la HH:mm:ss” (format cu date-fns, locale ro), actualizat doar când s-a primit un snapshot valid (array de cozi nevid); progress bar care scade de la 100% la 0% pe 15s, cu countdown numeric „Următorul refresh în X s”; la primirea unui snapshot valid se declanșează o animație scurtă de tip „burst” (dovadă vizuală că refresh-ul e real).
-  - Când e deconectat: badge „Offline” și mesaj de eroare dacă există.
-- **State în queues.tsx**: `lastSnapshotAt` (timestamp setat la primirea unui snapshot cu date valide), `countdownRemainingSec` (15 → 0 pe secundă când e conectat, reset la 15 la fiecare snapshot), `showRefreshBurst` (true la snapshot, false după 600 ms). Un `useEffect` rulează un interval de 1s pentru countdown doar când `stream.connected` e true.
+  - Când e conectat: badge „In timp real” cu punct verde; text „Ultimul refresh: la HH:mm:ss” (format cu date-fns, locale ro); progress bar care scade de la 100% la 0% pe 15s, cu countdown numeric „Următorul refresh în X s”; la primirea unui snapshot se declanșează o animație scurtă de tip „burst” (dovadă vizuală că refresh-ul e real).
+  - Când e deconectat: badge „Offline” și mesaj de eroare dacă există (inclusiv „Autentificare necesară” pentru `session_required`).
+- **State în queues.tsx**: `lastSnapshotAt` (timestamp setat la **orice** primire de eveniment `queues.snapshot`, inclusiv snapshot inițial gol sau cu eroare), `countdownRemainingSec` (15 → 0 pe secundă când e conectat, reset la 15 la fiecare snapshot), `showRefreshBurst` (true la snapshot, false după 600 ms). Un `useEffect` rulează un interval de 1s pentru countdown doar când `stream.connected` e true.
 - **Animații în globals.css**: `@keyframes queueLivePulse` (2.5s, infinite) – glow ușor pentru badge când e conectat; `@keyframes queueRefreshBurst` (0.6s, o dată) – scalare și inel care se extinde la primirea snapshot-ului. Accesibilitate: `aria-live`, `role="progressbar"`, `aria-valuenow/min/max`, `aria-label` pentru countdown.
 
 ---
 
-Acest document reflectă starea **curentă** a implementării și infrastructurii; pentru detalii de schema DB, tabele și coloane, vezi migrările Drizzle și documentația de audit existentă în repo.
+## 15. Pagina Queues – fix WebSocket „Aștept primul snapshot…” și @fastify/websocket v11
+
+### 15.1 Problema raportată
+
+- După implementarea statusului „In timp real” și a countdown-ului de 15s, UI-ul rămânea blocat pe mesajul „Aștept primul snapshot…”; countdown-ul se reseta dar „Ultimul refresh” nu apărea; nu se primeau mesaje pe WebSocket.
+
+### 15.2 Cauza identificată
+
+- **@fastify/websocket v11** schimbă semnătura handler-ului WebSocket: acesta primește direct **socket**-ul (obiectul WebSocket), nu un obiect `connection` cu proprietatea `connection.socket`. Codul vechi folosea `connection.socket.send()`; în v11 `connection.socket` era undefined, backend-ul loga `missing_socket` și ieșea fără a trimite niciun mesaj.
+
+### 15.3 Modificări backend (apps/backend-worker)
+
+- **queues.ts**: Tipul `WsConnection` a fost înlocuit cu interfața **WsSocket** (reprezentând socket-ul primit direct). Handler-ul rutei `GET /queues/ws` are semnătura `(socket: WsSocket) => { ... }`. Toate apelurile folosesc `socket.send(...)` direct. La deschiderea conexiunii se trimite un snapshot inițial în `setImmediate(...)` cu `sendEvent('queues.snapshot', { timestamp, queues: [], initial: true })` ca primul mesaj să fie trimis după ce upgrade-ul WebSocket este finalizat. La eroare în `sendSnapshot()` se trimite `queues.snapshot` cu `error: 'snapshot_failed'`.
+- **bulk.ts** și **pim-stats.ts**: Aceeași adaptare – handler WebSocket primește `(socket: WsSocket)` și folosește `socket.send()` direct. Tipul a fost definit ca `interface WsSocket` (pentru conformitate ESLint consistent-type-definitions).
+- **bulk.test.ts**: Tipul mock pentru `StreamBulkLogsWs` a fost actualizat să accepte `socket` în loc de `connection`; cast-uri adecvate pentru compatibilitate cu noul API.
+
+### 15.4 Modificări frontend (apps/web-admin)
+
+- **queues.tsx** – procesare eveniment `queues.snapshot`: `evt.data['queues']` este tratat ca posibil non-array (fallback la array gol). La orice primire de `queues.snapshot` se apelează **setLastSnapshotAt(Date.now())** și **setCountdownRemainingSec(15)** (nu doar când `queues` e array valid), astfel „Ultimul refresh” și countdown-ul se actualizează și la snapshot inițial gol sau la eroare. Lista de cozi se actualizează doar când `!isInitialEmpty` (evită ștergerea listei la snapshot inițial gol).
+- **use-queue-stream.ts**: Dacă `getSessionToken()` returnează `null`, se setează `setError('session_required')` și `setConnected(false)` și nu se deschide conexiunea WebSocket (evită încercări inutile și 401). URL-ul WebSocket este construit din `window.location.origin` + calea `/api/queues/ws` și parametrul `token` (fără conectare directă la portul backend, care nu e accesibil din browser).
+- **realtime-queue-status.tsx**: Când `error === 'session_required'` se afișează mesajul: „Autentificare necesară (deschide din Shopify Admin sau reîncarcă pagina)”.
+
+### 15.5 Proxy WebSocket în dev (Vite)
+
+- **vite.config.ts**: Regula de proxy pentru `^/api/queues/ws` cu `target` către backend, `ws: true`, `rewriteWsOrigin: true`; plus regula generală `/api` cu `ws: true` și `rewriteWsOrigin: true`. Plugin-ul custom **proxyQueuesWs(backendTarget)** este înregistrat în lista de plugin-uri (înainte de tailwindcss, react, etc.).
+- **vite.proxy-ws.ts** (fișier nou): Plugin Vite care interceptează cererile HTTP `upgrade` pe path-ul `/api/queues/ws`. În loc să folosească doar http-proxy-ul Vite, face **pipe TCP direct** către backend: citește `upgrade` pe serverul HTTP al Vite, deschide o conexiune TCP către `backendTarget` (host/port), rescrie linia de request și header-ele (păstrând Host și celelalte), scrie `head` și face pipe bidirecțional socket client ↔ backend. Scop: evitarea pierderii sau blocării mesajelor WebSocket la proxy-ul standard.
+- **docker-compose.dev-local.yml**: Serviciul **web-admin-dev** are volume mounts explicite pentru: `./apps/web-admin/vite.config.ts`, `./apps/web-admin/vite.proxy-ws.ts`, `./apps/web-admin/vite.shopify-hmr.ts`, astfel containerul folosește versiunile curente din workspace.
+- **apps/web-admin/tsconfig.json**: În `include` au fost adăugate `vite.proxy-ws.ts` și `vite.shopify-hmr.ts` pentru ca ESLint/TypeScript să le recunoască.
+
+---
+
+## 16. Script test WebSocket (test-queues-ws) și curățare
+
+### 16.1 Scop și locație
+
+- Script pentru testare din terminal a conexiunii WebSocket la `/api/queues/ws` și a primirii mesajelor (snapshot-uri) pe o perioadă configurată (ex. 20s). **Locație**: `scripts/test-queues-ws.ts`.
+
+### 16.2 Rulare
+
+- **Comandă**: `pnpm test:queues-ws` → `scripts/with-secrets.sh pnpm tsx scripts/test-queues-ws.ts`. Rulează cu env-ul din OpenBao (implicit `/run/neanelu-dev/runtime-secrets/api/neanelu-api.env`). Variabile opționale: `BASE_WS_URL` (default `http://127.0.0.1:65101`), `SESSION_TOKEN` (dacă lipsește, tokenul este generat din DB + SHOPIFY_API_SECRET).
+
+### 16.3 Implementare (TypeScript)
+
+- **Token**: Dacă `SESSION_TOKEN` nu e setat, scriptul citește din PostgreSQL (prin `DATABASE_URL` sau `MIGRATION_DATABASE_URL`) primul shop și generează un token de sesiune identic cu backend-ul: payload JSON `{ shopId, shopDomain, createdAt }` codat base64url, semnătură HMAC-SHA256 cu `SHOPIFY_API_SECRET`, token = `payload.signature`. Folosește `createHmac` din `node:crypto` și tipul/interfața aliniată cu `SessionData` din backend.
+- **Tipuri**: Interfețe definite în fișier: `SessionData`, `QueueSnapshot`, `SnapshotPayload`, `WsMessage`. Pentru mesajele primite pe WebSocket, `WebSocket.RawData` este convertit la string folosind: `Buffer.isBuffer(raw)` → `raw.toString('utf8')`; `raw instanceof ArrayBuffer` → `Buffer.from(raw).toString('utf8')`; `Array.isArray(raw)` → `Buffer.concat(raw).toString('utf8')`; altfel string gol (conform regulii ESLint @typescript-eslint/no-base-to-string).
+- **Dependențe**: `pg`, `ws`; **@types/ws** a fost adăugat la workspace root (devDependency) pentru type safety complet. Scriptul este inclus în `tsconfig.eslint.json` (prin `scripts/**/*.ts`) și trece ESLint și typecheck fără dezactivare de reguli.
+
+### 16.4 Fișiere eliminate
+
+- **scripts/test-queues-ws.mjs**: a existat o variantă în JavaScript (.mjs); a fost înlocuită de `scripts/test-queues-ws.ts` și ștearsă din repo.
+- **scripts/test-queues-ws.py**: variantă Python care folosea biblioteca `websockets`; raporta eroare Pyright/Based Pyright `reportMissingImports` (Import \"websockets\" could not be resolved). A fost ștearsă ca redundantă – funcționalitatea este acoperită de scriptul TypeScript integrat în toolchain-ul proiectului.
+
+### 16.5 ESLint și commit
+
+- Nu s-au dezactivat reguli ESLint pentru scripturi. Configurația `eslint.config.js` a rămas neschimbată (blocul „SCRIPTS (JS)” acoperă doar `scripts/**/*.js` și `packages/**/scripts/**/*.js`; scriptul de test este `.ts` și este verificat cu regulile TypeScript type-checked prin `tsconfig.eslint.json`). Erori raportate în IDE (ex. @typescript-eslint/no-unsafe-assignment pe `new WebSocket(uri)`) au dispărut după instalarea `@types/ws` și pot persista în IDE din cauza cache-ului serverului ESLint până la „ESLint: Restart ESLint Server”.
+
+---
+
+## 17. Pagina Queues – fix afișare tooltip-uri pe cardurile workerilor (tab Workeri)
+
+### 17.1 Problema raportată
+
+- Pe tab-ul **Workeri** (<https://dev.manager.neanelu.ro/app/queues?queue=webhook-queue&tab=workers>), tooltip-urile de la iconița (i) de lângă numele fiecărui worker nu țineau cont de dimensiunile cardului. Poziționarea tooltip-ului se făcea în funcție de poziția reală a trigger-ului (iconița); dacă acesta nu era centrat în card, tooltip-ul se deplasa lateral (stânga/dreapta) și putea să se ascundă sub cardul vecin, astfel că textul devenea necitibil (informația ajungea în fundalul cardului alăturat).
+
+### 17.2 Cauza
+
+- **InfoTooltip** poziționa tooltip-ul relativ la trigger (align: start/center/end) folosind marginile viewport-ului (`getContentAreaLeft`, `window.innerWidth`), nu marginile cardului workerului. În grid cu carduri alăturate, tooltip-ul putea să iasă din limitele cardului curent și să se suprapună cu cardurile vecine (z-index și overflow făceau ca conținutul să pară „sub" cardul vecin).
+
+### 17.3 Soluție – boundaryRef și portal
+
+- **Componenta InfoTooltip** (`apps/web-admin/app/components/ui/info-tooltip.tsx`):
+  - **Prop nou opțional**: `boundaryRef?: React.RefObject<HTMLElement | null>`. Când este furnizat, tooltip-ul se poziționează astfel încât să rămână în interiorul elementului referit (ex. cardul workerului).
+  - **Comportament** când `boundaryRef` este setat:
+    - Tooltip-ul se randează într-un **portal** (`createPortal(..., document.body)`), cu **position: fixed**, pentru a evita tăieri și stacking context-uri din carduri.
+    - La deschidere și la scroll/resize se calculează poziția: se măsoară `getBoundingClientRect()` și pentru trigger și pentru `boundaryRef.current`. **Margini orizontale**: `minLeft = boundaryRect.left + 8`, `maxLeft = boundaryRect.right - maxWidth - 8`. Poziția orizontală a tooltip-ului: `left = clamp(triggerCenter - maxWidth/2, minLeft, maxLeft)`, astfel tooltip-ul rămâne întotdeauna în interiorul dreptunghiului cardului.
+    - Poziția verticală: sub trigger (`top = triggerRect.bottom + 10`) pentru `side === 'bottom'`, sau deasupra (`bottom = window.innerHeight - (triggerRect.top - 10)`) pentru `side === 'top'`.
+    - Săgeata tooltip-ului rămâne aliniată la trigger: `arrowLeft = clamp(triggerCenter - left, 6, maxWidth - 6)`.
+    - Listenere pe `scroll` (capture) și `resize` pe `window` actualizează poziția cât timp tooltip-ul este deschis.
+  - **Când `boundaryRef` nu e furnizat**: comportamentul rămâne neschimbat (poziționare absolută relativă la trigger, cu align start/center/end pe viewport).
+  - **Evitare flash**: dacă `boundaryRef` este furnizat, varianta cu poziționare absolută (în flux) nu se mai randează; tooltip-ul apare doar când poziția în portal a fost calculată (`portalPosition != null`), astfel nu se afișează niciodată în poziție greșită sub cardul vecin.
+
+### 17.4 Modificări în WorkersGrid
+
+- **Locație**: `apps/web-admin/app/components/domain/workers-grid.tsx`.
+- **Componentă nouă**: **WorkerCard** – fiecare card de worker este randat de acest component, care folosește un **ref pe `<article>`** (`useRef<HTMLElement>(null)`). Acest ref este pasat la **InfoTooltip** ca **boundaryRef**, astfel tooltip-ul de la iconița (i) rămâne în limitele cardului respectiv.
+- **WorkersGrid**: nu mai conține logica cardului în `.map()`; mapează lista de workeri la `<WorkerCard key={w.id} worker={w} index={index} display={getWorkerDisplayInfo(w.id)} />`. Ref-ul este creat în WorkerCard (un ref per instanță de card), conform regulilor hooks (fără apel de hook în interiorul `.map()`).
+
+### 17.5 Rezultat
+
+- La hover/focus pe iconița (i) de lângă numele unui worker, tooltip-ul se afișează în viewport (portal, z-index 9999), cu `left` limitat la lățimea cardului, deci nu se extinde sub cardurile alăturate; textul rămâne citibil deasupra conținutului și nu se ascunde în fundalul cardului vecin.
+
+---
+
+Acest document reflectă starea **curentă** a implementării și infrastructurii în zonele acoperite de chat-urile de implementare (infrastructură, dashboard, Queues, WebSocket, scripturi). Nu este un inventar exhaustiv al fiecărui fișier din repo; pentru schema DB, tabele și coloane vezi migrările Drizzle și documentația de audit existentă.

@@ -257,55 +257,64 @@ type FilterConfig = Readonly<{
   hasGtin?: boolean | null;
 }>;
 
-function buildFilters(params: FilterConfig) {
+function toPrefixLikePattern(value: string): string {
+  const escaped = value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+  return `${escaped}%`;
+}
+
+function buildFilters(params: FilterConfig, baseParamIndex = 1) {
   const where: string[] = [];
   const values: unknown[] = [];
+  const nextParam = (): string => `$${values.length + baseParamIndex}`;
   const add = (sql: string, value?: unknown) => {
     where.push(sql);
     if (typeof value !== 'undefined') values.push(value);
   };
 
   if (params.search) {
-    add(
-      `(to_tsvector('simple', coalesce(p.title, '') || ' ' || coalesce(p.description, '') || ' ' || coalesce(p.handle, '')) @@ plainto_tsquery('simple', $${values.length + 1})
+    const skuLikeParam = nextParam();
+    values.push(toPrefixLikePattern(params.search));
+    where.push(
+      `(
+        p.handle ILIKE ${skuLikeParam} ESCAPE '\\'
         OR EXISTS (
           SELECT 1
           FROM shopify_variants sv
           WHERE sv.product_id = p.id
             AND sv.shop_id = p.shop_id
-            AND sv.sku ILIKE $${values.length + 1}
-        ))`,
-      params.search
+            AND sv.sku ILIKE ${skuLikeParam} ESCAPE '\\'
+        )
+      )`
     );
   }
 
   if (params.status) {
-    add(`p.status = $${values.length + 1}`, params.status);
+    add(`p.status = ${nextParam()}`, params.status);
   }
 
   if (params.vendor?.length) {
-    add(`p.vendor = ANY($${values.length + 1}::text[])`, params.vendor);
+    add(`p.vendor = ANY(${nextParam()}::text[])`, params.vendor);
   }
 
   if (params.productType?.length) {
-    add(`p.product_type = ANY($${values.length + 1}::text[])`, params.productType);
+    add(`p.product_type = ANY(${nextParam()}::text[])`, params.productType);
   }
 
   if (params.categoryId) {
-    add(`p.category_id = $${values.length + 1}`, params.categoryId);
+    add(`p.category_id = ${nextParam()}`, params.categoryId);
   }
 
   if (params.qualityLevel?.length) {
-    add(`pm.data_quality_level = ANY($${values.length + 1}::text[])`, params.qualityLevel);
+    add(`pm.data_quality_level = ANY(${nextParam()}::text[])`, params.qualityLevel);
   }
 
   if (params.syncStatus?.length) {
-    add(`pcm.sync_status = ANY($${values.length + 1}::text[])`, params.syncStatus);
+    add(`pcm.sync_status = ANY(${nextParam()}::text[])`, params.syncStatus);
   }
 
   if (params.enrichmentStatus?.length) {
     add(
-      `COALESCE(p.metafields->'app--neanelu--pim'->>'enrichment_status', p.metafields->>'enrichment_status') = ANY($${values.length + 1}::text[])`,
+      `COALESCE(p.metafields->'app--neanelu--pim'->>'enrichment_status', p.metafields->>'enrichment_status') = ANY(${nextParam()}::text[])`,
       params.enrichmentStatus
     );
   }
@@ -492,17 +501,20 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
     const sortBy = sortByMap[sortByRaw] ?? sortByMap['updated_at'];
     const sortOrder = sortOrderRaw === 'asc' ? 'asc' : 'desc';
 
-    const { where, values } = buildFilters({
-      search,
-      status,
-      vendor,
-      productType,
-      qualityLevel,
-      syncStatus,
-      categoryId,
-      enrichmentStatus,
-      hasGtin,
-    });
+    const { where, values } = buildFilters(
+      {
+        search,
+        status,
+        vendor,
+        productType,
+        qualityLevel,
+        syncStatus,
+        categoryId,
+        enrichmentStatus,
+        hasGtin,
+      },
+      2
+    );
 
     const offset = (page - 1) * limit;
 

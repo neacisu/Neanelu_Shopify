@@ -18,9 +18,12 @@ export {
   pool,
   checkDatabaseConnection,
   closePool,
+  rotatePool,
   setTenantContext,
   withTenantContext,
 } from './db.js';
+
+export { startCredentialWatcher, stopCredentialWatcher } from './credential-watcher.js';
 
 export { logAuditEvent } from './audit.js';
 export type { AuditAction, AuditActorType, AuditContext } from './audit.js';

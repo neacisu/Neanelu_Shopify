@@ -64,10 +64,10 @@ export function ExportResultsModal({
   }, [job, onPollAsyncExport]);
 
   const exportLabel = useMemo(() => {
-    if (!isAsync) return `Export ${results.length} results`;
-    if (!job) return `Start export (${totalCount} results)`;
-    if (job.status === 'completed') return 'Download export';
-    return 'Export in progress';
+    if (!isAsync) return `Exportă ${results.length} rezultate`;
+    if (!job) return `Pornește export (${totalCount} rezultate)`;
+    if (job.status === 'completed') return 'Descarcă export';
+    return 'Export în curs';
   }, [isAsync, job, results.length, totalCount]);
 
   const onExport = async () => {
@@ -94,16 +94,16 @@ export function ExportResultsModal({
     <PolarisModal open={open} onClose={onClose}>
       <div className="space-y-4 p-4">
         <div>
-          <div className="text-h3">Export results</div>
-          <p className="text-body text-muted">
+          <h2 className="text-lg font-semibold text-slate-800">Export rezultate</h2>
+          <p className="mt-1 text-sm text-slate-500">
             {isAsync
-              ? `Large export (${totalCount} results). The export will run in the background.`
-              : `Download ${results.length} results instantly.`}
+              ? `Export mare (${totalCount} rezultate). Exportul rulează în fundal.`
+              : `Descarcă ${results.length} rezultate instant.`}
           </p>
         </div>
 
         <div className="space-y-2 text-sm">
-          <div className="text-caption text-muted">Format</div>
+          <div className="text-xs font-medium text-slate-500">Format</div>
           <label className="flex items-center gap-2">
             <input
               type="radio"
@@ -127,15 +127,25 @@ export function ExportResultsModal({
         </div>
 
         {job ? (
-          <div className="rounded-md border bg-muted/10 p-3 text-sm">
-            <div className="text-caption text-muted">Status</div>
-            <div className="text-sm capitalize">{job.status}</div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-sm">
+            <div className="text-xs font-medium text-slate-500">Status</div>
+            <div className="mt-0.5 text-sm text-slate-700">
+              {job.status === 'queued'
+                ? 'În coadă'
+                : job.status === 'processing'
+                  ? 'În curs'
+                  : job.status === 'completed'
+                    ? 'Finalizat'
+                    : job.status === 'failed'
+                      ? 'Eșuat'
+                      : job.status}
+            </div>
             {typeof job.progress === 'number' ? (
               <div className="mt-2">
-                <div className="text-caption text-muted">Progress</div>
-                <div className="mt-1 h-2 w-full overflow-hidden rounded bg-muted/30">
+                <div className="text-xs font-medium text-slate-500">Progres</div>
+                <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-200">
                   <div
-                    className="h-full bg-emerald-500"
+                    className="h-full rounded-full bg-emerald-500 transition-all duration-300"
                     style={{ width: `${Math.max(0, Math.min(100, job.progress))}%` }}
                   />
                 </div>
@@ -144,9 +154,9 @@ export function ExportResultsModal({
             {job.status === 'completed' && job.downloadUrl ? (
               <a
                 href={job.downloadUrl}
-                className="mt-3 inline-flex text-sm text-emerald-600 hover:underline"
+                className="mt-3 inline-flex text-sm font-medium text-emerald-600 hover:underline"
               >
-                Download export
+                Descarcă export
               </a>
             ) : null}
             {job.status === 'failed' && job.error ? (
@@ -157,7 +167,7 @@ export function ExportResultsModal({
 
         <div className="flex flex-wrap items-center justify-end gap-2">
           <Button variant="ghost" onClick={onClose} disabled={loading}>
-            Close
+            Închide
           </Button>
           {format === 'json' ? (
             <Button
@@ -165,7 +175,7 @@ export function ExportResultsModal({
               onClick={() => void copyJsonToClipboard(results)}
               disabled={loading || results.length === 0}
             >
-              Copy JSON
+              Copiază JSON
             </Button>
           ) : null}
           {job?.status && onCancelAsyncExport && job.status !== 'completed' ? (
@@ -174,7 +184,7 @@ export function ExportResultsModal({
               onClick={() => void onCancelAsyncExport(job.jobId)}
               disabled={loading}
             >
-              Cancel
+              Anulare
             </Button>
           ) : null}
           <Button

@@ -6,7 +6,6 @@ import { toast } from 'sonner';
 
 import type { DashboardClearCacheResponse, DashboardStartSyncResponse } from '@app/types';
 
-import { PolarisCard } from '../../../../components/polaris/index.js';
 import { createApiClient } from '../../../lib/api-client';
 import { getSessionAuthHeaders } from '../../../lib/session-auth';
 import { Button } from '../../../components/ui/button';
@@ -99,77 +98,79 @@ export function QuickActionsPanel() {
   ];
 
   return (
-    <PolarisCard>
-      <div className="rounded-md border border-muted/20 bg-background p-4 shadow-sm">
-        <div>
-          <div className="text-h3">Quick Actions</div>
-          <div className="mt-1 text-caption text-muted">
-            Common operations without leaving the dashboard
-          </div>
-        </div>
-
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {actions.map((action) => {
-            const Icon = action.icon;
-            const isLoading = loadingId === action.id;
-
-            return (
-              <div key={action.id} className="group/action relative flex flex-col gap-1.5">
-                <Button
-                  variant={action.variant}
-                  loading={isLoading}
-                  disabled={isLoading}
-                  onClick={action.onClick}
-                  className="w-full transition-all duration-300 ease-out
-                             hover:shadow-md hover:-translate-y-0.5
-                             active:translate-y-0 active:shadow-sm"
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <Icon
-                      className={`size-4 transition-transform duration-300
-                        ${isLoading ? 'animate-spin' : 'group-hover/action:rotate-12'}`}
-                    />
-                    {action.label}
-                  </span>
-                </Button>
-
-                <div className="flex items-center justify-center">
-                  <InfoTooltip title={action.tooltipTitle}>{action.tooltipBody}</InfoTooltip>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <ConfirmDialog
-          open={confirmOpen}
-          title="Clear Redis cache?"
-          description="This will remove selected cache key patterns from Redis. Queue data and long-lived keys are not touched."
-          confirmLabel="Clear"
-          cancelLabel="Cancel"
-          destructive
-          onClose={() => setConfirmOpen(false)}
-          onConfirm={() => {
-            void (async () => {
-              setLoadingId('clear-cache');
-              try {
-                const res = await api.postApi<
-                  DashboardClearCacheResponse,
-                  { confirm: true; patterns: string[] }
-                >('/dashboard/actions/clear-cache', {
-                  confirm: true,
-                  patterns: ['dashboard:*', 'cache:*'],
-                });
-                toast.success(`Cache cleared (${res.deletedKeys} keys)`);
-              } catch (err) {
-                toast.error(err instanceof Error ? err.message : 'Failed to clear cache');
-              } finally {
-                setLoadingId(null);
-              }
-            })();
-          }}
-        />
+    <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white p-4 shadow-[var(--shadow-sm)] transition-shadow hover:shadow-[var(--shadow-md)]">
+      <div>
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Acțiuni rapide
+        </h3>
+        <p className="mt-0.5 text-xs text-slate-500">
+          Operații frecvente fără a părăsi dashboard-ul
+        </p>
       </div>
-    </PolarisCard>
+
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {actions.map((action) => {
+          const Icon = action.icon;
+          const isLoading = loadingId === action.id;
+
+          return (
+            <div
+              key={action.id}
+              className="group/action flex flex-col gap-2 rounded-lg border border-slate-100 bg-slate-50/50 p-3 transition-colors hover:border-slate-200 hover:bg-slate-50"
+            >
+              <Button
+                variant={action.variant}
+                loading={isLoading}
+                disabled={isLoading}
+                onClick={action.onClick}
+                className="w-full transition-all duration-300 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-sm)] active:translate-y-0"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Icon
+                    className={`size-4 transition-transform duration-300 ${
+                      isLoading ? 'animate-spin' : 'group-hover/action:rotate-12'
+                    }`}
+                  />
+                  {action.label}
+                </span>
+              </Button>
+
+              <div className="flex items-center justify-center">
+                <InfoTooltip title={action.tooltipTitle}>{action.tooltipBody}</InfoTooltip>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Golești cache-ul Redis?"
+        description="Se vor șterge cheile de cache selectate din Redis. Datele cozilor și cheile de lungă durată nu sunt afectate."
+        confirmLabel="Golește"
+        cancelLabel="Anulare"
+        destructive
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={() => {
+          void (async () => {
+            setLoadingId('clear-cache');
+            try {
+              const res = await api.postApi<
+                DashboardClearCacheResponse,
+                { confirm: true; patterns: string[] }
+              >('/dashboard/actions/clear-cache', {
+                confirm: true,
+                patterns: ['dashboard:*', 'cache:*'],
+              });
+              toast.success(`Cache cleared (${res.deletedKeys} keys)`);
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : 'Failed to clear cache');
+            } finally {
+              setLoadingId(null);
+            }
+          })();
+        }}
+      />
+    </article>
   );
 }

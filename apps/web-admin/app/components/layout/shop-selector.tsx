@@ -34,7 +34,7 @@ function normalizeReturnTo(value: unknown): string | null {
   return trimmed;
 }
 
-export function ShopSelector() {
+export function ShopSelector({ compact = false }: { compact?: boolean }) {
   const { isEmbedded, shop } = useShopifyAppBridge();
   const { profile, loading, update } = useUiProfile();
 
@@ -63,8 +63,8 @@ export function ShopSelector() {
   if (isEmbedded) {
     return (
       <div className="min-w-0 text-caption text-muted">
-        <div className="flex items-center gap-2">
-          <span className="text-foreground/80">Shop</span>
+        <div className={compact ? 'flex flex-col gap-1' : 'flex items-center gap-2'}>
+          {!compact && <span className="text-foreground/80">Shop</span>}
           <span className="truncate text-foreground">{shop ?? '—'}</span>
         </div>
       </div>
@@ -87,19 +87,76 @@ export function ShopSelector() {
     return (profile.recentShopDomains ?? []).filter((d) => isValidShopDomain(d));
   }, [profile.recentShopDomains]);
 
+  const inputId = 'shop-selector';
+  const listId = suggestions.length > 0 ? 'shop-selector-recent' : undefined;
+
+  if (compact) {
+    return (
+      <div className="min-w-0">
+        <label
+          className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-slate-400"
+          htmlFor={inputId}
+        >
+          Magazin Shopify
+        </label>
+        <div className="flex flex-col gap-2">
+          <input
+            id={inputId}
+            value={draft}
+            disabled={loading}
+            onChange={(e) => setDraft(e.target.value)}
+            list={listId}
+            onBlur={() => {
+              const v = draft.trim();
+              if (!v || !isValidShopDomain(v)) return;
+              void update({ lastShopDomain: v, activeShopDomain: v });
+            }}
+            placeholder="example.myshopify.com"
+            className="w-full rounded-lg border border-slate-200/90 bg-white px-2.5 py-1.5 text-sm text-slate-800 shadow-[var(--shadow-sm)] transition-colors focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+          />
+          {suggestions.length > 0 ? (
+            <datalist id={listId}>
+              {suggestions.map((domain) => (
+                <option key={domain} value={domain} />
+              ))}
+            </datalist>
+          ) : null}
+          <a
+            className={
+              'inline-flex items-center justify-center rounded-lg px-2.5 py-1.5 text-sm font-medium shadow-[var(--shadow-sm)] transition-all duration-200 ' +
+              (connected
+                ? 'cursor-default border border-emerald-200/80 bg-emerald-50 text-emerald-700'
+                : valid
+                  ? 'border border-slate-200/90 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                  : 'cursor-not-allowed border border-slate-100 bg-slate-50 text-slate-400')
+            }
+            href={!connected && valid ? buildAuthUrl(normalized, returnTo) : undefined}
+            aria-disabled={!valid || connected}
+            onClick={(e) => {
+              if (!valid || connected) e.preventDefault();
+              else void update({ lastShopDomain: normalized, activeShopDomain: normalized });
+            }}
+          >
+            {connected ? 'Conectat' : 'Conectare'}
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-w-0 text-caption text-muted">
-      <label className="sr-only" htmlFor="shop-selector">
+      <label className="sr-only" htmlFor={inputId}>
         Shop
       </label>
       <div className="flex items-center gap-2">
         <span className="text-foreground/80">Shop</span>
         <input
-          id="shop-selector"
+          id={inputId}
           value={draft}
           disabled={loading}
           onChange={(e) => setDraft(e.target.value)}
-          list={suggestions.length > 0 ? 'shop-selector-recent' : undefined}
+          list={listId}
           onBlur={() => {
             const v = draft.trim();
             if (!v || !isValidShopDomain(v)) return;
@@ -110,7 +167,7 @@ export function ShopSelector() {
         />
 
         {suggestions.length > 0 ? (
-          <datalist id="shop-selector-recent">
+          <datalist id={listId}>
             {suggestions.map((domain) => (
               <option key={domain} value={domain} />
             ))}

@@ -9,7 +9,6 @@ import { Tabs } from '../components/ui/tabs';
 import { Button } from '../components/ui/button';
 import { FileUpload } from '../components/ui/FileUpload';
 import { IngestionProgress, LogConsole } from '../components/domain/index.js';
-import { PolarisCard } from '../../components/polaris/index.js';
 import { useLogStream } from '../hooks/use-log-stream';
 import { useApiClient } from '../hooks/use-api';
 import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
@@ -238,6 +237,20 @@ export default function IngestionPage() {
     setCurrentRun(loaderRun ?? null);
   }, [loaderRun]);
 
+  // După pornirea sync-ului, afișează imediat monitorizarea (fără a aștepta revalidarea loader-ului)
+  useEffect(() => {
+    const result = actionFetcher.data;
+    if (result && 'ok' in result && result.ok && result.intent === 'bulk.start' && result.runId) {
+      setCurrentRun({
+        id: result.runId,
+        status: result.status ?? 'running',
+      });
+      void navigate(`/ingestion?runId=${encodeURIComponent(result.runId)}`, {
+        replace: true,
+      });
+    }
+  }, [actionFetcher.data, navigate]);
+
   useEffect(() => {
     setShowRawLogs(false);
   }, [currentRun?.id]);
@@ -355,16 +368,16 @@ export default function IngestionPage() {
 
   const breadcrumbs = useMemo(
     () => [
-      { label: 'Home', href: '/' },
-      { label: 'Ingestion', href: location.pathname },
+      { label: 'Acasă', href: '/' },
+      { label: 'Ingestie', href: location.pathname },
     ],
     [location.pathname]
   );
 
   const tabs = [
-    { label: 'Overview', value: 'overview', to: '/ingestion' },
-    { label: 'History', value: 'history', to: '/ingestion/history' },
-    { label: 'Schedule', value: 'schedule', to: '/ingestion/schedule' },
+    { label: 'Prezentare', value: 'overview', to: '/ingestion' },
+    { label: 'Istoric', value: 'history', to: '/ingestion/history' },
+    { label: 'Programare', value: 'schedule', to: '/ingestion/schedule' },
   ];
 
   const isActive =
@@ -639,10 +652,10 @@ export default function IngestionPage() {
   const finalShopifyMessage =
     !isShopifyRunning && shopifyStatus
       ? shopifyErrorCode
-        ? `Shopify error: ${shopifyErrorCode}`
+        ? `Eroare Shopify: ${shopifyErrorCode}`
         : shopifyStatus === 'COMPLETED'
-          ? 'Shopify finished the bulk export.'
-          : `Shopify finished with status ${shopifyStatus}.`
+          ? 'Shopify a finalizat exportul în masă.'
+          : `Shopify a finalizat cu status ${shopifyStatus}.`
       : null;
 
   const downloadProgress =
@@ -746,7 +759,15 @@ export default function IngestionPage() {
 
   return (
     <div className="space-y-6">
-      <Breadcrumbs items={breadcrumbs} />
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-1">
+          <Breadcrumbs items={breadcrumbs} />
+          <h1 className="text-2xl font-bold tracking-tight text-slate-800">Sincronizare catalog</h1>
+          <p className="text-sm text-slate-500">
+            Pornește sau monitorizează sincronizarea în masă cu Shopify și încarcă fișiere JSONL
+          </p>
+        </div>
+      </header>
 
       <Tabs
         items={tabs.map((tab) => ({ label: tab.label, value: tab.value }))}
@@ -757,60 +778,55 @@ export default function IngestionPage() {
         }}
       />
 
-      <header className="flex flex-col gap-2">
-        <h1 className="text-h2">Bulk Ingestion</h1>
-        <p className="text-body text-muted">Monitor and manage data synchronization with Shopify</p>
-      </header>
-
       {showShopifyStatusCard && (
-        <PolarisCard className="p-4">
+        <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white p-4 shadow-[var(--shadow-sm)]">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="text-h3">
+              <h2 className="text-lg font-semibold text-slate-800">
                 {isShopifyRunning || isActive
-                  ? 'Shopify sync in progress'
-                  : 'Shopify sync finished'}
-              </div>
-              <div className="text-caption text-muted">
-                Status: {shopifyStatus ?? 'waiting for Shopify response'}
+                  ? 'Sincronizare Shopify în curs'
+                  : 'Sincronizare Shopify finalizată'}
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Status: {shopifyStatus ?? 'aștept răspuns Shopify'}
                 {shopifyOperation?.id ? ` · ${shopifyOperation.id}` : ''}
-                {shopifyStatus === 'CANCELING' ? ' · Canceling…' : ''}
-              </div>
+                {shopifyStatus === 'CANCELING' ? ' · Se anulează…' : ''}
+              </p>
               {Boolean(objectCountLabel ?? rootObjectCountLabel ?? fileSizeLabel) && (
-                <div className="text-caption text-muted">
-                  {rootObjectCountLabel ? `Products: ${rootObjectCountLabel}` : null}
+                <p className="mt-0.5 text-sm text-slate-500">
+                  {rootObjectCountLabel ? `Produse: ${rootObjectCountLabel}` : null}
                   {rootObjectCountLabel && objectCountLabel ? ' · ' : null}
-                  {objectCountLabel ? `Objects: ${objectCountLabel}` : null}
+                  {objectCountLabel ? `Obiecte: ${objectCountLabel}` : null}
                   {(rootObjectCountLabel || objectCountLabel) && fileSizeLabel ? ' · ' : null}
-                  {fileSizeLabel ? `File size: ${fileSizeLabel}` : null}
-                </div>
+                  {fileSizeLabel ? `Dimensiune fișier: ${fileSizeLabel}` : null}
+                </p>
               )}
               {finalShopifyMessage ? (
-                <div className="text-caption text-muted">{finalShopifyMessage}</div>
+                <p className="mt-0.5 text-sm text-slate-500">{finalShopifyMessage}</p>
               ) : null}
               {shopifyStatus === 'COMPLETED' && shopifyOperation?.url ? (
-                <div className="text-caption">
+                <p className="mt-1 text-sm">
                   <a
-                    className="text-blue-600 underline"
+                    className="text-blue-600 underline hover:text-blue-700"
                     href={shopifyOperation.url}
                     target="_blank"
                     rel="noreferrer"
                   >
-                    Download bulk file
+                    Descarcă fișierul bulk
                   </a>
-                </div>
+                </p>
               ) : null}
               {shopifyStatus === 'COMPLETED' && shopifyOperation?.partialDataUrl ? (
-                <div className="text-caption">
+                <p className="mt-1 text-sm">
                   <a
-                    className="text-blue-600 underline"
+                    className="text-blue-600 underline hover:text-blue-700"
                     href={shopifyOperation.partialDataUrl}
                     target="_blank"
                     rel="noreferrer"
                   >
-                    Download partial data
+                    Descarcă date parțiale
                   </a>
-                </div>
+                </p>
               ) : null}
             </div>
             {isShopifyRunning ? (
@@ -818,31 +834,35 @@ export default function IngestionPage() {
                 variant="destructive"
                 onClick={cancelShopifyOperation}
                 disabled={actionFetcher.state !== 'idle' || shopifyStatus === 'CANCELING'}
+                className="transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
               >
-                Cancel Shopify sync
+                Anulează sync Shopify
               </Button>
             ) : null}
           </div>
           {(isShopifyRunning || isActive) && (
-            <div className="mt-4 flex items-center gap-3 text-caption text-muted">
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-              Shopify is still processing the bulk export. We will update automatically.
+            <div className="mt-4 flex items-center gap-3 text-sm text-slate-500">
+              <span
+                className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600"
+                aria-hidden
+              />
+              Shopify procesează exportul în masă. Actualizarea este automată.
               {Boolean(rootObjectCountLabel ?? objectCountLabel ?? fileSizeLabel) && (
                 <span>
-                  {rootObjectCountLabel ? `Processed ${rootObjectCountLabel} products` : null}
+                  {rootObjectCountLabel ? `Procesate ${rootObjectCountLabel} produse` : null}
                   {rootObjectCountLabel && objectCountLabel ? ' · ' : null}
-                  {objectCountLabel ? `Objects ${objectCountLabel}` : null}
+                  {objectCountLabel ? `Obiecte ${objectCountLabel}` : null}
                   {(rootObjectCountLabel || objectCountLabel) && fileSizeLabel ? ' · ' : null}
-                  {fileSizeLabel ? `File size ${fileSizeLabel}` : null}
+                  {fileSizeLabel ? `Dimensiune ${fileSizeLabel}` : null}
                 </span>
               )}
             </div>
           )}
-        </PolarisCard>
+        </article>
       )}
 
       {isActive && currentRun ? (
-        <PolarisCard className="p-4">
+        <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white p-4 shadow-[var(--shadow-sm)]">
           <div className="space-y-6">
             <IngestionProgress
               currentStep={currentStep}
@@ -859,10 +879,10 @@ export default function IngestionPage() {
             />
 
             {downloadBytesLabel && downloadTotalLabel ? (
-              <div className="text-caption text-muted">
-                Downloaded {downloadBytesLabel} of {downloadTotalLabel}
+              <p className="text-sm text-slate-500">
+                Descărcat {downloadBytesLabel} din {downloadTotalLabel}
                 {typeof downloadProgressPct === 'number' ? ` · ${downloadProgressPct}%` : ''}
-              </div>
+              </p>
             ) : null}
 
             {isActive && (
@@ -871,8 +891,9 @@ export default function IngestionPage() {
                   variant="secondary"
                   size="sm"
                   onClick={() => setShowRawLogs((prev) => !prev)}
+                  className="transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
                 >
-                  {showRawLogs ? 'Hide raw logs' : 'Show raw logs'}
+                  {showRawLogs ? 'Ascunde log-uri brute' : 'Afișează log-uri brute'}
                 </Button>
               </div>
             )}
@@ -892,19 +913,19 @@ export default function IngestionPage() {
                 {...(currentRun ? { endpoint: `/api/bulk/${currentRun.id}/logs/ws` } : {})}
               />
             ) : (
-              <div className="rounded-md border border-dashed p-4 text-caption text-muted">
-                Raw logs are hidden while the sync is running to avoid noise.
+              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/50 p-4 text-sm text-slate-500">
+                Log-urile brute sunt ascunse în timpul sincronizării pentru a reduce zgomotul.
               </div>
             )}
           </div>
-        </PolarisCard>
+        </article>
       ) : isSelectedRun && currentRun ? (
-        <PolarisCard className="p-4">
+        <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white p-4 shadow-[var(--shadow-sm)]">
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <div className="text-h3">Run {currentRun.id}</div>
-                <div className="text-caption text-muted">Status: {currentRun.status}</div>
+                <h2 className="text-lg font-semibold text-slate-800">Rulare {currentRun.id}</h2>
+                <p className="text-sm text-slate-500">Status: {currentRun.status}</p>
               </div>
               <div className="flex flex-wrap gap-2">
                 {(currentRun.status === 'pending' || currentRun.status === 'running') && (
@@ -912,8 +933,9 @@ export default function IngestionPage() {
                     variant="destructive"
                     onClick={abortIngestion}
                     disabled={actionFetcher.state !== 'idle'}
+                    className="transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
                   >
-                    Cancel run
+                    Anulează rularea
                   </Button>
                 )}
                 <Button
@@ -921,8 +943,9 @@ export default function IngestionPage() {
                   onClick={() => {
                     void navigate('/ingestion');
                   }}
+                  className="transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
                 >
-                  Clear selection
+                  Resetează selecția
                 </Button>
               </div>
             </div>
@@ -941,33 +964,36 @@ export default function IngestionPage() {
               {...(currentRun ? { endpoint: `/api/bulk/${currentRun.id}/logs/ws` } : {})}
             />
           </div>
-        </PolarisCard>
+        </article>
       ) : (
-        <PolarisCard className="p-6">
+        <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white p-6 shadow-[var(--shadow-sm)]">
           <div className="grid gap-6 lg:grid-cols-[2fr,3fr]">
-            <div className="space-y-3">
-              <h2 className="text-h3">Porneste o sincronizare completa</h2>
-              <p className="text-body text-muted">
-                Porneste o ingestie completa a catalogului Shopify. Poti monitoriza progresul si
-                log-urile in timp real dupa ce run-ul incepe.
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold text-slate-800">
+                Pornește o sincronizare completă
+              </h2>
+              <p className="text-sm text-slate-500">
+                Pornește o ingestie completă a catalogului Shopify. Poți monitoriza progresul și
+                log-urile în timp real după ce rularea începe.
               </p>
               {recentRuns.length > 0 ? (
-                <div className="text-caption text-muted">
-                  Ultimul run: {recentRuns[0]?.completedAt ?? recentRuns[0]?.startedAt ?? '—'}
-                </div>
+                <p className="text-xs text-slate-500">
+                  Ultima rulare: {recentRuns[0]?.completedAt ?? recentRuns[0]?.startedAt ?? '—'}
+                </p>
               ) : null}
               <Button
                 variant="primary"
                 onClick={startIngestion}
                 loading={actionFetcher.state !== 'idle'}
+                className="transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
               >
-                Porneste sync complet
+                Pornește sync complet
               </Button>
             </div>
-            <div className="rounded-md border bg-muted/10 p-4">
+            <div className="rounded-lg border border-slate-200/80 bg-slate-50/50 p-4">
               <FileUpload
-                label="Upload JSONL manual"
-                description="Incarca un fisier JSONL pentru ingestie fara un bulk run Shopify."
+                label="Încarcă JSONL manual"
+                description="Încarcă un fișier JSONL pentru ingestie fără un bulk run Shopify."
                 accept={{ 'application/jsonl': ['.jsonl'], 'application/json': ['.json'] }}
                 maxFiles={1}
                 maxSize={1024 * 1024 * 1024}
@@ -975,7 +1001,7 @@ export default function IngestionPage() {
               />
             </div>
           </div>
-        </PolarisCard>
+        </article>
       )}
     </div>
   );
