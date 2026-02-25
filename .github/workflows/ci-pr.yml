@@ -282,19 +282,33 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          log="$(mktemp)"
+          max_attempts=3
+          attempt=1
 
-          set +e
-          pnpm --filter @app/backend-worker test:containers 2>&1 | tee "$log"
-          code="${PIPESTATUS[0]}"
-          set -e
+          while [[ "$attempt" -le "$max_attempts" ]]; do
+            log="$(mktemp)"
+            echo "backend_worker_integration_attempt=${attempt}/${max_attempts}"
 
-          if [[ "$code" -ne 0 ]] && grep -q "Error: write EPIPE" "$log"; then
-            echo "retry_due_to_epipe=1"
-            pnpm --filter @app/backend-worker test:containers
-          else
+            set +e
+            pnpm --filter @app/backend-worker test:containers 2>&1 | tee "$log"
+            code="${PIPESTATUS[0]}"
+            set -e
+
+            if [[ "$code" -eq 0 ]]; then
+              exit 0
+            fi
+
+            if grep -q "Error: write EPIPE" "$log" && [[ "$attempt" -lt "$max_attempts" ]]; then
+              echo "detected_epipe_retry=1"
+              docker ps -aq | xargs -r docker rm -f || true
+              docker network prune -f || true
+              sleep 3
+              attempt=$((attempt + 1))
+              continue
+            fi
+
             exit "$code"
-          fi
+          done
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
