@@ -1,6 +1,7 @@
 import type { ComponentType, PropsWithChildren } from 'react';
 import { useLocation } from 'react-router-dom';
 
+import { InfoTooltip } from '../ui/info-tooltip';
 import { ShopifyLink } from '../../shopify';
 
 type IconType = ComponentType<{ className?: string }>;
@@ -9,13 +10,17 @@ export type NavLinkProps = PropsWithChildren<{
   to: string;
   icon?: IconType;
   badge?: number | string;
+  /** Detailed explanation for new users; when set, an info icon with tooltip is shown next to the label. */
+  tooltip?: string;
+  /** Tooltip heading; defaults to the link label (children). */
+  tooltipTitle?: string;
 }>;
 
 function normalizePathname(pathname: string): string {
   return pathname.replace(/\/+$/, '') || '/';
 }
 
-export function NavLink({ to, icon: Icon, badge, children }: NavLinkProps) {
+export function NavLink({ to, icon: Icon, badge, tooltip, tooltipTitle, children }: NavLinkProps) {
   const location = useLocation();
 
   const current = normalizePathname(location.pathname);
@@ -37,7 +42,17 @@ export function NavLink({ to, icon: Icon, badge, children }: NavLinkProps) {
     >
       <span className="inline-flex min-w-0 items-center gap-3">
         {Icon ? <Icon className="size-4 shrink-0 text-muted group-hover:text-foreground" /> : null}
-        <span className="truncate">{children}</span>
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          <span className="truncate">{children}</span>
+          {tooltip ? (
+            <InfoTooltip
+              title={tooltipTitle ?? (typeof children === 'string' ? children : 'Info')}
+              side="bottom"
+            >
+              {tooltip}
+            </InfoTooltip>
+          ) : null}
+        </span>
       </span>
 
       {badge !== undefined ? (

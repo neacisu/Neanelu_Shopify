@@ -19,10 +19,12 @@ import { toast } from 'sonner';
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { ErrorState } from '../components/patterns/error-state';
 import { Button } from '../components/ui/button';
+import { InfoTooltip } from '../components/ui/info-tooltip';
 import { Tabs } from '../components/ui/tabs';
-import { PolarisBadge, PolarisCard, PolarisSelect } from '../../components/polaris/index.js';
+import { PolarisCard, PolarisSelect } from '../../components/polaris/index.js';
 import { useQueueStream } from '../hooks/use-queue-stream';
 import { ApiError } from '../utils/api-error';
+import { getQueueDisplayInfo } from '../utils/queue-display';
 import {
   apiLoader,
   createLoaderApiClient,
@@ -44,6 +46,10 @@ import {
   type QueueMetricsPoint,
 } from '../components/domain/queue-metrics-charts';
 import { WorkersGrid, type WorkerSummary } from '../components/domain/workers-grid';
+import {
+  RealtimeQueueStatus,
+  type RealtimeQueueStatusProps,
+} from '../components/domain/realtime-queue-status';
 
 type QueueSummary = Readonly<{
   name: string;
@@ -458,6 +464,12 @@ export default function QueuesPage() {
     setQueues(loaderQueues);
   }, [loaderQueues]);
 
+  const [lastSnapshotAt, setLastSnapshotAt] = useState<number | null>(null);
+  const [countdownRemainingSec, setCountdownRemainingSec] = useState(15);
+  const [showRefreshBurst, setShowRefreshBurst] = useState(false);
+  const [snapshotError, setSnapshotError] = useState<string | null>(null);
+  const refreshBurstTimerRef = useRef<number | null>(null);
+
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[]>([]);
 
@@ -490,7 +502,7 @@ export default function QueuesPage() {
   );
 
   const queueOptions = useMemo(
-    () => queues.map((q) => ({ label: q.name, value: q.name })),
+    () => queues.map((q) => ({ label: getQueueDisplayInfo(q.name).labelRo, value: q.name })),
     [queues]
   );
 
@@ -589,24 +601,35 @@ export default function QueuesPage() {
     onEvent: (evt) => {
       if (evt.type === 'queues.snapshot') {
         const q = evt.data['queues'];
-        if (Array.isArray(q)) {
-          const parsed: QueueSummary[] = q
-            .map((x) => (x && typeof x === 'object' ? (x as Record<string, unknown>) : null))
-            .filter((x): x is Record<string, unknown> => Boolean(x))
-            .map((x) => ({
-              name: typeof x['name'] === 'string' ? x['name'] : '',
-              waiting: Number(x['waiting'] ?? 0),
-              active: Number(x['active'] ?? 0),
-              completed: Number(x['completed'] ?? 0),
-              failed: Number(x['failed'] ?? 0),
-              delayed: Number(x['delayed'] ?? 0),
-            }))
-            .filter((x) => x.name.length > 0);
+        const list = Array.isArray(q) ? q : [];
+        const parsed: QueueSummary[] = list
+          .map((x) => (x && typeof x === 'object' ? (x as Record<string, unknown>) : null))
+          .filter((x): x is Record<string, unknown> => Boolean(x))
+          .map((x) => ({
+            name: typeof x['name'] === 'string' ? x['name'] : '',
+            waiting: Number(x['waiting'] ?? 0),
+            active: Number(x['active'] ?? 0),
+            completed: Number(x['completed'] ?? 0),
+            failed: Number(x['failed'] ?? 0),
+            delayed: Number(x['delayed'] ?? 0),
+          }))
+          .filter((x) => x.name.length > 0);
 
-          if (parsed.length) {
-            setQueues(parsed);
-          }
-        }
+        const isInitialEmpty = Boolean(evt.data['initial']) && parsed.length === 0;
+        if (!isInitialEmpty) setQueues(parsed);
+        setLastSnapshotAt(Date.now());
+        setCountdownRemainingSec(15);
+        setShowRefreshBurst(true);
+        if (evt.data['error'])
+          setSnapshotError(
+            typeof evt.data['error'] === 'string' ? evt.data['error'] : 'snapshot_failed'
+          );
+        else setSnapshotError(null);
+        if (refreshBurstTimerRef.current) window.clearTimeout(refreshBurstTimerRef.current);
+        refreshBurstTimerRef.current = window.setTimeout(() => {
+          setShowRefreshBurst(false);
+          refreshBurstTimerRef.current = null;
+        }, 600);
       }
 
       if (
@@ -630,6 +653,26 @@ export default function QueuesPage() {
     },
   });
 
+  useEffect(() => {
+    if (!stream.connected) return;
+    const id = window.setInterval(() => {
+      setCountdownRemainingSec((prev) => Math.max(0, prev - 1));
+    }, 1_000);
+    return () => window.clearInterval(id);
+  }, [stream.connected]);
+
+  useEffect(() => {
+    if (!stream.connected || countdownRemainingSec !== 0) return;
+    const t = window.setTimeout(() => setCountdownRemainingSec(15), 1_000);
+    return () => window.clearTimeout(t);
+  }, [stream.connected, countdownRemainingSec]);
+
+  useEffect(() => {
+    return () => {
+      if (refreshBurstTimerRef.current) window.clearTimeout(refreshBurstTimerRef.current);
+    };
+  }, []);
+
   return (
     <div className="space-y-4">
       <Breadcrumbs items={breadcrumbs} />
@@ -652,12 +695,16 @@ export default function QueuesPage() {
               }}
             />
           </div>
-          <div className="flex items-center gap-2">
-            <PolarisBadge tone={stream.connected ? 'success' : 'warning'}>
-              {stream.connected ? 'In timp real' : 'Offline'}
-            </PolarisBadge>
-            {stream.error ? <span className="text-caption text-muted">{stream.error}</span> : null}
-          </div>
+          <RealtimeQueueStatus
+            {...({
+              connected: stream.connected,
+              lastSnapshotAt,
+              countdownRemainingSec,
+              showRefreshBurst,
+              error: stream.error,
+              snapshotError,
+            } satisfies RealtimeQueueStatusProps)}
+          />
         </div>
       </PolarisCard>
 
@@ -677,14 +724,21 @@ export default function QueuesPage() {
           }
         />
 
-        <Button
-          variant="secondary"
-          onClick={() => {
-            void revalidator.revalidate();
-          }}
-        >
-          Reincarca
-        </Button>
+        <span className="inline-flex items-center gap-1.5">
+          <Button
+            variant="secondary"
+            onClick={() => {
+              void revalidator.revalidate();
+            }}
+          >
+            Reincarca
+          </Button>
+          <InfoTooltip title="Reîncarcă" side="bottom">
+            Reîmprospătează datele afișate pe pagină (lista de cozi, numerele din tabel, metricile
+            sau lista de workeri) fără a modifica nimic în cozi. Util după ce ai făcut acțiuni
+            (pauză, retry, ștergere) sau când vrei să vezi starea actuală.
+          </InfoTooltip>
+        </span>
       </div>
 
       {tab === 'overview' ? (
@@ -693,8 +747,23 @@ export default function QueuesPage() {
             <PolarisCard className="p-4">
               <div className="flex items-center justify-between gap-2">
                 <div>
-                  <div className="text-h4">{selectedQueue || '—'}</div>
-                  <div className="text-caption text-muted">Coada selectata</div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-h4">
+                      {selectedQueue ? getQueueDisplayInfo(selectedQueue).labelRo : '—'}
+                    </span>
+                    {selectedQueue ? (
+                      <InfoTooltip
+                        title={getQueueDisplayInfo(selectedQueue).labelRo}
+                        side="bottom"
+                        maxWidth={420}
+                      >
+                        {getQueueDisplayInfo(selectedQueue).tooltip}
+                      </InfoTooltip>
+                    ) : null}
+                  </div>
+                  <div className="text-caption text-muted">
+                    {selectedQueue ? `Coada selectata (${selectedQueue})` : 'Coada selectata'}
+                  </div>
                 </div>
                 {isLoading ? <span className="text-caption text-muted">Se incarca…</span> : null}
               </div>
@@ -713,30 +782,53 @@ export default function QueuesPage() {
                 </div>
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-2">
-                <Button
-                  variant="neutral"
-                  disabled={queueMutating || isLoading}
-                  loading={queueMutating}
-                  onClick={() => submitQueueAction('queue.pause')}
-                >
-                  Pauza
-                </Button>
-                <Button
-                  variant="positive"
-                  disabled={queueMutating || isLoading}
-                  loading={queueMutating}
-                  onClick={() => submitQueueAction('queue.resume')}
-                >
-                  Reia
-                </Button>
-                <Button
-                  variant="destructive"
-                  disabled={queueMutating || isLoading}
-                  loading={queueMutating}
-                  onClick={() => submitQueueAction('queue.cleanFailed')}
-                >
-                  Clean Failed
-                </Button>
+                <span className="inline-flex items-center gap-1.5">
+                  <Button
+                    variant="neutral"
+                    disabled={queueMutating || isLoading}
+                    loading={queueMutating}
+                    onClick={() => submitQueueAction('queue.pause')}
+                  >
+                    Pauza
+                  </Button>
+                  <InfoTooltip title="Pauză" side="bottom">
+                    Oprește temporar coada selectată: job-urile noi din coadă nu mai sunt luate în
+                    lucru de workeri; cele deja în execuție se termină. Folosește acest buton când
+                    vrei să îngheți coada fără a opri aplicația. Poți reporni coada oricând cu
+                    butonul „Reia".
+                  </InfoTooltip>
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <Button
+                    variant="positive"
+                    disabled={queueMutating || isLoading}
+                    loading={queueMutating}
+                    onClick={() => submitQueueAction('queue.resume')}
+                  >
+                    Reia
+                  </Button>
+                  <InfoTooltip title="Reia" side="bottom">
+                    Repornește coada după ce ai folosit „Pauza". Job-urile din așteptare vor fi din
+                    nou preluate de workeri în ordine. Nu are efect dacă coada nu este deja pusă pe
+                    pauză.
+                  </InfoTooltip>
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <Button
+                    variant="destructive"
+                    disabled={queueMutating || isLoading}
+                    loading={queueMutating}
+                    onClick={() => submitQueueAction('queue.cleanFailed')}
+                  >
+                    Clean Failed
+                  </Button>
+                  <InfoTooltip title="Șterge job-urile eșuate" side="bottom">
+                    Șterge din coadă toate job-urile cu status „failed". Acestea dispar definitiv și
+                    nu mai pot fi relansate. Dacă vrei să încerci din nou anumite job-uri eșuate,
+                    folosește tab-ul „Job-uri", selectează-le și apasă „Retry Selected". Acest buton
+                    este util când vrei să golești lista de eșecuri fără a le relansa.
+                  </InfoTooltip>
+                </span>
               </div>
             </PolarisCard>
             <PolarisCard className="p-4 lg:col-span-2">
@@ -754,37 +846,45 @@ export default function QueuesPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {queues.map((q) => (
-                      <tr
-                        key={q.name}
-                        className={
-                          q.name === selectedQueue
-                            ? 'bg-muted/10 border-b last:border-b-0'
-                            : 'border-b last:border-b-0'
-                        }
-                      >
-                        <td className="px-3 py-2 font-mono text-xs">
-                          <button
-                            type="button"
-                            className="text-primary hover:underline"
-                            onClick={() =>
-                              updateSearchParams(navigate, location.search, (p) => {
-                                p.set('queue', q.name);
-                                p.delete('jobId');
-                                p.set('page', '0');
-                              })
-                            }
-                          >
-                            {q.name}
-                          </button>
-                        </td>
-                        <td className="px-3 py-2 font-mono">{q.waiting}</td>
-                        <td className="px-3 py-2 font-mono">{q.active}</td>
-                        <td className="px-3 py-2 font-mono">{q.delayed}</td>
-                        <td className="px-3 py-2 font-mono">{q.completed}</td>
-                        <td className="px-3 py-2 font-mono">{q.failed}</td>
-                      </tr>
-                    ))}
+                    {queues.map((q) => {
+                      const display = getQueueDisplayInfo(q.name);
+                      return (
+                        <tr
+                          key={q.name}
+                          className={
+                            q.name === selectedQueue
+                              ? 'bg-muted/10 border-b last:border-b-0'
+                              : 'border-b last:border-b-0'
+                          }
+                        >
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                className="text-left text-primary hover:underline font-medium"
+                                onClick={() =>
+                                  updateSearchParams(navigate, location.search, (p) => {
+                                    p.set('queue', q.name);
+                                    p.delete('jobId');
+                                    p.set('page', '0');
+                                  })
+                                }
+                              >
+                                {display.labelRo}
+                              </button>
+                              <InfoTooltip title={display.labelRo} side="bottom" maxWidth={420}>
+                                {display.tooltip}
+                              </InfoTooltip>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 font-mono">{q.waiting}</td>
+                          <td className="px-3 py-2 font-mono">{q.active}</td>
+                          <td className="px-3 py-2 font-mono">{q.delayed}</td>
+                          <td className="px-3 py-2 font-mono">{q.completed}</td>
+                          <td className="px-3 py-2 font-mono">{q.failed}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -877,14 +977,20 @@ export default function QueuesPage() {
             <div className="text-caption text-muted">
               {isLoading ? 'Se incarca…' : `${workers.length} workeri`}
             </div>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                void revalidator.revalidate();
-              }}
-            >
-              Reincarca
-            </Button>
+            <span className="inline-flex items-center gap-1.5">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  void revalidator.revalidate();
+                }}
+              >
+                Reincarca
+              </Button>
+              <InfoTooltip title="Reîncarcă workeri" side="bottom">
+                Reîmprospătează lista de workeri și starea lor curentă (ce job procesează, dacă sunt
+                conectați). Nu modifică nimic în cozi sau în aplicație.
+              </InfoTooltip>
+            </span>
           </div>
           <WorkersGrid workers={workers} />
         </div>

@@ -45,6 +45,7 @@
     "dev:local": "scripts/with-secrets.sh docker compose -f docker-compose.staging.yml -f docker-compose.dev-local.yml --profile dev up -d backend-worker-dev web-admin-dev",
     "dev:local:build": "scripts/with-secrets.sh docker compose -f docker-compose.staging.yml -f docker-compose.dev-local.yml --profile dev build --no-cache backend-worker-dev web-admin-dev",
     "dev:local:logs": "docker compose -f docker-compose.staging.yml -f docker-compose.dev-local.yml --profile dev logs -f backend-worker-dev web-admin-dev",
+    "test:queues-ws": "scripts/with-secrets.sh pnpm tsx scripts/test-queues-ws.ts",
     "oauth:server": "tsx oauth-callback-server.ts"
   },
   "lint-staged": {
@@ -70,6 +71,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.2.3",
+    "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.55.0",
     "@typescript-eslint/parser": "^8.55.0",
     "eslint": "^10.0.0",
@@ -77,10 +79,12 @@
     "eslint-plugin-import": "^2.32.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
+    "pg": "^8.18.0",
     "prettier": "^3.8.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.55.0"
+    "typescript-eslint": "^8.55.0",
+    "ws": "^8.19.0"
   },
   "dependencies": {
     "google-auth-library": "^10.5.0"

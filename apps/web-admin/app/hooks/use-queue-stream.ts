@@ -70,8 +70,13 @@ export function useQueueStream(options: {
       void (async () => {
         const token = await getSessionToken();
         if (closed || connectIdRef.current !== connectId) return;
+        if (!token) {
+          setError('session_required');
+          setConnected(false);
+          return;
+        }
         const url = new URL('/api/queues/ws', window.location.origin);
-        if (token) url.searchParams.set('token', token);
+        url.searchParams.set('token', token);
         url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
         socket = new WebSocket(url.toString());
 

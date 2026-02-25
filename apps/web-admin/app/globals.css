@@ -56,3 +56,35 @@ body {
     opacity: 1;
   }
 }
+
+/* Real-time queue status: subtle live indicator pulse */
+@keyframes queueLivePulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgb(var(--color-success) / 0.35);
+  }
+  50% {
+    opacity: 0.95;
+    box-shadow: 0 0 0 6px rgb(var(--color-success) / 0.12);
+  }
+}
+
+/* Success burst when a real snapshot is received (proves non-mock refresh) */
+@keyframes queueRefreshBurst {
+  0% {
+    opacity: 0.9;
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgb(var(--color-success) / 0.5);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1.02);
+    box-shadow: 0 0 0 12px rgb(var(--color-success) / 0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgb(var(--color-success) / 0);
+  }
+}

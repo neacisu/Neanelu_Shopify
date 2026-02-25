@@ -74,15 +74,13 @@ async function resolveTenantShopId(
   return resolved && looksLikeUuid(resolved) ? resolved : null;
 }
 
-type WsConnection = Readonly<{
-  socket: {
-    readyState: number;
-    send: (data: string) => void;
-    ping: () => void;
-    close: (code?: number, reason?: string) => void;
-    on: (event: 'close' | 'error', listener: () => void) => void;
-  };
-}>;
+interface WsSocket {
+  readyState: number;
+  send: (data: string) => void;
+  ping: () => void;
+  close: (code?: number, reason?: string) => void;
+  on: (event: 'close' | 'error', listener: () => void) => void;
+}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -2181,18 +2179,17 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
       preHandler: [requireSession(sessionConfig)],
       websocket: true,
     },
-    (connection: WsConnection, request) => {
+    (socket: WsSocket, request) => {
       const session = (request as RequestWithSession).session;
       if (!session) {
-        connection.socket.close(1008, 'Unauthorized');
+        socket.close(1008, 'Unauthorized');
         return;
       }
 
-      if (!connection?.socket) {
+      if (!socket || typeof socket.send !== 'function') {
         logger.warn({ reason: 'missing_socket' }, 'pim events ws connection missing socket');
         return;
       }
-      const socket = connection.socket;
       let closed = false;
       let lastSeenAt = new Date(Date.now() - 60_000).toISOString();
 

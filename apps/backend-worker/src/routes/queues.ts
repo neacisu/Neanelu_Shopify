@@ -14,14 +14,13 @@ type QueueAdminPluginOptions = Readonly<{
   sessionConfig: SessionConfig;
 }>;
 
-type WsConnection = Readonly<{
-  socket: {
-    readyState: number;
-    send: (data: string) => void;
-    ping: () => void;
-    on: (event: 'close' | 'error', listener: () => void) => void;
-  };
-}>;
+interface WsSocket {
+  readyState: number;
+  send: (data: string) => void;
+  ping: () => void;
+  on: (event: 'close' | 'error', listener: () => void) => void;
+  close: (code?: number, reason?: string) => void;
+}
 
 type QueueSummary = Readonly<{
   name: string;
@@ -860,72 +859,81 @@ export const queueRoutes: FastifyPluginAsync<QueueAdminPluginOptions> = (
     );
   });
 
-  server.get(
-    '/queues/ws',
-    { ...requireAdminSession, websocket: true },
-    (connection: WsConnection) => {
-      if (!connection?.socket) {
-        logger.warn({ reason: 'missing_socket' }, 'queues ws connection missing socket');
-        return;
-      }
-      const socket = connection.socket;
-      let closed = false;
+  server.get('/queues/ws', { ...requireAdminSession, websocket: true }, (socket: WsSocket) => {
+    if (!socket || typeof socket.send !== 'function') {
+      logger.warn({ reason: 'missing_socket' }, 'queues ws connection missing socket');
+      return;
+    }
+    let closed = false;
 
-      const sendEvent = (event: string, data: unknown) => {
-        if (closed || socket.readyState !== 1) return;
-        socket.send(JSON.stringify({ event, data }));
-      };
+    const sendEvent = (event: string, data: unknown) => {
+      if (closed || socket.readyState !== 1) return;
+      socket.send(JSON.stringify({ event, data }));
+    };
 
-      const unsubscribe = onQueueStreamEvent((evt: QueueStreamEvent) => {
-        if (closed) return;
-        const { type, ...data } = evt;
-        sendEvent(type, data);
+    // După ce proxy-ul (ex. Vite) finalizează upgrade-ul; altfel primul frame poate fi pierdut
+    setImmediate(() => {
+      sendEvent('queues.snapshot', {
+        timestamp: nowIso(),
+        queues: [],
+        initial: true,
       });
+    });
 
-      const sendSnapshot = async () => {
-        try {
-          const [queues, readiness] = await Promise.all([
-            listQueueSummaries(env),
-            import('../runtime/worker-registry.js').then((m) => m.getWorkerReadiness()),
-          ]);
+    const unsubscribe = onQueueStreamEvent((evt: QueueStreamEvent) => {
+      if (closed) return;
+      const { type, ...data } = evt;
+      sendEvent(type, data);
+    });
 
-          sendEvent('queues.snapshot', {
-            timestamp: nowIso(),
-            queues,
-            workers: {
-              webhookWorkerOk: readiness.webhookWorkerOk,
-              tokenHealthWorkerOk: readiness.tokenHealthWorkerOk,
-              aiBatchWorkerOk: readiness.aiBatchWorkerOk,
-            },
-          });
-        } catch (error) {
-          logger.warn({ error }, 'queues ws snapshot failed');
-        }
-      };
+    const sendSnapshot = async () => {
+      try {
+        const [queues, readiness] = await Promise.all([
+          listQueueSummaries(env),
+          import('../runtime/worker-registry.js').then((m) => m.getWorkerReadiness()),
+        ]);
 
-      void sendSnapshot();
+        sendEvent('queues.snapshot', {
+          timestamp: nowIso(),
+          queues,
+          workers: {
+            webhookWorkerOk: readiness.webhookWorkerOk,
+            tokenHealthWorkerOk: readiness.tokenHealthWorkerOk,
+            aiBatchWorkerOk: readiness.aiBatchWorkerOk,
+          },
+        });
+      } catch (error) {
+        logger.warn({ error }, 'queues ws snapshot failed');
+        sendEvent('queues.snapshot', {
+          timestamp: nowIso(),
+          queues: [],
+          error: 'snapshot_failed',
+        });
+      }
+    };
 
-      const interval = setInterval(() => {
-        if (socket.readyState !== 1) {
-          closed = true;
-          clearInterval(interval);
-          unsubscribe();
-          return;
-        }
-        void sendSnapshot();
-        socket.ping();
-      }, 15_000);
+    void sendSnapshot();
 
-      const onClose = () => {
+    const interval = setInterval(() => {
+      if (socket.readyState !== 1) {
         closed = true;
         clearInterval(interval);
         unsubscribe();
-      };
+        return;
+      }
+      void sendSnapshot();
+      socket.ping();
+    }, 15_000);
 
-      socket.on('close', onClose);
-      socket.on('error', onClose);
-    }
-  );
+    const onClose = () => {
+      closed = true;
+      clearInterval(interval);
+      unsubscribe();
+    };
+
+    socket.on('close', onClose);
+    socket.on('error', onClose);
+  });
 
   return Promise.resolve();
 };

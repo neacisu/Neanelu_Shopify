@@ -4,13 +4,15 @@ import { defineConfig } from 'vite';
 import tsconfigPaths from 'vite-tsconfig-paths';
 
 import { shopifyHmr } from './vite.shopify-hmr';
+import { proxyQueuesWs } from './vite.proxy-ws';
 
 const frontendPort = Number(process.env['FRONTEND_PORT'] ?? '65001');
 const isDocker = process.env['DOCKER'] === '1' || process.env['DOCKER'] === 'true';
+const backendTarget = isDocker ? 'http://backend-worker:65000' : 'http://localhost:65000';
 
 export default defineConfig({
   base: '/app/',
-  plugins: [tailwindcss(), react(), shopifyHmr(), tsconfigPaths()],
+  plugins: [proxyQueuesWs(backendTarget), tailwindcss(), react(), shopifyHmr(), tsconfigPaths()],
   server: {
     host: true,
     port: frontendPort,
@@ -19,9 +21,18 @@ export default defineConfig({
     // Vite dev server blocks unknown hosts by default.
     ...(isDocker ? { allowedHosts: true as const } : {}),
     proxy: {
-      '/api': {
-        target: isDocker ? 'http://backend-worker:65000' : 'http://localhost:65000',
+      // WebSocket: context regex ca să match-uiască exact la upgrade
+      '^/api/queues/ws': {
+        target: backendTarget,
         changeOrigin: true,
+        ws: true,
+        rewriteWsOrigin: true,
+      },
+      '/api': {
+        target: backendTarget,
+        changeOrigin: true,
+        ws: true,
+        rewriteWsOrigin: true,
       },
     },
   },

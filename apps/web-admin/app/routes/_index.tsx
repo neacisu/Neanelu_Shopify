@@ -81,7 +81,7 @@ export default function DashboardIndex() {
       subtext: 'Total produse în Shopify mirror',
       icon: Package,
       tooltip:
-        'Numărul total de produse din magazinul tău Shopify care sunt sincronizate în aplicație. Acest număr reflectă câte produse au fost importate și sunt gestionate de Neanelu. Dacă vezi o diferență față de Shopify, poți lansa o sincronizare din panoul de acțiuni rapide.',
+        'Numărul total de produse din magazinul tău Shopify care sunt sincronizate în aplicație. Acest număr reflectă câte produse au fost importate și sunt gestionate de Neanelu. Pentru o sincronizare completă de produse din Shopify folosești pagina Ingestion din meniu.',
     },
     {
       title: 'Procese Active',
@@ -89,7 +89,7 @@ export default function DashboardIndex() {
       subtext: 'Bulk runs în status pending/running',
       icon: Cpu,
       tooltip:
-        'Câte operațiuni de prelucrare în masă rulează în acest moment sau așteaptă să fie procesate. Acestea includ sincronizări de produse, îmbogățiri AI sau actualizări în lot. Dacă valoarea e 0, sistemul este în repaus — nicio operațiune majoră nu e în desfășurare.',
+        'Câte rulări de ingestie în masă (bulk) sunt în curs sau în așteptare: doar din tabelul de sincronizare completă a produselor din Shopify. Nu include cozile de webhooks, îmbogățiri AI sau alte job-uri. Dacă valoarea e 0, nu rulează nici o sincronizare bulk.',
     },
     {
       title: 'Rata Erori API',

@@ -7,6 +7,7 @@ import {
   PolarisSelect,
 } from '../../../components/polaris/index.js';
 import { Button } from '../ui/button';
+import { InfoTooltip } from '../ui/info-tooltip';
 import { SearchInput } from '../ui/SearchInput';
 import { useRecentSearches } from '../../hooks/use-recent-searches';
 
@@ -354,35 +355,63 @@ export function JobsTable(props: {
             Selected: <span className="font-mono">{selectedCount}</span>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="neutral"
-              disabled={Boolean(loading)}
-              loading={Boolean(loading)}
-              onClick={() => onAction('retry', Array.from(selected))}
-            >
-              Retry Selected
-            </Button>
-            {dlqReplayEnabled ? (
+            <span className="inline-flex items-center gap-1.5">
               <Button
-                variant="secondary"
+                variant="neutral"
                 disabled={Boolean(loading)}
                 loading={Boolean(loading)}
-                onClick={() => onAction('dlq_replay', Array.from(selected))}
+                onClick={() => onAction('retry', Array.from(selected))}
               >
-                Reia din DLQ
+                Retry Selected
               </Button>
+              <InfoTooltip title="Relansează job-urile selectate" side="bottom">
+                Pune din nou în coadă job-urile selectate care au eșuat; vor fi reprocesate de
+                workeri. Poți selecta până la 100 de job-uri. Util când crezi că eșecul a fost
+                temporar (de exemplu o eroare de rețea) și vrei să încerci din nou.
+              </InfoTooltip>
+            </span>
+            {dlqReplayEnabled ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Button
+                  variant="secondary"
+                  disabled={Boolean(loading)}
+                  loading={Boolean(loading)}
+                  onClick={() => onAction('dlq_replay', Array.from(selected))}
+                >
+                  Reia din DLQ
+                </Button>
+                <InfoTooltip title="Reia din DLQ" side="bottom">
+                  Apare doar când coada selectată este o coadă DLQ (unde sunt mutate job-urile care
+                  au eșuat după toate încercările). Mută job-urile selectate înapoi în coada
+                  originală pentru a fi reprocesate; după mutare sunt șterse din DLQ. Folosește
+                  acest buton când vrei să redai șansa unor job-uri eșuate.
+                </InfoTooltip>
+              </span>
             ) : null}
-            <Button
-              variant="destructive"
-              disabled={Boolean(loading)}
-              loading={Boolean(loading)}
-              onClick={() => onAction('delete', Array.from(selected))}
-            >
-              Delete Selected
-            </Button>
-            <Button variant="ghost" onClick={clearSelection}>
-              Clear
-            </Button>
+            <span className="inline-flex items-center gap-1.5">
+              <Button
+                variant="destructive"
+                disabled={Boolean(loading)}
+                loading={Boolean(loading)}
+                onClick={() => onAction('delete', Array.from(selected))}
+              >
+                Delete Selected
+              </Button>
+              <InfoTooltip title="Șterge job-urile selectate" side="bottom">
+                Șterge definitiv din coadă job-urile selectate; nu mai pot fi relansate. Acțiunea
+                este ireversibilă. Folosește-o pentru job-uri pe care nu vrei să le mai procesezi
+                (de exemplu anulate sau invalide).
+              </InfoTooltip>
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Button variant="ghost" onClick={clearSelection}>
+                Clear
+              </Button>
+              <InfoTooltip title="Golește selecția" side="bottom">
+                Deselectează toate job-urile alese pe pagină; nu modifică nimic în coadă și nu
+                execută nicio acțiune asupra job-urilor.
+              </InfoTooltip>
+            </span>
           </div>
         </div>
       ) : null}
@@ -405,7 +434,17 @@ export function JobsTable(props: {
                 <th className="px-3 py-2 text-left">Payload</th>
                 <th className="px-3 py-2 text-left">Progress</th>
                 <th className="px-3 py-2 text-left">Status</th>
-                <th className="px-3 py-2 text-left">Actions</th>
+                <th className="px-3 py-2 text-left">
+                  <span className="inline-flex items-center gap-1">
+                    Actions
+                    <InfoTooltip title="Acțiuni pe job" side="bottom">
+                      Retry: relansează job-ul eșuat. Promote: pentru job-uri „delayed", le mută mai
+                      devreme în coadă ca să fie executate imediat. Delete: șterge definitiv job-ul.
+                      Reia din DLQ: apare doar la cozi DLQ, mută job-ul înapoi în coada originală.
+                      Details: deschide detaliile job-ului (payload, eroare, etc.).
+                    </InfoTooltip>
+                  </span>
+                </th>
               </tr>
             </thead>
             <tbody>{jobs.map(renderRow)}</tbody>

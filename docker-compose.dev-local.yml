@@ -37,6 +37,9 @@ services:
       - ./apps/web-admin/app:/app/apps/web-admin/app
       - ./apps/web-admin/components:/app/apps/web-admin/components
       - ./apps/web-admin/public:/app/apps/web-admin/public
+      - ./apps/web-admin/vite.config.ts:/app/apps/web-admin/vite.config.ts
+      - ./apps/web-admin/vite.proxy-ws.ts:/app/apps/web-admin/vite.proxy-ws.ts
+      - ./apps/web-admin/vite.shopify-hmr.ts:/app/apps/web-admin/vite.shopify-hmr.ts
 
 secrets:
   npm_token:

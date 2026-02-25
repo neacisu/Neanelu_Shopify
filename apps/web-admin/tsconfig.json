@@ -20,6 +20,8 @@
     "components/**/*",
     "types/**/*",
     "vite.config.ts",
+    "vite.proxy-ws.ts",
+    "vite.shopify-hmr.ts",
     "vitest.config.ts",
     "vitest.setup.ts"
   ],

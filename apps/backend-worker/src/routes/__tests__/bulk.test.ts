@@ -218,14 +218,12 @@ void describe('Bulk Routes', { concurrency: 1 }, () => {
   let bulkRoutes: unknown;
   type StreamBulkLogsWs = (params: {
     request: FastifyRequest;
-    connection: {
-      socket: {
-        readyState: number;
-        send: (data: string) => void;
-        ping: () => void;
-        close: () => void;
-        on: (event: 'close' | 'error', listener: () => void) => void;
-      };
+    socket: {
+      readyState: number;
+      send: (data: string) => void;
+      ping: () => void;
+      close: () => void;
+      on: (event: 'close' | 'error', listener: () => void) => void;
     };
     shopId: string;
     runId?: string;
@@ -251,7 +249,8 @@ void describe('Bulk Routes', { concurrency: 1 }, () => {
     logStep('beforeEach:start');
     const module = await import('../bulk.js');
     bulkRoutes = (module as { bulkRoutes: unknown }).bulkRoutes;
-    streamBulkLogsWsFn = (module as { streamBulkLogsWs: StreamBulkLogsWs }).streamBulkLogsWs;
+    streamBulkLogsWsFn = (module as unknown as { streamBulkLogsWs: StreamBulkLogsWs })
+      .streamBulkLogsWs;
 
     app = Fastify();
     await app.register(fastifyMultipart);
@@ -412,7 +411,7 @@ void describe('Bulk Routes', { concurrency: 1 }, () => {
 
     streamBulkLogsWsFn({
       request,
-      connection,
+      socket: connection.socket,
       shopId: 'shop-1',
       runId: 'run-1',
       logger: createTestLogger(),
@@ -467,7 +466,7 @@ void describe('Bulk Routes', { concurrency: 1 }, () => {
 
     streamBulkLogsWsFn({
       request,
-      connection,
+      socket: connection.socket,
       shopId: 'shop-1',
       runId: 'run-1',
       logger: createTestLogger(),

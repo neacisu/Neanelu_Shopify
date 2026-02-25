@@ -26,6 +26,9 @@ interface NavItem {
   label: string;
   icon?: Parameters<typeof NavLink>[0]['icon'];
   badge?: Parameters<typeof NavLink>[0]['badge'];
+  /** Detailed, non-technical explanation for new users. */
+  tooltip?: string;
+  tooltipTitle?: string;
 }
 
 export function AppShell({
@@ -46,13 +49,55 @@ export function AppShell({
 
   const navItems: NavItem[] = useMemo(
     () => [
-      { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-      { to: '/queues', label: 'Queues', icon: Cpu },
-      { to: '/ingestion', label: 'Ingestion', icon: Workflow },
-      { to: '/search', label: 'Search', icon: Search },
-      { to: '/products', label: 'Products', icon: Package },
-      { to: '/pim', label: 'PIM Dashboard', icon: LayoutDashboard },
-      { to: '/products/review', label: 'Review Queue', icon: Workflow },
+      {
+        to: '/',
+        label: 'Dashboard',
+        icon: LayoutDashboard,
+        tooltip:
+          'Pagina principală de monitorizare: vezi numărul de produse sincronizate din Shopify, câte procese în masă sunt active, rata de erori API și timpul de răspuns. Un grafic arată activitatea pe ultimele 7 zile. Acțiunile rapide sunt: Reconciliere Webhooks (recreează notificările lipsă către Shopify), Verificare Sănătate Sistem și Golire Cache — nu există aici buton pentru pornirea unei sincronizări complete de produse; pentru aceasta folosești pagina Ingestion.',
+      },
+      {
+        to: '/queues',
+        label: 'Queues',
+        icon: Cpu,
+        tooltip:
+          'Monitorizarea cozilor de job-uri: vezi toate cozile (sincronizare, webhooks, îmbogățiri etc.), câte job-uri sunt în așteptare, active sau eșuate. Poți pune coada pe pauză, o poți reporni, șterge job-urile eșuate sau relansa, promova și șterge job-uri individuale. Tab-ul „Workeri” arată ce procesoare sunt conectate.',
+      },
+      {
+        to: '/ingestion',
+        label: 'Ingestion',
+        icon: Workflow,
+        tooltip:
+          'Sincronizarea în masă a catalogului cu Shopify: pornești o exportare completă de produse din Shopify și urmărești progresul în timp real (descărcare, parsare, încărcare în baza de date), sau încarci manual un fișier JSONL. Din această pagină ajungi și la istoricul rulărilor și la programarea sincronizărilor.',
+      },
+      {
+        to: '/search',
+        label: 'Search',
+        icon: Search,
+        tooltip:
+          'Căutare semantică în produse: introduci o frază în limbaj natural și aplicația găsește produse după semnificație (nu doar după cuvinte exacte). Poți filtra după furnizor, tip produs, preț și categorie, ajusta pragul de relevanță și numărul de rezultate, și exporta rezultatele. Util pentru a vedea cum „înțelege” catalogul aplicația.',
+      },
+      {
+        to: '/products',
+        label: 'Products',
+        icon: Package,
+        tooltip:
+          'Lista și gestionarea produselor din magazin: vezi toate produsele sincronizate, filtrezi și cauți (exact sau semantic), deschizi detaliile într-un panou lateral, editezi, compari produse, asignezi categorii sau le adaugi în colecții. Poți face acțiuni în masă și export.',
+      },
+      {
+        to: '/pim',
+        label: 'PIM Dashboard',
+        icon: LayoutDashboard,
+        tooltip:
+          'Centrul de informații despre calitatea datelor produs: vezi cum sunt clasificate produsele (bronze, silver, golden, review), progresul pipeline-ului de îmbogățire, performanța surselor de date și sincronizarea cu canalele. Tab-urile duc la detalii despre calitate, îmbogățire, costuri, evenimente și consens.',
+      },
+      {
+        to: '/products/review',
+        label: 'Review Queue',
+        icon: Workflow,
+        tooltip:
+          'Coada de revizuiri umane: elemente care necesită confirmarea ta — fie potriviri între produsul tău și o sursă externă (confirmi sau respingi potrivirea), fie propuneri noi de atribute generate de sistem (aprobare sau respingere). Tab-ul „Coada HITL” este pentru cazuri trimise explicit pentru decizie umană.',
+      },
       {
         to: '/similarity-matches',
         label: 'Similarity Matches',
@@ -60,8 +105,16 @@ export function AppShell({
         ...(pendingSimilarityCount && pendingSimilarityCount > 0
           ? { badge: pendingSimilarityCount }
           : {}),
+        tooltip:
+          'Potrivirile găsite între produsele tale și surse externe: aplicația identifică produse din alte surse care par să fie același produs. Aici revizuiești aceste potriviri, le confirmi sau le respingi, poți marca o sursă ca principală sau porni o extracție de atribute. Numărul din badge arată câte potriviri sunt în așteptare. Tab-urile filtrează după stare: Toate, În așteptare, AI Audit, HITL, Confirmate, Respinse.',
       },
-      { to: '/settings', label: 'Settings', icon: Settings },
+      {
+        to: '/settings',
+        label: 'Settings',
+        icon: Settings,
+        tooltip:
+          'Setările aplicației și ale magazinului: General, conexiunea cu Shopify (API și Webhooks), configurarea webhook-urilor, setări pentru cozi, și credențiale pentru serviciile folosite (OpenAI, Serper, xAI Grok, Scraper). Aici configurezi tot ce este necesar pentru ca aplicația să funcționeze cu magazinul tău și cu serviciile externe.',
+      },
     ],
     [pendingSimilarityCount]
   );
@@ -92,6 +145,9 @@ export function AppShell({
                   to={item.to}
                   {...(item.icon ? { icon: item.icon } : {})}
                   {...(item.badge !== undefined ? { badge: item.badge } : {})}
+                  {...(item.tooltip
+                    ? { tooltip: item.tooltip, tooltipTitle: item.tooltipTitle }
+                    : {})}
                 >
                   {item.label}
                 </NavLink>

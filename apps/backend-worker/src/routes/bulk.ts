@@ -90,15 +90,13 @@ type BulkRoutesOptions = Readonly<{
   sessionConfig: SessionConfig;
 }>;
 
-type WsConnection = Readonly<{
-  socket: {
-    readyState: number;
-    send: (data: string) => void;
-    ping: () => void;
-    close: (code?: number, reason?: string) => void;
-    on: (event: 'close' | 'error', listener: () => void) => void;
-  };
-}>;
+interface WsSocket {
+  readyState: number;
+  send: (data: string) => void;
+  ping: () => void;
+  close: (code?: number, reason?: string) => void;
+  on: (event: 'close' | 'error', listener: () => void) => void;
+}
 
 type BulkRunRow = Readonly<{
   id: string;
@@ -299,7 +297,7 @@ function buildBulkOperationNodeQuery(): string {
 
 export const streamBulkLogsWs = (params: {
   request: FastifyRequest;
-  connection: WsConnection;
+  socket: WsSocket;
   shopId: string;
   runId?: string;
   logger: Logger;
@@ -308,7 +306,7 @@ export const streamBulkLogsWs = (params: {
 }): void => {
   const {
     request,
-    connection,
+    socket,
     shopId,
     runId,
     logger,
@@ -332,12 +330,12 @@ export const streamBulkLogsWs = (params: {
   let windowCount = 0;
 
   const send = (payload: unknown) => {
-    if (connection.socket.readyState !== 1) return;
-    connection.socket.send(JSON.stringify({ event: 'logs', data: payload }));
+    if (socket.readyState !== 1) return;
+    socket.send(JSON.stringify({ event: 'logs', data: payload }));
   };
 
   const poll = async () => {
-    if (connection.socket.readyState !== 1) {
+    if (socket.readyState !== 1) {
       return;
     }
     try {
@@ -428,7 +426,7 @@ export const streamBulkLogsWs = (params: {
   void poll();
 
   const interval = setInterval(() => {
-    if (connection.socket.readyState !== 1) {
+    if (socket.readyState !== 1) {
       clearInterval(interval);
       return;
     }
@@ -436,11 +434,11 @@ export const streamBulkLogsWs = (params: {
   }, pollIntervalMs);
 
   const heartbeat = setInterval(() => {
-    if (connection.socket.readyState !== 1) {
+    if (socket.readyState !== 1) {
       clearInterval(heartbeat);
       return;
     }
-    connection.socket.ping();
+    socket.ping();
   }, heartbeatIntervalMs);
 
   const onClose = () => {
@@ -448,8 +446,8 @@ export const streamBulkLogsWs = (params: {
     clearInterval(heartbeat);
   };
 
-  connection.socket.on('close', onClose);
-  connection.socket.on('error', onClose);
+  socket.on('close', onClose);
+  socket.on('error', onClose);
 };
 
 export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
@@ -1142,54 +1140,54 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
   server.get(
     '/bulk/:id/logs/ws',
     { ...requireAdminSession, websocket: true },
-    (connection: WsConnection, request) => {
+    (socket: WsSocket, request) => {
       const session = getSessionFromRequest(request, sessionConfig);
       if (!session) {
-        connection.socket.close(1008, 'Session required');
+        socket.close(1008, 'Session required');
         return;
       }
 
       const id = (request.params as { id?: unknown }).id;
       if (!isNonEmptyString(id)) {
-        connection.socket.close(1008, 'Missing id');
+        socket.close(1008, 'Missing id');
         return;
       }
 
-      streamBulkLogsWs({ request, connection, shopId: session.shopId, runId: id, logger });
+      streamBulkLogsWs({ request, socket, shopId: session.shopId, runId: id, logger });
     }
   );
 
   server.get(
     '/ingestion/:id/logs/ws',
     { ...requireAdminSession, websocket: true },
-    (connection: WsConnection, request) => {
+    (socket: WsSocket, request) => {
       const session = getSessionFromRequest(request, sessionConfig);
       if (!session) {
-        connection.socket.close(1008, 'Session required');
+        socket.close(1008, 'Session required');
         return;
       }
 
       const id = (request.params as { id?: unknown }).id;
       if (!isNonEmptyString(id)) {
-        connection.socket.close(1008, 'Missing id');
+        socket.close(1008, 'Missing id');
         return;
       }
 
-      streamBulkLogsWs({ request, connection, shopId: session.shopId, runId: id, logger });
+      streamBulkLogsWs({ request, socket, shopId: session.shopId, runId: id, logger });
     }
   );
 
   server.get(
     '/logs/ws',
     { ...requireAdminSession, websocket: true },
-    (connection: WsConnection, request) => {
+    (socket: WsSocket, request) => {
       const session = getSessionFromRequest(request, sessionConfig);
       if (!session) {
-        connection.socket.close(1008, 'Session required');
+        socket.close(1008, 'Session required');
         return;
       }
 
-      streamBulkLogsWs({ request, connection, shopId: session.shopId, logger });
+      streamBulkLogsWs({ request, socket, shopId: session.shopId, logger });
     }
   );
 
