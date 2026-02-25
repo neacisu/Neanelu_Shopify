@@ -103,13 +103,15 @@ describe('Ingestion schedule page', () => {
 
     render(<RouterProvider router={router} />);
 
-    expect(await screen.findByText(/Save schedule/i)).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: /Programare ingestie/i })
+    ).toBeInTheDocument();
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: 'Delete schedule' }));
+    await user.click(screen.getByRole('button', { name: 'Șterge programarea' }));
 
-    const dialog = screen.getByRole('dialog', { name: 'Delete schedule?' });
-    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+    const dialog = screen.getByRole('dialog', { name: 'Ștergi programarea?' });
+    await user.click(within(dialog).getByRole('button', { name: 'Șterge' }));
 
     await waitFor(() => {
       expect(

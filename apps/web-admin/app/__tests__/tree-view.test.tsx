@@ -22,7 +22,7 @@ describe('TreeView', () => {
     render(<TreeView nodes={nodes} />);
 
     // Expand
-    await user.click(screen.getByRole('button', { name: 'Expand' }));
+    await user.click(screen.getByRole('button', { name: 'Extinde' }));
     expect(screen.getByRole('button', { name: 'Child 1' })).toBeInTheDocument();
 
     // Select
@@ -36,7 +36,7 @@ describe('TreeView', () => {
 
     render(<TreeView nodes={nodes} multiSelect />);
 
-    await user.click(screen.getByRole('button', { name: 'Expand' }));
+    await user.click(screen.getByRole('button', { name: 'Extinde' }));
 
     await user.click(screen.getByRole('button', { name: 'Child 1' }));
     fireEvent.click(screen.getByRole('button', { name: 'Child 2' }), { ctrlKey: true });
@@ -59,7 +59,7 @@ describe('TreeView', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: 'Expand' }));
+    await user.click(screen.getByRole('button', { name: 'Extinde' }));
     expect(await screen.findByRole('button', { name: 'Lazy 1' })).toBeInTheDocument();
   });
 });

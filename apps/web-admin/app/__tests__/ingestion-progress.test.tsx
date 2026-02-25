@@ -13,10 +13,10 @@ describe('IngestionProgress', () => {
       <IngestionProgress currentStep="parse" progress={40} status="running" onAbort={onAbort} />
     );
 
-    await user.click(screen.getByRole('button', { name: 'Abort' }));
+    await user.click(screen.getByRole('button', { name: 'Oprește' }));
 
-    const dialog = screen.getByRole('dialog', { name: 'Abort ingestion?' });
-    await user.click(within(dialog).getByRole('button', { name: 'Abort' }));
+    const dialog = screen.getByRole('dialog', { name: 'Oprești ingestia?' });
+    await user.click(within(dialog).getByRole('button', { name: 'Oprește' }));
 
     expect(onAbort).toHaveBeenCalledTimes(1);
   });

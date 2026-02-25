@@ -138,8 +138,8 @@ describe('Ingestion page', () => {
 
     render(<RouterProvider router={router} />);
 
-    expect(await screen.findByText(/Products: 12/i)).toBeInTheDocument();
-    expect(await screen.findByText(/Objects: 45/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Produse: 12/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Obiecte: 45/i)).toBeInTheDocument();
   });
 
   it('loads current run and recent runs, then starts ingestion', async () => {
@@ -164,7 +164,9 @@ describe('Ingestion page', () => {
 
     render(<RouterProvider router={router} />);
 
-    expect(await screen.findByRole('heading', { name: /Bulk Ingestion/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: /Sincronizare catalog/i })
+    ).toBeInTheDocument();
 
     await waitFor(() => {
       expect(apiCalls.some((c) => c.method === 'GET' && c.path === '/bulk/current')).toBe(true);
@@ -175,7 +177,7 @@ describe('Ingestion page', () => {
     });
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: /Porneste sync complet/i }));
+    await user.click(screen.getByRole('button', { name: /Pornește sync complet/i }));
 
     await waitFor(() => {
       expect(apiCalls.some((c) => c.method === 'POST' && c.path === '/bulk/start')).toBe(true);
@@ -204,7 +206,7 @@ describe('Ingestion page', () => {
 
     render(<RouterProvider router={router} />);
 
-    const dropzone = await screen.findByRole('button', { name: /Upload JSONL manual/i });
+    const dropzone = await screen.findByRole('button', { name: /Încarcă JSONL manual/i });
     const file = new File(['{"id":1}\n'], 'upload.jsonl', { type: 'application/x-ndjson' });
 
     fireEvent.drop(dropzone, {

@@ -99,7 +99,9 @@ describe('Charts components (F3.9.6–F3.9.10)', () => {
 
     const needleGroup = container.querySelector('svg g');
     expect(needleGroup).toBeTruthy();
-    expect(needleGroup?.getAttribute('style') ?? '').toContain('transition: transform 500ms ease');
+    expect(needleGroup?.getAttribute('style') ?? '').toContain(
+      'transition: transform 0.7s cubic-bezier(0.34, 1.2, 0.64, 1)'
+    );
     // value=90% => angle=-180 + 0.9*180 = -18deg
     expect(needleGroup?.getAttribute('style') ?? '').toContain('rotate(-18deg)');
   });

@@ -36,27 +36,27 @@ describe('ExportResultsModal', () => {
       />
     );
 
-    expect(screen.getByText('Start export (1500 results)')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('Start export (1500 results)'));
+    expect(screen.getByText('Pornește export (1500 rezultate)')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Pornește export (1500 rezultate)'));
 
     expect(onStartAsyncExport).toHaveBeenCalledWith('csv');
     await act(async () => {
       await Promise.resolve();
     });
-    expect(screen.getByText('queued')).toBeInTheDocument();
+    expect(screen.getByText('În coadă')).toBeInTheDocument();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
     expect(onPollAsyncExport).toHaveBeenCalledTimes(1);
-    expect(screen.getByText('processing')).toBeInTheDocument();
+    expect(screen.getByText('În curs')).toBeInTheDocument();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
     expect(onPollAsyncExport).toHaveBeenCalledTimes(2);
-    expect(screen.getByText('completed')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Download export' })).toHaveAttribute(
+    expect(screen.getByText('Finalizat')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Descarcă export' })).toHaveAttribute(
       'href',
       '/download/job-1'
     );

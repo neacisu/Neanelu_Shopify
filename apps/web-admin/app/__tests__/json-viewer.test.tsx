@@ -16,7 +16,7 @@ describe('JsonViewer', () => {
 
     render(<JsonViewer value={{ a: 1 }} copyable />);
 
-    await user.click(screen.getByRole('button', { name: 'Copy' }));
+    await user.click(screen.getByRole('button', { name: 'Copiază' }));
     expect(writeText).toHaveBeenCalledTimes(1);
     expect(String(writeText.mock.calls[0]?.[0])).toContain('"a": 1');
   });
@@ -27,9 +27,9 @@ describe('JsonViewer', () => {
     const big = { data: 'x'.repeat(200_000) };
     render(<JsonViewer value={big} collapseThresholdChars={10_000} />);
 
-    expect(screen.getByRole('button', { name: 'Expand' })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Expand' }));
-    expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Extinde' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Extinde' }));
+    expect(screen.getByRole('button', { name: 'Restrânge' })).toBeInTheDocument();
   });
 
   it('supports searching within JSON', async () => {
@@ -37,8 +37,8 @@ describe('JsonViewer', () => {
 
     render(<JsonViewer value={{ foo: { bar: 'needle' } }} />);
 
-    await user.type(screen.getByRole('textbox', { name: 'Search' }), 'needle');
-    expect(screen.getByText(/Matches:/)).toBeInTheDocument();
+    await user.type(screen.getByRole('textbox', { name: 'Caută' }), 'needle');
+    expect(screen.getByText(/Potriviri:/)).toBeInTheDocument();
     expect(screen.getByText('foo.bar')).toBeInTheDocument();
   });
 

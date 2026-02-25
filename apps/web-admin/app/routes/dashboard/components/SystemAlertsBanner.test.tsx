@@ -76,7 +76,7 @@ describe('SystemAlertsBanner', () => {
     render(<mod1.SystemAlertsBanner />);
     expect(screen.getByText('Redis down')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /Dismiss/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Închide/i }));
     expect(screen.queryByText('Redis down')).not.toBeInTheDocument();
 
     // Simulate refresh by resetting modules and importing again.

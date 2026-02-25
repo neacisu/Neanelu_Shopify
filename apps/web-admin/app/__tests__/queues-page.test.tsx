@@ -228,7 +228,7 @@ describe('Queue Monitor /queues UI', () => {
 
     render(<RouterProvider router={router} />);
 
-    expect(await screen.findByRole('heading', { name: /Queue Monitor/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Monitor cozi/i })).toBeInTheDocument();
 
     await waitFor(() => {
       expect(apiCalls.some((c) => c.method === 'GET' && c.path === '/queues')).toBe(true);
@@ -240,21 +240,14 @@ describe('Queue Monitor /queues UI', () => {
       ).toBe(true);
     });
 
-    // Snapshot table should show queue names (scope to the snapshot table card).
-    const snapshotHeading = await screen.findByText('Queues snapshot');
-    const snapshotCard = snapshotHeading.closest('polaris-card');
-    expect(snapshotCard).toBeTruthy();
-
-    if (!(snapshotCard instanceof HTMLElement)) {
-      throw new Error('Expected snapshot card to be an HTMLElement');
-    }
-
-    const snap = within(snapshotCard);
+    // Overview grid should list queue cards (friendly labels + internal names).
+    const overviewList = await screen.findByRole('list', { name: 'Lista cozi' });
+    const snap = within(overviewList);
     expect(snap.getByRole('button', { name: 'webhooks' })).toBeInTheDocument();
-    expect(snap.getByRole('button', { name: 'token-health' })).toBeInTheDocument();
+    expect(snap.getByRole('button', { name: 'Verificare token Shopify' })).toBeInTheDocument();
 
     // Status distribution chart section should be present.
-    expect(await screen.findByText('Status distribution')).toBeInTheDocument();
+    expect(await screen.findByText('Distribuție status')).toBeInTheDocument();
   });
 
   it('switches to Jobs tab and searches by job id', async () => {
@@ -337,7 +330,7 @@ describe('Queue Monitor /queues UI', () => {
     await user.click(jobsBtn.closest('polaris-button') ?? jobsBtn);
 
     // Wait for jobs row.
-    expect(await screen.findByText('1')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '1' })).toBeInTheDocument();
 
     const details = await screen.findByText('Details');
     await user.click(details);
@@ -382,7 +375,7 @@ describe('Queue Monitor /queues UI', () => {
       expect(apiCalls.some((c) => c.method === 'GET' && c.path === '/queues/workers')).toBe(true);
     });
 
-    expect(await screen.findByText('webhook-worker')).toBeInTheDocument();
+    expect(await screen.findByText('Procesare notificări Shopify')).toBeInTheDocument();
   });
 
   it('requires confirmation before deleting a job', async () => {
@@ -412,7 +405,7 @@ describe('Queue Monitor /queues UI', () => {
     await user.click(jobsBtn.closest('polaris-button') ?? jobsBtn);
 
     // Wait for jobs row.
-    expect(await screen.findByText('1')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '1' })).toBeInTheDocument();
 
     // Select the job and click delete selected.
     const checkbox = await screen.findByLabelText('Select job 1');

@@ -52,7 +52,7 @@ describe('QuickActionsPanel', () => {
     // no API call until confirm
     expect(postApiMock).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Golește' }));
 
     await waitFor(() => {
       expect(postApiMock).toHaveBeenCalledWith('/dashboard/actions/clear-cache', {
@@ -75,11 +75,10 @@ describe('QuickActionsPanel', () => {
     expect(toast.success).toHaveBeenCalled();
   });
 
-  it('View Logs opens a new tab', () => {
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+  it('renders current quick actions', () => {
     render(<QuickActionsPanel />);
-    fireEvent.click(screen.getByRole('button', { name: /View Logs/i }));
-    expect(openSpy).toHaveBeenCalled();
-    openSpy.mockRestore();
+    expect(screen.getByRole('button', { name: /Reconcile Webhooks/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Clear Cache/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Check Health/i })).toBeInTheDocument();
   });
 });

@@ -36,7 +36,7 @@ describe('MultiSelect', () => {
     await user.click(screen.getByRole('option', { name: 'Alpha' }));
 
     expect(screen.getByTestId('value').textContent).toBe('a');
-    expect(screen.getByRole('button', { name: 'Remove Alpha' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Elimină Alpha' })).toBeInTheDocument();
   });
 
   it('filters options by typing', async () => {
@@ -99,7 +99,7 @@ describe('MultiSelect', () => {
     await user.keyboard('{Enter}');
 
     expect(screen.getByTestId('value').textContent).toBe('NewTag');
-    expect(screen.getByRole('button', { name: 'Remove NewTag' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Elimină NewTag' })).toBeInTheDocument();
   });
 
   it('renders all options in the dropdown', async () => {
