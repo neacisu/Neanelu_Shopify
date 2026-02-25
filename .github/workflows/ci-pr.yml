@@ -513,7 +513,10 @@ jobs:
   # ============================================
   real-infra-smoke:
     name: Real Infra (CT108) - Clone + Migrate + Test
-    if: ${{ github.event_name == 'push' && github.actor != 'dependabot[bot]' }}
+    if: >-
+      github.event_name == 'push' &&
+      github.actor != 'dependabot[bot]' &&
+      (github.ref_name == 'main' || github.ref_name == 'develop')
     runs-on: [self-hosted, neanelu]
     timeout-minutes: 25
     needs:
