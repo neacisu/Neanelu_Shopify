@@ -53,8 +53,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
-      NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
-      BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
+      OPENBAO_ADDR: '${{ secrets.OPENBAO_ADDR }}'
+      OPENBAO_CICD_ROLE_ID: '${{ secrets.OPENBAO_CICD_ROLE_ID }}'
+      OPENBAO_CICD_SECRET_ID: '${{ secrets.OPENBAO_CICD_SECRET_ID }}'
 
     steps:
       - name: Checkout code
@@ -64,8 +65,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${NPM_TASKFORCESH_TOKEN}" || (echo "Missing NPM_TASKFORCESH_TOKEN" >&2; exit 1)
-          test -n "${BULLMQ_PRO_TOKEN}" || (echo "Missing BULLMQ_PRO_TOKEN" >&2; exit 1)
+          test -n "${OPENBAO_ADDR}" || (echo "Missing OPENBAO_ADDR" >&2; exit 1)
+          test -n "${OPENBAO_CICD_ROLE_ID}" || (echo "Missing OPENBAO_CICD_ROLE_ID" >&2; exit 1)
+          test -n "${OPENBAO_CICD_SECRET_ID}" || (echo "Missing OPENBAO_CICD_SECRET_ID" >&2; exit 1)
+
+      - name: OpenBao login (AppRole)
+        env:
+          OPENBAO_ADDR: ${{ secrets.OPENBAO_ADDR }}
+          OPENBAO_CICD_ROLE_ID: ${{ secrets.OPENBAO_CICD_ROLE_ID }}
+          OPENBAO_CICD_SECRET_ID: ${{ secrets.OPENBAO_CICD_SECRET_ID }}
+        run: python3 .github/scripts/openbao_ci_login.py
+
+      - name: Export registry tokens from OpenBao
+        env:
+          OPENBAO_ADDR: ${{ secrets.OPENBAO_ADDR }}
+        run: python3 .github/scripts/openbao_ci_export_registry_tokens.py
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -78,10 +92,16 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
+      - name: Configure BullMQ Pro registry auth
+        shell: bash
+        run: |
+          {
+            echo "@taskforcesh:registry=https://npm.taskforce.sh/"
+            echo "//npm.taskforce.sh/:_authToken=${NPM_TASKFORCESH_TOKEN}"
+          } >> ~/.npmrc
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-        env:
-          NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
 
       - name: Lint
         run: pnpm lint
@@ -115,8 +135,9 @@ jobs:
             command: pnpm --filter @app/pim test
             needsRedis: false
     env:
-      NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
-      BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
+      OPENBAO_ADDR: '${{ secrets.OPENBAO_ADDR }}'
+      OPENBAO_CICD_ROLE_ID: '${{ secrets.OPENBAO_CICD_ROLE_ID }}'
+      OPENBAO_CICD_SECRET_ID: '${{ secrets.OPENBAO_CICD_SECRET_ID }}'
       NODE_ENV: test
 
     services:
@@ -134,6 +155,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: OpenBao login (AppRole)
+        env:
+          OPENBAO_ADDR: ${{ secrets.OPENBAO_ADDR }}
+          OPENBAO_CICD_ROLE_ID: ${{ secrets.OPENBAO_CICD_ROLE_ID }}
+          OPENBAO_CICD_SECRET_ID: ${{ secrets.OPENBAO_CICD_SECRET_ID }}
+        run: python3 .github/scripts/openbao_ci_login.py
+
+      - name: Export registry tokens from OpenBao
+        env:
+          OPENBAO_ADDR: ${{ secrets.OPENBAO_ADDR }}
+        run: python3 .github/scripts/openbao_ci_export_registry_tokens.py
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -145,10 +178,16 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
+      - name: Configure BullMQ Pro registry auth
+        shell: bash
+        run: |
+          {
+            echo "@taskforcesh:registry=https://npm.taskforce.sh/"
+            echo "//npm.taskforce.sh/:_authToken=${NPM_TASKFORCESH_TOKEN}"
+          } >> ~/.npmrc
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-        env:
-          NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
 
       - name: Run tests (${{ matrix.package }})
         run: ${{ matrix.command }}
@@ -176,13 +215,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
-      BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
+      OPENBAO_ADDR: '${{ secrets.OPENBAO_ADDR }}'
+      OPENBAO_CICD_ROLE_ID: '${{ secrets.OPENBAO_CICD_ROLE_ID }}'
+      OPENBAO_CICD_SECRET_ID: '${{ secrets.OPENBAO_CICD_SECRET_ID }}'
       NODE_ENV: test
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: OpenBao login (AppRole)
+        env:
+          OPENBAO_ADDR: ${{ secrets.OPENBAO_ADDR }}
+          OPENBAO_CICD_ROLE_ID: ${{ secrets.OPENBAO_CICD_ROLE_ID }}
+          OPENBAO_CICD_SECRET_ID: ${{ secrets.OPENBAO_CICD_SECRET_ID }}
+        run: python3 .github/scripts/openbao_ci_login.py
+
+      - name: Export registry tokens from OpenBao
+        env:
+          OPENBAO_ADDR: ${{ secrets.OPENBAO_ADDR }}
+        run: python3 .github/scripts/openbao_ci_export_registry_tokens.py
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -195,10 +247,16 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
+      - name: Configure BullMQ Pro registry auth
+        shell: bash
+        run: |
+          {
+            echo "@taskforcesh:registry=https://npm.taskforce.sh/"
+            echo "//npm.taskforce.sh/:_authToken=${NPM_TASKFORCESH_TOKEN}"
+          } >> ~/.npmrc
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-        env:
-          NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
 
       - name: Run unit tests (@app/backend-worker)
         shell: bash
@@ -221,14 +279,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
-      BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
+      OPENBAO_ADDR: '${{ secrets.OPENBAO_ADDR }}'
+      OPENBAO_CICD_ROLE_ID: '${{ secrets.OPENBAO_CICD_ROLE_ID }}'
+      OPENBAO_CICD_SECRET_ID: '${{ secrets.OPENBAO_CICD_SECRET_ID }}'
       NODE_ENV: test
       BACKEND_TESTS_WITH_CONTAINERS: '1'
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: OpenBao login (AppRole)
+        env:
+          OPENBAO_ADDR: ${{ secrets.OPENBAO_ADDR }}
+          OPENBAO_CICD_ROLE_ID: ${{ secrets.OPENBAO_CICD_ROLE_ID }}
+          OPENBAO_CICD_SECRET_ID: ${{ secrets.OPENBAO_CICD_SECRET_ID }}
+        run: python3 .github/scripts/openbao_ci_login.py
+
+      - name: Export registry tokens from OpenBao
+        env:
+          OPENBAO_ADDR: ${{ secrets.OPENBAO_ADDR }}
+        run: python3 .github/scripts/openbao_ci_export_registry_tokens.py
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -241,10 +312,16 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
+      - name: Configure BullMQ Pro registry auth
+        shell: bash
+        run: |
+          {
+            echo "@taskforcesh:registry=https://npm.taskforce.sh/"
+            echo "//npm.taskforce.sh/:_authToken=${NPM_TASKFORCESH_TOKEN}"
+          } >> ~/.npmrc
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-        env:
-          NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
 
       - name: Run integration tests (@app/backend-worker, testcontainers)
         shell: bash
@@ -285,12 +362,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
+      OPENBAO_ADDR: '${{ secrets.OPENBAO_ADDR }}'
+      OPENBAO_CICD_ROLE_ID: '${{ secrets.OPENBAO_CICD_ROLE_ID }}'
+      OPENBAO_CICD_SECRET_ID: '${{ secrets.OPENBAO_CICD_SECRET_ID }}'
       DATABASE_TESTS_WITH_CONTAINERS: '1'
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: OpenBao login (AppRole)
+        env:
+          OPENBAO_ADDR: ${{ secrets.OPENBAO_ADDR }}
+          OPENBAO_CICD_ROLE_ID: ${{ secrets.OPENBAO_CICD_ROLE_ID }}
+          OPENBAO_CICD_SECRET_ID: ${{ secrets.OPENBAO_CICD_SECRET_ID }}
+        run: python3 .github/scripts/openbao_ci_login.py
+
+      - name: Export registry tokens from OpenBao
+        env:
+          OPENBAO_ADDR: ${{ secrets.OPENBAO_ADDR }}
+        run: python3 .github/scripts/openbao_ci_export_registry_tokens.py
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -303,10 +394,16 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
+      - name: Configure BullMQ Pro registry auth
+        shell: bash
+        run: |
+          {
+            echo "@taskforcesh:registry=https://npm.taskforce.sh/"
+            echo "//npm.taskforce.sh/:_authToken=${NPM_TASKFORCESH_TOKEN}"
+          } >> ~/.npmrc
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-        env:
-          NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
 
       - name: Run schema tests (@app/database, testcontainers)
         run: pnpm --filter @app/database test:db
