@@ -151,6 +151,10 @@ async function run(): Promise<void> {
     await ensureTrackingTableAccess(client);
     await bootstrapMigrationTracking(client, migrationsFolder);
 
+    // Run migrations as neanelu_app so new objects (tables, indexes) are
+    // owned by the stable group role, not by the ephemeral dynamic user.
+    await client.query('SET ROLE neanelu_app');
+
     const db = drizzle(client);
     await migrate(db, { migrationsFolder, migrationsSchema: MIGRATIONS_SCHEMA });
   } finally {
