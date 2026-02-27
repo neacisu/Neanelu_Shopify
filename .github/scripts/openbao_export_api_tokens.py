@@ -14,8 +14,15 @@ def die(msg: str) -> None:
     raise SystemExit(2)
 
 
+def clean_secret(raw: str) -> str:
+    value = raw.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        value = value[1:-1].strip()
+    return value
+
+
 def normalize_openbao_addr(raw: str) -> str:
-    addr = raw.strip().rstrip("/")
+    addr = clean_secret(raw).rstrip("/")
     if addr.endswith("/v1"):
         addr = addr[:-3]
     return addr.rstrip("/")
@@ -41,7 +48,7 @@ def write_env(key: str, value: str) -> None:
 
 def main() -> int:
     bao = normalize_openbao_addr(os.environ.get("OPENBAO_ADDR") or "")
-    token = (os.environ.get("OPENBAO_TOKEN") or "").strip()
+    token = clean_secret(os.environ.get("OPENBAO_TOKEN") or "")
     if not bao:
         die("OPENBAO_ADDR missing")
     if not token:

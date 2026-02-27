@@ -111,6 +111,9 @@ def main() -> int:
     }
 
     for role, role_policies in roles.items():
+        # CI/CD runner is local infrastructure (CT108) — secret_id never expires.
+        # Agent-based roles use 168h TTL because agents auto-renew via file-based AppRole.
+        sid_ttl = "0" if role == "neanelu-cicd" else "168h"
         req_json(
             "POST",
             f"{bao_addr}/v1/auth/approle/role/{role}",
@@ -121,11 +124,11 @@ def main() -> int:
                 "token_max_ttl": "72h",
                 "token_num_uses": 0,
                 "secret_id_num_uses": 0,
-                "secret_id_ttl": "168h",
+                "secret_id_ttl": sid_ttl,
                 "bind_secret_id": True,
             },
         )
-        print("approle_written", role)
+        print("approle_written", role, f"(secret_id_ttl={sid_ttl})")
 
         role_id_resp = req_json("GET", f"{bao_addr}/v1/auth/approle/role/{role}/role-id", token)
         role_id = (role_id_resp.get("data") or {}).get("role_id")

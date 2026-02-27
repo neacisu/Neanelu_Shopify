@@ -28,6 +28,14 @@ def normalize_openbao_addr(raw: str) -> str:
     return addr.rstrip("/")
 
 
+def read_token_from_file(path: str) -> str:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return clean_secret(f.read())
+    except OSError:
+        return ""
+
+
 def req_json(method: str, url: str, payload: dict | None = None, token: str | None = None) -> dict:
     body = None
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
@@ -73,12 +81,22 @@ def main() -> int:
     bao = normalize_openbao_addr(os.environ.get("OPENBAO_ADDR") or "")
     rid = clean_secret(os.environ.get("OPENBAO_CICD_ROLE_ID") or "")
     sid = clean_secret(os.environ.get("OPENBAO_CICD_SECRET_ID") or "")
+    token_env = clean_secret(os.environ.get("OPENBAO_TOKEN") or "")
+    token_file = clean_secret(os.environ.get("OPENBAO_TOKEN_FILE") or "/run/openbao/token")
     if not bao:
         die("OPENBAO_ADDR missing")
+
+    # Prefer already-issued OpenBao token (from agent/env), then fallback to AppRole login.
+    existing_token = token_env or read_token_from_file(token_file)
+    if existing_token:
+        add_mask(existing_token)
+        write_env("OPENBAO_TOKEN", existing_token)
+        return 0
+
     if not rid:
-        die("OPENBAO_CICD_ROLE_ID missing")
+        die("OPENBAO_CICD_ROLE_ID missing (and no OPENBAO_TOKEN/token file available)")
     if not sid:
-        die("OPENBAO_CICD_SECRET_ID missing")
+        die("OPENBAO_CICD_SECRET_ID missing (and no OPENBAO_TOKEN/token file available)")
 
     # Login via AppRole
     resp = req_json(

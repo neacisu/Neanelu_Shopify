@@ -13,8 +13,15 @@ def die(msg: str) -> None:
     raise SystemExit(2)
 
 
+def clean_secret(raw: str) -> str:
+    value = raw.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        value = value[1:-1].strip()
+    return value
+
+
 def normalize_openbao_addr(raw: str) -> str:
-    addr = raw.strip().rstrip("/")
+    addr = clean_secret(raw).rstrip("/")
     if addr.endswith("/v1"):
         addr = addr[:-3]
     return addr.rstrip("/")
@@ -40,9 +47,9 @@ def req_json(url: str, token: str) -> dict:
 
 def main() -> int:
     bao = normalize_openbao_addr(os.environ.get("OPENBAO_ADDR") or "")
-    token = (os.environ.get("OPENBAO_TOKEN") or "").strip()
-    path = (os.environ.get("OPENBAO_DB_CREDS_PATH") or "").strip().lstrip("/")
-    prefix = (os.environ.get("OPENBAO_DB_ENV_PREFIX") or "DB").strip()
+    token = clean_secret(os.environ.get("OPENBAO_TOKEN") or "")
+    path = clean_secret(os.environ.get("OPENBAO_DB_CREDS_PATH") or "").lstrip("/")
+    prefix = clean_secret(os.environ.get("OPENBAO_DB_ENV_PREFIX") or "DB")
     if not bao:
         die("OPENBAO_ADDR missing")
     if not token:
