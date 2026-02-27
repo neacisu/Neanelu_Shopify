@@ -148,41 +148,50 @@ jobs:
             pnpm install --frozen-lockfile --force
           }
 
-      - name: Fetch OpenBao dynamic DB creds
+      - name: OpenBao login (AppRole)
         shell: bash
         env:
           OPENBAO_CICD_ROLE_ID: '${{ secrets.OPENBAO_CICD_ROLE_ID }}'
           OPENBAO_CICD_SECRET_ID: '${{ secrets.OPENBAO_CICD_SECRET_ID }}'
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import json, os, urllib.request
-          bao = os.environ['OPENBAO_ADDR'].rstrip('/')
-          rid = os.environ['OPENBAO_CICD_ROLE_ID'].strip()
-          sid = os.environ['OPENBAO_CICD_SECRET_ID'].strip()
-          target = os.environ['TARGET_ENV']
-          role = 'neanelu-staging-dynamic' if target == 'staging' else 'neanelu-prod-dynamic'
-          db = 'neanelu_shopify_staging' if target == 'staging' else 'neanelu_shopify'
-          req = urllib.request.Request(
-              bao + '/v1/auth/approle/login', method='POST',
-              data=json.dumps({'role_id': rid, 'secret_id': sid}).encode(),
-              headers={'Content-Type': 'application/json'})
-          with urllib.request.urlopen(req, timeout=20) as r:
-              tok = json.loads(r.read())['auth']['client_token']
-          req = urllib.request.Request(
-              f"{bao}/v1/neanelu-db/creds/{role}",
-              headers={'X-Vault-Token': tok})
-          with urllib.request.urlopen(req, timeout=20) as r:
-              data = json.loads(r.read())['data']
-          u, p = data['username'], data['password']
-          url = f"postgresql://{u}:{p}@10.0.1.107:5432/{db}"
-          with open(os.environ['GITHUB_ENV'], 'a') as f:
-              f.write(f'MIGRATION_DATABASE_URL={url}\n')
-              f.write(f'DATABASE_URL={url}\n')
-              f.write(f'DB_USER={u}\n')
-              f.write(f'DB_PASS={p}\n')
-              f.write(f'DB_NAME={db}\n')
-          PY
+          for attempt in 1 2 3; do
+            if python3 .github/scripts/openbao_ci_login.py; then
+              exit 0
+            fi
+            if [[ "$attempt" -lt 3 ]]; then
+              echo "OpenBao login failed (attempt ${attempt}), retrying..."
+              sleep 2
+            fi
+          done
+          echo "OpenBao login failed after 3 attempts" >&2
+          exit 1
+
+      - name: Fetch OpenBao dynamic DB creds
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${TARGET_ENV}" == "staging" ]]; then
+            role="neanelu-staging-dynamic"
+            db_name="neanelu_shopify_staging"
+          else
+            role="neanelu-prod-dynamic"
+            db_name="neanelu_shopify"
+          fi
+          echo "OPENBAO_DB_CREDS_PATH=neanelu-db/creds/${role}" >> "$GITHUB_ENV"
+          echo "DB_NAME=${db_name}" >> "$GITHUB_ENV"
+          echo "DB_HOST=10.0.1.107" >> "$GITHUB_ENV"
+          echo "DB_PORT=5432" >> "$GITHUB_ENV"
+
+          python3 .github/scripts/openbao_db_creds.py
+
+      - name: Compose migration database URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          db_url="postgresql://${DB_USER}:${DB_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
+          echo "MIGRATION_DATABASE_URL=${db_url}" >> "$GITHUB_ENV"
+          echo "DATABASE_URL=${db_url}" >> "$GITHUB_ENV"
 
       - name: Setup SSH key (CT107)
         run: |
