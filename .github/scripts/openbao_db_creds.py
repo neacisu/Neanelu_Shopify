@@ -13,6 +13,13 @@ def die(msg: str) -> None:
     raise SystemExit(2)
 
 
+def normalize_openbao_addr(raw: str) -> str:
+    addr = raw.strip().rstrip("/")
+    if addr.endswith("/v1"):
+        addr = addr[:-3]
+    return addr.rstrip("/")
+
+
 def add_mask(v: str) -> None:
     print(f"::add-mask::{v}")
 
@@ -32,7 +39,7 @@ def req_json(url: str, token: str) -> dict:
 
 
 def main() -> int:
-    bao = (os.environ.get("OPENBAO_ADDR") or "").rstrip("/")
+    bao = normalize_openbao_addr(os.environ.get("OPENBAO_ADDR") or "")
     token = (os.environ.get("OPENBAO_TOKEN") or "").strip()
     path = (os.environ.get("OPENBAO_DB_CREDS_PATH") or "").strip().lstrip("/")
     prefix = (os.environ.get("OPENBAO_DB_ENV_PREFIX") or "DB").strip()

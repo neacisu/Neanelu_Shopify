@@ -14,6 +14,13 @@ def die(msg: str) -> None:
     raise SystemExit(2)
 
 
+def normalize_openbao_addr(raw: str) -> str:
+    addr = raw.strip().rstrip("/")
+    if addr.endswith("/v1"):
+        addr = addr[:-3]
+    return addr.rstrip("/")
+
+
 def req_json(url: str, token: str) -> dict:
     req = urllib.request.Request(url, headers={"X-Vault-Token": token, "Accept": "application/json"})
     with urllib.request.urlopen(req, timeout=20) as r:
@@ -33,7 +40,7 @@ def write_env(key: str, value: str) -> None:
 
 
 def main() -> int:
-    bao = (os.environ.get("OPENBAO_ADDR") or "").rstrip("/")
+    bao = normalize_openbao_addr(os.environ.get("OPENBAO_ADDR") or "")
     token = (os.environ.get("OPENBAO_TOKEN") or "").strip()
     if not bao:
         die("OPENBAO_ADDR missing")

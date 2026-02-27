@@ -13,6 +13,13 @@ def die(msg: str) -> None:
     raise SystemExit(2)
 
 
+def normalize_openbao_addr(raw: str) -> str:
+    addr = raw.strip().rstrip("/")
+    if addr.endswith("/v1"):
+        addr = addr[:-3]
+    return addr.rstrip("/")
+
+
 def req_json(method: str, url: str, payload: dict | None = None, token: str | None = None) -> dict:
     body = None
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
@@ -43,7 +50,7 @@ def add_mask(v: str) -> None:
 
 
 def main() -> int:
-    bao = (os.environ.get("OPENBAO_ADDR") or "").rstrip("/")
+    bao = normalize_openbao_addr(os.environ.get("OPENBAO_ADDR") or "")
     rid = (os.environ.get("OPENBAO_CICD_ROLE_ID") or "").strip()
     sid = (os.environ.get("OPENBAO_CICD_SECRET_ID") or "").strip()
     if not bao:
