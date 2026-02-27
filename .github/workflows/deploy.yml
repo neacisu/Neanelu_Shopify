@@ -201,7 +201,7 @@ jobs:
           sha256sum "${dump}" > "${dump}.sha256"
           ls -lh "${dump}"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: predeploy-backup-${{ env.TARGET_ENV }}-${{ github.sha }}
           path: predeploy-backup/*
@@ -323,7 +323,7 @@ jobs:
             -i ~/.ssh/deploy_key "deploy@${HOST}" \
             "bash /opt/neanelu/infra/scripts/post-deploy-cleanup.sh"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: postdeploy-http-${{ env.TARGET_ENV }}-${{ github.sha }}
           path: postdeploy-http-*.txt
