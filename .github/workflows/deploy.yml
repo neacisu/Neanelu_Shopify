@@ -232,7 +232,7 @@ jobs:
           retention-days: 14
 
       - name: Run migrations
-        run: pnpm db:migrate
+        run: pnpm --filter @app/database db:migrate
 
   # ── Deploy to target LXC ────────────────────────────────
   deploy:
