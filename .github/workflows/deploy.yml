@@ -178,12 +178,18 @@ jobs:
             role="neanelu-prod-dynamic"
             db_name="neanelu_shopify"
           fi
-          echo "OPENBAO_DB_CREDS_PATH=neanelu-db/creds/${role}" >> "$GITHUB_ENV"
-          echo "DB_NAME=${db_name}" >> "$GITHUB_ENV"
-          echo "DB_HOST=10.0.1.107" >> "$GITHUB_ENV"
-          echo "DB_PORT=5432" >> "$GITHUB_ENV"
+
+          export OPENBAO_DB_CREDS_PATH="neanelu-db/creds/${role}"
+          export DB_NAME="${db_name}"
+          export DB_HOST="10.0.1.107"
+          export DB_PORT="5432"
 
           python3 .github/scripts/openbao_db_creds.py
+
+          echo "OPENBAO_DB_CREDS_PATH=${OPENBAO_DB_CREDS_PATH}" >> "$GITHUB_ENV"
+          echo "DB_NAME=${DB_NAME}" >> "$GITHUB_ENV"
+          echo "DB_HOST=${DB_HOST}" >> "$GITHUB_ENV"
+          echo "DB_PORT=${DB_PORT}" >> "$GITHUB_ENV"
 
       - name: Compose migration database URL
         shell: bash
