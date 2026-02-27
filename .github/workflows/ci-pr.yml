@@ -940,7 +940,7 @@ jobs:
       always() &&
       github.event_name == 'push' &&
       github.actor != 'dependabot[bot]' &&
-      github.ref_name == 'develop' &&
+      github.ref_name != 'main' &&
       needs.ci-status.result == 'success'
     needs: [ci-status]
     uses: ./.github/workflows/deploy.yml
