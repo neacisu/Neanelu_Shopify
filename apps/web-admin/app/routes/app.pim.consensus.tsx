@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { Button } from '../components/ui/button';
+import { InfoTooltip } from '../components/ui/info-tooltip';
 import { Tabs } from '../components/ui/tabs';
 import { ConsensusStatsCards } from '../components/domain/ConsensusStatsCards';
 import { ConsensusProductsTable } from '../components/domain/ConsensusProductsTable';
@@ -118,24 +119,40 @@ export default function PimConsensusPage() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <ConsensusSourcesChart data={sourcesChartData} />
-        <div className="rounded-lg border border-muted/20 bg-background p-4">
-          <div className="mb-2 text-xs text-muted">Evenimente consensus in timp real</div>
-          <div className="max-h-64 space-y-2 overflow-y-auto text-xs text-muted">
+        <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60">
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+            Evenimente consens în timp real
+            <InfoTooltip title="Evenimente consens">
+              Fluxul de evenimente în timp real arată acțiunile de consens pe măsură ce apar. De ce
+              contează: poți urmări instant recalculări și rezolvări de conflicte. Exemplu: un
+              eveniment „consensus.computed" confirmă actualizarea datelor. Sfat: verifică
+              evenimentele după ce rulezi o recalculare.
+            </InfoTooltip>
+          </div>
+          <div className="max-h-64 space-y-2 overflow-y-auto text-xs text-slate-500 dark:text-slate-400">
             {stream.events.slice(0, 10).map((event, idx) => (
               <div key={`${event.type}-${idx}`} className="flex flex-col gap-1">
-                <span className="font-medium text-foreground">{event.type}</span>
+                <span className="font-medium text-slate-800 dark:text-slate-100">{event.type}</span>
                 {event.payload ? (
-                  <span className="text-[11px] text-muted">
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
                     {JSON.stringify(event.payload).slice(0, 120)}
                   </span>
                 ) : null}
               </div>
             ))}
-            {stream.events.length === 0 ? <div>Nu exista evenimente inca.</div> : null}
+            {stream.events.length === 0 ? <div>Nu există evenimente încă.</div> : null}
           </div>
         </div>
-        <div className="rounded-lg border border-muted/20 bg-background p-4">
-          <div className="mb-2 text-xs text-muted">Distributie conflicte</div>
+        <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60">
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+            Distribuție conflicte
+            <InfoTooltip title="Distribuție conflicte">
+              Graficul arată proporția produselor cu conflicte, calcul finalizat și cele în
+              așteptare. De ce contează: un procent mare de conflicte indică surse cu date
+              inconsistente. Exemplu: 30% conflicte = o treime din produse au valori contradictorii.
+              Sfat: rezolvă conflictele din tabul „Conflicte".
+            </InfoTooltip>
+          </div>
           <DonutChart data={conflictDistribution} height={220} showLegend />
         </div>
       </div>

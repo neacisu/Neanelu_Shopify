@@ -3,9 +3,18 @@ import { useMemo } from 'react';
 import { ChevronDown, ChevronUp, RotateCw, ScrollText } from 'lucide-react';
 
 import { Button } from '../ui/button';
+import { InfoTooltip } from '../ui/info-tooltip';
 import { PolarisBadge, PolarisSelect } from '../../../components/polaris/index.js';
 
-export type IngestionRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type IngestionRunStatus =
+  | 'pending'
+  | 'running'
+  | 'polling'
+  | 'downloading'
+  | 'processing'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
 
 export type IngestionRunRow = Readonly<{
   id: string;
@@ -46,7 +55,7 @@ function formatDate(value?: string | null): string {
   if (!value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString('en-GB', {
+  return date.toLocaleString('ro-RO', {
     year: 'numeric',
     month: 'short',
     day: '2-digit',
@@ -110,22 +119,22 @@ export function IngestionHistoryTable(props: IngestionHistoryTableProps) {
 
   const statusOptions = useMemo(
     () => [
-      { label: 'All', value: 'all' },
-      { label: 'Pending', value: 'pending' },
-      { label: 'Running', value: 'running' },
-      { label: 'Completed', value: 'completed' },
-      { label: 'Failed', value: 'failed' },
-      { label: 'Cancelled', value: 'cancelled' },
+      { label: 'Toate', value: 'all' },
+      { label: 'În așteptare', value: 'pending' },
+      { label: 'În curs', value: 'running' },
+      { label: 'Finalizate', value: 'completed' },
+      { label: 'Eșuate', value: 'failed' },
+      { label: 'Anulate', value: 'cancelled' },
     ],
     []
   );
 
   const columns = [
     { key: 'startedAt', label: 'Start' },
-    { key: 'duration', label: 'Duration' },
-    { key: 'records', label: 'Records' },
+    { key: 'duration', label: 'Durată' },
+    { key: 'records', label: 'Înregistrări' },
     { key: 'status', label: 'Status' },
-    { key: 'errors', label: 'Errors' },
+    { key: 'errors', label: 'Erori' },
   ];
 
   const sortIndicator = (key: string) => {
@@ -148,13 +157,22 @@ export function IngestionHistoryTable(props: IngestionHistoryTableProps) {
             onChange={(e) => onStatusChange((e.target as HTMLSelectElement).value)}
           />
         </div>
-        <div className="text-caption text-muted">{loading ? 'Loading…' : `${total} runs`}</div>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="text-caption text-muted">
+            {loading ? 'Se încarcă…' : `${total} rulări`}
+          </span>
+          <InfoTooltip title="Istoric ingestie" side="bottom" maxWidth={360}>
+            Lista tuturor rulărilor de sincronizare. Poți filtra după status, sorta și deschide
+            detaliile erorilor. Butonul „Logs" te duce la consola de loguri pentru rularea
+            selectată.
+          </InfoTooltip>
+        </span>
       </div>
 
-      <div className="overflow-auto rounded-md border">
+      <div className="overflow-auto rounded-md border dark:border-slate-700">
         <table className="w-full border-collapse text-sm">
-          <thead className="bg-muted/20">
-            <tr>
+          <thead className="bg-muted/20 dark:bg-slate-800/80 sticky top-0 z-10">
+            <tr className="dark:border-slate-700">
               {columns.map((col) => (
                 <th key={col.key} className="px-3 py-2 text-left">
                   <button
@@ -167,20 +185,24 @@ export function IngestionHistoryTable(props: IngestionHistoryTableProps) {
                   </button>
                 </th>
               ))}
-              <th className="px-3 py-2 text-left">Actions</th>
+              <th className="px-3 py-2 text-left">Acțiuni</th>
             </tr>
           </thead>
           <tbody>
             {runs.length === 0 ? (
               <tr>
                 <td colSpan={columns.length + 1} className="px-3 py-6 text-center text-muted">
-                  No ingestion runs yet.
+                  Nu există încă rulări de ingestie.
                 </td>
               </tr>
             ) : (
-              runs.flatMap((run) => {
+              runs.flatMap((run, idx) => {
                 const rows = [
-                  <tr key={run.id} className="border-b last:border-b-0">
+                  <tr
+                    key={run.id}
+                    className="border-b last:border-b-0 transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/60 dark:border-slate-700/60 motion-safe:animate-[fadeSlideUp_0.3s_ease-out_both]"
+                    style={{ animationDelay: `${idx * 50}ms` }}
+                  >
                     <td className="px-3 py-2 font-mono text-xs">
                       {formatDate(run.startedAt ?? run.createdAt)}
                     </td>
@@ -211,12 +233,12 @@ export function IngestionHistoryTable(props: IngestionHistoryTableProps) {
                       <div className="flex flex-wrap items-center gap-2">
                         <Button variant="ghost" size="sm" onClick={() => onViewLogs(run.id)}>
                           <ScrollText className="size-4" />
-                          Logs
+                          Loguri
                         </Button>
-                        {run.status === 'failed' ? (
+                        {run.status === 'failed' || run.status === 'polling' ? (
                           <Button variant="secondary" size="sm" onClick={() => onRetry(run.id)}>
                             <RotateCw className="size-4" />
-                            Retry
+                            Reîncearcă
                           </Button>
                         ) : null}
                       </div>
@@ -252,7 +274,7 @@ export function IngestionHistoryTable(props: IngestionHistoryTableProps) {
             disabled={page <= 0}
             onClick={() => onPageChange(Math.max(0, page - 1))}
           >
-            Previous
+            Anterior
           </Button>
           <Button
             variant="secondary"
@@ -260,7 +282,7 @@ export function IngestionHistoryTable(props: IngestionHistoryTableProps) {
             disabled={page + 1 >= pageCount}
             onClick={() => onPageChange(Math.min(pageCount - 1, page + 1))}
           >
-            Next
+            Următorul
           </Button>
         </div>
       </div>

@@ -4,6 +4,7 @@ import { useLocation } from 'react-router-dom';
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { PageHeader } from '../components/layout/page-header';
 import { FileUpload } from '../components/ui/FileUpload';
+import { InfoTooltip } from '../components/ui/info-tooltip';
 import { useApiClient } from '../hooks/use-api';
 
 type ImportJob = Readonly<{
@@ -30,9 +31,9 @@ export default function ProductsImportPage() {
 
   const breadcrumbs = useMemo(
     () => [
-      { label: 'Home', href: '/' },
-      { label: 'Products', href: '/products' },
-      { label: 'Import', href: location.pathname },
+      { label: 'Acasă', href: '/' },
+      { label: 'Produse', href: '/products' },
+      { label: 'Importare', href: location.pathname },
     ],
     [location.pathname]
   );
@@ -60,12 +61,23 @@ export default function ProductsImportPage() {
   }, [api, job, polling]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 dark:text-slate-100">
       <Breadcrumbs items={breadcrumbs} />
-      <PageHeader title="Import Products" description="Upload CSV or JSON files for bulk import." />
+      <PageHeader
+        title="Import produse"
+        description="Încarcă fișiere CSV sau JSON pentru import în masă."
+      />
 
-      <section className="rounded-lg border bg-background p-4">
-        <div className="text-sm font-semibold">Step 1: Upload file</div>
+      <section className="rounded-lg border border-border dark:border-slate-700 bg-white dark:bg-slate-900/80 p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-sm)]">
+        <div className="flex items-center gap-1">
+          <span className="text-sm font-semibold dark:text-slate-100">
+            Pasul 1: Încarcă fișierul
+          </span>
+          <InfoTooltip title="Format fișier">
+            CSV: coloane title, sku, vendor, price etc. JSON/JSONL: array de obiecte produs. Max 50
+            MB.
+          </InfoTooltip>
+        </div>
         <FileUpload
           maxFiles={1}
           accept={{
@@ -100,76 +112,102 @@ export default function ProductsImportPage() {
         />
       </section>
 
-      <section className="rounded-lg border bg-background p-4">
-        <div className="text-sm font-semibold">Step 2: Preview & Validation</div>
+      <section className="rounded-lg border border-border dark:border-slate-700 bg-white dark:bg-slate-900/80 p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-sm)]">
+        <div className="flex items-center gap-1">
+          <span className="text-sm font-semibold dark:text-slate-100">
+            Pasul 2: Previzualizare și validare
+          </span>
+          <InfoTooltip title="Validare">
+            Verifică erorile pe rând înainte de import. Rândurile cu erori pot fi omise dacă „Omite
+            erori” este bifat.
+          </InfoTooltip>
+        </div>
         {job ? (
           <div className="mt-3 space-y-2 text-sm">
-            <div>Status: {job.status}</div>
+            <div>
+              Status:{' '}
+              {job.status === 'queued'
+                ? 'În coadă'
+                : job.status === 'processing'
+                  ? 'Se procesează'
+                  : job.status === 'completed'
+                    ? 'Finalizat'
+                    : job.status === 'failed'
+                      ? 'Eșuat'
+                      : job.status}
+            </div>
             {job.summary ? (
               <div>
-                Parsed: {job.summary.total} | Valid: {job.summary.valid} | Errors:{' '}
+                Parse: {job.summary.total} | Valide: {job.summary.valid} | Erori:{' '}
                 {job.summary.errors}
               </div>
             ) : null}
             {job.errors?.length ? (
-              <div className="rounded-md border bg-muted/10 p-3 text-xs">
+              <div className="rounded-md border border-border dark:border-slate-700 bg-muted/10 dark:bg-slate-800/50 p-3 text-xs dark:text-slate-300">
                 {job.errors.slice(0, 5).map((err) => (
                   <div key={`${err.row}-${err.message}`}>
-                    Row {err.row}: {err.message}
+                    Rând {err.row}: {err.message}
                   </div>
                 ))}
               </div>
             ) : null}
             {job.previewRows?.length ? (
-              <div className="overflow-hidden rounded-md border">
-                <div className="grid grid-cols-4 gap-2 border-b bg-muted/10 px-3 py-2 text-xs font-semibold">
-                  <div>Row</div>
-                  <div>Title</div>
+              <div className="overflow-hidden rounded-md border border-border dark:border-slate-700">
+                <div className="grid grid-cols-4 gap-2 border-b border-border dark:border-slate-700 bg-muted/10 dark:bg-slate-800/50 px-3 py-2 text-xs font-semibold dark:text-slate-300">
+                  <div>Rând</div>
+                  <div>Titlu</div>
                   <div>SKU</div>
                   <div>Status</div>
                 </div>
                 {job.previewRows.map((row) => (
                   <div
                     key={`${row.row}-${row.error ?? 'ok'}`}
-                    className={`grid grid-cols-4 gap-2 px-3 py-2 text-xs ${
-                      row.error ? 'bg-red-50 text-red-700' : ''
+                    className={`grid grid-cols-4 gap-2 px-3 py-2 text-xs transition-colors ${
+                      row.error ? 'bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300' : ''
                     }`}
                   >
                     <div>{row.row}</div>
                     <div>{row.data['title'] ?? '-'}</div>
                     <div>{row.data['sku'] ?? '-'}</div>
-                    <div>{row.error ? `Error: ${row.error}` : 'OK'}</div>
+                    <div>{row.error ? `Eroare: ${row.error}` : 'OK'}</div>
                   </div>
                 ))}
               </div>
             ) : null}
-            {job.error ? <div className="text-xs text-red-600">{job.error}</div> : null}
+            {job.error ? <div className="text-xs text-error">{job.error}</div> : null}
           </div>
         ) : (
-          <div className="mt-2 text-xs text-muted">Upload a file to see validation results.</div>
+          <div className="mt-2 text-xs text-muted dark:text-slate-400">
+            Încarcă un fișier pentru a vedea rezultatele validării.
+          </div>
         )}
       </section>
 
-      <section className="rounded-lg border bg-background p-4">
-        <div className="text-sm font-semibold">Step 3: Options</div>
-        <div className="mt-2 space-y-2 text-xs text-muted">
-          <label className="flex items-center gap-2">
+      <section className="rounded-lg border border-border dark:border-slate-700 bg-white dark:bg-slate-900/80 p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-sm)]">
+        <div className="flex items-center gap-1">
+          <span className="text-sm font-semibold dark:text-slate-100">Pasul 3: Opțiuni</span>
+          <InfoTooltip title="Opțiuni import">
+            Opțiunile se aplică la următorul upload. Dry run doar previzualizează, fără salvare.
+          </InfoTooltip>
+        </div>
+        <div className="mt-2 space-y-2 text-xs text-muted dark:text-slate-400">
+          <label className="flex cursor-pointer items-center gap-2 transition-colors hover:text-foreground dark:hover:text-slate-200">
             <input
               type="checkbox"
               checked={options.dryRun}
               onChange={(e) => setOptions((prev) => ({ ...prev, dryRun: e.target.checked }))}
             />
-            Dry run (preview only)
+            Dry run (doar previzualizare)
           </label>
-          <label className="flex items-center gap-2">
+          <label className="flex cursor-pointer items-center gap-2 transition-colors hover:text-foreground dark:hover:text-slate-200">
             <input
               type="checkbox"
               checked={options.skipErrors}
               onChange={(e) => setOptions((prev) => ({ ...prev, skipErrors: e.target.checked }))}
             />
-            Skip rows with errors
+            Omite rândurile cu erori
           </label>
-          <label className="flex items-center gap-2">
+          <label className="flex cursor-pointer items-center gap-2 transition-colors hover:text-foreground dark:hover:text-slate-200">
             <input
               type="checkbox"
               checked={options.updateExisting}
@@ -177,9 +215,9 @@ export default function ProductsImportPage() {
                 setOptions((prev) => ({ ...prev, updateExisting: e.target.checked }))
               }
             />
-            Update existing products
+            Actualizează produsele existente
           </label>
-          <label className="flex items-center gap-2">
+          <label className="flex cursor-pointer items-center gap-2 transition-colors hover:text-foreground dark:hover:text-slate-200">
             <input
               type="checkbox"
               checked={options.triggerEnrichment}
@@ -187,9 +225,11 @@ export default function ProductsImportPage() {
                 setOptions((prev) => ({ ...prev, triggerEnrichment: e.target.checked }))
               }
             />
-            Trigger enrichment for new products
+            Pornește îmbogățirea pentru produse noi
           </label>
-          <div className="text-xs text-muted">Options apply to the next upload.</div>
+          <div className="text-xs text-muted dark:text-slate-500">
+            Opțiunile se aplică la următorul upload.
+          </div>
         </div>
       </section>
     </div>

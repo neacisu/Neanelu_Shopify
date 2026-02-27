@@ -1,6 +1,6 @@
 import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
-import { createClient } from 'redis';
+import { createRedisConnection } from '@app/queue-manager';
 
 interface QueueConfigMessage {
   queueName: string;
@@ -40,24 +40,33 @@ function applyConcurrency(worker: WorkerLike, value: number): boolean {
   return false;
 }
 
-type RedisClient = ReturnType<typeof createClient>;
+type RedisClient = ReturnType<typeof createRedisConnection>;
 
 export async function startQueueConfigListener(
   env: AppEnv,
   logger: Logger,
   registry: QueueWorkerRegistry
 ): Promise<RedisClient> {
-  const redis = createClient({ url: env.redisUrl });
+  const redis = createRedisConnection({
+    redisUrl: env.redisUrl,
+    redisOptions: {
+      // Keep pub/sub connections stable behind proxies/NAT.
+      keepAlive: 30_000,
+      connectionName: 'queue-config-listener',
+      autoResubscribe: true,
+    },
+  });
   // Avoid Node.js "Unhandled 'error' event" crash loops when Redis disconnects.
   redis.on('error', (error: unknown) => {
     logger.warn({ error }, 'Redis error (queue config listener)');
   });
-  await redis.connect();
 
   // Namespace the pub/sub channel per environment to avoid cross-app collisions
   // and to match Redis ACL channel patterns (we allow &<prefix>*).
   const channel = `${env.bullmqPrefix}queue_config_changed`;
-  await redis.subscribe(channel, (message) => {
+  await redis.subscribe(channel);
+  redis.on('message', (incomingChannel, message) => {
+    if (incomingChannel !== channel) return;
     const parsed = safeJsonParse<QueueConfigMessage>(message);
     if (!parsed || typeof parsed.queueName !== 'string') return;
     const concurrency = parsed.config?.concurrency;

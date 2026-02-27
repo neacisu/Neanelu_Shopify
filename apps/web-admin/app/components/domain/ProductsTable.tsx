@@ -2,6 +2,7 @@ import type { ProductListItem } from '@app/types';
 import { useMemo, useState } from 'react';
 
 import { VirtualizedList } from '../ui/VirtualizedList';
+import { InfoTooltip } from '../ui/info-tooltip';
 import { QualityLevelBadge } from './QualityLevelBadge';
 import { SyncStatusBadge } from './SyncStatusBadge';
 
@@ -28,7 +29,7 @@ function formatRelativeDate(value: string | null): string {
   const diffMs = date.getTime() - Date.now();
   const diffMin = Math.round(diffMs / 60000);
   const absMin = Math.abs(diffMin);
-  const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+  const rtf = new Intl.RelativeTimeFormat('ro-RO', { numeric: 'auto' });
   if (absMin < 60) return rtf.format(diffMin, 'minute');
   const diffHours = Math.round(diffMin / 60);
   if (Math.abs(diffHours) < 24) return rtf.format(diffHours, 'hour');
@@ -81,22 +82,23 @@ export function ProductsTable({
   );
 
   return (
-    <div className="rounded-lg border bg-background">
+    <div className="rounded-lg border border-border bg-background dark:border-slate-700 dark:bg-slate-900">
       <div
-        className="relative grid items-center gap-3 border-b px-3 py-2 text-xs font-semibold text-muted"
+        className="relative grid items-center gap-3 border-b border-border dark:border-slate-700 px-3 py-2 text-xs font-semibold text-muted dark:text-slate-400 dark:bg-slate-800/50"
         style={{ gridTemplateColumns }}
       >
-        <label className="flex items-center justify-center">
+        <label className="flex cursor-pointer items-center justify-center">
           <input
             type="checkbox"
             checked={allSelected}
             onChange={(e) => onToggleAll(e.target.checked)}
+            aria-label="Selectează toate"
           />
         </label>
-        <span>Image</span>
+        <span>Imagine</span>
         <div className="relative">
           <button type="button" className="text-left" onClick={() => handleSort('title')}>
-            Title {sortBy === 'title' ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
+            Titlu {sortBy === 'title' ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
           </button>
           <span
             className="absolute right-0 top-0 h-full w-1 cursor-col-resize"
@@ -105,7 +107,7 @@ export function ProductsTable({
         </div>
         <div className="relative">
           <button type="button" className="text-left" onClick={() => handleSort('vendor')}>
-            Vendor {sortBy === 'vendor' ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
+            Vânzător {sortBy === 'vendor' ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
           </button>
           <span
             className="absolute right-0 top-0 h-full w-1 cursor-col-resize"
@@ -121,15 +123,22 @@ export function ProductsTable({
             onMouseDown={(event) => startResize(4, event.clientX)}
           />
         </div>
-        <div className="relative">
-          <span>Quality</span>
+        <div className="relative flex items-center gap-1">
+          <span>Calitate</span>
+          <InfoTooltip title="Nivel calitate">
+            Bronze = date minime, Silver = îmbogățite, Golden = complete. Influențează vizibilitatea
+            și promovarea.
+          </InfoTooltip>
           <span
             className="absolute right-0 top-0 h-full w-1 cursor-col-resize"
             onMouseDown={(event) => startResize(5, event.clientX)}
           />
         </div>
-        <div className="relative">
-          <span>Variants</span>
+        <div className="relative flex items-center gap-1">
+          <span>Variante</span>
+          <InfoTooltip title="Număr variante">
+            Numărul de combinații (mărime, culoare etc.) ale produsului.
+          </InfoTooltip>
           <span
             className="absolute right-0 top-0 h-full w-1 cursor-col-resize"
             onMouseDown={(event) => startResize(6, event.clientX)}
@@ -137,7 +146,7 @@ export function ProductsTable({
         </div>
         <div className="relative">
           <button type="button" className="text-left" onClick={() => handleSort('sync_status')}>
-            Sync Status {sortBy === 'sync_status' ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
+            Status sync {sortBy === 'sync_status' ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
           </button>
           <span
             className="absolute right-0 top-0 h-full w-1 cursor-col-resize"
@@ -146,7 +155,7 @@ export function ProductsTable({
         </div>
         <div className="relative">
           <button type="button" className="text-left" onClick={() => handleSort('synced_at')}>
-            Last Synced {sortBy === 'synced_at' ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
+            Ultima sync {sortBy === 'synced_at' ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
           </button>
           <span
             className="absolute right-0 top-0 h-full w-1 cursor-col-resize"
@@ -166,12 +175,14 @@ export function ProductsTable({
         hasMore={hasMore ?? false}
         className="max-h-[720px]"
         listClassName="relative"
-        itemClassName="border-b last:border-b-0"
-        emptyState={<div className="p-4 text-sm text-muted">No products found.</div>}
-        renderItem={(item) => (
+        itemClassName="border-b last:border-b-0 dark:border-slate-700/60"
+        emptyState={
+          <div className="p-4 text-sm text-muted dark:text-slate-400">Nu s-au găsit produse.</div>
+        }
+        renderItem={(item, index) => (
           <div
-            className="grid items-center gap-3 px-3 py-3 text-sm hover:bg-muted/10"
-            style={{ gridTemplateColumns }}
+            className="grid cursor-pointer items-center gap-3 px-3 py-3 text-sm transition-all duration-150 hover:bg-white/80 hover:backdrop-blur-sm dark:hover:bg-slate-800/80 dark:text-slate-200 motion-safe:animate-[fadeSlideUp_0.3s_ease-out_both]"
+            style={{ gridTemplateColumns, animationDelay: `${Math.min((index ?? 0) * 30, 300)}ms` }}
             role="row"
           >
             <label className="flex items-center justify-center">
@@ -184,7 +195,7 @@ export function ProductsTable({
             <button
               type="button"
               onClick={() => onRowClick(item.id)}
-              className="h-12 w-12 overflow-hidden rounded-md border bg-muted/20"
+              className="h-12 w-12 overflow-hidden rounded-md border dark:border-slate-700 bg-muted/20 dark:bg-slate-800"
             >
               {item.featuredImageUrl ? (
                 <img
@@ -194,24 +205,28 @@ export function ProductsTable({
                   loading="lazy"
                 />
               ) : (
-                <div className="flex h-full w-full items-center justify-center text-[10px] text-muted">
-                  No image
+                <div className="flex h-full w-full items-center justify-center text-[10px] text-muted dark:text-slate-500">
+                  Fără imagine
                 </div>
               )}
             </button>
             <button
               type="button"
               onClick={() => onRowClick(item.id)}
-              className="text-left font-medium text-foreground hover:underline"
+              className="text-left font-medium text-foreground dark:text-slate-100 hover:underline"
             >
               {item.title}
             </button>
-            <span className="text-sm text-muted">{item.vendor ?? '-'}</span>
-            <span className="text-xs uppercase text-muted">{item.status ?? '-'}</span>
+            <span className="text-sm text-muted dark:text-slate-400">{item.vendor ?? '-'}</span>
+            <span className="text-xs uppercase text-muted dark:text-slate-400">
+              {item.status ?? '-'}
+            </span>
             <QualityLevelBadge level={item.qualityLevel} />
-            <span className="text-sm text-muted">{item.variantsCount}</span>
+            <span className="text-sm text-muted dark:text-slate-400">{item.variantsCount}</span>
             <SyncStatusBadge status={item.syncStatus} lastSyncedAt={item.syncedAt} />
-            <span className="text-xs text-muted">{formatRelativeDate(item.syncedAt)}</span>
+            <span className="text-xs text-muted dark:text-slate-400">
+              {formatRelativeDate(item.syncedAt)}
+            </span>
           </div>
         )}
       />

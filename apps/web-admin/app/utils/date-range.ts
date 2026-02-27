@@ -41,7 +41,7 @@ export function formatDateRangeLabel(
   range: DateRange | undefined,
   opts: { timeZone: string }
 ): string {
-  if (!range?.from) return 'Select range';
+  if (!range?.from) return 'Selectează intervalul';
   const tz = opts.timeZone;
   const from = formatInTimeZone(range.from, tz, 'MMM d, yyyy');
   if (!range.to) return `${from} – …`;
@@ -68,17 +68,17 @@ export function getDateRangePresets(options: { now: Date; timeZone: string }): D
   return [
     {
       id: 'today',
-      label: 'Today',
+      label: 'Azi',
       range: { from: todayStart, to: todayEnd },
     },
     {
       id: 'last7',
-      label: 'Last 7 days',
+      label: 'Ultimele 7 zile',
       range: { from: startOfDay(last7From), to: todayEnd },
     },
     {
       id: 'thisMonth',
-      label: 'This month',
+      label: 'Luna curentă',
       range: { from: startOfDay(thisMonthFrom), to: endOfDay(thisMonthTo) },
     },
   ];

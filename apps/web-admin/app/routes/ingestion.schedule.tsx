@@ -189,8 +189,12 @@ export default function IngestionSchedulePage() {
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <Breadcrumbs items={breadcrumbs} />
-          <h1 className="text-2xl font-bold tracking-tight text-slate-800">Programare ingestie</h1>
-          <p className="text-sm text-slate-500">Planifică sincronizări automate cu Shopify</p>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-slate-100 motion-safe:animate-[fadeSlideUp_0.5s_ease-out_both]">
+            Programare ingestie
+          </h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 motion-safe:animate-[fadeSlideUp_0.5s_ease-out_0.1s_both]">
+            Planifică sincronizări automate cu Shopify
+          </p>
         </div>
       </header>
 

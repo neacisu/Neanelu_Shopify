@@ -65,7 +65,7 @@ describe('VirtualizedList', () => {
       />
     );
 
-    expect(screen.getByText('Loading…')).toBeInTheDocument();
+    expect(screen.getByText('Se încarcă…')).toBeInTheDocument();
   });
 
   it('renders empty state', () => {
@@ -78,7 +78,7 @@ describe('VirtualizedList', () => {
       />
     );
 
-    expect(screen.getByText('No items.')).toBeInTheDocument();
+    expect(screen.getByText('Niciun element.')).toBeInTheDocument();
   });
 
   it('renders at least the first item', async () => {

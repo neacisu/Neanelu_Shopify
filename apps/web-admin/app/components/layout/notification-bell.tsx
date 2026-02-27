@@ -4,6 +4,7 @@ import { Bell } from 'lucide-react';
 import { useApiClient } from '../../hooks/use-api';
 import { usePolling } from '../../hooks/use-polling';
 import { useEnrichmentStream } from '../../hooks/useEnrichmentStream';
+import { InfoTooltip } from '../ui/info-tooltip';
 
 type NotificationItem = Readonly<{
   id: string;
@@ -49,15 +50,22 @@ export function NotificationBell() {
 
   return (
     <div className="relative">
+      <div className="sr-only">
+        <InfoTooltip title="Notificări">
+          Aici vezi notificările importante din aplicație: alerte de sistem, finalizări de
+          sincronizare și evenimente de calitate a datelor. Dacă ai elemente necitite, numărul lor
+          apare ca badge pe iconiță.
+        </InfoTooltip>
+      </div>
       <button
         type="button"
-        className="relative inline-flex items-center rounded-md border border-muted/20 bg-background px-3 py-2 text-caption shadow-sm hover:bg-muted/10"
+        className="relative inline-flex items-center rounded-md border border-muted/20 bg-background px-3 py-2 text-caption shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-muted/10 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"
         onClick={() => {
           setOpen((prev) => !prev);
           void unread.refetch();
           void notifications.refetch();
         }}
-        aria-label="Notificari"
+        aria-label="Notificări"
       >
         <Bell className="h-4 w-4" />
         {unreadCount > 0 ? (
@@ -68,14 +76,14 @@ export function NotificationBell() {
       </button>
 
       {open ? (
-        <div className="absolute right-0 z-30 mt-2 w-[340px] rounded-md border border-muted/20 bg-background p-3 shadow-lg">
+        <div className="absolute right-0 z-30 mt-2 w-[340px] animate-[scale-in_180ms_ease-out] rounded-md border border-muted/20 bg-background p-3 shadow-lg dark:border-slate-700 dark:bg-slate-900">
           <div className="mb-2 flex items-center justify-between">
-            <div className="text-sm font-medium">Notificari</div>
+            <div className="text-sm font-medium dark:text-slate-100">Notificări</div>
             <button
               type="button"
-              className="text-xs text-primary"
+              className="text-xs text-primary dark:text-blue-400"
               onClick={() => {
-                void api.putApi<{ updated: number }, Record<string, never>>(
+                void api.postApi<{ updated: number }, Record<string, never>>(
                   '/pim/notifications/mark-all-read',
                   {}
                 );
@@ -83,19 +91,21 @@ export function NotificationBell() {
                 void notifications.refetch();
               }}
             >
-              Marcheaza toate ca citite
+              Marchează toate ca citite
             </button>
           </div>
           <div className="max-h-80 space-y-2 overflow-auto">
             {items.length === 0 ? (
-              <div className="text-sm text-muted">Nu exista notificari</div>
+              <div className="text-sm text-muted dark:text-slate-400">Nu există notificări</div>
             ) : null}
             {items.map((item) => (
               <button
                 key={item.id}
                 type="button"
-                className={`w-full rounded-md border p-2 text-left ${
-                  item.read ? 'border-muted/20' : 'border-primary/30 bg-primary/5'
+                className={`w-full rounded-md border p-2 text-left transition ${
+                  item.read
+                    ? 'border-muted/20 dark:border-slate-700'
+                    : 'border-primary/30 bg-primary/5 dark:border-blue-500/30 dark:bg-blue-900/10'
                 }`}
                 onClick={() => {
                   void api.putApi<{ updated: boolean }, Record<string, never>>(
@@ -106,9 +116,9 @@ export function NotificationBell() {
                   void notifications.refetch();
                 }}
               >
-                <div className="text-sm font-medium">{item.title}</div>
-                <div className="text-xs text-muted">
-                  {new Date(item.created_at).toLocaleString()}
+                <div className="text-sm font-medium dark:text-slate-100">{item.title}</div>
+                <div className="text-xs text-muted dark:text-slate-400">
+                  {new Date(item.created_at).toLocaleString('ro-RO')}
                 </div>
               </button>
             ))}

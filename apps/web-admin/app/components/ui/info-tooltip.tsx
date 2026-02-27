@@ -82,16 +82,34 @@ export function InfoTooltip({
     [clearCloseTimer]
   );
 
+  const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearOpenTimer = useCallback(() => {
+    if (openTimer.current) {
+      clearTimeout(openTimer.current);
+      openTimer.current = null;
+    }
+  }, []);
+
   const handleEnter = useCallback(() => {
     clearCloseTimer();
-    setOpen(true);
-  }, [clearCloseTimer]);
+    if (open) return;
+    clearOpenTimer();
+    openTimer.current = setTimeout(() => setOpen(true), 200);
+  }, [clearCloseTimer, clearOpenTimer, open]);
 
   const handleLeave = useCallback(() => {
+    clearOpenTimer();
     scheduleClose();
-  }, [scheduleClose]);
+  }, [clearOpenTimer, scheduleClose]);
 
-  useEffect(() => clearCloseTimer, [clearCloseTimer]);
+  useEffect(
+    () => () => {
+      clearCloseTimer();
+      clearOpenTimer();
+    },
+    [clearCloseTimer, clearOpenTimer]
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -234,8 +252,8 @@ export function InfoTooltip({
 
   const arrowVertical =
     side === 'top'
-      ? 'top-full border-t-gray-800 border-x-transparent border-b-transparent'
-      : 'bottom-full border-b-gray-800 border-x-transparent border-t-transparent';
+      ? 'top-full border-t-slate-800 border-x-transparent border-b-transparent'
+      : 'bottom-full border-b-slate-800 border-x-transparent border-t-transparent';
 
   const arrowHorizontal =
     align === 'start'
@@ -264,7 +282,7 @@ export function InfoTooltip({
           : { width: maxWidth, maxWidth }),
       }}
       className={`
-        rounded-lg bg-gray-800 px-4 py-3 text-left text-sm leading-relaxed text-gray-100
+        rounded-lg bg-slate-800 px-4 py-3 text-left text-sm leading-relaxed text-slate-100
         shadow-lg shadow-black/20 ring-1 ring-white/10
         transition-all duration-200 ease-out
         ${
@@ -278,8 +296,8 @@ export function InfoTooltip({
         <span
           className={`absolute left-0 h-0 w-0 border-[6px] border-x-transparent ${
             effectivePortalPos.effectiveSide === 'top'
-              ? 'border-t-gray-800 border-b-transparent'
-              : 'border-b-gray-800 border-t-transparent'
+              ? 'border-t-slate-800 border-b-transparent'
+              : 'border-b-slate-800 border-t-transparent'
           }`}
           style={{
             ...(effectivePortalPos.effectiveSide === 'bottom'
@@ -293,8 +311,10 @@ export function InfoTooltip({
         <span className={`absolute ${arrowVertical} ${arrowHorizontal} h-0 w-0 border-[6px]`} />
       )}
 
-      <div className="mb-1.5 text-[13px] font-semibold text-white">{title}</div>
-      <div className="text-[12.5px] leading-[1.6] text-gray-300">{children}</div>
+      <div className="mb-1.5 text-[13px] font-semibold text-white dark:text-slate-100">{title}</div>
+      <div className="text-[12.5px] leading-[1.6] text-slate-300 dark:text-slate-300">
+        {children}
+      </div>
     </div>
   );
 

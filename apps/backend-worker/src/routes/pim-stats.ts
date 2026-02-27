@@ -18,6 +18,7 @@ import {
   readCostSensitiveQueueStatus,
   resumeCostSensitiveQueues,
 } from '../processors/pim/cost-sensitive-queues.js';
+import { enqueuePimManualSyncJob } from '../queue/pim-manual-sync-queue.js';
 
 interface PimStatsPluginOptions {
   env: AppEnv;
@@ -2091,6 +2092,112 @@ export const pimStatsRoutes: FastifyPluginAsync<PimStatsPluginOptions> = (
           .status(500)
           .send(
             errorEnvelope(request.id, 500, 'INTERNAL_SERVER_ERROR', 'Failed to load unread count')
+          );
+      }
+    }
+  );
+
+  server.post(
+    '/pim/sync/run',
+    {
+      preHandler: [requireSession(sessionConfig)],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+
+      const body = (request.body ?? {}) as { bulkRunId?: unknown; limit?: unknown };
+      const requestedBulkRunId =
+        typeof body.bulkRunId === 'string' && body.bulkRunId.trim().length > 0
+          ? body.bulkRunId.trim()
+          : null;
+      const parsedLimit =
+        body.limit === undefined ? null : parseIntParam(body.limit, 100, 1, 500_000);
+
+      try {
+        const tenantShopId = await resolveTenantShopId(session as never, request);
+        if (!tenantShopId) {
+          return reply
+            .status(401)
+            .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+        }
+
+        const shopId = String(tenantShopId);
+        if (!looksLikeUuid(shopId)) {
+          return reply
+            .status(401)
+            .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+        }
+
+        const bulkRunId = await withTenantContext(shopId, async (client) => {
+          if (requestedBulkRunId) {
+            const result = await client.query<{ id: string }>(
+              `SELECT id
+               FROM bulk_runs
+               WHERE id = $1
+                 AND shop_id = $2
+               LIMIT 1`,
+              [requestedBulkRunId, shopId]
+            );
+            return result.rows[0]?.id ?? null;
+          }
+
+          const result = await client.query<{ id: string }>(
+            `SELECT id
+             FROM bulk_runs
+             WHERE shop_id = $1
+               AND status = 'completed'
+             ORDER BY created_at DESC
+             LIMIT 1`,
+            [shopId]
+          );
+          return result.rows[0]?.id ?? null;
+        });
+
+        if (!bulkRunId) {
+          return reply
+            .status(404)
+            .send(
+              errorEnvelope(
+                request.id,
+                404,
+                'BULK_RUN_NOT_FOUND',
+                'No completed bulk run found for this shop'
+              )
+            );
+        }
+
+        const jobId = await enqueuePimManualSyncJob({
+          shopId,
+          bulkRunId,
+          ...(typeof parsedLimit === 'number' ? { limit: parsedLimit } : {}),
+          triggeredBy: 'manual',
+          requestedAt: Date.now(),
+        });
+
+        return reply.status(202).send(
+          successEnvelope(request.id, {
+            started: true,
+            jobId,
+            bulkRunId,
+            ...(typeof parsedLimit === 'number' ? { limit: parsedLimit } : {}),
+          })
+        );
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to start manual PIM sync');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(
+              request.id,
+              500,
+              'INTERNAL_SERVER_ERROR',
+              'Failed to start manual PIM sync'
+            )
           );
       }
     }

@@ -92,9 +92,9 @@ export function ShopSelector({ compact = false }: { compact?: boolean }) {
 
   if (compact) {
     return (
-      <div className="min-w-0">
+      <div className="min-w-0" role="group" aria-label="Selector magazin Shopify">
         <label
-          className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-slate-400"
+          className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-muted"
           htmlFor={inputId}
         >
           Magazin Shopify
@@ -112,10 +112,11 @@ export function ShopSelector({ compact = false }: { compact?: boolean }) {
               void update({ lastShopDomain: v, activeShopDomain: v });
             }}
             placeholder="example.myshopify.com"
-            className="w-full rounded-lg border border-slate-200/90 bg-white px-2.5 py-1.5 text-sm text-slate-800 shadow-[var(--shadow-sm)] transition-colors focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+            title="Introdu domeniul magazinului tău Shopify (ex: magazin.myshopify.com)"
+            className="focus-ring w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm text-foreground shadow-[var(--shadow-sm)] transition-all duration-200 placeholder:text-muted focus:border-primary/50 focus:ring-2 focus:ring-primary/30 dark:border-border dark:bg-card"
           />
           {suggestions.length > 0 ? (
-            <datalist id={listId}>
+            <datalist id={listId} aria-hidden="true">
               {suggestions.map((domain) => (
                 <option key={domain} value={domain} />
               ))}
@@ -123,15 +124,22 @@ export function ShopSelector({ compact = false }: { compact?: boolean }) {
           ) : null}
           <a
             className={
-              'inline-flex items-center justify-center rounded-lg px-2.5 py-1.5 text-sm font-medium shadow-[var(--shadow-sm)] transition-all duration-200 ' +
+              'focus-ring inline-flex items-center justify-center rounded-lg px-2.5 py-1.5 text-sm font-medium shadow-[var(--shadow-sm)] transition-all duration-200 ' +
               (connected
-                ? 'cursor-default border border-emerald-200/80 bg-emerald-50 text-emerald-700'
+                ? 'cursor-default border border-success/30 bg-success/10 text-success dark:border-success/40 dark:bg-success/15'
                 : valid
-                  ? 'border border-slate-200/90 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300'
-                  : 'cursor-not-allowed border border-slate-100 bg-slate-50 text-slate-400')
+                  ? 'border border-border bg-background text-foreground hover:scale-[1.02] hover:bg-muted/10 hover:border-muted active:scale-[0.98] dark:border-border dark:bg-card dark:hover:bg-muted/20'
+                  : 'cursor-not-allowed border border-muted/20 bg-muted/10 text-muted dark:border-muted/30 dark:bg-muted/20')
             }
             href={!connected && valid ? buildAuthUrl(normalized, returnTo) : undefined}
             aria-disabled={!valid || connected}
+            title={
+              connected
+                ? 'Magazinul este deja conectat'
+                : valid
+                  ? 'Conectează-te la magazinul Shopify'
+                  : 'Introdu un domeniu valid (ex: magazin.myshopify.com)'
+            }
             onClick={(e) => {
               if (!valid || connected) e.preventDefault();
               else void update({ lastShopDomain: normalized, activeShopDomain: normalized });
@@ -145,12 +153,16 @@ export function ShopSelector({ compact = false }: { compact?: boolean }) {
   }
 
   return (
-    <div className="min-w-0 text-caption text-muted">
+    <div
+      className="min-w-0 text-caption text-muted"
+      role="group"
+      aria-label="Selector magazin Shopify"
+    >
       <label className="sr-only" htmlFor={inputId}>
-        Shop
+        Magazin
       </label>
       <div className="flex items-center gap-2">
-        <span className="text-foreground/80">Shop</span>
+        <span className="text-foreground/80">Magazin</span>
         <input
           id={inputId}
           value={draft}
@@ -163,11 +175,12 @@ export function ShopSelector({ compact = false }: { compact?: boolean }) {
             void update({ lastShopDomain: v, activeShopDomain: v });
           }}
           placeholder="example.myshopify.com"
-          className="w-55 rounded-md border border-muted/20 bg-background px-2 py-1 text-body text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+          title="Introdu domeniul magazinului tău Shopify (ex: magazin.myshopify.com)"
+          className="focus-ring w-55 rounded-md border border-muted/20 bg-background px-2 py-1 text-body text-foreground shadow-sm transition-all duration-200 placeholder:text-muted focus:border-primary/50 focus:ring-2 focus:ring-primary/40 dark:border-border dark:bg-card"
         />
 
         {suggestions.length > 0 ? (
-          <datalist id={listId}>
+          <datalist id={listId} aria-hidden="true">
             {suggestions.map((domain) => (
               <option key={domain} value={domain} />
             ))}
@@ -176,21 +189,28 @@ export function ShopSelector({ compact = false }: { compact?: boolean }) {
 
         <a
           className={
-            'rounded-md border px-2 py-1 text-caption shadow-sm ' +
+            'focus-ring rounded-md border px-2 py-1 text-caption shadow-sm transition-all duration-200 ' +
             (connected
-              ? 'cursor-default border-success/30 bg-success/10 text-success'
+              ? 'cursor-default border-success/30 bg-success/10 text-success dark:border-success/40 dark:bg-success/15'
               : valid
-                ? 'border-muted/20 bg-background text-foreground hover:bg-muted/10'
-                : 'cursor-not-allowed border-muted/10 bg-muted/10 text-muted')
+                ? 'border-muted/20 bg-background text-foreground hover:scale-[1.02] hover:bg-muted/10 hover:border-muted active:scale-[0.98] dark:border-border dark:bg-card dark:hover:bg-muted/20'
+                : 'cursor-not-allowed border-muted/10 bg-muted/10 text-muted dark:border-muted/30 dark:bg-muted/20')
           }
           href={!connected && valid ? buildAuthUrl(normalized, returnTo) : undefined}
           aria-disabled={!valid || connected}
+          title={
+            connected
+              ? 'Magazinul este deja conectat'
+              : valid
+                ? 'Conectează-te la magazinul Shopify'
+                : 'Introdu un domeniu valid (ex: magazin.myshopify.com)'
+          }
           onClick={(e) => {
             if (!valid || connected) e.preventDefault();
             else void update({ lastShopDomain: normalized, activeShopDomain: normalized });
           }}
         >
-          {connected ? 'Connected' : 'Connect'}
+          {connected ? 'Conectat' : 'Conectare'}
         </a>
       </div>
     </div>

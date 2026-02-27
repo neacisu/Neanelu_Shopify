@@ -11,6 +11,7 @@ export type ChartGridProps = Omit<
 };
 
 export function ChartGrid(props: ChartGridProps) {
-  const { stroke = 'rgba(0,0,0,0.12)', strokeOpacity = 1, ...rest } = props;
-  return <CartesianGrid stroke={stroke} strokeOpacity={strokeOpacity} {...rest} />;
+  const { stroke, strokeOpacity = 0.4, ...rest } = props;
+  const resolvedStroke = stroke ?? 'var(--chart-grid-color, rgba(100,116,139,0.25))';
+  return <CartesianGrid stroke={resolvedStroke} strokeOpacity={strokeOpacity} {...rest} />;
 }

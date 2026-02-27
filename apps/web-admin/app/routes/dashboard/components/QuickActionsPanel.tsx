@@ -36,10 +36,11 @@ export function QuickActionsPanel() {
       variant: 'primary',
       tooltipTitle: 'Reconciliere Webhooks',
       tooltipBody:
-        'Shopify trimite notificări automate (webhooks) către Neanelu de fiecare dată când se modifică ' +
-        'ceva în magazin. Uneori aceste notificări se pot pierde. Acest buton verifică lista completă ' +
-        'de notificări așteptate și le recreează pe cele lipsă. Poate fi folosit o singură dată pe oră. ' +
-        'Folosește-l dacă observi că modificările din Shopify nu se mai reflectă în Neanelu.',
+        'CE ESTE: Verificare și recreare a notificărilor Shopify lipsă. ' +
+        'DE CE CONTEAZĂ: Shopify trimite webhooks automat la fiecare modificare, dar uneori se pierd. ' +
+        'Acest buton verifică lista completă și recreează cele lipsă. ' +
+        'EXEMPLU: Dacă observi că produsele modificate în Shopify nu se actualizează în Neanelu, rulează reconcilierea. ' +
+        'SFAT: Poate fi folosit maxim o dată pe oră. Timpul de execuție depinde de numărul de produse.',
       onClick: () => {
         void (async () => {
           setLoadingId('reconcile');
@@ -48,9 +49,9 @@ export function QuickActionsPanel() {
               '/dashboard/actions/start-sync',
               {}
             );
-            toast.success(`Webhook reconcile enqueued (${res.jobId})`);
+            toast.success(`Reconciliere pornită (${res.jobId})`);
           } catch (err) {
-            toast.error(err instanceof Error ? err.message : 'Failed to reconcile webhooks');
+            toast.error(err instanceof Error ? err.message : 'Reconcilierea a eșuat');
           } finally {
             setLoadingId(null);
           }
@@ -59,36 +60,37 @@ export function QuickActionsPanel() {
     },
     {
       id: 'clear-cache',
-      label: 'Clear Cache',
+      label: 'Golire Cache',
       icon: Trash2,
       variant: 'secondary',
       tooltipTitle: 'Golire Cache',
       tooltipBody:
-        'Aplicația păstrează în memorie anumite date folosite frecvent (statistici, filtre, numere) ' +
-        'pentru a fi mai rapidă. Acest buton șterge acele copii temporare, forțând reîncărcarea datelor ' +
-        'proaspete din baza de date. Nu se șterge niciun produs sau setare — doar cache-ul de viteză. ' +
-        'Folosește-l dacă vezi numere care par vechi sau greșite pe dashboard.',
+        'CE ESTE: Ștergerea copiilor temporare (cache) din memorie. ' +
+        'DE CE CONTEAZĂ: Aplicația păstrează statistici și filtre în cache pentru viteză. ' +
+        'Golirea forțează reîncărcarea datelor proaspete din baza de date. ' +
+        'EXEMPLU: Dacă vezi numere vechi pe dashboard care nu se actualizează, golește cache-ul. ' +
+        'SFAT: Nu se șterge niciun produs sau setare — doar cache-ul de performanță. Operația durează sub 2 secunde.',
       onClick: () => setConfirmOpen(true),
     },
     {
       id: 'health',
-      label: 'Check Health',
+      label: 'Verificare Sănătate',
       icon: ShieldCheck,
       variant: 'secondary',
       tooltipTitle: 'Verificare Sănătate Sistem',
       tooltipBody:
-        'Rulează un control rapid al tuturor componentelor: baza de date, memoria cache (Redis), ' +
-        'conexiunea la Shopify și toți procesatorii din spate. Dacă totul funcționează corect, ' +
-        'vei vedea un mesaj verde „OK". Dacă ceva nu merge, vei fi notificat ce anume are probleme. ' +
-        'Folosește-l oricând vrei să te asiguri rapid că aplicația funcționează normal.',
+        'CE ESTE: Control rapid al tuturor componentelor: baza de date, Redis, Shopify, procesatori. ' +
+        'DE CE CONTEAZĂ: Identifică rapid ce componentă are probleme fără a verifica manual fiecare. ' +
+        'EXEMPLU: „Redis: OK, DB: OK, Shopify: Timeout" = problema e la conexiunea Shopify. ' +
+        'SFAT: Rulează-l oricând suspectezi o problemă. Rezultatul apare instant ca notificare.',
       onClick: () => {
         void (async () => {
           setLoadingId('health');
           try {
             await api.getJson('/health/ready');
-            toast.success('Health check OK');
+            toast.success('Verificare sănătate: OK — toate componentele funcționează');
           } catch (err) {
-            toast.error(err instanceof Error ? err.message : 'Health check failed');
+            toast.error(err instanceof Error ? err.message : 'Verificarea sănătății a eșuat');
           } finally {
             setLoadingId(null);
           }
@@ -98,12 +100,18 @@ export function QuickActionsPanel() {
   ];
 
   return (
-    <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white p-4 shadow-[var(--shadow-sm)] transition-shadow hover:shadow-[var(--shadow-md)]">
+    <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm transition-shadow hover:shadow-[var(--shadow-md)] dark:border-slate-700/90 dark:bg-slate-900/80">
       <div>
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Acțiuni rapide
+          <InfoTooltip title="Acțiuni rapide" side="bottom">
+            CE ESTE: Panoul cu operații frecvente disponibile direct din dashboard. DE CE CONTEAZĂ:
+            Permite executarea rapidă a acțiunilor de mentenanță fără navigare în meniuri. EXEMPLU:
+            Reconcilierea webhooks, golirea cache-ului sau verificarea sănătății — totul cu un
+            singur click. SFAT: Fiecare buton are propriul tooltip cu explicații detaliate.
+          </InfoTooltip>
         </h3>
-        <p className="mt-0.5 text-xs text-slate-500">
+        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
           Operații frecvente fără a părăsi dashboard-ul
         </p>
       </div>
@@ -116,7 +124,7 @@ export function QuickActionsPanel() {
           return (
             <div
               key={action.id}
-              className="group/action flex flex-col gap-2 rounded-lg border border-slate-100 bg-slate-50/50 p-3 transition-colors hover:border-slate-200 hover:bg-slate-50"
+              className="group/action flex flex-col gap-2 rounded-lg border border-slate-100 bg-slate-50/50 p-3 transition-colors hover:border-slate-200 hover:bg-slate-50 dark:border-slate-700/60 dark:bg-slate-800/40 dark:hover:border-slate-600 dark:hover:bg-slate-800/70"
             >
               <Button
                 variant={action.variant}
@@ -162,9 +170,9 @@ export function QuickActionsPanel() {
                 confirm: true,
                 patterns: ['dashboard:*', 'cache:*'],
               });
-              toast.success(`Cache cleared (${res.deletedKeys} keys)`);
+              toast.success(`Cache golit (${res.deletedKeys} chei șterse)`);
             } catch (err) {
-              toast.error(err instanceof Error ? err.message : 'Failed to clear cache');
+              toast.error(err instanceof Error ? err.message : 'Golirea cache-ului a eșuat');
             } finally {
               setLoadingId(null);
             }

@@ -10,10 +10,11 @@ import type { ProductDetail } from '@app/types';
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { PageHeader } from '../components/layout/page-header';
 import { Button } from '../components/ui/button';
+import { InfoTooltip } from '../components/ui/info-tooltip';
 import { useApiClient } from '../hooks/use-api';
 
 const schema = z.object({
-  titleMaster: z.string().min(1, 'Title is required'),
+  titleMaster: z.string().min(1, 'Titlul este obligatoriu'),
   descriptionMaster: z.string().optional(),
   descriptionShort: z.string().optional(),
   taxonomyId: z.string().optional(),
@@ -50,9 +51,9 @@ export default function ProductEditPage() {
 
   const breadcrumbs = useMemo(
     () => [
-      { label: 'Home', href: '/' },
-      { label: 'Products', href: '/products' },
-      { label: product?.title ?? 'Edit', href: location.pathname },
+      { label: 'Acasă', href: '/' },
+      { label: 'Produse', href: '/products' },
+      { label: product?.title ?? 'Editare', href: location.pathname },
     ],
     [location.pathname, product?.title]
   );
@@ -92,73 +93,114 @@ export default function ProductEditPage() {
   useEffect(() => {
     if (fetcher.state !== 'idle') return;
     if (fetcher.data?.ok) {
-      toast.success('Saved successfully');
+      toast.success('Modificări salvate');
     } else if (fetcher.data?.error) {
       toast.error(fetcher.data.error);
     }
   }, [fetcher.data, fetcher.state]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 dark:text-slate-100">
       <Breadcrumbs items={breadcrumbs} />
       <PageHeader title="Editeaza produs" description="Actualizeaza doar metadata PIM." />
 
-      <form onSubmit={handleFormSubmit} className="space-y-4 rounded-lg border p-4">
+      <form
+        onSubmit={handleFormSubmit}
+        className="space-y-4 rounded-lg border border-border dark:border-slate-700 bg-white dark:bg-slate-900/80 p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-sm)]"
+      >
         <div className="grid gap-3">
-          <label className="text-xs text-muted">Title (master)</label>
+          <label className="flex items-center gap-1 text-xs text-muted dark:text-slate-400">
+            Titlu (master)
+            <InfoTooltip title="Titlu master">
+              Titlul principal al produsului în sistemul PIM. Se folosește pentru căutare și
+              afișare.
+            </InfoTooltip>
+          </label>
           <input
-            className="h-10 rounded-md border bg-background px-3 text-sm"
+            className="h-10 rounded-md border border-border dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm dark:text-slate-200 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50"
             {...form.register('titleMaster')}
           />
           {form.formState.errors.titleMaster ? (
-            <div className="text-xs text-red-600">{form.formState.errors.titleMaster.message}</div>
+            <div className="text-xs text-error">{form.formState.errors.titleMaster.message}</div>
           ) : null}
         </div>
 
         <div className="grid gap-3">
-          <label className="text-xs text-muted">Description (master)</label>
+          <label className="flex items-center gap-1 text-xs text-muted dark:text-slate-400">
+            Descriere (master)
+            <InfoTooltip title="Descriere master">
+              Descrierea completă a produsului. Apare în paginile de produs din magazin.
+            </InfoTooltip>
+          </label>
           <textarea
-            className="min-h-[120px] rounded-md border bg-background px-3 py-2 text-sm"
+            className="min-h-[120px] rounded-md border border-border dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm dark:text-slate-200 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50"
             {...form.register('descriptionMaster')}
           />
         </div>
 
         <div className="grid gap-3">
-          <label className="text-xs text-muted">Short description</label>
+          <label className="flex items-center gap-1 text-xs text-muted dark:text-slate-400">
+            Descriere scurtă
+            <InfoTooltip title="Descriere scurtă">
+              Rezumat pentru liste și rezultate de căutare. Până la câteva propoziții.
+            </InfoTooltip>
+          </label>
           <input
-            className="h-10 rounded-md border bg-background px-3 text-sm"
+            className="h-10 rounded-md border border-border dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm dark:text-slate-200 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50"
             {...form.register('descriptionShort')}
           />
         </div>
 
         <div className="grid gap-3">
-          <label className="text-xs text-muted">Metafields (JSON)</label>
+          <label className="flex items-center gap-1 text-xs text-muted dark:text-slate-400">
+            Metafields (JSON)
+            <InfoTooltip title="Metafields JSON">
+              Câmpuri personalizate în format JSON. Modificările se aplică doar în baza locală PIM.
+            </InfoTooltip>
+          </label>
           <textarea
-            className="min-h-[140px] rounded-md border bg-background px-3 py-2 text-xs"
+            className="min-h-[140px] rounded-md border border-border dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-xs dark:text-slate-200 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50"
             {...form.register('metafields')}
           />
         </div>
 
         <div className="grid gap-3">
-          <label className="text-xs text-muted">Taxonomy ID</label>
+          <label className="flex items-center gap-1 text-xs text-muted dark:text-slate-400">
+            ID taxonomie
+            <InfoTooltip title="Taxonomie">
+              Categoria din schema de clasificare a produsului (ex. electronice, îmbrăcăminte).
+            </InfoTooltip>
+          </label>
           <input
-            className="h-10 rounded-md border bg-background px-3 text-sm"
+            className="h-10 rounded-md border border-border dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm dark:text-slate-200 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50"
             {...form.register('taxonomyId')}
           />
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div className="grid gap-3">
-            <label className="text-xs text-muted">Brand</label>
+            <label className="flex items-center gap-1 text-xs text-muted dark:text-slate-400">
+              Marcă
+              <InfoTooltip title="Marcă produs">
+                Brandul comercial al produsului. Ajută la identificare și filtrare în catalog.
+                Exemplu: „Nike", „Samsung". Completează cât mai corect pentru căutări precise.
+              </InfoTooltip>
+            </label>
             <input
-              className="h-10 rounded-md border bg-background px-3 text-sm"
+              className="h-10 rounded-md border border-border dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm dark:text-slate-200 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50"
               {...form.register('brand')}
             />
           </div>
           <div className="grid gap-3">
-            <label className="text-xs text-muted">Manufacturer</label>
+            <label className="flex items-center gap-1 text-xs text-muted dark:text-slate-400">
+              Producător
+              <InfoTooltip title="Producător">
+                Compania care fabrică produsul. Poate diferi de marcă (ex. producătorul poate fi o
+                fabrică terță). Util pentru evidențe interne și traceabilitate.
+              </InfoTooltip>
+            </label>
             <input
-              className="h-10 rounded-md border bg-background px-3 text-sm"
+              className="h-10 rounded-md border border-border dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm dark:text-slate-200 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50"
               {...form.register('manufacturer')}
             />
           </div>
@@ -166,27 +208,37 @@ export default function ProductEditPage() {
 
         <div className="grid grid-cols-2 gap-4">
           <div className="grid gap-3">
-            <label className="text-xs text-muted">GTIN</label>
+            <label className="flex items-center gap-1 text-xs text-muted dark:text-slate-400">
+              GTIN
+              <InfoTooltip title="GTIN">
+                Cod de bare global (EAN/UPC). Identifică unic produsul în sistemele de retail.
+              </InfoTooltip>
+            </label>
             <input
-              className="h-10 rounded-md border bg-background px-3 text-sm"
+              className="h-10 rounded-md border border-border dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm dark:text-slate-200 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50"
               {...form.register('gtin')}
             />
           </div>
           <div className="grid gap-3">
-            <label className="text-xs text-muted">MPN</label>
+            <label className="flex items-center gap-1 text-xs text-muted dark:text-slate-400">
+              MPN
+              <InfoTooltip title="MPN">
+                Număr de piesă producător. Cod intern al fabricantului pentru identificare.
+              </InfoTooltip>
+            </label>
             <input
-              className="h-10 rounded-md border bg-background px-3 text-sm"
+              className="h-10 rounded-md border border-border dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm dark:text-slate-200 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50"
               {...form.register('mpn')}
             />
           </div>
         </div>
 
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" type="button">
-            Cancel
+          <Button variant="ghost" type="button" onClick={() => window.history.back()}>
+            Anulare
           </Button>
           <Button variant="secondary" type="submit" loading={fetcher.state !== 'idle'}>
-            Save changes
+            Salvează modificările
           </Button>
         </div>
       </form>
@@ -197,7 +249,7 @@ export default function ProductEditPage() {
 export async function action({ request, params }: ActionFunctionArgs) {
   const id = params['id'];
   if (!id) {
-    return { ok: false, error: 'Missing product id' };
+    return { ok: false, error: 'Lipsește ID-ul produsului' };
   }
   const formData = await request.formData();
   const payload = Object.fromEntries(formData.entries());
@@ -207,7 +259,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
-    return { ok: false, error: 'Failed to save' };
+    return { ok: false, error: 'Salvarea a eșuat' };
   }
   return { ok: true };
 }

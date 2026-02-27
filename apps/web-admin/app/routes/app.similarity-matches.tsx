@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useScrollReveal } from '../hooks/useScrollReveal';
 import { useLocation } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { PageHeader } from '../components/layout/page-header';
+import { InfoTooltip } from '../components/ui/info-tooltip';
 import { Tabs } from '../components/ui/tabs';
 import { Button } from '../components/ui/button';
 import { useApiClient } from '../hooks/use-api';
@@ -26,9 +28,36 @@ import {
   type ExtractionStatus,
 } from '../hooks/use-similarity-matches';
 
+const TAB_TOOLTIPS: Record<string, { title: string; body: string }> = {
+  all: {
+    title: 'Toate potrivirile',
+    body: 'Afișează toate potrivirile, indiferent de status. Include potriviri confirmate, respinse și în așteptare. Util pentru o imagine de ansamblu completă. Sfat: folosește filtrele pentru a restrânge lista.',
+  },
+  pending: {
+    title: 'În așteptare',
+    body: 'Potriviri care nu au fost încă evaluate. Acestea necesită atenția ta — confirmă sau respinge fiecare. De exemplu, verifică dacă sursa externă corespunde produsului. Sfat: începe cu scorurile cele mai mari.',
+  },
+  ai_audit: {
+    title: 'AI Audit',
+    body: 'Potriviri trimise la evaluare automată de AI. AI-ul analizează titlul, brandul și prețul pentru a sugera o decizie. De exemplu, un scor de 0.97 cu brand identic va fi aprobat automat. Sfat: revizuiește rezultatele AI pentru cazuri limită.',
+  },
+  hitl: {
+    title: 'HITL',
+    body: 'Potriviri care necesită review uman (Human-in-the-Loop). AI-ul nu a fost suficient de sigur pentru a decide automat. De exemplu, branduri similare dar nu identice. Sfat: acordă prioritate celor cu scor peste 0.95.',
+  },
+  confirmed: {
+    title: 'Confirmate',
+    body: 'Potriviri validate ca fiind corecte. Datele lor pot fi folosite pentru enrichment-ul produselor. De exemplu, prețuri competitive sau specificații tehnice. Sfat: verifică periodic dacă nu apar duplicate.',
+  },
+  rejected: {
+    title: 'Respinse',
+    body: 'Potriviri respinse ca fiind incorecte sau irelevante. Nu vor fi folosite pentru enrichment. De exemplu, produse cu titlu similar dar categorie diferită. Sfat: revizuiește ocazional — pot fi erori.',
+  },
+};
+
 const TABS = [
   { label: 'Toate', value: 'all' },
-  { label: 'In asteptare', value: 'pending' },
+  { label: 'În așteptare', value: 'pending' },
   { label: 'AI Audit', value: 'ai_audit' },
   { label: 'HITL', value: 'hitl' },
   { label: 'Confirmate', value: 'confirmed' },
@@ -55,7 +84,8 @@ export default function SimilarityMatchesPage() {
     key: 'created',
     direction: 'desc',
   });
-  const [page, setPage] = useState(1);
+  const [visibleCount, setVisibleCount] = useState(20);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const [drawerMatch, setDrawerMatch] = useState<SimilarityMatchItem | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [extractionOverrides, setExtractionOverrides] = useState<
@@ -180,12 +210,32 @@ export default function SimilarityMatchesPage() {
   }, [matches, sortBy]);
 
   const pageSize = 20;
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const visible = sorted.slice((page - 1) * pageSize, page * pageSize);
+  const hasMore = visibleCount < sorted.length;
+  const visible = sorted.slice(0, visibleCount);
+  const [contentRef, contentVisible] = useScrollReveal<HTMLDivElement>({
+    rootMargin: '0px 0px -40px 0px',
+  });
+
+  const loadMore = useCallback(() => {
+    setVisibleCount((prev) => Math.min(prev + pageSize, sorted.length));
+  }, [sorted.length]);
 
   useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
+    const el = loadMoreRef.current;
+    if (!el || !hasMore) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) loadMore();
+      },
+      { rootMargin: '100px', threshold: 0.1 }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [hasMore, loadMore]);
+
+  useEffect(() => {
+    setVisibleCount(pageSize);
+  }, [activeTab, filters]);
 
   const handleConfirm = async (matchId: string) => {
     try {
@@ -281,21 +331,39 @@ export default function SimilarityMatchesPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div
+      ref={contentRef}
+      className="space-y-6"
+      style={{
+        animation: contentVisible ? 'fadeSlideUp 0.4s ease-out both' : 'none',
+      }}
+    >
       <Breadcrumbs
         items={[{ label: 'Produse', href: '/products' }, { label: 'Potriviri similare' }]}
       />
       <PageHeader
         title="Potriviri similare"
-        description="Revizuiește și confirmă matches externe."
+        description="Revizuiește și confirmă potrivirile externe găsite pentru produse."
         actions={
           <>
-            <Button size="sm" variant="secondary" onClick={() => void reload()}>
-              Reincarca
-            </Button>
-            <Button size="sm" variant="ghost" onClick={exportCsv}>
-              Export CSV
-            </Button>
+            <span className="inline-flex items-center gap-1.5">
+              <Button size="sm" variant="secondary" onClick={() => void reload()}>
+                Reîncarcă
+              </Button>
+              <InfoTooltip title="Reîncarcă" side="bottom">
+                Reîmprospătează lista de potriviri cu datele curente de pe server. Util după ce ai
+                confirmat sau respins potriviri și vrei să vezi starea actualizată.
+              </InfoTooltip>
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Button size="sm" variant="ghost" onClick={exportCsv}>
+                Export CSV
+              </Button>
+              <InfoTooltip title="Export CSV" side="bottom">
+                Descarcă potrivirile afișate (după filtre) într-un fișier CSV. Include titlu produs,
+                sursă, scor similaritate și status. Util pentru raportare sau analiză offline.
+              </InfoTooltip>
+            </span>
             <label className="flex items-center gap-2 text-xs text-muted">
               <input
                 type="checkbox"
@@ -303,21 +371,34 @@ export default function SimilarityMatchesPage() {
                 aria-label="Activează auto-refresh"
                 onChange={(event) => setAutoRefresh(event.target.checked)}
               />
-              Auto-reincarcare
+              <span className="flex items-center gap-1.5">
+                Auto-reîncarcare
+                <InfoTooltip title="Auto-reîncarcare" side="bottom">
+                  Reîncarcă automat lista la fiecare 60 de secunde. Util când ai deschis pagina și
+                  aștepți să apară potriviri noi sau să se actualizeze statusul după AI Audit.
+                </InfoTooltip>
+              </span>
             </label>
           </>
         }
       />
 
-      <Tabs
-        items={TABS}
-        value={activeTab}
-        onValueChange={(value) => {
-          setActiveTab(value);
-          setPage(1);
-          setSelectedIds([]);
-        }}
-      />
+      <div className="flex items-center gap-2">
+        <Tabs
+          items={TABS}
+          value={activeTab}
+          onValueChange={(value) => {
+            setActiveTab(value);
+            setVisibleCount(pageSize);
+            setSelectedIds([]);
+          }}
+        />
+        {TAB_TOOLTIPS[activeTab] != null ? (
+          <InfoTooltip title={TAB_TOOLTIPS[activeTab].title} side="bottom">
+            {TAB_TOOLTIPS[activeTab].body}
+          </InfoTooltip>
+        ) : null}
+      </div>
 
       <SimilarityMatchesStats stats={stats} />
 
@@ -325,7 +406,7 @@ export default function SimilarityMatchesPage() {
         filters={filters}
         onChange={(next) => {
           setFilters(next);
-          setPage(1);
+          setVisibleCount(pageSize);
         }}
         onClear={() => {
           setFilters({
@@ -333,16 +414,16 @@ export default function SimilarityMatchesPage() {
             similarityMax: 1,
             ...(productIdFromQuery ? { productId: productIdFromQuery } : {}),
           });
-          setPage(1);
+          setVisibleCount(pageSize);
         }}
       />
 
       {selectedIds.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-muted/20 bg-background p-3 text-sm">
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200/80 bg-white/80 backdrop-blur-sm p-3 text-sm dark:border-slate-700/60 dark:bg-slate-900/80 dark:text-slate-200">
           <span>{selectedIds.length} selectate</span>
           <button
             type="button"
-            className="rounded-md border border-muted/20 px-3 py-1 text-xs"
+            className="rounded-md border border-slate-200 px-3 py-1 text-xs transition-shadow duration-200 hover:shadow-[var(--shadow-sm)] focus:ring-2 focus:ring-blue-500/40 focus:outline-none dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:focus:ring-blue-400/50"
             onClick={() => {
               void batchUpdateConfidence(selectedIds, 'confirmed').then(() => reload());
             }}
@@ -351,7 +432,7 @@ export default function SimilarityMatchesPage() {
           </button>
           <button
             type="button"
-            className="rounded-md border border-muted/20 px-3 py-1 text-xs"
+            className="rounded-md border border-slate-200 px-3 py-1 text-xs transition-shadow duration-200 hover:shadow-[var(--shadow-sm)] focus:ring-2 focus:ring-blue-500/40 focus:outline-none dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:focus:ring-blue-400/50"
             onClick={() => {
               void batchUpdateConfidence(selectedIds, 'rejected').then(() => reload());
             }}
@@ -360,35 +441,39 @@ export default function SimilarityMatchesPage() {
           </button>
           <button
             type="button"
-            className="rounded-md border border-muted/20 px-3 py-1 text-xs"
+            className="rounded-md border border-slate-200 px-3 py-1 text-xs transition-shadow duration-200 hover:shadow-[var(--shadow-sm)] focus:ring-2 focus:ring-blue-500/40 focus:outline-none dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:focus:ring-blue-400/50"
             onClick={() => setSelectedIds([])}
           >
-            Curata selectia
+            Curăță selecția
           </button>
         </div>
       ) : null}
 
       {error ? (
-        <div className="rounded-md border border-error/30 bg-error/10 p-4">{error}</div>
+        <div className="rounded-md border border-red-200/80 bg-red-50/80 p-4 text-red-800 dark:border-red-800/50 dark:bg-red-950/40 dark:text-red-300">
+          {error}
+        </div>
       ) : null}
       {loading ? (
         <div className="space-y-3">
           {Array.from({ length: 4 }).map((_, index) => (
             <div
               key={`skeleton-${index}`}
-              className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted"
+              className="animate-pulse rounded-md border border-slate-200/60 bg-slate-100/50 p-4 text-sm text-slate-400 dark:border-slate-700/40 dark:bg-slate-800/50 dark:text-slate-500"
+              style={{ animationDelay: `${index * 100}ms` }}
             >
-              Se incarca potrivirile...
+              Se încarcă potrivirile...
             </div>
           ))}
         </div>
       ) : null}
 
       <div className="md:hidden space-y-3">
-        {visible.map((match) => (
+        {visible.map((match, idx) => (
           <SimilarityMatchCard
             key={match.id}
             match={match}
+            index={idx}
             extractionStatusOverride={extractionStatusMap[match.id] ?? getExtractionStatus(match)}
             onClick={() => setDrawerMatch(match)}
             onQuickConfirm={() => void handleConfirm(match.id)}
@@ -396,7 +481,7 @@ export default function SimilarityMatchesPage() {
           />
         ))}
         {!loading && visible.length === 0 ? (
-          <div className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted">
+          <div className="rounded-md border border-slate-200/60 bg-slate-50/50 p-4 text-sm text-slate-500 dark:border-slate-700/40 dark:bg-slate-800/50 dark:text-slate-400">
             Nu există matches pentru filtrul curent. Ajustează filtrele sau încearcă un search nou.
           </div>
         ) : null}
@@ -427,29 +512,22 @@ export default function SimilarityMatchesPage() {
         />
       </div>
 
-      <div className="flex items-center justify-between text-xs text-muted">
+      <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
         <span>
-          Page {page} / {totalPages} • {sorted.length} results
+          {visible.length} din {sorted.length} potriviri afișate
         </span>
-        <div className="flex gap-2">
+        {hasMore ? (
           <button
             type="button"
-            className="rounded-md border border-muted/20 px-2 py-1"
-            onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-            disabled={page === 1}
+            className="rounded-md border border-slate-200 px-3 py-1.5 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+            onClick={loadMore}
           >
-            Prev
+            Încarcă mai multe
           </button>
-          <button
-            type="button"
-            className="rounded-md border border-muted/20 px-2 py-1"
-            onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
-            disabled={page === totalPages}
-          >
-            Next
-          </button>
-        </div>
+        ) : null}
       </div>
+
+      <div ref={loadMoreRef} className="h-4" aria-hidden />
 
       <SimilarityMatchDetailDrawer
         match={drawerMatch}

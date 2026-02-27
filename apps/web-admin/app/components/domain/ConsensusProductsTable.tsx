@@ -9,26 +9,31 @@ type ConsensusProductsTableProps = Readonly<{
 
 export function ConsensusProductsTable({ items, onSelect }: ConsensusProductsTableProps) {
   if (items.length === 0) {
-    return <div className="text-sm text-muted">No products available.</div>;
+    return (
+      <div className="text-sm text-slate-500 dark:text-slate-400">
+        Nu există produse disponibile.
+      </div>
+    );
   }
 
   return (
-    <div className="overflow-hidden rounded-md border border-muted/20">
+    <div className="overflow-hidden rounded-md border border-muted/20 dark:border-slate-700">
       <table className="w-full text-sm">
-        <thead className="bg-muted/30 text-xs text-muted">
+        <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
           <tr>
-            <th className="px-3 py-2 text-left font-medium">Product</th>
-            <th className="px-3 py-2 text-right font-medium">Sources</th>
+            <th className="px-3 py-2 text-left font-medium">Produs</th>
+            <th className="px-3 py-2 text-right font-medium">Surse</th>
             <th className="px-3 py-2 text-right font-medium">Status</th>
-            <th className="px-3 py-2 text-right font-medium">Quality</th>
-            <th className="px-3 py-2 text-right font-medium">Conflicts</th>
+            <th className="px-3 py-2 text-right font-medium">Calitate</th>
+            <th className="px-3 py-2 text-right font-medium">Conflicte</th>
           </tr>
         </thead>
         <tbody>
-          {items.map((item) => (
+          {items.map((item, idx) => (
             <tr
               key={item.productId}
-              className="border-t border-muted/20 hover:bg-muted/10"
+              className="cursor-pointer border-t border-muted/20 transition-colors hover:bg-muted/10 dark:border-slate-700 dark:hover:bg-slate-800/50 text-slate-800 dark:text-slate-200 motion-safe:animate-[fadeSlideUp_0.3s_ease-out_both]"
+              style={{ animationDelay: `${idx * 50}ms` }}
               onClick={() => onSelect?.(item)}
             >
               <td className="px-3 py-2">{item.title}</td>

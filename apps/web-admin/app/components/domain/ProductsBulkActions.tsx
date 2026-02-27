@@ -23,28 +23,28 @@ export function ProductsBulkActions({
   const limitReached = selectedCount > 100;
 
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/10 px-3 py-2 text-sm">
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/10 px-3 py-2 text-sm transition-shadow duration-200 hover:shadow-[var(--shadow-sm)]">
       <div className="mr-auto text-sm font-medium">
-        {selectedCount} products selected
-        {limitReached ? ' (limit exceeded)' : ''}
+        {selectedCount} produse selectate
+        {limitReached ? ' (limită depășită)' : ''}
       </div>
       <Button size="sm" variant="secondary" onClick={onForceSync} disabled={limitReached}>
-        Force Sync
+        Forțare sync
       </Button>
       <Button size="sm" variant="secondary" onClick={onAssignCategory} disabled={limitReached}>
-        Assign Category
+        Atribuie categorie
       </Button>
       <Button size="sm" variant="secondary" onClick={onAddToCollection} disabled={limitReached}>
-        Add to Collection
+        Adaugă la colecție
       </Button>
       <Button size="sm" variant="secondary" onClick={onExport} disabled={limitReached}>
         Export
       </Button>
       <Button size="sm" variant="secondary" onClick={onCompare} disabled={selectedCount > 3}>
-        Compare
+        Compară
       </Button>
       <Button size="sm" variant="secondary" onClick={onRequestEnrichment} disabled={limitReached}>
-        Request Enrichment
+        Cere îmbogățire
       </Button>
     </div>
   );

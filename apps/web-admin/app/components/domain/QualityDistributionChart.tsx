@@ -1,4 +1,5 @@
 import type { PieChartDatum } from '../charts/PieChart';
+import { InfoTooltip } from '../ui/info-tooltip';
 import { DonutChart } from '../charts/DonutChart';
 
 export type QualityDistribution = Readonly<{
@@ -44,7 +45,13 @@ export function QualityDistributionChart({
 
   return (
     <div className="rounded-lg border border-muted/20 bg-background p-4">
-      <div className="mb-2 text-xs text-muted">Quality distribution</div>
+      <div className="mb-2 flex items-center gap-1.5 text-xs text-muted">
+        <span>Distribuție calitate</span>
+        <InfoTooltip title="Distribuție calitate">
+          Bronze: date minime. Silver: îmbunătățite. Golden: complete. Review: necesită revizuire
+          manuală.
+        </InfoTooltip>
+      </div>
       <DonutChart
         data={data}
         showLegend

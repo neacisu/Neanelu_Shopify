@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 
+import { InfoTooltip } from '../ui/info-tooltip';
+
 type WebhookTesterProps = Readonly<{
   topics: string[];
   onTest: (topic: string) => Promise<{ success: boolean; latencyMs?: number; error?: string }>;
@@ -29,12 +31,12 @@ export function WebhookTester({ topics, onTest, disabled }: WebhookTesterProps) 
         setState('success');
         setMessage(
           typeof result.latencyMs === 'number'
-            ? `Webhook received in ${result.latencyMs} ms.`
-            : 'Webhook received.'
+            ? `Webhook primit în ${result.latencyMs} ms.`
+            : 'Webhook primit.'
         );
       } else {
         setState('error');
-        setMessage(result.error ?? 'Webhook test failed.');
+        setMessage(result.error ?? 'Test webhook eșuat.');
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Webhook test failed.';
@@ -45,14 +47,21 @@ export function WebhookTester({ topics, onTest, disabled }: WebhookTesterProps) 
 
   return (
     <div className="space-y-3 rounded-md border border-muted/20 bg-background p-4">
-      <div className="text-sm font-medium">Test webhook</div>
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-medium">Test webhook Shopify</span>
+        <InfoTooltip title="Test webhook Shopify" side="bottom" portalToBody>
+          Trimite un eveniment de test pentru topic-ul selectat către endpoint-ul aplicației.
+          Verifică că backend-ul primește cererea. Folosit pentru webhooks generale Shopify
+          (produse, comenzi etc.).
+        </InfoTooltip>
+      </div>
 
       <div className="flex flex-col gap-3 md:flex-row md:items-center">
         <select
           value={selectedTopic}
           onChange={(event) => setSelectedTopic(event.target.value)}
           disabled={isDisabled}
-          className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40 md:w-64"
+          className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body shadow-sm focus:outline-none focus:ring-2 focus:ring-[rgb(var(--color-ring))]/40 md:w-64"
         >
           {topics.map((topic) => (
             <option key={topic} value={topic}>
@@ -65,9 +74,9 @@ export function WebhookTester({ topics, onTest, disabled }: WebhookTesterProps) 
           type="button"
           onClick={() => void handleTest()}
           disabled={isDisabled || !selectedTopic || state === 'loading'}
-          className="inline-flex items-center justify-center rounded-md border border-muted/20 bg-background px-4 py-2 text-sm font-medium shadow-sm transition hover:bg-muted/10 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center justify-center rounded-md border border-muted/20 bg-background px-4 py-2 text-sm font-medium shadow-sm transition hover:bg-muted/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--color-ring))]/40 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {state === 'loading' ? 'Testing...' : 'Test Webhook'}
+          {state === 'loading' ? 'Se testează…' : 'Testează webhook'}
         </button>
       </div>
 

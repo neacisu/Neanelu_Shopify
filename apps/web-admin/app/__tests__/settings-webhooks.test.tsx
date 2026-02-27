@@ -52,10 +52,10 @@ describe('settings webhooks page', () => {
     const user = userEvent.setup();
     render(<SettingsWebhooksPage />);
 
-    expect(screen.getByText(/Webhook configuration/i)).toBeInTheDocument();
+    expect(screen.getByText(/Configurare webhook calitate/i)).toBeInTheDocument();
     expect(screen.getByText(/Test webhook/i)).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /Send test/i }));
+    await user.click(screen.getByRole('button', { name: /Trimite test/i }));
     expect(mocks.testWebhook).toHaveBeenCalled();
   });
 });

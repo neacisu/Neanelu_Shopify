@@ -40,7 +40,7 @@ describe('SearchFilters', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: 'Reset all' }));
+    await user.click(screen.getByRole('button', { name: 'Resetează' }));
     expect(onReset).toHaveBeenCalled();
   });
 });

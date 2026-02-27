@@ -3,6 +3,9 @@ import type { LoaderFunctionArgs } from 'react-router-dom';
 import { useLoaderData, useNavigate, useRevalidator } from 'react-router-dom';
 import { PackageSearch } from 'lucide-react';
 
+import { useCountUp } from '../hooks/useCountUp';
+import { useScrollReveal } from '../hooks/useScrollReveal';
+import { InfoTooltip } from '../components/ui/info-tooltip';
 import { GaugeChart } from '../components/charts/GaugeChart';
 import { Sparkline } from '../components/charts/Sparkline';
 import { QualityDistributionChart } from '../components/domain/QualityDistributionChart';
@@ -76,6 +79,10 @@ export const loader = apiLoader(async (_args: LoaderFunctionArgs) => {
 
 type RouteLoaderData = LoaderData<typeof loader>;
 
+function PimCountUp({ value, format }: { value: number; format: (n: number) => string }) {
+  return <>{useCountUp(value, { format })}</>;
+}
+
 function getSyncRateClasses(syncRate: number): { text: string; bar: string } {
   if (syncRate >= 90) {
     return { text: 'text-success', bar: 'bg-success' };
@@ -99,6 +106,7 @@ export default function PimOverviewPage() {
   }, [revalidator]);
 
   const total = quality.total;
+  const activeSourcesCount = sources.sources.filter((s) => s.isActive).length;
   const goldenPct = total > 0 ? quality.golden.count / total : 0;
   const avgQuality =
     total > 0
@@ -117,38 +125,100 @@ export default function PimOverviewPage() {
     return (
       <EmptyState
         icon={PackageSearch}
-        title="PIM nu are inca produse"
-        description="Importa produse sau ruleaza o ingestie ca sa poti incepe enrichment si Golden Record."
-        actionLabel="Importa produse"
+        title="PIM nu are încă produse"
+        description="Importă produse sau rulează o ingestie ca să poți începe enrichment și Golden Record."
+        actionLabel="Importă produse"
         onAction={() => void navigate('/products/import')}
       />
     );
   }
 
+  const [gridRef, gridVisible] = useScrollReveal<HTMLDivElement>({
+    rootMargin: '0px 0px -40px 0px',
+  });
+
   return (
-    <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-lg border border-muted/20 bg-background p-4">
-          <div className="mb-2 text-xs text-muted">Total produse</div>
-          <div className="text-h4">{total}</div>
+    <div className="space-y-6" style={{ animation: 'fadeIn 0.5s ease-out both' }}>
+      <div ref={gridRef} className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div
+          className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60 transition-shadow duration-200 hover:shadow-md"
+          style={{
+            animation: gridVisible ? 'fadeSlideUp 0.4s ease-out both' : 'none',
+            animationDelay: gridVisible ? '0ms' : '0ms',
+          }}
+        >
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+            <span>Total produse</span>
+            <InfoTooltip title="Total produse PIM">
+              Total produse este suma tuturor produselor din catalogul PIM (Bronze + Silver + Golden
+              + Review). De ce contează: reflectă dimensiunea catalogului tău. Exemplu: dacă vezi
+              1200 produse, toate sunt gestionate în PIM. Sfat: crește numărul prin importuri
+              regulate.
+            </InfoTooltip>
+          </div>
+          <div className="text-h4 tabular-nums text-slate-800 dark:text-slate-100">
+            <PimCountUp value={total} format={(n) => String(Math.round(n))} />
+          </div>
           <Sparkline data={[quality.bronze.count, quality.silver.count, quality.golden.count]} />
         </div>
-        <div className="rounded-lg border border-muted/20 bg-background p-4">
-          <div className="mb-2 text-xs text-muted">Rata golden</div>
+        <div
+          className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60 transition-shadow duration-200 hover:shadow-md"
+          style={{
+            animation: gridVisible ? 'fadeSlideUp 0.4s ease-out both' : 'none',
+            animationDelay: gridVisible ? '0.05s' : '0ms',
+          }}
+        >
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+            <span>Rata golden</span>
+            <InfoTooltip title="Rata golden">
+              Rata golden indică procentul produselor cu nivel Golden Record. De ce contează: Golden
+              Record înseamnă date complete și validate din surse multiple. Exemplu: 45% golden =
+              aproape jumătate din catalog are date de înaltă calitate. Sfat: crește rata prin
+              enrichment regulat.
+            </InfoTooltip>
+          </div>
           <GaugeChart value={Math.round(goldenPct * 100)} max={100} ariaLabel="Rata golden" />
         </div>
-        <div className="rounded-lg border border-muted/20 bg-background p-4">
-          <div className="mb-2 text-xs text-muted">Scor calitate mediu</div>
+        <div
+          className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60 transition-shadow duration-200 hover:shadow-md"
+          style={{
+            animation: gridVisible ? 'fadeSlideUp 0.4s ease-out both' : 'none',
+            animationDelay: gridVisible ? '0.1s' : '0ms',
+          }}
+        >
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+            <span>Scor calitate mediu</span>
+            <InfoTooltip title="Scor calitate">
+              Scorul mediu de calitate al datelor (0–1) pe tot catalogul. De ce contează: reflectă
+              completitudinea și acuratețea datelor produs. Exemplu: un scor de 0.78 indică date
+              bune, dar cu spațiu de îmbunătățire. Sfat: urmărește trendul săptămânal pentru a
+              detecta regresii.
+            </InfoTooltip>
+          </div>
           <GaugeChart
             value={Number(avgQuality.toFixed(2))}
             max={1}
             ariaLabel="Scor mediu de calitate"
           />
         </div>
-        <div className="rounded-lg border border-muted/20 bg-background p-4">
-          <div className="mb-2 text-xs text-muted">Surse active</div>
-          <div className="text-h4">
-            {sources.sources.filter((source) => source.isActive).length}
+        <div
+          className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60 transition-shadow duration-200 hover:shadow-md"
+          style={{
+            animation: gridVisible ? 'fadeSlideUp 0.4s ease-out both' : 'none',
+            animationDelay: gridVisible ? '0.15s' : '0ms',
+          }}
+        >
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+            <span>Surse active</span>
+            <InfoTooltip title="Surse active">
+              Sursele active sunt canalele externe (eMAG, producători, etc.) care furnizează date.
+              De ce contează: mai multe surse cresc calitatea și acuratețea datelor. Exemplu: 5
+              surse active pot oferi specificații complementare. Sfat: verifică periodic sursele
+              inactive în tabul Enrichment.
+            </InfoTooltip>
+          </div>
+          <div className="text-h4 tabular-nums text-slate-800 dark:text-slate-100">
+            <PimCountUp value={activeSourcesCount} format={(n) => String(Math.round(n))} />
           </div>
         </div>
       </div>
@@ -187,38 +257,81 @@ export default function PimOverviewPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
-        <div className="rounded-lg border border-muted/20 bg-background p-4">
-          <div className="mb-2 text-xs text-muted">Etape pipeline enrichment</div>
+        <div
+          className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60"
+          style={{ animation: 'fadeSlideUp 0.4s ease-out 0.2s both' }}
+        >
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+            <span>Etape pipeline enrichment</span>
+            <InfoTooltip title="Pipeline enrichment">
+              Pipeline-ul de enrichment este secvența de etape pentru îmbogățirea datelor produs. De
+              ce contează: arată câte produse sunt în fiecare etapă. Exemplu: dacă „scraper" are
+              status Bottleneck, înseamnă că datele se acumulează acolo. Sfat: monitorizează etapele
+              cu status Active sau Bottleneck.
+            </InfoTooltip>
+          </div>
           <EnrichmentPipelineViz stages={enrichment.pipelineStages} />
         </div>
-        <div className="rounded-lg border border-muted/20 bg-background p-4">
-          <div className="mb-2 text-xs text-muted">Sanatate surse (top)</div>
-          <div className="space-y-2 text-sm">
+        <div
+          className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60"
+          style={{ animation: 'fadeSlideUp 0.4s ease-out 0.25s both' }}
+        >
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+            <span>Sănătate surse (top)</span>
+            <InfoTooltip title="Sănătate surse">
+              Sănătatea surselor arată rata de succes a fiecărei surse externe. De ce contează:
+              sursele cu succes scăzut returnează date incomplete sau eronate. Exemplu: dacă eMAG
+              are 60% succes, poate necesita investigare. Sfat: verifică sursele cu rată sub 70% în
+              tabul Enrichment.
+            </InfoTooltip>
+          </div>
+          <div className="space-y-2 text-sm text-slate-800 dark:text-slate-100">
             {sources.sources.slice(0, 3).map((source) => (
               <div
                 key={`${source.sourceName}-${source.sourceType}`}
                 className="flex justify-between gap-2"
               >
                 <span>{source.sourceName}</span>
-                <span className="text-muted">{source.successRate.toFixed(1)}%</span>
+                <span className="text-slate-500 dark:text-slate-400">
+                  {source.successRate.toFixed(1)}%
+                </span>
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      <div className="rounded-lg border border-muted/20 bg-background p-4">
-        <div className="mb-2 text-xs text-muted">Status sincronizare canale</div>
-        <div className="overflow-auto rounded-md border">
+      <div
+        className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60"
+        style={{ animation: 'fadeSlideUp 0.4s ease-out 0.3s both' }}
+      >
+        <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+          <span>Status sincronizare canale</span>
+          <InfoTooltip title="Sincronizare canale">
+            Sincronizarea arată câte produse sunt actualizate pe fiecare canal (Shopify, eMAG). De
+            ce contează: o rată scăzută poate duce la date diferite între canale. Exemplu: 95% sync
+            pe Shopify = aproape toate produsele sunt la zi. Sfat: prioritizează sincronizarea
+            pentru nivel Golden.
+          </InfoTooltip>
+        </div>
+        <div className="overflow-auto rounded-md border dark:border-slate-700">
           <table className="w-full text-sm">
-            <thead className="bg-muted/20">
+            <thead className="bg-slate-50 dark:bg-slate-800">
               <tr>
-                <th className="px-3 py-2 text-left">Nivel calitate</th>
-                <th className="px-3 py-2 text-left">Canal</th>
-                <th className="px-3 py-2 text-right">Produse</th>
-                <th className="px-3 py-2 text-right">Sincronizate</th>
-                <th className="px-3 py-2 text-right">Rata sync</th>
-                <th className="px-3 py-2 text-right">Scor mediu</th>
+                <th className="px-3 py-2 text-left text-slate-800 dark:text-slate-100">
+                  Nivel calitate
+                </th>
+                <th className="px-3 py-2 text-left text-slate-800 dark:text-slate-100">Canal</th>
+                <th className="px-3 py-2 text-right text-slate-800 dark:text-slate-100">Produse</th>
+                <th className="px-3 py-2 text-right text-slate-800 dark:text-slate-100">
+                  Sincronizate
+                </th>
+                <th className="px-3 py-2 text-right text-slate-800 dark:text-slate-100">
+                  Rata sync
+                </th>
+                <th className="px-3 py-2 text-right text-slate-800 dark:text-slate-100">
+                  Scor mediu
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -227,7 +340,7 @@ export default function PimOverviewPage() {
                 return (
                   <tr
                     key={`${item.dataQualityLevel}-${item.channel}`}
-                    className="border-t border-muted/20"
+                    className="border-t border-muted/20 dark:border-slate-700 text-slate-800 dark:text-slate-200"
                   >
                     <td className="px-3 py-2">{item.dataQualityLevel}</td>
                     <td className="px-3 py-2">{item.channel}</td>
@@ -236,7 +349,7 @@ export default function PimOverviewPage() {
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-2">
                         <div
-                          className="h-2 w-full min-w-24 overflow-hidden rounded-full bg-muted/30"
+                          className="h-2 w-full min-w-24 overflow-hidden rounded-full bg-muted/30 dark:bg-slate-700"
                           role="presentation"
                           aria-hidden="true"
                         >

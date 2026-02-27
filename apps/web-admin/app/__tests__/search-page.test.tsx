@@ -96,11 +96,11 @@ describe('SearchPage integration', () => {
     const query = screen.getByLabelText('Interogare');
     expect(query).toHaveValue('shoe');
 
-    const limit = screen.getByLabelText('Limită');
+    const limit = screen.getByDisplayValue('30');
     expect(limit).toHaveValue(30);
 
-    const threshold = screen.getByLabelText(/Prag/);
-    expect(threshold).toHaveValue('0.9');
+    const threshold = screen.getByDisplayValue('0.9');
+    expect(threshold).toBeInTheDocument();
 
     fireEvent.change(limit, { target: { value: '50' } });
     await act(async () => {

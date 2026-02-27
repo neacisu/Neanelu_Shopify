@@ -5,6 +5,7 @@ export const QUEUE_NAMES = [
   'bulk-poller-queue',
   'bulk-mutation-reconcile-queue',
   'bulk-ingest-queue',
+  'pim-manual-sync',
   'ai-batch-queue',
   'pim-enrichment-queue',
   'pim-similarity-search',

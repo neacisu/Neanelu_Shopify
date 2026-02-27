@@ -1,3 +1,5 @@
+import { InfoTooltip } from '../ui/info-tooltip';
+
 type ProviderCosts = Readonly<{
   serper: number;
   xai: number;
@@ -63,23 +65,31 @@ export function ProviderComparisonTable({
   ];
 
   return (
-    <div className="rounded-lg border border-muted/20 bg-background p-4">
-      <div className="mb-3 text-xs text-muted">Comparatie furnizori</div>
-      <div className="overflow-x-auto rounded-md border border-muted/20">
+    <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-md dark:bg-slate-900/80 dark:border-slate-700/60">
+      <div className="mb-3 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+        <span>Comparație furnizori</span>
+        <InfoTooltip title="Comparație furnizori">
+          Tabelul compară costurile API pe fiecare furnizor (Serper, xAI, OpenAI, Scraper). De ce
+          contează: identifici rapid care furnizor consumă cel mai mult. Exemplu: dacă OpenAI costă
+          mai mult decât Serper, poți evalua eficiența. Sfat: monitorizează totalul lunar pentru a
+          rămâne sub buget.
+        </InfoTooltip>
+      </div>
+      <div className="overflow-x-auto rounded-md border border-muted/20 dark:border-slate-700">
         <table className="min-w-[560px] w-full text-sm">
           <caption className="sr-only">
             Comparatie costuri API pe furnizori pentru astazi, saptamana si luna curenta.
           </caption>
-          <thead className="bg-muted/30 text-xs text-muted">
+          <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
             <tr>
               <th scope="col" className="px-3 py-2 text-left font-medium">
                 Furnizor
               </th>
               <th scope="col" className="px-3 py-2 text-right font-medium">
-                Astazi
+                Azi
               </th>
               <th scope="col" className="px-3 py-2 text-right font-medium">
-                Saptamana
+                Săptămâna
               </th>
               <th scope="col" className="px-3 py-2 text-right font-medium">
                 Luna
@@ -88,7 +98,10 @@ export function ProviderComparisonTable({
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.id} className="border-t border-muted/20">
+              <tr
+                key={row.id}
+                className="border-t border-muted/20 dark:border-slate-700 text-slate-800 dark:text-slate-200"
+              >
                 <td className="px-3 py-2 text-left">{row.label}</td>
                 <td className="px-3 py-2 text-right">{formatCost(row.today)}</td>
                 <td className="px-3 py-2 text-right">{formatCost(row.thisWeek)}</td>

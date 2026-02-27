@@ -7,6 +7,6 @@ describe('ConsensusStatusBadge', () => {
   it('renders the computed label', () => {
     render(<ConsensusStatusBadge status="computed" />);
 
-    expect(screen.getByText('Computed')).toBeTruthy();
+    expect(screen.getByText('Calculat')).toBeTruthy();
   });
 });

@@ -1,5 +1,6 @@
 import { GaugeChart } from '../charts/GaugeChart';
 import { Sparkline } from '../charts/Sparkline';
+import { InfoTooltip } from '../ui/info-tooltip';
 
 export type EnrichmentStats = Readonly<{
   pending: number;
@@ -23,33 +24,63 @@ export function EnrichmentStatsCards({ stats }: EnrichmentStatsCardsProps) {
 
   return (
     <div className="grid gap-4 md:grid-cols-4">
-      <div className="rounded-lg border border-muted/20 bg-background p-4">
-        <div className="flex items-center justify-between text-xs text-muted">
-          <span>Pending</span>
+      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-md dark:bg-slate-900/80 dark:border-slate-700/60">
+        <div className="mb-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+          <span className="flex items-center gap-1.5">
+            În așteptare
+            <InfoTooltip title="În așteptare">
+              Produsele în așteptare sunt cele care nu au fost încă procesate de pipeline. De ce
+              contează: un număr mare indică un backlog care crește. Exemplu: 150 în așteptare = 150
+              produse care nu au date îmbogățite. Sfat: pornește enrichment-ul manual dacă coada
+              stagnează.
+            </InfoTooltip>
+          </span>
           {pendingTrend.length ? <Sparkline data={pendingTrend} color="#f59e0b" /> : null}
         </div>
-        <div className="text-h5">{stats.pending}</div>
+        <div className="text-h5 text-slate-800 dark:text-slate-100">{stats.pending}</div>
       </div>
 
-      <div className="rounded-lg border border-muted/20 bg-background p-4">
-        <div className="flex items-center justify-between text-xs text-muted">
-          <span>In progress</span>
+      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-md dark:bg-slate-900/80 dark:border-slate-700/60">
+        <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+          <span>În curs</span>
+          <InfoTooltip title="În curs">
+            Produsele în curs sunt cele aflate activ în procesare (căutare, audit AI, scraping,
+            extracție). De ce contează: arată cât de ocupat este pipeline-ul acum. Exemplu: 25 în
+            curs înseamnă 25 produse procesate simultan. Sfat: dacă nu vezi nicio mișcare, verifică
+            starea cozilor.
+          </InfoTooltip>
         </div>
-        <div className="text-h5">{stats.inProgress}</div>
+        <div className="text-h5 text-slate-800 dark:text-slate-100">{stats.inProgress}</div>
       </div>
 
-      <div className="rounded-lg border border-muted/20 bg-background p-4">
-        <div className="flex items-center justify-between text-xs text-muted">
-          <span>Completed today</span>
+      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-md dark:bg-slate-900/80 dark:border-slate-700/60">
+        <div className="mb-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+          <span className="flex items-center gap-1.5">
+            Finalizate azi
+            <InfoTooltip title="Finalizate azi">
+              Finalizate azi arată câte produse au fost procesate cu succes în ziua curentă. De ce
+              contează: reflectă productivitatea zilnică a pipeline-ului. Exemplu: 80 finalizate azi
+              = 80 de produse au primit date noi. Sfat: compară cu trendul pentru a vedea dacă
+              ritmul crește.
+            </InfoTooltip>
+          </span>
           {completedTrend.length ? <Sparkline data={completedTrend} color="#10b981" /> : null}
         </div>
-        <div className="text-h5">{stats.completedToday}</div>
+        <div className="text-h5 text-slate-800 dark:text-slate-100">{stats.completedToday}</div>
       </div>
 
-      <div className="rounded-lg border border-muted/20 bg-background p-4">
-        <div className="text-xs text-muted">Success rate</div>
+      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-md dark:bg-slate-900/80 dark:border-slate-700/60">
+        <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+          <span>Rata succes</span>
+          <InfoTooltip title="Rata succes">
+            Rata de succes este procentul produselor finalizate cu succes din totalul celor
+            procesate. De ce contează: o rată scăzută indică probleme cu sursele sau pipeline-ul.
+            Exemplu: 92% succes = 8 din 100 eșuează. Sfat: verifică sursele cu rată scăzută în
+            tabelul de performanță.
+          </InfoTooltip>
+        </div>
         <div className="mt-2">
-          <GaugeChart value={successPct} max={100} ariaLabel="Success rate" />
+          <GaugeChart value={successPct} max={100} ariaLabel="Rata succes" />
         </div>
       </div>
     </div>

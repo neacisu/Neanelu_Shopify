@@ -26,7 +26,7 @@ describe('ProductsAssignCategoryModal', () => {
       />
     );
 
-    const assignButton = screen.getByRole('button', { name: 'Assign' });
+    const assignButton = screen.getByRole('button', { name: 'Atribuie' });
     expect(assignButton).toBeDisabled();
 
     await user.click(screen.getByRole('button', { name: 'Select category' }));

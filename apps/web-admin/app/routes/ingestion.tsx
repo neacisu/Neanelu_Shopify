@@ -3,10 +3,12 @@ import { data, useFetcher, useLoaderData, useLocation, useNavigate } from 'react
 import { toast } from 'sonner';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useScrollReveal } from '../hooks/useScrollReveal';
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { Tabs } from '../components/ui/tabs';
 import { Button } from '../components/ui/button';
+import { InfoTooltip } from '../components/ui/info-tooltip';
 import { FileUpload } from '../components/ui/FileUpload';
 import { IngestionProgress, LogConsole } from '../components/domain/index.js';
 import { useLogStream } from '../hooks/use-log-stream';
@@ -155,7 +157,7 @@ export const action: ActionFunction = apiAction(
         intent,
         runId,
         status,
-        toast: { type: 'success', message: 'Bulk ingestion started' },
+        toast: { type: 'success', message: 'Sincronizarea în masă a fost pornită' },
       } satisfies IngestionActionResult);
     }
 
@@ -168,7 +170,7 @@ export const action: ActionFunction = apiAction(
       return data({
         ok: true,
         intent,
-        toast: { type: 'success', message: 'Shopify bulk operation cancel requested' },
+        toast: { type: 'success', message: 'Anularea operațiunii Shopify a fost solicitată' },
       } satisfies IngestionActionResult);
     }
 
@@ -185,7 +187,7 @@ export const action: ActionFunction = apiAction(
     return data({
       ok: true,
       intent,
-      toast: { type: 'success', message: 'Bulk ingestion aborted' },
+      toast: { type: 'success', message: 'Sincronizarea în masă a fost anulată' },
     } satisfies IngestionActionResult);
   }
 );
@@ -325,7 +327,7 @@ export default function IngestionPage() {
     if (!result) return;
     if (result.ok !== true) {
       const error = (result as { error?: { message?: string } }).error;
-      toast.error(error?.message ?? 'Request failed');
+      toast.error(error?.message ?? 'Cererea a eșuat');
       return;
     }
 
@@ -465,10 +467,10 @@ export default function IngestionPage() {
         });
         void navigate(`/ingestion?runId=${encodeURIComponent(res.run_id)}`);
       }
-      toast.success('Upload queued for ingestion');
+      toast.success('Fișierul a fost pus la coadă pentru ingestie');
     } catch (err) {
-      apiUpload.setError(err instanceof Error ? err.message : 'Upload failed');
-      toast.error('Upload failed');
+      apiUpload.setError(err instanceof Error ? err.message : 'Încărcarea a eșuat');
+      toast.error('Încărcarea a eșuat');
     }
   };
 
@@ -491,13 +493,13 @@ export default function IngestionPage() {
   const formatCount = (value?: string | number | null) => {
     const count = typeof value === 'number' ? value : value ? Number(value) : Number.NaN;
     if (!Number.isFinite(count)) return null;
-    return new Intl.NumberFormat('en-GB').format(count);
+    return new Intl.NumberFormat('ro-RO').format(count);
   };
 
   const formatNumber = (value?: number | null) => {
     const count = typeof value === 'number' ? value : Number.NaN;
     if (!Number.isFinite(count)) return null;
-    return new Intl.NumberFormat('en-GB').format(count);
+    return new Intl.NumberFormat('ro-RO').format(count);
   };
 
   const formatMegabytes = (value?: string | number | null) => {
@@ -506,6 +508,10 @@ export default function IngestionPage() {
     const mb = bytes / (1024 * 1024);
     return `${mb.toFixed(mb >= 10 ? 0 : 1)} Mb`;
   };
+
+  const [contentRef, contentVisible] = useScrollReveal<HTMLDivElement>({
+    rootMargin: '0px 0px -40px 0px',
+  });
 
   const parseNumber = (value?: string | number | null) => {
     const parsed = typeof value === 'number' ? value : value ? Number(value) : Number.NaN;
@@ -758,36 +764,50 @@ export default function IngestionPage() {
   ];
 
   return (
-    <div className="space-y-6">
+    <div
+      ref={contentRef}
+      className="space-y-6"
+      style={{
+        animation: contentVisible ? 'fadeSlideUp 0.4s ease-out both' : 'none',
+      }}
+    >
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <Breadcrumbs items={breadcrumbs} />
-          <h1 className="text-2xl font-bold tracking-tight text-slate-800">Sincronizare catalog</h1>
-          <p className="text-sm text-slate-500">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-slate-100 motion-safe:animate-[fadeSlideUp_0.5s_ease-out_both]">
+            Sincronizare catalog
+          </h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
             Pornește sau monitorizează sincronizarea în masă cu Shopify și încarcă fișiere JSONL
           </p>
         </div>
       </header>
 
-      <Tabs
-        items={tabs.map((tab) => ({ label: tab.label, value: tab.value }))}
-        value="overview"
-        onValueChange={(v) => {
-          const target = tabs.find((t) => t.value === v)?.to ?? '/ingestion';
-          void navigate(target);
-        }}
-      />
+      <span className="inline-flex items-center gap-1.5">
+        <Tabs
+          items={tabs.map((tab) => ({ label: tab.label, value: tab.value }))}
+          value="overview"
+          onValueChange={(v) => {
+            const target = tabs.find((t) => t.value === v)?.to ?? '/ingestion';
+            void navigate(target);
+          }}
+        />
+        <InfoTooltip title="Navigare ingestie" side="bottom">
+          Prezentare: pornește sync complet sau încarcă JSONL, monitorizează progresul. Istoric:
+          rulări anterioare și status. Programare: configurează sincronizări automate recurente.
+        </InfoTooltip>
+      </span>
 
       {showShopifyStatusCard && (
-        <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white p-4 shadow-[var(--shadow-sm)]">
+        <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 backdrop-blur-sm p-4 shadow-[var(--shadow-sm)] dark:border-slate-700/60 dark:bg-slate-900/80">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold text-slate-800">
+              <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
                 {isShopifyRunning || isActive
                   ? 'Sincronizare Shopify în curs'
                   : 'Sincronizare Shopify finalizată'}
               </h2>
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                 Status: {shopifyStatus ?? 'aștept răspuns Shopify'}
                 {shopifyOperation?.id ? ` · ${shopifyOperation.id}` : ''}
                 {shopifyStatus === 'CANCELING' ? ' · Se anulează…' : ''}
@@ -862,7 +882,7 @@ export default function IngestionPage() {
       )}
 
       {isActive && currentRun ? (
-        <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white p-4 shadow-[var(--shadow-sm)]">
+        <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 backdrop-blur-sm p-4 shadow-[var(--shadow-sm)] dark:border-slate-700/60 dark:bg-slate-900/80">
           <div className="space-y-6">
             <IngestionProgress
               currentStep={currentStep}
@@ -870,7 +890,7 @@ export default function IngestionPage() {
               status="running"
               onAbort={abortIngestion}
               abortDisabled={actionFetcher.state !== 'idle'}
-              overallLabel={isShopifyRunning ? 'Overall progress (Shopify)' : 'Overall progress'}
+              overallLabel={isShopifyRunning ? 'Progres general (Shopify)' : 'Progres general'}
               overallProcessedLabel={overallProcessedLabel}
               overallTotalLabel={overallTotalLabel}
               overallSpeedLabel={overallSpeedLabel}
@@ -913,19 +933,23 @@ export default function IngestionPage() {
                 {...(currentRun ? { endpoint: `/api/bulk/${currentRun.id}/logs/ws` } : {})}
               />
             ) : (
-              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/50 p-4 text-sm text-slate-500">
+              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/50 p-4 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
                 Log-urile brute sunt ascunse în timpul sincronizării pentru a reduce zgomotul.
               </div>
             )}
           </div>
         </article>
       ) : isSelectedRun && currentRun ? (
-        <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white p-4 shadow-[var(--shadow-sm)]">
+        <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 backdrop-blur-sm p-4 shadow-[var(--shadow-sm)] dark:border-slate-700/60 dark:bg-slate-900/80">
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h2 className="text-lg font-semibold text-slate-800">Rulare {currentRun.id}</h2>
-                <p className="text-sm text-slate-500">Status: {currentRun.status}</p>
+                <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
+                  Rulare {currentRun.id}
+                </h2>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  Status: {currentRun.status}
+                </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 {(currentRun.status === 'pending' || currentRun.status === 'running') && (
@@ -966,13 +990,13 @@ export default function IngestionPage() {
           </div>
         </article>
       ) : (
-        <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white p-6 shadow-[var(--shadow-sm)]">
+        <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 backdrop-blur-sm p-6 shadow-[var(--shadow-sm)] dark:border-slate-700/60 dark:bg-slate-900/80">
           <div className="grid gap-6 lg:grid-cols-[2fr,3fr]">
             <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-slate-800">
+              <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
                 Pornește o sincronizare completă
               </h2>
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
                 Pornește o ingestie completă a catalogului Shopify. Poți monitoriza progresul și
                 log-urile în timp real după ce rularea începe.
               </p>
@@ -981,24 +1005,38 @@ export default function IngestionPage() {
                   Ultima rulare: {recentRuns[0]?.completedAt ?? recentRuns[0]?.startedAt ?? '—'}
                 </p>
               ) : null}
-              <Button
-                variant="primary"
-                onClick={startIngestion}
-                loading={actionFetcher.state !== 'idle'}
-                className="transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
-              >
-                Pornește sync complet
-              </Button>
+              <span className="inline-flex items-center gap-1.5">
+                <Button
+                  variant="primary"
+                  onClick={startIngestion}
+                  loading={actionFetcher.state !== 'idle'}
+                  className="transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
+                >
+                  Pornește sync complet
+                </Button>
+                <InfoTooltip title="Pornește sync complet" side="bottom" maxWidth={360}>
+                  Lansează o sincronizare în masă cu Shopify: exportă produsele, variantele și
+                  metafields, le descarcă, transformă și salvează în baza de date. Poți monitoriza
+                  progresul și logurile în timp real după ce rularea începe.
+                </InfoTooltip>
+              </span>
             </div>
-            <div className="rounded-lg border border-slate-200/80 bg-slate-50/50 p-4">
+            <div className="rounded-lg border border-slate-200/80 bg-slate-50/50 p-4 dark:border-slate-700/60 dark:bg-slate-800/50">
               <FileUpload
                 label="Încarcă JSONL manual"
-                description="Încarcă un fișier JSONL pentru ingestie fără un bulk run Shopify."
+                description="Încarcă un fișier JSONL pentru ingestie fără un bulk run Shopify. Util când ai date exportate manual sau dintr-o sursă externă."
                 accept={{ 'application/jsonl': ['.jsonl'], 'application/json': ['.json'] }}
                 maxFiles={1}
                 maxSize={1024 * 1024 * 1024}
                 onUpload={uploadJsonl}
               />
+              <div className="mt-2 flex justify-end">
+                <InfoTooltip title="Încarcă JSONL manual" side="bottom" maxWidth={360}>
+                  Încarcă un fișier JSONL (un obiect JSON per linie) cu produse. Nu necesită bulk
+                  run Shopify — util pentru date exportate manual, migrări sau surse externe.
+                  Formatul trebuie să corespundă structurii produselor Shopify.
+                </InfoTooltip>
+              </div>
             </div>
           </div>
         </article>

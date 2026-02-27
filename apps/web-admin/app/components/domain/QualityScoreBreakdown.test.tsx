@@ -7,7 +7,7 @@ describe('QualityScoreBreakdown', () => {
   it('renders fallback when breakdown is missing', () => {
     render(<QualityScoreBreakdown breakdown={null} score={null} />);
 
-    expect(screen.getByText('No quality breakdown available.')).toBeTruthy();
+    expect(screen.getByText('Nu există detaliere calitate disponibilă.')).toBeTruthy();
   });
 
   it('renders breakdown values', () => {
@@ -18,10 +18,10 @@ describe('QualityScoreBreakdown', () => {
       />
     );
 
-    expect(screen.getByText('Quality score: 82%')).toBeTruthy();
-    expect(screen.getByText('Completeness')).toBeTruthy();
-    expect(screen.getByText('Accuracy')).toBeTruthy();
-    expect(screen.getByText('Consistency')).toBeTruthy();
-    expect(screen.getByText('Source weight')).toBeTruthy();
+    expect(screen.getByText('Scor calitate: 82%')).toBeTruthy();
+    expect(screen.getByText('Completitudine')).toBeTruthy();
+    expect(screen.getByText('Acuratețe')).toBeTruthy();
+    expect(screen.getByText('Consistență')).toBeTruthy();
+    expect(screen.getByText('Pondere surse')).toBeTruthy();
   });
 });

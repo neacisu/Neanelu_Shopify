@@ -40,8 +40,10 @@ export const DEFAULT_QUEUE_TIMEOUTS_MS: QueueTimeoutsMs = {
   'bulk-poller-queue': 5 * 60_000,
   // Reconcile can involve downloading and parsing large JSONL files.
   'bulk-mutation-reconcile-queue': 30 * 60_000,
-  // Bulk ingest jobs can trigger costly downstream processing.
-  'bulk-ingest-queue': 15 * 60_000,
+  // Bulk ingest includes COPY + merge for potentially millions of records.
+  'bulk-ingest-queue': 60 * 60_000,
+  // Manual PIM sync can process very large touched sets.
+  'pim-manual-sync': 4 * 60 * 60_000,
   // AI batch work tends to be longer.
   'ai-batch-queue': 10 * 60_000,
   // Enrichment jobs can be long-running (external APIs + scraping).

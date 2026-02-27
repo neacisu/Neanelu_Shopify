@@ -6,7 +6,7 @@ import { DashboardSkeleton } from '../DashboardSkeleton';
 describe('DashboardSkeleton', () => {
   it('renders loading status container', () => {
     render(<DashboardSkeleton rows={1} columns={2} variant="kpi" />);
-    expect(screen.getByLabelText('Loading dashboard')).toBeTruthy();
+    expect(screen.getByLabelText('Se încarcă tabloul de bord')).toBeTruthy();
   });
 
   it('renders chart and table variants', () => {

@@ -28,6 +28,7 @@ export function startEnrichmentWorker(logger: Logger): EnrichmentWorkerHandle {
   const redis = new IORedis(env.redisUrl, {
     enableReadyCheck: true,
     maxRetriesPerRequest: null,
+    keyPrefix: env.redisPrefix,
   });
   const orchestrator = new EnrichmentOrchestrator(redis, logger, enqueueSimilaritySearchJob);
   const { worker, dlqQueue } = createWorker(

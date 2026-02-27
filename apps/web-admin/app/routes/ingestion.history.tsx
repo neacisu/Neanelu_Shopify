@@ -43,8 +43,8 @@ function formatCheckpointLabel(checkpoint: IngestionRunRow['checkpoint']): strin
     const date = new Date(checkpoint.lastCommitAt);
     parts.push(
       Number.isNaN(date.getTime())
-        ? `Last commit ${checkpoint.lastCommitAt}`
-        : `Last commit ${date.toLocaleString('en-GB')}`
+        ? `Ultimul commit ${checkpoint.lastCommitAt}`
+        : `Ultimul commit ${date.toLocaleString('ro-RO')}`
     );
   }
 
@@ -136,14 +136,19 @@ export const action: (args: ActionFunctionArgs) => Promise<ActionReturn> = apiAc
     }
 
     const mode = formData.get('mode');
-    await api.postApi(`/bulk/${encodeURIComponent(runId)}/retry`, {
+    const result = await api.postApi<
+      { retried?: boolean; mode?: string; message?: string },
+      Record<string, unknown>
+    >(`/bulk/${encodeURIComponent(runId)}/retry`, {
       ...(mode === 'restart' || mode === 'resume' ? { mode } : {}),
     });
+
+    const serverMessage = result?.message ?? 'Reîncercare programată';
 
     return data({
       ok: true,
       intent: 'bulk.retry',
-      toast: { type: 'success', message: 'Reincercare programata' },
+      toast: { type: 'success', message: serverMessage },
     } satisfies RetryActionResult);
   }
 );
@@ -210,7 +215,9 @@ export default function IngestionHistoryPage() {
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <Breadcrumbs items={breadcrumbs} />
-          <h1 className="text-2xl font-bold tracking-tight text-slate-800">Istoric ingestie</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-slate-100 motion-safe:animate-[fadeSlideUp_0.5s_ease-out_both]">
+            Istoric ingestie
+          </h1>
           <p className="text-sm text-slate-500">Rulări trecute, filtre și reîncercare</p>
         </div>
       </header>

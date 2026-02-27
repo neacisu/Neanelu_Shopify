@@ -32,21 +32,26 @@ export function MultiSourceVotingView({
 
   return (
     <div className="space-y-3">
-      <div className="text-sm font-semibold">{attributeName}</div>
-      <div className="overflow-hidden rounded-md border border-muted/20">
+      <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+        {attributeName}
+      </div>
+      <div className="overflow-hidden rounded-md border border-muted/20 dark:border-slate-700">
         <table className="w-full text-sm">
-          <thead className="bg-muted/30 text-xs text-muted">
+          <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
             <tr>
-              <th className="px-3 py-2 text-left font-medium">Source</th>
-              <th className="px-3 py-2 text-left font-medium">Value</th>
+              <th className="px-3 py-2 text-left font-medium">Sursă</th>
+              <th className="px-3 py-2 text-left font-medium">Valoare</th>
               <th className="px-3 py-2 text-right font-medium">Trust</th>
-              <th className="px-3 py-2 text-right font-medium">Similarity</th>
-              <th className="px-3 py-2 text-right font-medium">Weight</th>
+              <th className="px-3 py-2 text-right font-medium">Similaritate</th>
+              <th className="px-3 py-2 text-right font-medium">Pondere</th>
             </tr>
           </thead>
           <tbody>
             {votes.map((vote, idx) => (
-              <tr key={`${vote.sourceName}-${idx}`} className="border-t border-muted/20">
+              <tr
+                key={`${vote.sourceName}-${idx}`}
+                className="border-t border-muted/20 dark:border-slate-700 text-slate-800 dark:text-slate-200"
+              >
                 <td className="px-3 py-2">{vote.sourceName}</td>
                 <td className="px-3 py-2">{vote.value}</td>
                 <td className="px-3 py-2 text-right">{vote.trustScore.toFixed(2)}</td>
@@ -58,12 +63,12 @@ export function MultiSourceVotingView({
         </table>
       </div>
       {winner ? (
-        <div className="text-xs text-muted">
-          Winner: {winner[0]} (votes: {winner[1].count}, weight: {winner[1].weight.toFixed(3)}). Min
-          votes required: {minVotes}
+        <div className="text-xs text-slate-500 dark:text-slate-400">
+          Câștigător: {winner[0]} (voturi: {winner[1].count}, pondere: {winner[1].weight.toFixed(3)}
+          ). Voturi minime necesare: {minVotes}
         </div>
       ) : (
-        <div className="text-xs text-muted">No winner.</div>
+        <div className="text-xs text-slate-500 dark:text-slate-400">Nu există câștigător.</div>
       )}
     </div>
   );

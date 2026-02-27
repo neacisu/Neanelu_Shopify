@@ -20,7 +20,7 @@ describe('ProductsAddToCollectionModal', () => {
       />
     );
 
-    const addButton = screen.getByRole('button', { name: 'Add to collection' });
+    const addButton = screen.getByRole('button', { name: 'Adaugă la colecție' });
     expect(addButton).toBeDisabled();
 
     await user.click(screen.getByRole('radio'));

@@ -20,6 +20,109 @@ import pg from 'pg';
 
 const { Pool } = pg;
 
+const ROLE_NAME_PATTERN = /^[a-z_][a-z0-9_]*$/i;
+
+type ParsedDbConnection = Readonly<{
+  connectionString: string | undefined;
+  runtimeRole: string | null;
+}>;
+
+function normalizeRoleName(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!ROLE_NAME_PATTERN.test(trimmed)) return null;
+  return trimmed;
+}
+
+function extractRoleFromOptions(optionsRaw: string): {
+  sanitizedOptions: string | null;
+  runtimeRole: string | null;
+} {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(optionsRaw).trim();
+  } catch {
+    decoded = optionsRaw.trim();
+  }
+  if (!decoded) {
+    return { sanitizedOptions: null, runtimeRole: null };
+  }
+
+  const tokens = decoded.split(/\s+/).filter(Boolean);
+  const kept: string[] = [];
+  let runtimeRole: string | null = null;
+
+  for (let i = 0; i < tokens.length; i += 1) {
+    const token = tokens[i];
+    if (!token) continue;
+
+    // Forms accepted:
+    // -c role=my_role
+    // -c role = my_role
+    if (token === '-c') {
+      const next = tokens[i + 1];
+      const next2 = tokens[i + 2];
+      const next3 = tokens[i + 3];
+      if (typeof next === 'string' && next.toLowerCase() === 'role') {
+        if (next2 === '=') {
+          runtimeRole = normalizeRoleName(next3) ?? runtimeRole;
+          i += 3;
+          continue;
+        }
+      }
+      if (typeof next === 'string' && /^role=/i.test(next)) {
+        runtimeRole = normalizeRoleName(next.split('=').slice(1).join('=')) ?? runtimeRole;
+        i += 1;
+        continue;
+      }
+      kept.push(token);
+      continue;
+    }
+
+    if (/^role=/i.test(token)) {
+      runtimeRole = normalizeRoleName(token.split('=').slice(1).join('=')) ?? runtimeRole;
+      continue;
+    }
+
+    kept.push(token);
+  }
+
+  return {
+    sanitizedOptions: kept.length ? encodeURIComponent(kept.join(' ')) : null,
+    runtimeRole,
+  };
+}
+
+function parseConnectionString(rawUrl: string | undefined): ParsedDbConnection {
+  if (!rawUrl) {
+    return { connectionString: undefined, runtimeRole: null };
+  }
+
+  try {
+    const url = new URL(rawUrl);
+    let runtimeRole: string | null = normalizeRoleName(url.searchParams.get('role'));
+    if (url.searchParams.has('role')) {
+      url.searchParams.delete('role');
+    }
+
+    const optionsParam = url.searchParams.get('options');
+    if (optionsParam) {
+      const parsedOptions = extractRoleFromOptions(optionsParam);
+      runtimeRole = parsedOptions.runtimeRole ?? runtimeRole;
+      if (parsedOptions.sanitizedOptions) {
+        url.searchParams.set('options', parsedOptions.sanitizedOptions);
+      } else {
+        url.searchParams.delete('options');
+      }
+    }
+
+    return { connectionString: url.toString(), runtimeRole };
+  } catch {
+    return { connectionString: rawUrl, runtimeRole: null };
+  }
+}
+
 function parseDbSslMode(value: string | undefined): 'disable' | 'require' | 'verify-full' {
   const raw = (value ?? 'disable').trim().toLowerCase();
   if (raw === 'disable' || raw === 'require' || raw === 'verify-full') return raw;
@@ -35,8 +138,12 @@ function getDefaultPoolSize(nodeEnv: string | undefined): number {
 // POOL CONFIG (read once, reused on rotation)
 // ============================================
 
+const parsedInitialConnection = parseConnectionString(
+  process.env['DATABASE_URL_TEST'] ?? process.env['DATABASE_URL']
+);
+
 const poolConfig: pg.PoolConfig = {
-  connectionString: process.env['DATABASE_URL_TEST'] ?? process.env['DATABASE_URL'],
+  connectionString: parsedInitialConnection.connectionString,
   max: Number(process.env['DB_POOL_SIZE'] ?? getDefaultPoolSize(process.env['NODE_ENV'])),
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
@@ -57,6 +164,23 @@ function attachPoolErrorHandler(p: pg.Pool): void {
   p.on('error', (err) => {
     console.error('[DB] Idle client error (non-fatal, pool continues):', err.message);
   });
+}
+
+let _runtimeRole: string | null = parsedInitialConnection.runtimeRole;
+
+async function applyRuntimeRole(client: pg.PoolClient, useLocalRole: boolean): Promise<void> {
+  if (!_runtimeRole) return;
+  const escapedRole = _runtimeRole.replace(/"/g, '""');
+  const sql = `${useLocalRole ? 'SET LOCAL' : 'SET'} ROLE "${escapedRole}"`;
+  try {
+    await client.query(sql);
+  } catch (error) {
+    console.warn('[DB] Failed to apply runtime role, continuing without role switch', {
+      role: _runtimeRole,
+      useLocalRole,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 let _pool = new Pool(poolConfig);
@@ -103,12 +227,14 @@ const DRAIN_TIMEOUT_MS = 30_000;
  * 3. Drain graceful al pool-ului vechi (30s)
  */
 export async function rotatePool(newConnectionString: string): Promise<void> {
-  const newPoolConfig: pg.PoolConfig = { ...poolConfig, connectionString: newConnectionString };
+  const parsed = parseConnectionString(newConnectionString);
+  const newPoolConfig: pg.PoolConfig = { ...poolConfig, connectionString: parsed.connectionString };
   const newPool = new Pool(newPoolConfig);
   attachPoolErrorHandler(newPool);
 
   const client = await newPool.connect();
   try {
+    await applyRuntimeRole(client, false);
     await client.query('SELECT 1');
   } finally {
     client.release();
@@ -118,7 +244,8 @@ export async function rotatePool(newConnectionString: string): Promise<void> {
 
   _pool = newPool;
   _db = drizzle(newPool);
-  _currentConnectionString = newConnectionString;
+  _currentConnectionString = parsed.connectionString;
+  _runtimeRole = parsed.runtimeRole;
 
   if (_drainTimer) {
     clearTimeout(_drainTimer);
@@ -208,6 +335,7 @@ export async function withTenantContext<T>(
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    await applyRuntimeRole(client, true);
     await setTenantContext(client, shopId);
     const result = await fn(client);
     await client.query('COMMIT');

@@ -1,6 +1,4 @@
-import type { Config } from 'tailwindcss';
-
-const config: Config = {
+const config = {
   content: ['./app/**/*.{ts,tsx}', './components/**/*.{ts,tsx}'],
   theme: {
     extend: {
@@ -12,6 +10,13 @@ const config: Config = {
         muted: 'rgb(var(--color-muted) / <alpha-value>)',
         foreground: 'rgb(var(--color-foreground) / <alpha-value>)',
         background: 'rgb(var(--color-background) / <alpha-value>)',
+        card: 'rgb(var(--color-card) / <alpha-value>)',
+        border: 'rgb(var(--color-border) / <alpha-value>)',
+        accent: 'rgb(var(--color-accent) / <alpha-value>)',
+        destructive: 'rgb(var(--color-destructive) / <alpha-value>)',
+        popover: 'rgb(var(--color-popover) / <alpha-value>)',
+        ring: 'rgb(var(--color-ring) / <alpha-value>)',
+        subtle: 'rgb(var(--color-subtle) / <alpha-value>)',
       },
       spacing: {
         '1': '4px',
@@ -29,9 +34,12 @@ const config: Config = {
         lg: 'var(--radius-lg)',
       },
       boxShadow: {
+        xs: 'var(--shadow-xs)',
         sm: 'var(--shadow-sm)',
         md: 'var(--shadow-md)',
         lg: 'var(--shadow-lg)',
+        xl: 'var(--shadow-xl)',
+        glass: 'var(--glass-shadow)',
       },
       fontSize: {
         h1: ['2.25rem', { lineHeight: '2.5rem', fontWeight: '700' }],
@@ -45,6 +53,19 @@ const config: Config = {
         mono: ['0.875rem', { lineHeight: '1.25rem', fontWeight: '400' }],
       },
       fontFamily: {
+        sans: [
+          'Inter',
+          'ui-sans-serif',
+          'system-ui',
+          '-apple-system',
+          'Segoe UI',
+          'Roboto',
+          'Helvetica Neue',
+          'Arial',
+          'Noto Sans',
+          'Liberation Sans',
+          'sans-serif',
+        ],
         mono: [
           'ui-monospace',
           'SFMono-Regular',

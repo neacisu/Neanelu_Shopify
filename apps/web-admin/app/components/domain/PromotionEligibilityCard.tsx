@@ -66,17 +66,20 @@ export function PromotionEligibilityCard(props: PromotionEligibilityCardProps) {
     const meetsScore = scoreValue >= nextThreshold;
     checklistItems.unshift({
       status: meetsScore ? 'met' : 'missing',
-      text: `Quality score: ${scoreValue} (target ${nextThreshold} for ${nextLevel})`,
+      text: `Scor calitate: ${scoreValue} (țintă ${nextThreshold} pentru ${nextLevel})`,
     });
   }
 
   checklistItems.push({
     status: 'info',
-    text: `Sources: ${sourceCount} | Specs: ${specsCount}`,
+    text: `Surse: ${sourceCount} | Specs: ${specsCount}`,
   });
 
   if (checklistItems.length === 0) {
-    checklistItems.push({ status: 'met', text: 'All promotion requirements met' });
+    checklistItems.push({
+      status: 'met',
+      text: 'Toate cerințele pentru promovare sunt îndeplinite',
+    });
   }
 
   return (
@@ -115,13 +118,13 @@ export function PromotionEligibilityCard(props: PromotionEligibilityCardProps) {
           trackColor="#f87171"
           showValue
           formatValue={(v) => `${Math.round(v * 100)}%`}
-          label={nextLevel ? `Next: ${nextThreshold} for ${nextLevel}` : 'Golden Record'}
+          label={nextLevel ? `Următor: ${nextThreshold} pentru ${nextLevel}` : 'Golden Record'}
           size={120}
         />
         <div className="text-sm text-muted">
-          <div className="font-medium text-foreground">Quality Score</div>
-          <div>Current level: {currentLevel}</div>
-          <div>Next level: {nextLevel ?? '—'}</div>
+          <div className="font-medium text-foreground">Scor calitate</div>
+          <div>Nivel curent: {currentLevel}</div>
+          <div>Nivel următor: {nextLevel ?? '—'}</div>
         </div>
       </div>
 
@@ -147,11 +150,11 @@ export function PromotionEligibilityCard(props: PromotionEligibilityCardProps) {
       <div className="flex items-center gap-3">
         {eligibleForPromotion && nextLevel ? (
           <Button variant="positive" onClick={() => onPromote?.(nextLevel)}>
-            Promote to {nextLevel}
+            Promovează la {nextLevel}
           </Button>
         ) : (
           <Button variant="secondary" disabled>
-            Promotion not eligible
+            Promovare neeligibilă
           </Button>
         )}
 

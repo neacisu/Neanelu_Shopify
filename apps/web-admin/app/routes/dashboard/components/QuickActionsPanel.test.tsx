@@ -48,7 +48,7 @@ describe('QuickActionsPanel', () => {
 
     render(<QuickActionsPanel />);
 
-    fireEvent.click(screen.getByRole('button', { name: /Clear Cache/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Golire Cache/i }));
     // no API call until confirm
     expect(postApiMock).not.toHaveBeenCalled();
 
@@ -68,7 +68,7 @@ describe('QuickActionsPanel', () => {
     getJsonMock.mockResolvedValueOnce({ status: 'ready' });
     render(<QuickActionsPanel />);
 
-    fireEvent.click(screen.getByRole('button', { name: /Check Health/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Verificare Sănătate/i }));
     await waitFor(() => {
       expect(getJsonMock).toHaveBeenCalledWith('/health/ready');
     });
@@ -78,7 +78,7 @@ describe('QuickActionsPanel', () => {
   it('renders current quick actions', () => {
     render(<QuickActionsPanel />);
     expect(screen.getByRole('button', { name: /Reconcile Webhooks/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Clear Cache/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Check Health/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Golire Cache/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Verificare Sănătate/i })).toBeInTheDocument();
   });
 });

@@ -1,5 +1,6 @@
 import type { KeyboardEvent, ReactNode } from 'react';
 import { useCallback, useMemo, useState } from 'react';
+import { ChevronRight, Loader2 } from 'lucide-react';
 
 import {
   DndContext,
@@ -15,7 +16,6 @@ export type TreeNode = Readonly<{
   id: string;
   label: ReactNode;
   children?: readonly TreeNode[];
-  /** When true and children are not present yet, this node can be lazy-loaded. */
   hasChildren?: boolean;
   disabled?: boolean;
 }>;
@@ -29,37 +29,27 @@ type FlatNode = Readonly<{
 }>;
 
 export type TreeViewProps = Readonly<{
-  /** Preferred prop name (used in codebase). */
   nodes?: readonly TreeNode[];
-  /** Plan alias. */
   data?: readonly TreeNode[];
 
-  /** Controlled selection */
   selectedId?: string | null;
   onSelect?: (id: string) => void;
-
-  /** Plan aliases */
   selected?: string | null;
 
-  /** Controlled expansion */
   expandedIds?: readonly string[];
   defaultExpandedIds?: readonly string[];
   onExpandedIdsChange?: (ids: string[]) => void;
 
-  /** Plan aliases */
   expanded?: readonly string[];
   onExpand?: (ids: string[]) => void;
 
-  /** Multi-select support */
   multiSelect?: boolean;
   selectedIds?: readonly string[];
   defaultSelectedIds?: readonly string[];
   onSelectedIdsChange?: (ids: string[]) => void;
 
-  /** Lazy-loading support */
   loadChildren?: (nodeId: string) => Promise<readonly TreeNode[]>;
 
-  /** Enable drag & drop (source/target ids). */
   draggable?: boolean;
   onMove?: (sourceId: string, targetId: string) => void;
 
@@ -126,7 +116,7 @@ function TreeRow(props: {
   const droppable = useDroppable({ id: flat.id, disabled });
   const draggableHook = useDraggable({ id: flat.id, disabled });
 
-  const indentPx = flat.depth * 16;
+  const indentPx = flat.depth * 20;
 
   return (
     <div
@@ -136,23 +126,43 @@ function TreeRow(props: {
       aria-expanded={flat.hasChildren ? isExpanded : undefined}
       tabIndex={tabIndex}
       onFocus={onFocus}
-      className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-slate-700 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-500/30 ${
-        isSelected ? 'bg-slate-100' : 'hover:bg-slate-50'
+      className={`relative flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-foreground outline-none transition-colors duration-150 focus-visible:shadow-[0_0_0_3px_rgba(59,130,246,0.15)] dark:focus-visible:shadow-[0_0_0_3px_rgba(96,165,250,0.2)] ${
+        isSelected
+          ? 'bg-blue-50/80 dark:bg-blue-900/20'
+          : 'hover:bg-subtle/70 dark:hover:bg-slate-800/50'
       } ${itemClassName ?? ''}`}
-      style={{ paddingLeft: indentPx }}
+      style={{ paddingLeft: indentPx + 10 }}
       data-dnd-over={droppable.isOver ? 'true' : 'false'}
     >
+      {flat.depth > 0 ? (
+        <span
+          className="pointer-events-none absolute left-0 top-0 bottom-0"
+          aria-hidden
+          style={{ width: indentPx }}
+        >
+          {Array.from({ length: flat.depth }, (_, i) => (
+            <span
+              key={i}
+              className="absolute top-0 bottom-0 w-px bg-slate-200 dark:bg-slate-700"
+              style={{ left: i * 20 + 14 }}
+            />
+          ))}
+        </span>
+      ) : null}
+
       {flat.hasChildren ? (
         <button
           type="button"
-          className="h-6 w-6 shrink-0 rounded-md hover:bg-slate-200/80 transition-colors"
+          className="flex size-6 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-subtle dark:hover:bg-slate-700/60"
           onClick={() => onToggleExpand(flat.id)}
           aria-label={isExpanded ? 'Restrânge' : 'Extinde'}
         >
-          {isExpanded ? '▾' : '▸'}
+          <ChevronRight
+            className={`size-4 text-muted transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
+          />
         </button>
       ) : (
-        <span className="h-6 w-6 shrink-0" />
+        <span className="size-6 shrink-0" />
       )}
 
       <button
@@ -165,12 +175,14 @@ function TreeRow(props: {
         {flat.node.label}
       </button>
 
-      {isLoadingChildren ? <span className="text-xs text-slate-500">Se încarcă…</span> : null}
+      {isLoadingChildren ? (
+        <Loader2 className="size-3.5 animate-spin text-muted" aria-label="Se încarcă…" />
+      ) : null}
 
       {draggable ? (
         <button
           type="button"
-          className="cursor-grab select-none rounded-md px-2 py-1 text-xs text-slate-500 transition-colors hover:bg-slate-200/80"
+          className="cursor-grab select-none rounded-md px-2 py-1 text-xs text-muted transition-colors hover:bg-subtle dark:hover:bg-slate-700/60"
           {...draggableHook.attributes}
           {...draggableHook.listeners}
           ref={draggableHook.setNodeRef}

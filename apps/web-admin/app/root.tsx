@@ -1,8 +1,14 @@
 import type { ReactNode } from 'react';
 import { useEffect } from 'react';
-import { isRouteErrorResponse, Outlet, useMatches, useRouteError } from 'react-router-dom';
+import {
+  isRouteErrorResponse,
+  Outlet,
+  useLocation,
+  useMatches,
+  useRouteError,
+} from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
-import { Toaster, toast } from 'sonner';
+import { Toaster } from 'sonner';
 
 import './globals.css';
 import { AppShell } from './components/layout/app-shell';
@@ -24,7 +30,7 @@ function GlobalSpinner() {
   return (
     <div className="inline-flex items-center gap-2 text-muted">
       <Loader2 className="size-4 animate-spin" />
-      <span className="text-caption">Loading…</span>
+      <span className="text-caption">Se încarcă…</span>
     </div>
   );
 }
@@ -92,8 +98,17 @@ export function HydrateFallback() {
     <div className="flex min-h-screen items-center justify-center">
       <div className="inline-flex items-center gap-2 text-muted">
         <Loader2 className="size-6 animate-spin" />
-        <span className="text-body font-medium">Loading application...</span>
+        <span className="text-body font-medium">Se încarcă aplicația…</span>
       </div>
+    </div>
+  );
+}
+
+function PageTransitionWrapper({ children }: { children: ReactNode }) {
+  const location = useLocation();
+  return (
+    <div key={location.pathname} className="animate-page-enter">
+      {children}
     </div>
   );
 }
@@ -112,8 +127,6 @@ export default function Root() {
       script.dataset['neaneluPolaris'] = '1';
       document.head.appendChild(script);
     }
-
-    toast('Web Admin loaded');
   }, []);
 
   useEffect(() => {
@@ -123,14 +136,29 @@ export default function Root() {
   return (
     <div className="min-h-screen">
       <QueryClientProvider client={queryClient}>
-        <Toaster richColors />
+        <Toaster
+          richColors
+          position="bottom-right"
+          expand={false}
+          closeButton
+          theme="system"
+          toastOptions={{ duration: 4000 }}
+        />
         <ShopifyAppBridgeProvider>
           <SessionTokenUx />
           <AppShell>
             <div className="mb-4 hidden">
               <GlobalSpinner />
             </div>
-            <EmbeddedGate>{isOnline ? <Outlet /> : <OfflinePage />}</EmbeddedGate>
+            <EmbeddedGate>
+              {isOnline ? (
+                <PageTransitionWrapper>
+                  <Outlet />
+                </PageTransitionWrapper>
+              ) : (
+                <OfflinePage />
+              )}
+            </EmbeddedGate>
           </AppShell>
         </ShopifyAppBridgeProvider>
         <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-right" />

@@ -16,20 +16,20 @@ function toPercent(value: number): number {
 
 export function QualityScoreBreakdown({ breakdown, score }: QualityScoreBreakdownProps) {
   if (!breakdown) {
-    return <div className="text-xs text-muted">No quality breakdown available.</div>;
+    return <div className="text-xs text-muted">Nu există detaliere calitate disponibilă.</div>;
   }
 
   const items: { label: string; value: number }[] = [
-    { label: 'Completeness', value: breakdown.completeness },
-    { label: 'Accuracy', value: breakdown.accuracy },
-    { label: 'Consistency', value: breakdown.consistency },
-    { label: 'Source weight', value: breakdown.sourceWeight },
+    { label: 'Completitudine', value: breakdown.completeness },
+    { label: 'Acuratețe', value: breakdown.accuracy },
+    { label: 'Consistență', value: breakdown.consistency },
+    { label: 'Pondere surse', value: breakdown.sourceWeight },
   ];
 
   return (
     <div className="space-y-3">
       {typeof score === 'number' ? (
-        <div className="text-xs text-muted">Quality score: {toPercent(score)}%</div>
+        <div className="text-xs text-muted">Scor calitate: {toPercent(score)}%</div>
       ) : null}
       {items.map((item) => (
         <div key={item.label} className="space-y-1">

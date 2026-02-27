@@ -2,6 +2,7 @@ import { CheckCircle, Circle, Loader2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import { Button } from '../ui/button';
+import { InfoTooltip } from '../ui/info-tooltip';
 import { ConfirmDialog } from './confirm-dialog';
 import { PolarisProgressBar } from '../../../components/polaris/index.js';
 
@@ -32,10 +33,10 @@ export interface IngestionProgressProps {
 }
 
 const stepLabels: Record<IngestionStepId, string> = {
-  download: 'Download',
-  parse: 'Parse',
-  transform: 'Transform',
-  save: 'Save',
+  download: 'Descărcare',
+  parse: 'Parsare',
+  transform: 'Transformare',
+  save: 'Salvare',
 };
 
 export function IngestionProgress({
@@ -60,8 +61,10 @@ export function IngestionProgress({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="text-lg font-semibold text-slate-800">Ingestie în curs</h3>
-          <p className="mt-0.5 text-sm text-slate-500">
+          <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
+            Ingestie în curs
+          </h3>
+          <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             {status === 'failed'
               ? 'Ultima rulare a eșuat. Verifică log-urile pentru a continua.'
               : status === 'completed'
@@ -70,15 +73,21 @@ export function IngestionProgress({
           </p>
         </div>
         {onAbort ? (
-          <Button
-            variant="destructive"
-            onClick={() => setConfirmOpen(true)}
-            disabled={abortDisabled}
-            loading={abortDisabled ?? false}
-            className="transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
-          >
-            Oprește
-          </Button>
+          <span className="inline-flex items-center gap-1.5">
+            <Button
+              variant="destructive"
+              onClick={() => setConfirmOpen(true)}
+              disabled={abortDisabled}
+              loading={abortDisabled ?? false}
+              className="transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
+            >
+              Oprește
+            </Button>
+            <InfoTooltip title="Oprește ingestia" side="bottom" maxWidth={340}>
+              Anulează rularea curentă. Datele deja procesate rămân salvate; poți relansa mai târziu
+              din istoric cu opțiunea „Reia de la checkpoint" pentru a continua de unde s-a oprit.
+            </InfoTooltip>
+          </span>
         ) : null}
       </div>
 
@@ -89,21 +98,31 @@ export function IngestionProgress({
             const isActive = index === currentIndex;
 
             return (
-              <div key={step} className="flex items-center gap-2">
+              <div
+                key={step}
+                className={`flex items-center gap-2 ${
+                  isActive
+                    ? 'rounded-lg bg-blue-50/80 px-2 py-1 motion-safe:animate-[ingestionStepPulse_2s_ease-in-out_infinite] dark:bg-blue-900/30'
+                    : ''
+                }`}
+              >
                 {isCompleted ? (
-                  <CheckCircle className="size-5 text-emerald-500" aria-hidden />
+                  <CheckCircle className="size-5 shrink-0 text-emerald-500" aria-hidden />
                 ) : isActive ? (
-                  <Loader2 className="size-5 animate-spin text-blue-500" aria-hidden />
+                  <Loader2 className="size-5 shrink-0 animate-spin text-blue-500" aria-hidden />
                 ) : (
-                  <Circle className="size-5 text-slate-300" aria-hidden />
+                  <Circle
+                    className="size-5 shrink-0 text-slate-300 dark:text-slate-600"
+                    aria-hidden
+                  />
                 )}
                 <span
                   className={
                     isActive
-                      ? 'text-sm font-medium text-slate-800'
+                      ? 'text-sm font-medium text-slate-800 dark:text-slate-100'
                       : isCompleted
-                        ? 'text-sm text-slate-700'
-                        : 'text-sm text-slate-500'
+                        ? 'text-sm text-slate-700 dark:text-slate-300'
+                        : 'text-sm text-slate-500 dark:text-slate-500'
                   }
                 >
                   {stepLabels[step]}
@@ -113,8 +132,8 @@ export function IngestionProgress({
           })}
         </div>
 
-        <div className="rounded-lg border border-slate-200/80 bg-slate-50/50 px-4 py-3">
-          <div className="flex items-center justify-between text-sm text-slate-600">
+        <div className="rounded-lg border border-slate-200/80 bg-white/80 backdrop-blur-sm px-4 py-3 dark:border-slate-700/60 dark:bg-slate-800/50">
+          <div className="flex items-center justify-between text-sm text-slate-600 dark:text-slate-300">
             <span>{overallLabel ?? 'Progres total'}</span>
             <span className="font-medium tabular-nums">
               {Math.min(Math.max(progress, 0), 100)}%
@@ -124,7 +143,7 @@ export function IngestionProgress({
             <PolarisProgressBar progress={Math.min(Math.max(progress, 0), 100)} />
           </div>
           {overallProcessedLabel || overallTotalLabel || overallSpeedLabel || overallEtaLabel ? (
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
               <span>
                 {overallProcessedLabel ?? '—'}
                 {overallTotalLabel ? ` / ${overallTotalLabel}` : ''}
@@ -143,13 +162,15 @@ export function IngestionProgress({
               return (
                 <div
                   key={stage.id}
-                  className="rounded-lg border border-slate-200/80 bg-slate-50/50 p-3"
+                  className="rounded-lg border border-slate-200/80 bg-white/80 backdrop-blur-sm p-3 dark:border-slate-700/60 dark:bg-slate-800/50"
                 >
-                  <div className="text-sm font-medium text-slate-700">{stage.label}</div>
+                  <div className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                    {stage.label}
+                  </div>
                   <div className="mt-2">
                     <PolarisProgressBar progress={normalizedProgress} />
                   </div>
-                  <div className="mt-2 space-y-1 text-xs text-slate-500">
+                  <div className="mt-2 space-y-1 text-xs text-slate-500 dark:text-slate-400">
                     <div>
                       {stage.processedLabel ?? '—'}
                       {stage.totalLabel ? ` / ${stage.totalLabel}` : ''}

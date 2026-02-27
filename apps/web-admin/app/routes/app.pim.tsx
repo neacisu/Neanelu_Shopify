@@ -3,6 +3,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { PageHeader } from '../components/layout/page-header';
+import { InfoTooltip } from '../components/ui/info-tooltip';
 import { Tabs } from '../components/ui/tabs';
 
 const tabs = [
@@ -33,25 +34,46 @@ export default function PimLayout() {
     <div className="space-y-6">
       <Breadcrumbs
         items={[
-          { label: 'Dashboard', href: '/' },
+          { label: 'Acasă', href: '/' },
           { label: 'PIM', href: '/pim' },
         ]}
       />
       <PageHeader
-        title="Management informatii produs (PIM)"
-        description="Progres Golden Record, pipeline de enrichment si analize de calitate."
+        title="Management informații produs (PIM)"
+        description="Progres Golden Record, pipeline de enrichment și analize de calitate."
+        actions={
+          <InfoTooltip title="PIM" side="bottom" portalToBody>
+            PIM este centrul de informații despre calitatea datelor produs. De ce contează: oferă
+            vizibilitate totală asupra Golden Records, enrichment și costuri. Exemplu: poți vedea
+            câte produse au nivel Golden și rata de succes. Sfat: folosește taburile pentru navigare
+            rapidă între secțiuni.
+          </InfoTooltip>
+        }
       />
-      <Tabs
-        items={tabs}
-        value={activeTab}
-        ariaLabel="Sectiuni PIM"
-        onValueChange={(value) => {
-          const target = tabs.find((tab) => tab.value === value);
-          if (!target) return;
-          void navigate(target.path);
-        }}
-      />
-      <div role="tabpanel" aria-label={`${activeTab} panel`}>
+      <span className="inline-flex items-center gap-1.5">
+        <Tabs
+          items={tabs}
+          value={activeTab}
+          ariaLabel="Secțiuni PIM"
+          onValueChange={(value) => {
+            const target = tabs.find((tab) => tab.value === value);
+            if (!target) return;
+            void navigate(target.path);
+          }}
+        />
+        <InfoTooltip title="Secțiuni PIM" side="bottom">
+          Secțiunile PIM acoperă fiecare aspect al datelor produs. De ce contează: fiecare tab oferă
+          o perspectivă diferită — calitate, enrichment, costuri, evenimente și consens. Exemplu:
+          Calitate arată niveluri Bronze/Silver/Golden, iar Costuri bugetele AI. Sfat: începe cu
+          Prezentare pentru un overview rapid.
+        </InfoTooltip>
+      </span>
+      <div
+        role="tabpanel"
+        aria-label={`${activeTab} panel`}
+        className="motion-safe:animate-[fadeIn_0.3s_ease-out]"
+        key={activeTab}
+      >
         <Outlet />
       </div>
     </div>

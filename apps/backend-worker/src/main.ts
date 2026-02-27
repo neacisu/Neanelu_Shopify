@@ -20,6 +20,7 @@ import { startBulkPollerWorker } from './processors/bulk-operations/poller.worke
 import { startBulkMutationReconcileWorker } from './processors/bulk-operations/mutation-reconcile.worker.js';
 import { startBulkIngestWorker } from './processors/bulk-operations/ingest.worker.js';
 import { startBulkScheduleWorker } from './processors/bulk-operations/schedule.worker.js';
+import { startPimManualSyncWorker } from './processors/pim/manual-sync.worker.js';
 import { startAiBatchWorker } from './processors/ai/worker.js';
 import { startAiBatchScheduleWorker } from './processors/ai/schedule.worker.js';
 import { startOpenAiHealthWorker } from './processors/ai/health.worker.js';
@@ -42,9 +43,11 @@ import { scheduleTokenHealthJob, closeTokenHealthQueue } from './queue/token-hea
 import { closeSimilarityQueues } from './queue/similarity-queues.js';
 import { closeQualityWebhookQueue } from './queue/quality-webhook-queue.js';
 import { closeConsensusQueue } from './queue/consensus-queue.js';
+import { closePimManualSyncQueue } from './queue/pim-manual-sync-queue.js';
 import {
   setBulkOrchestratorWorkerHandle,
   setBulkIngestWorkerHandle,
+  setPimManualSyncWorkerHandle,
   setBulkMutationReconcileWorkerHandle,
   setBulkPollerWorkerHandle,
   setAiBatchWorkerHandle,
@@ -201,6 +204,7 @@ let bulkMutationReconcileWorker: Awaited<
   ReturnType<typeof startBulkMutationReconcileWorker>
 > | null = null;
 let bulkIngestWorker: Awaited<ReturnType<typeof startBulkIngestWorker>> | null = null;
+let pimManualSyncWorker: Awaited<ReturnType<typeof startPimManualSyncWorker>> | null = null;
 let bulkScheduleWorker: Awaited<ReturnType<typeof startBulkScheduleWorker>> | null = null;
 let aiBatchWorker: Awaited<ReturnType<typeof startAiBatchWorker>> | null = null;
 let aiBatchScheduleWorker: Awaited<ReturnType<typeof startAiBatchScheduleWorker>> | null = null;
@@ -293,6 +297,15 @@ try {
   emitQueueStreamEvent({
     type: 'worker.online',
     workerId: 'bulk-ingest-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  pimManualSyncWorker = startPimManualSyncWorker(logger);
+  setPimManualSyncWorkerHandle(pimManualSyncWorker);
+  logger.info({}, 'pim manual sync worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'pim-manual-sync-worker',
     timestamp: new Date().toISOString(),
   });
 
@@ -483,6 +496,7 @@ try {
     'bulk-mutation-reconcile-queue': bulkMutationReconcileWorker?.worker as unknown as {
       concurrency?: number;
     },
+    'pim-manual-sync': pimManualSyncWorker?.worker as unknown as { concurrency?: number },
     'ai-batch-queue': aiBatchWorker?.worker as unknown as { concurrency?: number },
     'pim-enrichment-queue': enrichmentWorker?.worker as unknown as { concurrency?: number },
     'pim-similarity-search': similaritySearchWorker?.worker as unknown as { concurrency?: number },
@@ -593,6 +607,18 @@ const shutdown = async (signal: string): Promise<void> => {
       emitQueueStreamEvent({
         type: 'worker.offline',
         workerId: 'bulk-ingest-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (pimManualSyncWorker) {
+      await pimManualSyncWorker.close();
+      pimManualSyncWorker = null;
+      setPimManualSyncWorkerHandle(null);
+      logger.info({ signal }, 'pim manual sync worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'pim-manual-sync-worker',
         timestamp: new Date().toISOString(),
       });
     }
@@ -827,6 +853,7 @@ const shutdown = async (signal: string): Promise<void> => {
     await closeSimilarityQueues();
     await closeQualityWebhookQueue();
     await closeConsensusQueue();
+    await closePimManualSyncQueue();
     await closeEnrichmentQueue();
 
     stopCredentialWatcher();

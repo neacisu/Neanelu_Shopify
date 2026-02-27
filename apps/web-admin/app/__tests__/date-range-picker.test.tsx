@@ -31,7 +31,7 @@ describe('DateRangePicker', () => {
       />
     );
 
-    const trigger = screen.getByRole('button', { name: /select range/i });
+    const trigger = screen.getByRole('button', { name: /Selectează intervalul/i });
     await user.click(trigger);
     expect(screen.getByRole('dialog', { name: 'Date range' })).toBeInTheDocument();
 
@@ -49,7 +49,7 @@ describe('DateRangePicker', () => {
       <DateRangePicker label="Date range" value={undefined} onChange={onChange} presets={[]} />
     );
 
-    const trigger = screen.getByRole('button', { name: /select range/i });
+    const trigger = screen.getByRole('button', { name: /Selectează intervalul/i });
     await user.click(trigger);
     expect(screen.getByRole('dialog', { name: 'Date range' })).toBeInTheDocument();
 

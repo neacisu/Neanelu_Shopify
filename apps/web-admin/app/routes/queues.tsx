@@ -16,12 +16,13 @@ import {
 } from 'react-router-dom';
 import { toast } from 'sonner';
 
+import { useScrollReveal } from '../hooks/useScrollReveal';
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { ErrorState } from '../components/patterns/error-state';
 import { Button } from '../components/ui/button';
 import { InfoTooltip } from '../components/ui/info-tooltip';
 import { Tabs } from '../components/ui/tabs';
-import { PolarisCard, PolarisSelect } from '../../components/polaris/index.js';
+import { PolarisCard } from '../../components/polaris/index.js';
 import { useQueueStream } from '../hooks/use-queue-stream';
 import { ApiError } from '../utils/api-error';
 import { getQueueDisplayInfo } from '../utils/queue-display';
@@ -127,7 +128,7 @@ export const loader = apiLoader(async (args: LoaderFunctionArgs) => {
       );
       metricsPoints = metricsRes.points;
     } catch (err) {
-      metricsError = err instanceof Error ? err.message : 'failed_to_load_metrics';
+      metricsError = err instanceof Error ? err.message : 'Încărcarea metricilor a eșuat';
     }
   }
 
@@ -167,9 +168,9 @@ export const loader = apiLoader(async (args: LoaderFunctionArgs) => {
       jobDetail = jobRes.job;
     } catch (err) {
       if (err instanceof ApiError) {
-        jobDetailError = err.status === 404 ? 'Job not found' : err.message;
+        jobDetailError = err.status === 404 ? 'Job negăsit' : err.message;
       } else {
-        jobDetailError = err instanceof Error ? err.message : 'failed_to_load_job';
+        jobDetailError = err instanceof Error ? err.message : 'Încărcarea jobului a eșuat';
       }
     }
   }
@@ -274,7 +275,7 @@ export const action: (args: ActionFunctionArgs) => Promise<QueuesActionReturn> =
           intent,
           queue,
           jobIds: [],
-          toast: { type: 'success', message: 'Queue paused' },
+          toast: { type: 'success', message: 'Coada a fost pusă pe pauză' },
         } satisfies QueuesActionResult);
       }
 
@@ -285,7 +286,7 @@ export const action: (args: ActionFunctionArgs) => Promise<QueuesActionReturn> =
           intent,
           queue,
           jobIds: [],
-          toast: { type: 'success', message: 'Queue resumed' },
+          toast: { type: 'success', message: 'Coada a fost reluată' },
         } satisfies QueuesActionResult);
       }
 
@@ -295,7 +296,7 @@ export const action: (args: ActionFunctionArgs) => Promise<QueuesActionReturn> =
         intent,
         queue,
         jobIds: [],
-        toast: { type: 'success', message: 'Failed jobs cleaned' },
+        toast: { type: 'success', message: 'Job-urile eșuate au fost șterse' },
       } satisfies QueuesActionResult);
     }
 
@@ -407,7 +408,7 @@ export const action: (args: ActionFunctionArgs) => Promise<QueuesActionReturn> =
         intent,
         queue,
         jobIds,
-        toast: { type: 'success', message: 'Action completed' },
+        toast: { type: 'success', message: 'Acțiunea a fost executată' },
       } satisfies QueuesActionResult);
     }
 
@@ -490,6 +491,8 @@ export default function QueuesPage() {
     }
   }, [jobActionFetcher.data, queueActionFetcher.data]);
 
+  const [overviewSectionRef] = useScrollReveal<HTMLDivElement>({ rootMargin: '0px 0px -40px 0px' });
+
   const breadcrumbs = useMemo(
     () => [
       { label: 'Acasă', href: '/' },
@@ -547,7 +550,7 @@ export default function QueuesPage() {
       if (ids.length === 0) return;
 
       if (ids.length > 100) {
-        toast.error('Select at most 100 jobs');
+        toast.error('Selectează maxim 100 de joburi');
         return;
       }
 
@@ -617,7 +620,9 @@ export default function QueuesPage() {
         setShowRefreshBurst(true);
         if (evt.data['error'])
           setSnapshotError(
-            typeof evt.data['error'] === 'string' ? evt.data['error'] : 'snapshot_failed'
+            typeof evt.data['error'] === 'string'
+              ? evt.data['error']
+              : 'Actualizarea snapshot-ului a eșuat'
           );
         else setSnapshotError(null);
         if (refreshBurstTimerRef.current) window.clearTimeout(refreshBurstTimerRef.current);
@@ -659,29 +664,46 @@ export default function QueuesPage() {
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <Breadcrumbs items={breadcrumbs} />
-          <h1 className="text-2xl font-bold tracking-tight text-slate-800">Monitor cozi</h1>
-          <p className="text-sm text-slate-500">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-slate-100 motion-safe:animate-[fadeSlideUp_0.5s_ease-out_both]">
+            Monitor cozi
+          </h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
             Monitorizare cozi, job-uri și workeri în timp real
           </p>
         </div>
       </header>
 
-      <PolarisCard className="p-4">
+      <PolarisCard className="p-4 dark:bg-slate-800/80 dark:border-slate-700/60">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-64">
-            <PolarisSelect
-              label="Queue"
-              value={selectedQueue}
-              options={queueOptions}
-              onChange={(e) => {
-                const next = (e.target as HTMLSelectElement).value;
-                updateSearchParams(navigate, location.search, (p) => {
-                  p.set('queue', next);
-                  p.delete('jobId');
-                  p.set('page', '0');
-                });
-              }}
-            />
+            <div className="flex items-center gap-1.5">
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                Queue
+                <select
+                  value={selectedQueue}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    updateSearchParams(navigate, location.search, (p) => {
+                      p.set('queue', next);
+                      p.delete('jobId');
+                      p.set('page', '0');
+                    });
+                  }}
+                  className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm transition-shadow duration-200 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 dark:focus:ring-blue-400/50"
+                >
+                  {queueOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <InfoTooltip title="Selectare coadă" side="bottom">
+                Alege coada pentru care vezi metricile și job-urile. Fiecare coadă procesează un tip
+                de job (sincronizare, webhooks, enrichment etc.). După selecție, metricile și lista
+                de job-uri se actualizează.
+              </InfoTooltip>
+            </div>
           </div>
           <div className="flex flex-col items-end gap-2">
             <RealtimeQueueStatusWithCountdown
@@ -711,20 +733,27 @@ export default function QueuesPage() {
       </PolarisCard>
 
       <div className="flex flex-wrap items-center gap-4">
-        <Tabs
-          items={[
-            { label: 'Prezentare', value: 'overview' },
-            { label: 'Job-uri', value: 'jobs' },
-            { label: 'Workeri', value: 'workers' },
-          ]}
-          value={tab}
-          onValueChange={(v) =>
-            updateSearchParams(navigate, location.search, (p) => {
-              p.set('tab', v);
-              p.delete('jobId');
-            })
-          }
-        />
+        <span className="inline-flex items-center gap-1.5">
+          <Tabs
+            items={[
+              { label: 'Prezentare', value: 'overview' },
+              { label: 'Job-uri', value: 'jobs' },
+              { label: 'Workeri', value: 'workers' },
+            ]}
+            value={tab}
+            onValueChange={(v) =>
+              updateSearchParams(navigate, location.search, (p) => {
+                p.set('tab', v);
+                p.delete('jobId');
+              })
+            }
+          />
+          <InfoTooltip title="Tab-uri monitor cozi" side="bottom">
+            Prezentare: carduri cu statistici per coadă și acțiuni (Pauză, Reia, Șterge eșecuri).
+            Job-uri: listă job-uri cu filtrare, căutare și acțiuni (Retry, Promovare, Ștergere).
+            Workeri: procesoare conectate care execută job-urile.
+          </InfoTooltip>
+        </span>
       </div>
 
       {selectedQueue ? (
@@ -763,12 +792,15 @@ export default function QueuesPage() {
       ) : null}
 
       {tab === 'overview' ? (
-        <div className="space-y-6">
+        <div
+          className="space-y-6 motion-safe:animate-[fadeIn_0.3s_ease-out]"
+          ref={overviewSectionRef}
+        >
           <section aria-labelledby="queues-overview-heading">
             <h2 id="queues-overview-heading" className="sr-only">
               Prezentare cozi
             </h2>
-            <p className="mb-4 text-sm text-slate-600">
+            <p className="mb-4 text-sm text-slate-600 dark:text-slate-400">
               Fiecare card reprezintă o coadă: statistici în timp real și acțiuni (Pauză, Reia,
               Șterge eșecuri). Apasă pe numele cozii pentru a o selecta și a vedea metricile mai
               sus.
@@ -793,7 +825,7 @@ export default function QueuesPage() {
       ) : null}
 
       {tab === 'jobs' ? (
-        <div className="space-y-3">
+        <div className="space-y-3 motion-safe:animate-[fadeIn_0.3s_ease-out]">
           {selectedQueue ? (
             <JobsTable
               jobs={jobs}
@@ -845,23 +877,23 @@ export default function QueuesPage() {
       ) : null}
 
       {tab === 'workers' ? (
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200/90 bg-slate-50/50 px-4 py-3">
+        <div className="space-y-4 motion-safe:animate-[fadeIn_0.3s_ease-out]">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200/90 bg-slate-50/50 px-4 py-3 dark:border-slate-700/60 dark:bg-slate-800/60">
             <div className="flex items-center gap-3">
-              <span className="text-sm font-medium text-slate-700">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
                 {isLoading ? (
                   'Se încarcă…'
                 ) : (
                   <>
                     <span className="tabular-nums">{workers.length}</span>
-                    <span className="ml-1 text-slate-500">
+                    <span className="ml-1 text-slate-500 dark:text-slate-400">
                       {workers.length === 1 ? 'worker' : 'workeri'}
                     </span>
                   </>
                 )}
               </span>
               {!isLoading && workers.length > 0 ? (
-                <span className="text-xs text-slate-500">
+                <span className="text-xs text-slate-500 dark:text-slate-400">
                   ({workers.filter((w) => w.ok).length} online)
                 </span>
               ) : null}
@@ -897,14 +929,14 @@ export default function QueuesPage() {
 
       <ConfirmDialog
         open={confirmDeleteOpen}
-        title={confirmDeleteIds.length === 1 ? 'Stergi job-ul?' : 'Stergi job-urile?'}
+        title={confirmDeleteIds.length === 1 ? 'Ștergi job-ul?' : 'Ștergi job-urile?'}
         message={
           confirmDeleteIds.length === 1
-            ? `Stergi job-ul ${confirmDeleteIds[0] ?? ''}? Actiunea este ireversibila.`
-            : `Stergi ${confirmDeleteIds.length} job-uri? Actiunea este ireversibila.`
+            ? `Ștergi job-ul ${confirmDeleteIds[0] ?? ''}? Acțiunea este ireversibilă.`
+            : `Ștergi ${confirmDeleteIds.length} job-uri? Acțiunea este ireversibilă.`
         }
-        confirmLabel={confirmDeleteIds.length === 1 ? 'Sterge job' : 'Sterge job-uri'}
-        cancelLabel="Renunta"
+        confirmLabel={confirmDeleteIds.length === 1 ? 'Șterge job' : 'Șterge job-uri'}
+        cancelLabel="Renunță"
         confirmTone="critical"
         confirmDisabled={jobMutating}
         confirmLoading={jobMutating}

@@ -27,7 +27,7 @@ describe('app.pim layout', () => {
 
     render(<RouterProvider router={router} />);
     expect(screen.getByText('overview-content')).toBeTruthy();
-    expect(screen.getByRole('tablist', { name: 'Sectiuni PIM' })).toBeTruthy();
+    expect(screen.getByRole('tablist', { name: 'Secțiuni PIM' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Calitate' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Enrichment' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Costuri' })).toBeTruthy();

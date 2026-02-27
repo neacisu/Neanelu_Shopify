@@ -12,14 +12,14 @@ export type EnrichmentProgressChartProps = Readonly<{
 
 export function EnrichmentProgressChart({ data }: EnrichmentProgressChartProps) {
   return (
-    <div className="rounded-lg border border-muted/20 bg-background p-4">
-      <div className="mb-2 text-xs text-muted">Enrichment progress</div>
+    <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-md dark:bg-slate-900/80 dark:border-slate-700/60">
+      <div className="mb-2 text-xs text-slate-500 dark:text-slate-400">Progres enrichment</div>
       <LineChart
         data={data}
         xAxisKey="date"
         lines={[
-          { dataKey: 'pending', name: 'Pending', color: '#f59e0b', areaFill: true },
-          { dataKey: 'completed', name: 'Completed', color: '#22c55e', areaFill: true },
+          { dataKey: 'pending', name: 'În așteptare', color: '#f59e0b', areaFill: true },
+          { dataKey: 'completed', name: 'Finalizate', color: '#22c55e', areaFill: true },
         ]}
       />
     </div>

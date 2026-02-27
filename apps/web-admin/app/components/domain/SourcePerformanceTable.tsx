@@ -58,20 +58,20 @@ export function SourcePerformanceTable({ rows }: SourcePerformanceTableProps) {
 
   function sortLabel(key: SortKey): string {
     if (sortKey !== key) {
-      return 'Sort desc';
+      return 'Sortare descrescătoare';
     }
-    return sortDirection === 'asc' ? 'Sort asc' : 'Sort desc';
+    return sortDirection === 'asc' ? 'Sortare crescătoare' : 'Sortare descrescătoare';
   }
 
   return (
-    <div className="rounded-lg border border-muted/20 bg-background p-4">
-      <div className="mb-2 text-xs text-muted">Source performance</div>
-      <div className="overflow-auto rounded-md border">
+    <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-md dark:bg-slate-900/80 dark:border-slate-700/60">
+      <div className="mb-2 text-xs text-slate-500 dark:text-slate-400">Performanță surse</div>
+      <div className="overflow-auto rounded-md border dark:border-slate-700">
         <table className="w-full border-collapse text-sm">
-          <thead className="bg-muted/20">
+          <thead className="bg-slate-50 dark:bg-slate-800">
             <tr>
-              <th className="px-3 py-2 text-left">Source</th>
-              <th className="px-3 py-2 text-left">Type</th>
+              <th className="px-3 py-2 text-left text-slate-800 dark:text-slate-100">Sursă</th>
+              <th className="px-3 py-2 text-left text-slate-800 dark:text-slate-100">Tip</th>
               <th className="px-3 py-2 text-right">
                 <button
                   type="button"
@@ -79,7 +79,7 @@ export function SourcePerformanceTable({ rows }: SourcePerformanceTableProps) {
                   onClick={() => handleSort('totalHarvests')}
                   aria-label="Sort by harvests"
                 >
-                  Harvests
+                  Recoltări
                   <span className="text-xs text-muted">
                     {sortKey === 'totalHarvests' ? sortLabel('totalHarvests') : ''}
                   </span>
@@ -92,7 +92,7 @@ export function SourcePerformanceTable({ rows }: SourcePerformanceTableProps) {
                   onClick={() => handleSort('successRate')}
                   aria-label="Sort by success rate"
                 >
-                  Success rate
+                  Rata succes
                   <span className="text-xs text-muted">
                     {sortKey === 'successRate' ? sortLabel('successRate') : ''}
                   </span>
@@ -112,14 +112,17 @@ export function SourcePerformanceTable({ rows }: SourcePerformanceTableProps) {
                 </button>
               </th>
               <th className="px-3 py-2 text-right">Status</th>
-              <th className="px-3 py-2 text-right">Last harvest</th>
+              <th className="px-3 py-2 text-right">Ultima recoltare</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-muted">
-                  No source performance data yet.
+                <td
+                  colSpan={7}
+                  className="px-3 py-6 text-center text-slate-500 dark:text-slate-400"
+                >
+                  Nu există date de performanță încă.
                 </td>
               </tr>
             ) : (
@@ -128,7 +131,7 @@ export function SourcePerformanceTable({ rows }: SourcePerformanceTableProps) {
                 return (
                   <tr
                     key={`${row.sourceName}-${row.sourceType}`}
-                    className="border-t border-muted/20"
+                    className="border-t border-muted/20 dark:border-slate-700 text-slate-800 dark:text-slate-200"
                   >
                     <td className="px-3 py-2">{row.sourceName}</td>
                     <td className="px-3 py-2">{row.sourceType}</td>
@@ -138,7 +141,7 @@ export function SourcePerformanceTable({ rows }: SourcePerformanceTableProps) {
                     <td className="px-3 py-2">
                       <div className="flex items-center justify-end gap-2">
                         <div
-                          className="h-2 w-20 overflow-hidden rounded-full bg-muted/30"
+                          className="h-2 w-20 overflow-hidden rounded-full bg-muted/30 dark:bg-slate-700"
                           aria-hidden="true"
                         >
                           <div
@@ -156,11 +159,13 @@ export function SourcePerformanceTable({ rows }: SourcePerformanceTableProps) {
                     </td>
                     <td className="px-3 py-2 text-right">
                       <span className={row.isActive ? 'text-success' : 'text-muted'}>
-                        {row.isActive ? 'Active' : 'Inactive'}
+                        {row.isActive ? 'Activ' : 'Inactiv'}
                       </span>
                     </td>
                     <td className="px-3 py-2 text-right">
-                      {row.lastHarvestAt ? new Date(row.lastHarvestAt).toLocaleString() : '-'}
+                      {row.lastHarvestAt
+                        ? new Date(row.lastHarvestAt).toLocaleString('ro-RO')
+                        : '-'}
                     </td>
                   </tr>
                 );

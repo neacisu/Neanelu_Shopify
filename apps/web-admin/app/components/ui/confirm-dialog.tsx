@@ -17,8 +17,8 @@ export function ConfirmDialog({
   open,
   title,
   description,
-  confirmLabel = 'Confirm',
-  cancelLabel = 'Cancel',
+  confirmLabel = 'Confirmă',
+  cancelLabel = 'Anulează',
   destructive = false,
   onConfirm,
   onClose,
@@ -41,21 +41,27 @@ export function ConfirmDialog({
   return (
     <dialog
       ref={ref}
-      className="w-full max-w-md rounded-lg border border-muted/20 bg-background p-0 shadow-lg backdrop:bg-black/40"
+      className="w-full max-w-md rounded-2xl border border-white/20 bg-white/90 p-0 shadow-xl backdrop-blur-xl motion-safe:animate-[scale-in_180ms_ease-out] dark:border-white/10 dark:bg-slate-900/90 backdrop:bg-black/30 backdrop:backdrop-blur-sm"
       onCancel={(e) => {
         e.preventDefault();
         onClose();
       }}
       onClose={() => {
-        // Keep React state authoritative.
         if (open) onClose();
       }}
+      onClick={(e) => {
+        if (e.target === ref.current) onClose();
+      }}
     >
-      <div className="p-4">
-        <div className="text-h3">{title}</div>
-        {description ? <div className="mt-2 text-body text-muted">{description}</div> : null}
+      <div className="p-5">
+        <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">{title}</h2>
+        {description ? (
+          <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+            {description}
+          </p>
+        ) : null}
       </div>
-      <div className="flex items-center justify-end gap-2 border-t border-muted/20 p-3">
+      <div className="flex items-center justify-end gap-2 border-t border-slate-200/80 px-5 py-3 dark:border-slate-700/80">
         <Button variant="secondary" onClick={onClose}>
           {cancelLabel}
         </Button>

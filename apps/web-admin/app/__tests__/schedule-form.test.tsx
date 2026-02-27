@@ -14,7 +14,7 @@ describe('ScheduleForm', () => {
     const timeInput = screen.getByDisplayValue('02:00');
     fireEvent.change(timeInput, { target: { value: '03:30' } });
 
-    await user.click(screen.getByRole('button', { name: 'Save schedule' }));
+    await user.click(screen.getByRole('button', { name: 'Salvează programarea' }));
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit).toHaveBeenCalledWith(

@@ -97,12 +97,12 @@ export function JobsTable(props: {
 
   const statusOptions = useMemo(
     () => [
-      { label: 'Waiting', value: 'waiting' },
+      { label: 'În așteptare', value: 'waiting' },
       { label: 'Active', value: 'active' },
-      { label: 'Failed', value: 'failed' },
-      { label: 'Delayed', value: 'delayed' },
-      { label: 'Completed', value: 'completed' },
-      { label: 'All', value: 'all' },
+      { label: 'Eșuate', value: 'failed' },
+      { label: 'Amânate', value: 'delayed' },
+      { label: 'Finalizate', value: 'completed' },
+      { label: 'Toate', value: 'all' },
     ],
     []
   );
@@ -151,7 +151,10 @@ export function JobsTable(props: {
 
   const renderRow = (job: QueueJobListItem) => {
     return (
-      <tr key={job.id} className="border-b last:border-b-0">
+      <tr
+        key={job.id}
+        className="group/row border-b last:border-b-0 transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/60 dark:border-slate-700/60"
+      >
         <td className="px-3 py-2">
           <input
             type="checkbox"
@@ -159,29 +162,30 @@ export function JobsTable(props: {
             disabled={Boolean(loading)}
             onChange={() => toggleOne(job.id)}
             aria-label={`Select job ${job.id}`}
+            className="rounded border-slate-300 dark:border-slate-600 dark:bg-slate-700"
           />
         </td>
         <td className="px-3 py-2">
           <button
             type="button"
-            className="font-mono text-xs text-primary hover:underline"
+            className="font-mono text-xs text-primary hover:underline dark:text-blue-400"
             onClick={() => void copyId(job.id)}
             title="Copy job id"
           >
             {job.id}
           </button>
-          <div>
+          <div className="opacity-0 group-hover/row:opacity-100 transition-opacity">
             <button
               type="button"
-              className="text-caption text-muted hover:underline"
+              className="text-caption text-muted hover:underline dark:text-slate-400"
               onClick={() => onOpenDetails(job.id)}
             >
-              Details
+              Detalii
             </button>
           </div>
         </td>
         <td className="px-3 py-2">
-          <div className="max-w-lg truncate font-mono text-xs text-foreground/80">
+          <div className="max-w-lg truncate font-mono text-xs text-foreground/80 dark:text-slate-300">
             {job.payloadPreview ?? '—'}
           </div>
         </td>
@@ -192,23 +196,49 @@ export function JobsTable(props: {
           <PolarisBadge tone={statusTone(job.status)}>{job.status ?? 'unknown'}</PolarisBadge>
         </td>
         <td className="px-3 py-2">
-          <PolarisSelect
-            value=""
-            disabled={Boolean(loading)}
-            options={[
-              { label: 'Actions', value: '' },
-              { label: 'Retry', value: 'retry' },
-              ...(dlqReplayEnabled ? [{ label: 'Reia din DLQ', value: 'dlq_replay' }] : []),
-              { label: 'Promote', value: 'promote' },
-              { label: 'Delete', value: 'delete' },
-            ]}
-            onChange={(e) => {
-              const v = (e.target as HTMLSelectElement).value as JobsTableAction;
-              if (!v) return;
-              onAction(v, [job.id]);
-              (e.target as HTMLSelectElement).value = '';
-            }}
-          />
+          <div className="flex items-center gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
+            <button
+              type="button"
+              className="rounded px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+              disabled={Boolean(loading)}
+              onClick={() => onAction('retry', [job.id])}
+            >
+              Reîncearcă
+            </button>
+            <button
+              type="button"
+              className="rounded px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
+              disabled={Boolean(loading)}
+              onClick={() => onAction('promote', [job.id])}
+            >
+              Promovează
+            </button>
+            <button
+              type="button"
+              className="rounded px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30"
+              disabled={Boolean(loading)}
+              onClick={() => onAction('delete', [job.id])}
+            >
+              Șterge
+            </button>
+            {dlqReplayEnabled ? (
+              <button
+                type="button"
+                className="rounded px-2 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-900/30"
+                disabled={Boolean(loading)}
+                onClick={() => onAction('dlq_replay', [job.id])}
+              >
+                DLQ
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
+              onClick={() => onOpenDetails(job.id)}
+            >
+              Detalii
+            </button>
+          </div>
         </td>
       </tr>
     );
@@ -222,6 +252,7 @@ export function JobsTable(props: {
     toggleOne: (id: string) => void;
     onOpenDetails: (jobId: string) => void;
     onAction: (action: JobsTableAction, jobIds: string[]) => void;
+    dlqReplayEnabled?: boolean;
   }
 
   const VirtualRow = ({
@@ -232,6 +263,7 @@ export function JobsTable(props: {
     toggleOne,
     onOpenDetails,
     onAction,
+    dlqReplayEnabled: vDlq = false,
   }: RowComponentProps<VirtualRowProps>) => {
     const job = jobs[index];
     if (!job) return <div style={style} />;
@@ -259,7 +291,7 @@ export function JobsTable(props: {
             className="text-caption text-muted hover:underline"
             onClick={() => onOpenDetails(job.id)}
           >
-            Details
+            Detalii
           </button>
         </div>
         <div className="w-105 truncate font-mono text-xs text-foreground/80">
@@ -276,10 +308,11 @@ export function JobsTable(props: {
             value=""
             disabled={Boolean(loading)}
             options={[
-              { label: 'Actions', value: '' },
-              { label: 'Retry', value: 'retry' },
-              { label: 'Promote', value: 'promote' },
-              { label: 'Delete', value: 'delete' },
+              { label: 'Acțiuni', value: '' },
+              { label: 'Relansează', value: 'retry' },
+              ...(vDlq ? [{ label: 'Reia din DLQ', value: 'dlq_replay' }] : []),
+              { label: 'Promovează', value: 'promote' },
+              { label: 'Șterge', value: 'delete' },
             ]}
             onChange={(e) => {
               const v = (e.target as HTMLSelectElement).value as JobsTableAction;
@@ -297,62 +330,97 @@ export function JobsTable(props: {
     <div className="space-y-3">
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-64">
-          <SearchInput
-            value={search}
-            label="Search"
-            placeholder="Job id"
-            debounceMs={250}
-            onChange={(v) => {
-              onSearchChange(v);
-            }}
-            recentSearches={recentSearches}
-            onSearch={(v) => {
-              recent.add(v);
-              onSearchChange(v);
-            }}
-          />
+          <span className="inline-flex items-center gap-1.5">
+            <SearchInput
+              value={search}
+              label="Caută"
+              placeholder="ID job"
+              debounceMs={250}
+              onChange={(v) => {
+                onSearchChange(v);
+              }}
+              recentSearches={recentSearches}
+              onSearch={(v) => {
+                recent.add(v);
+                onSearchChange(v);
+              }}
+            />
+            <InfoTooltip title="Căutare job" side="bottom">
+              Caută job-uri după ID. Introdu ID-ul complet sau parțial și apasă Enter. Rezultatele
+              se filtrează automat. Istoric căutări disponibil în dropdown.
+            </InfoTooltip>
+          </span>
         </div>
         <div className="min-w-48">
-          <PolarisSelect
-            label="Status"
-            value={status}
-            options={statusOptions}
-            onChange={(e) => onStatusChange((e.target as HTMLSelectElement).value)}
-          />
+          <span className="inline-flex items-center gap-1.5">
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+              Status
+              <select
+                value={status}
+                onChange={(e) => onStatusChange(e.target.value)}
+                className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm transition-shadow duration-200 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 dark:focus:ring-blue-400/50"
+              >
+                {statusOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <InfoTooltip title="Filtrare status" side="bottom">
+              Filtrează job-urile după statusul lor: În așteptare, Active, Eșuate, Amânate,
+              Finalizate sau Toate. Selectează un status pentru a vedea doar job-urile
+              corespunzătoare.
+            </InfoTooltip>
+          </span>
         </div>
         <div className="min-w-32">
-          <PolarisSelect
-            label="Limit"
-            value={String(limit)}
-            options={limitOptions}
-            onChange={(e) => onLimitChange(Number((e.target as HTMLSelectElement).value))}
-          />
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+            Limit
+            <select
+              value={String(limit)}
+              onChange={(e) => onLimitChange(Number(e.target.value))}
+              className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm transition-shadow duration-200 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 dark:focus:ring-blue-400/50"
+            >
+              {limitOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="secondary"
-            disabled={page <= 0 || Boolean(loading)}
-            onClick={() => onPageChange(Math.max(0, page - 1))}
-          >
-            Prev
-          </Button>
-          <div className="text-caption text-muted">
-            Page {page + 1} / {pageCount}
-          </div>
-          <Button
-            variant="secondary"
-            disabled={page + 1 >= pageCount || Boolean(loading)}
-            onClick={() => onPageChange(Math.min(pageCount - 1, page + 1))}
-          >
-            Next
-          </Button>
+          <span className="inline-flex items-center gap-1">
+            <Button
+              variant="secondary"
+              disabled={page <= 0 || Boolean(loading)}
+              onClick={() => onPageChange(Math.max(0, page - 1))}
+            >
+              Prev
+            </Button>
+            <div className="text-caption text-muted dark:text-slate-400 tabular-nums">
+              Pagina {page + 1} / {pageCount}
+            </div>
+            <Button
+              variant="secondary"
+              disabled={page + 1 >= pageCount || Boolean(loading)}
+              onClick={() => onPageChange(Math.min(pageCount - 1, page + 1))}
+            >
+              Next
+            </Button>
+            <InfoTooltip title="Paginare" side="bottom">
+              Navighează între paginile de job-uri. Câte job-uri vezi pe pagină e controlat de
+              câmpul „Limit". La schimbarea filtrelor, paginarea revine la pagina 1.
+            </InfoTooltip>
+          </span>
         </div>
       </div>
 
       {selectedCount > 0 ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/30 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/30 p-3 dark:border-slate-700 dark:bg-slate-800/60">
           <div className="text-caption">
-            Selected: <span className="font-mono">{selectedCount}</span>
+            Selectate: <span className="font-mono">{selectedCount}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5">
@@ -362,7 +430,7 @@ export function JobsTable(props: {
                 loading={Boolean(loading)}
                 onClick={() => onAction('retry', Array.from(selected))}
               >
-                Retry Selected
+                Relansează selectate
               </Button>
               <InfoTooltip title="Relansează job-urile selectate" side="bottom">
                 Pune din nou în coadă job-urile selectate care au eșuat; vor fi reprocesate de
@@ -395,7 +463,7 @@ export function JobsTable(props: {
                 loading={Boolean(loading)}
                 onClick={() => onAction('delete', Array.from(selected))}
               >
-                Delete Selected
+                Șterge selectate
               </Button>
               <InfoTooltip title="Șterge job-urile selectate" side="bottom">
                 Șterge definitiv din coadă job-urile selectate; nu mai pot fi relansate. Acțiunea
@@ -405,7 +473,7 @@ export function JobsTable(props: {
             </span>
             <span className="inline-flex items-center gap-1.5">
               <Button variant="ghost" onClick={clearSelection}>
-                Clear
+                Golește
               </Button>
               <InfoTooltip title="Golește selecția" side="bottom">
                 Deselectează toate job-urile alese pe pagină; nu modifică nimic în coadă și nu
@@ -416,11 +484,11 @@ export function JobsTable(props: {
         </div>
       ) : null}
 
-      <div className="overflow-auto rounded-md border">
+      <div className="overflow-auto rounded-md border dark:border-slate-700">
         {!useVirtual ? (
           <table className="w-full border-collapse text-sm">
-            <thead className="bg-muted/20">
-              <tr>
+            <thead className="bg-muted/20 dark:bg-slate-800/80 sticky top-0 z-10">
+              <tr className="dark:border-slate-700">
                 <th className="px-3 py-2 text-left">
                   <input
                     type="checkbox"
@@ -432,11 +500,11 @@ export function JobsTable(props: {
                 </th>
                 <th className="px-3 py-2 text-left">ID</th>
                 <th className="px-3 py-2 text-left">Payload</th>
-                <th className="px-3 py-2 text-left">Progress</th>
+                <th className="px-3 py-2 text-left">Progres</th>
                 <th className="px-3 py-2 text-left">Status</th>
                 <th className="px-3 py-2 text-left">
                   <span className="inline-flex items-center gap-1">
-                    Actions
+                    Acțiuni
                     <InfoTooltip title="Acțiuni pe job" side="bottom">
                       Retry: relansează job-ul eșuat. Promote: pentru job-uri „delayed", le mută mai
                       devreme în coadă ca să fie executate imediat. Delete: șterge definitiv job-ul.
@@ -461,9 +529,9 @@ export function JobsTable(props: {
               />
               <div className="w-80">ID</div>
               <div className="w-105">Payload</div>
-              <div className="w-45">Progress</div>
+              <div className="w-45">Progres</div>
               <div className="w-35">Status</div>
-              <div className="w-40">Actions</div>
+              <div className="w-40">Acțiuni</div>
             </div>
             <List<VirtualRowProps>
               defaultHeight={Math.min(480, Math.max(240, jobs.length * 48))}
@@ -476,6 +544,7 @@ export function JobsTable(props: {
                 toggleOne,
                 onOpenDetails,
                 onAction,
+                dlqReplayEnabled: dlqReplayEnabled ?? false,
               }}
               style={{ height: Math.min(480, Math.max(240, jobs.length * 48)) }}
             />

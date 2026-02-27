@@ -1,12 +1,9 @@
-import {
-  Bar,
-  BarChart as RechartsBarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  XAxis,
-  YAxis,
-} from 'recharts';
+import { useCallback, useState } from 'react';
 
+import { Bar, BarChart as RechartsBarChart, ResponsiveContainer, XAxis, YAxis } from 'recharts';
+
+import { useChartTheme } from './theme.js';
+import { ChartGrid } from './ChartGrid.js';
 import { ChartLegend } from './ChartLegend.js';
 import { ChartTooltip, type ChartTooltipProps } from './ChartTooltip.js';
 
@@ -48,9 +45,23 @@ export function BarChart<TData extends Record<string, unknown>>({
 }: BarChartProps<TData>) {
   const safeHeight = Math.max(1, height);
   const resolvedStackId = stacked ? 'stack' : undefined;
+  const { text, grid } = useChartTheme();
+
+  const [hoveredBar, setHoveredBar] = useState<string | null>(null);
+
+  const onBarEnter = useCallback((dataKey: string) => {
+    setHoveredBar(dataKey);
+  }, []);
+
+  const onBarLeave = useCallback(() => {
+    setHoveredBar(null);
+  }, []);
 
   return (
-    <div style={{ width: '100%', height: safeHeight, minHeight: safeHeight, minWidth: 1 }}>
+    <div
+      className="animate-[chartFadeIn_0.5s_ease-out_both]"
+      style={{ width: '100%', height: safeHeight, minHeight: safeHeight, minWidth: 1 }}
+    >
       <ResponsiveContainer width="100%" height={safeHeight} minWidth={1} minHeight={safeHeight}>
         <RechartsBarChart
           data={Array.from(data)}
@@ -58,29 +69,51 @@ export function BarChart<TData extends Record<string, unknown>>({
           margin={{ top: 8, right: 12, bottom: 8, left: 12 }}
         >
           {showGrid ? (
-            <CartesianGrid strokeDasharray="3 3" vertical={false} className="opacity-30" />
+            <ChartGrid strokeDasharray="3 3" vertical={false} stroke={grid} strokeOpacity={0.4} />
           ) : null}
 
-          <XAxis dataKey={xAxisKey} tickLine={false} axisLine={false} />
-          <YAxis tickLine={false} axisLine={false} width={40} />
+          <XAxis
+            dataKey={xAxisKey}
+            tickLine={false}
+            axisLine={false}
+            tick={{ fontSize: 11, fill: text.axis }}
+          />
+          <YAxis
+            tickLine={false}
+            axisLine={false}
+            width={40}
+            tick={{ fontSize: 11, fill: text.axis }}
+          />
 
           {showTooltip ? <ChartTooltip content={tooltipContent} {...tooltipProps} /> : null}
           {showLegend ? <ChartLegend /> : null}
 
-          {bars.map((bar) => (
-            <Bar
-              key={bar.dataKey}
-              dataKey={bar.dataKey}
-              {...(bar.name !== undefined ? { name: bar.name } : {})}
-              fill={bar.color}
-              {...(() => {
-                const stackId = bar.stackId ?? resolvedStackId;
-                return stackId !== undefined ? { stackId } : {};
-              })()}
-              label={showValues ? { position: 'top', fontSize: 10 } : false}
-              radius={[4, 4, 0, 0]}
-            />
-          ))}
+          {bars.map((bar, barIndex) => {
+            const barOpacity = hoveredBar === null ? 1 : hoveredBar === bar.dataKey ? 1 : 0.35;
+
+            return (
+              <Bar
+                key={bar.dataKey}
+                dataKey={bar.dataKey}
+                {...(bar.name !== undefined ? { name: bar.name } : {})}
+                fill={bar.color}
+                fillOpacity={barOpacity}
+                {...(() => {
+                  const stackId = bar.stackId ?? resolvedStackId;
+                  return stackId !== undefined ? { stackId } : {};
+                })()}
+                label={showValues ? { position: 'top', fontSize: 10, fill: text.fill } : false}
+                radius={[4, 4, 0, 0]}
+                isAnimationActive
+                animationDuration={800}
+                animationBegin={barIndex * 80}
+                animationEasing="ease-out"
+                onMouseEnter={() => onBarEnter(bar.dataKey)}
+                onMouseLeave={onBarLeave}
+                style={{ transition: 'fill-opacity 0.2s ease-out' }}
+              />
+            );
+          })}
         </RechartsBarChart>
       </ResponsiveContainer>
     </div>

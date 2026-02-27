@@ -4,6 +4,7 @@ import { addHours, format } from 'date-fns';
 import { CronExpressionParser } from 'cron-parser';
 
 import { Button } from '../ui/button';
+import { InfoTooltip } from '../ui/info-tooltip';
 import { DateRangePicker } from '../ui/DateRangePicker';
 import { PolarisSelect, PolarisTextField } from '../../../components/polaris/index.js';
 
@@ -132,16 +133,25 @@ export function ScheduleForm({ schedule, onSubmit, onCancel, saving }: ScheduleF
   return (
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-2">
-        <PolarisSelect
-          label="Preset"
-          value={preset}
-          options={[
-            { label: 'Daily', value: 'daily' },
-            { label: 'Weekly', value: 'weekly' },
-            { label: 'Custom', value: 'custom' },
-          ]}
-          onChange={(e) => onPresetChange((e.target as HTMLSelectElement).value as SchedulePreset)}
-        />
+        <span className="inline-flex items-center gap-1.5">
+          <PolarisSelect
+            label="Preset"
+            value={preset}
+            options={[
+              { label: 'Zilnic', value: 'daily' },
+              { label: 'Săptămânal', value: 'weekly' },
+              { label: 'Personalizat', value: 'custom' },
+            ]}
+            onChange={(e) =>
+              onPresetChange((e.target as HTMLSelectElement).value as SchedulePreset)
+            }
+          />
+          <InfoTooltip title="Preset programare" side="bottom" maxWidth={340}>
+            Zilnic: rulează la aceeași oră în fiecare zi. Săptămânal: alege ziua și ora.
+            Personalizat: introdu manual o expresie cron (ex: 0 2 * * * = zilnic la 2:00).
+            Intervalul minim între rulări este 1 oră.
+          </InfoTooltip>
+        </span>
         <PolarisSelect
           label="Timezone"
           value={timezone}
@@ -153,12 +163,12 @@ export function ScheduleForm({ schedule, onSubmit, onCancel, saving }: ScheduleF
       {preset === 'daily' ? (
         <div className="grid gap-3 md:grid-cols-2">
           <div>
-            <label className="text-caption text-muted">Time (HH:MM)</label>
+            <label className="text-caption text-muted dark:text-slate-400">Ora (HH:MM)</label>
             <input
               type="time"
               value={dailyTime}
               onChange={(e) => updateDailyCron(e.target.value)}
-              className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
+              className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 dark:focus:ring-blue-400/50"
             />
           </div>
         </div>
@@ -181,12 +191,12 @@ export function ScheduleForm({ schedule, onSubmit, onCancel, saving }: ScheduleF
             onChange={(e) => updateWeeklyCron((e.target as HTMLSelectElement).value, weeklyTime)}
           />
           <div>
-            <label className="text-caption text-muted">Time (HH:MM)</label>
+            <label className="text-caption text-muted dark:text-slate-400">Ora (HH:MM)</label>
             <input
               type="time"
               value={weeklyTime}
               onChange={(e) => updateWeeklyCron(weeklyDay, e.target.value)}
-              className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
+              className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 dark:focus:ring-blue-400/50"
             />
           </div>
         </div>
@@ -206,13 +216,17 @@ export function ScheduleForm({ schedule, onSubmit, onCancel, saving }: ScheduleF
           onChange={(e) => setEnabled(e.target.checked)}
           id="schedule-enabled"
         />
-        <label htmlFor="schedule-enabled">Enabled</label>
+        <label htmlFor="schedule-enabled">Activă</label>
+        <InfoTooltip title="Programare activă" side="bottom" maxWidth={300}>
+          Când e bifat, sincronizarea rulează automat conform programului. Când e debifat, programul
+          e păstrat dar nu se execută până nu îl reactivezi.
+        </InfoTooltip>
       </div>
 
-      {error ? <div className="text-sm text-red-600">{error}</div> : null}
+      {error ? <div className="text-sm text-red-600 dark:text-red-400">{error}</div> : null}
 
-      <div className="rounded-md border bg-muted/5 p-3 text-sm">
-        <div className="text-caption text-muted">Next 5 runs</div>
+      <div className="rounded-md border bg-muted/5 p-3 text-sm dark:border-slate-700/60 dark:bg-slate-800/50">
+        <div className="text-caption text-muted dark:text-slate-400">Următoarele 5 rulări</div>
         {preview.length ? (
           <ul className="mt-2 space-y-1 font-mono text-xs">
             {preview.map((item) => (
@@ -220,12 +234,12 @@ export function ScheduleForm({ schedule, onSubmit, onCancel, saving }: ScheduleF
             ))}
           </ul>
         ) : (
-          <div className="mt-2 text-muted">No preview available.</div>
+          <div className="mt-2 text-muted">Nu există previzualizare disponibilă.</div>
         )}
       </div>
 
       <DateRangePicker
-        label="Preview window"
+        label="Fereastră previzualizare"
         value={previewRange}
         onChange={setPreviewRange}
         timeZone={timezone}
@@ -234,11 +248,11 @@ export function ScheduleForm({ schedule, onSubmit, onCancel, saving }: ScheduleF
       <div className="flex flex-wrap items-center justify-end gap-2">
         {onCancel ? (
           <Button variant="ghost" onClick={onCancel} disabled={saving}>
-            Cancel
+            Anulare
           </Button>
         ) : null}
         <Button variant="secondary" onClick={handleSubmit} loading={saving ?? false}>
-          Save schedule
+          Salvează programarea
         </Button>
       </div>
     </div>

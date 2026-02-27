@@ -17,7 +17,6 @@ import {
   createQueue,
   type QueueManagerConfig,
 } from './queue-manager.js';
-import { normalizeShopIdToGroupId } from './strategies/fairness/group-id.js';
 
 export const ENRICHMENT_QUEUE_NAME = 'pim-enrichment-queue';
 export const ENRICHMENT_JOB_NAME = 'pim.enrichment.request';
@@ -80,7 +79,7 @@ export async function enqueueEnrichmentJob(
   const log = logger ?? fallbackLogger;
   const telemetry = buildJobTelemetryFromActiveContext();
 
-  const normalizedShopId = normalizeShopIdToGroupId(payload.shopId);
+  const normalizedShopId = payload.shopId.trim();
   if (!normalizedShopId) {
     const err = new Error('invalid_shop_id');
     log.error({ err, shopId: payload.shopId }, 'Refusing to enqueue enrichment job');
@@ -92,7 +91,6 @@ export async function enqueueEnrichmentJob(
     attributes: {
       'queue.name': ENRICHMENT_QUEUE_NAME,
       'queue.job.name': ENRICHMENT_JOB_NAME,
-      'queue.group.id': normalizedShopId,
       'shop.id': normalizedShopId,
       'enrichment.product_count': payload.productIds.length,
       'enrichment.priority': payload.priority ?? 3,
@@ -101,14 +99,11 @@ export async function enqueueEnrichmentJob(
 
   try {
     await otelContext.with(trace.setSpan(otelContext.active(), span), async () => {
-      const bullmqPriority = (payload.priority ?? 3) * 10;
       await queue.add(
         ENRICHMENT_JOB_NAME,
         { ...payload, shopId: normalizedShopId },
         {
           jobId: `pim-enrichment__${normalizedShopId}__${payload.requestedAt}`,
-          group: { id: normalizedShopId, priority: bullmqPriority },
-          priority: bullmqPriority,
           ...(telemetry ? { telemetry } : {}),
         }
       );

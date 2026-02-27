@@ -5,6 +5,7 @@ import { DollarSign, TrendingDown, TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '../components/ui/button';
+import { InfoTooltip } from '../components/ui/info-tooltip';
 import { BudgetAlertsPanel } from '../components/domain/BudgetAlertsPanel';
 import { BudgetEditModal } from '../components/domain/BudgetEditModal';
 import { ConfirmDialog } from '../components/domain/confirm-dialog';
@@ -265,9 +266,10 @@ export default function CostTrackingPage() {
           size="sm"
           onClick={() => setBudgetModalOpen(true)}
           disabled={isSubmitting}
+          title="Configurează limitele zilnice și pragurile de alertă"
         >
           <DollarSign className="mr-2 h-4 w-4" />
-          Setari buget
+          Setări buget
         </Button>
       </div>
 
@@ -307,13 +309,21 @@ export default function CostTrackingPage() {
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
         <CostBreakdownChart data={costs.breakdown} />
 
-        <div className="rounded-lg border border-muted/20 bg-background p-4">
-          <div className="mb-2 text-xs text-muted">Cost per Golden Record</div>
-          <div className="text-h3">
+        <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-md dark:bg-slate-900/80 dark:border-slate-700/60">
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+            <span>Cost per Golden Record</span>
+            <InfoTooltip title="Cost per Golden Record">
+              Costul per Golden Record este suma medie în USD pentru a aduce un produs la nivel
+              Golden. De ce contează: reflectă eficiența bugetară a procesului de enrichment.
+              Exemplu: $0.45/produs = cost rezonabil pentru date complete. Sfat: compară cu ținta și
+              monitorizează trendul săptămânal.
+            </InfoTooltip>
+          </div>
+          <div className="text-h3 text-slate-800 dark:text-slate-100">
             {costs.costPerGolden.current != null ? usd.format(costs.costPerGolden.current) : 'N/A'}
           </div>
-          <div className="text-xs text-muted">
-            Target:{' '}
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            Țintă:{' '}
             {costs.costPerGolden.target != null ? usd.format(costs.costPerGolden.target) : 'N/A'}
           </div>
           {trendLabel ? (
@@ -327,10 +337,12 @@ export default function CostTrackingPage() {
               ) : (
                 <TrendingDown className="h-3 w-3" />
               )}
-              {trendLabel} vs periodă anterioară
+              {trendLabel} față de perioada anterioară
             </div>
           ) : (
-            <div className="mt-2 text-xs text-muted">Date insuficiente pentru trend</div>
+            <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              Date insuficiente pentru trend.
+            </div>
           )}
         </div>
       </div>
@@ -342,17 +354,23 @@ export default function CostTrackingPage() {
       />
 
       <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-lg border border-muted/20 bg-background p-4">
-          <div className="text-xs text-muted">Astazi</div>
-          <div className="text-h5">{usd.format(costs.today.total)}</div>
+        <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60">
+          <div className="text-xs text-slate-500 dark:text-slate-400">Azi</div>
+          <div className="text-h5 text-slate-800 dark:text-slate-100">
+            {usd.format(costs.today.total)}
+          </div>
         </div>
-        <div className="rounded-lg border border-muted/20 bg-background p-4">
-          <div className="text-xs text-muted">Saptamana curenta</div>
-          <div className="text-h5">{usd.format(costs.thisWeek.total)}</div>
+        <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60">
+          <div className="text-xs text-slate-500 dark:text-slate-400">Săptămâna curentă</div>
+          <div className="text-h5 text-slate-800 dark:text-slate-100">
+            {usd.format(costs.thisWeek.total)}
+          </div>
         </div>
-        <div className="rounded-lg border border-muted/20 bg-background p-4">
-          <div className="text-xs text-muted">Luna curenta</div>
-          <div className="text-h5">{usd.format(costs.thisMonth.total)}</div>
+        <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60">
+          <div className="text-xs text-slate-500 dark:text-slate-400">Luna curentă</div>
+          <div className="text-h5 text-slate-800 dark:text-slate-100">
+            {usd.format(costs.thisMonth.total)}
+          </div>
         </div>
       </div>
 

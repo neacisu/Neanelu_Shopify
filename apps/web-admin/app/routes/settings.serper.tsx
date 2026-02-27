@@ -6,6 +6,7 @@ import type {
   SerperSettingsUpdateRequest,
 } from '@app/types';
 
+import { InfoTooltip } from '../components/ui/info-tooltip';
 import { SubmitButton } from '../components/forms/submit-button';
 import { useApiClient } from '../hooks/use-api';
 
@@ -36,6 +37,15 @@ function normalizeStatus(
 function coerceNullableString(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
 }
+
+const CONNECTION_STATUS_LABELS: Record<SerperConnectionStatus, string> = {
+  unknown: 'necunoscut',
+  connected: 'conectat',
+  error: 'eroare',
+  disabled: 'dezactivat',
+  missing_key: 'cheie lipsă',
+  pending: 'în așteptare',
+};
 
 export default function SettingsSerper() {
   const api = useApiClient();
@@ -255,16 +265,18 @@ export default function SettingsSerper() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-lg border border-muted/20 bg-muted/5 p-4">
-        <h3 className="font-medium text-body">Serper API - Cautare externa produse</h3>
-        <p className="mt-1 text-sm text-muted">
+      <div className="rounded-lg border border-muted/20 bg-muted/5 p-4 dark:border-slate-700 dark:bg-slate-800">
+        <h3 className="font-medium text-body dark:text-slate-100">
+          Serper API - Cautare externa produse
+        </h3>
+        <p className="mt-1 text-sm text-muted dark:text-slate-400">
           Configurează integrarea cu Serper API pentru căutarea externă de produse (Golden Record
           Stage 4). Obține un API key gratuit de la{' '}
           <a
             href="https://serper.dev"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-primary underline"
+            className="text-primary underline dark:text-blue-400"
           >
             serper.dev
           </a>{' '}
@@ -273,41 +285,55 @@ export default function SettingsSerper() {
       </div>
 
       {loading ? (
-        <div className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted">
+        <div className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
           Se încarcă setările Serper...
         </div>
       ) : null}
 
       {error ? (
-        <div className="rounded-md border border-error/30 bg-error/10 p-4 text-error shadow-sm">
+        <div className="rounded-md border border-error/30 bg-error/10 p-4 text-error shadow-sm dark:border-red-700/50 dark:bg-red-900/20">
           {error}
         </div>
       ) : null}
 
       {todayUsage ? (
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-lg border border-muted/20 p-4">
-            <div className="text-sm text-muted">Requests azi</div>
-            <div className="mt-1 text-2xl font-semibold">{todayUsage.requests}</div>
+          <div className="rounded-lg border border-muted/20 p-4 dark:border-slate-700 dark:bg-slate-900/80">
+            <div className="text-sm text-muted dark:text-slate-400">Cereri azi</div>
+            <div className="mt-1 text-2xl font-semibold dark:text-slate-100">
+              {todayUsage.requests.toLocaleString('ro-RO')}
+            </div>
           </div>
-          <div className="rounded-lg border border-muted/20 p-4">
-            <div className="text-sm text-muted">Cost estimat</div>
-            <div className="mt-1 text-2xl font-semibold">${todayUsage.cost.toFixed(4)}</div>
+          <div className="rounded-lg border border-muted/20 p-4 dark:border-slate-700 dark:bg-slate-900/80">
+            <div className="text-sm text-muted dark:text-slate-400">Cost estimat</div>
+            <div className="mt-1 text-2xl font-semibold dark:text-slate-100">
+              {todayUsage.cost.toLocaleString('ro-RO', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 4,
+              })}{' '}
+              USD
+            </div>
           </div>
-          <div className="rounded-lg border border-muted/20 p-4">
-            <div className="text-sm text-muted">Buget utilizat</div>
-            <div className="mt-1 text-2xl font-semibold">
-              {(todayUsage.percentUsed * 100).toFixed(1)}%
+          <div className="rounded-lg border border-muted/20 p-4 dark:border-slate-700 dark:bg-slate-900/80">
+            <div className="text-sm text-muted dark:text-slate-400">Buget utilizat</div>
+            <div className="mt-1 text-2xl font-semibold dark:text-slate-100">
+              {(todayUsage.percentUsed * 100).toLocaleString('ro-RO', {
+                minimumFractionDigits: 1,
+                maximumFractionDigits: 1,
+              })}
+              %
             </div>
             {todayUsage.percentUsed >= budgetAlertThreshold ? (
-              <div className="mt-1 text-xs text-warning">Aproape de limita zilnică!</div>
+              <div className="mt-1 text-xs text-warning dark:text-amber-400">
+                Aproape de limita zilnică!
+              </div>
             ) : null}
           </div>
         </div>
       ) : null}
 
       <form onSubmit={(e) => void saveSettings(e)} className="space-y-4">
-        <label className="flex items-center gap-2 text-body">
+        <label className="flex items-center gap-2 text-body dark:text-slate-200">
           <input
             type="checkbox"
             className="size-4 accent-primary"
@@ -318,12 +344,29 @@ export default function SettingsSerper() {
               setLastTestedKey(null);
             }}
           />
-          Activează Serper API pentru acest shop
+          <span className="inline-flex items-center gap-1">
+            Activează Serper API pentru acest shop
+            <InfoTooltip title="Activare Serper" side="bottom" portalToBody>
+              Activează sau dezactivează integrarea cu Serper pentru căutarea externă de produse.
+              Serper caută pe Google informații suplimentare folosite în Golden Record Stage 4. De
+              exemplu, dezactivarea oprește îmbogățirea datelor din surse externe. Sfat: verifică
+              bugetul disponibil înainte de activare.
+            </InfoTooltip>
+          </span>
         </label>
 
         <div>
-          <label className="text-caption text-muted" htmlFor="serper-api-key">
-            Serper API Key
+          <label
+            className="text-caption text-muted dark:text-slate-400 inline-flex items-center gap-1"
+            htmlFor="serper-api-key"
+          >
+            Cheie API Serper
+            <InfoTooltip title="Cheie API Serper" side="bottom" portalToBody>
+              Cheia de acces la Serper API pentru căutarea externă de produse (Golden Record).
+              Obțineți o cheie gratuită de la serper.dev (2500 cereri/lună gratuite). De exemplu,
+              format: un șir alfanumeric de ~40 caractere. Sfat: cheia e stocată criptat; lăsați gol
+              dacă e deja salvată.
+            </InfoTooltip>
           </label>
           <input
             id="serper-api-key"
@@ -335,53 +378,89 @@ export default function SettingsSerper() {
               setHealthResult(null);
               setLastTestedKey(null);
             }}
-            placeholder={hasApiKey ? '••••••••' : 'Introdu API key de la serper.dev'}
-            className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body"
+            placeholder={hasApiKey ? '••••••••' : 'Introdu cheia de la serper.dev'}
+            className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
           />
-          <p className="mt-1 text-xs text-muted">Cheia este stocată criptat în baza de date.</p>
+          <p className="mt-1 text-xs text-muted dark:text-slate-400">
+            Cheia este stocată criptat în baza de date.
+          </p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
           <label className="space-y-1 text-sm">
-            <span className="text-muted">Buget zilnic (requests)</span>
+            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+              Buget zilnic (cereri)
+              <InfoTooltip title="Buget zilnic Serper" side="bottom" portalToBody>
+                Numărul maxim de cereri către Serper pe zi. Limita protejează contra depășirii
+                costurilor, mai ales pe planuri plătite. De exemplu, cu 100 cereri/zi poți căuta
+                informații pentru ~100 produse. Sfat: Serper oferă 2500 cereri gratuite lunar —
+                ajustați bugetul zilnic corespunzător.
+              </InfoTooltip>
+            </span>
             <input
               type="number"
               min={1}
               max={100000}
               value={dailyBudget}
               onChange={(e) => setDailyBudget(Number(e.target.value))}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2"
+              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
             />
           </label>
           <label className="space-y-1 text-sm">
-            <span className="text-muted">Rate limit (req/sec)</span>
+            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+              Limită rată (cereri/sec)
+              <InfoTooltip title="Limită rată Serper" side="bottom" portalToBody>
+                Câte cereri se pot trimite pe secundă către Serper API. Valori mai mici reduc riscul
+                de blocare de către Google. De exemplu, 10 cereri/sec procesează 600 produse pe
+                minut. Sfat: planul gratuit suportă ~5 cereri/sec; creșteți pe planuri plătite.
+              </InfoTooltip>
+            </span>
             <input
               type="number"
               min={1}
               max={100}
               value={rateLimitPerSecond}
               onChange={(e) => setRateLimitPerSecond(Number(e.target.value))}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2"
+              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
             />
           </label>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
           <label className="space-y-1 text-sm">
-            <span className="text-muted">Cache TTL (ore)</span>
+            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+              Cache TTL (ore)
+              <InfoTooltip title="Cache TTL Serper" side="bottom" portalToBody>
+                Cât timp se păstrează rezultatele căutărilor în cache înainte de reîmprospătare.
+                Cache-ul reduce costurile și accelerează căutările repetate. De exemplu, cu TTL de
+                24h, căutarea aceluiași produs de 2 ori într-o zi folosește un singur credit. Sfat:
+                24 ore e optim; 0 dezactivează cache-ul.
+              </InfoTooltip>
+            </span>
             <input
               type="number"
               min={0}
               max={168}
               value={cacheTtlHours}
               onChange={(e) => setCacheTtlHours(Number(e.target.value))}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2"
+              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
             />
-            <span className="text-xs text-muted">Recomandat: 24 ore.</span>
+            <span className="text-xs text-muted dark:text-slate-400">Recomandat: 24 ore.</span>
           </label>
           <label className="space-y-1 text-sm">
-            <span className="text-muted">
-              Alertă buget: {(budgetAlertThreshold * 100).toFixed(0)}%
+            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+              Alertă buget:{' '}
+              {(budgetAlertThreshold * 100).toLocaleString('ro-RO', {
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 0,
+              })}
+              %
+              <InfoTooltip title="Alertă buget Serper" side="bottom" portalToBody>
+                La ce procent din bugetul zilnic primiți o avertizare vizuală. Ajută la evitarea
+                opririi bruște a căutărilor la atingerea limitei. De exemplu, la 80% cu buget de
+                100, alerta apare după 80 de cereri. Sfat: setează la 80–90% pentru a avea timp să
+                reacționezi.
+              </InfoTooltip>
             </span>
             <input
               type="range"
@@ -390,7 +469,7 @@ export default function SettingsSerper() {
               step={0.01}
               value={budgetAlertThreshold}
               onChange={(e) => setBudgetAlertThreshold(Number(e.target.value))}
-              className="w-full"
+              className="w-full accent-primary"
             />
           </label>
         </div>
@@ -404,7 +483,7 @@ export default function SettingsSerper() {
               type="button"
               onClick={() => void disconnectConnection()}
               disabled={saving}
-              className="rounded-md border border-error/40 px-4 py-2 text-sm font-medium text-error shadow-sm hover:bg-error/5 disabled:opacity-50"
+              className="rounded-md border border-error/40 px-4 py-2 text-sm font-medium text-error shadow-sm hover:bg-error/5 disabled:opacity-50 dark:border-red-700/50 dark:text-red-400 dark:hover:bg-red-900/20"
             >
               Deconectează
             </button>
@@ -413,7 +492,7 @@ export default function SettingsSerper() {
             type="button"
             onClick={() => void testConnection()}
             disabled={!hasApiKey && !apiKeyDirty}
-            className="rounded-md border border-muted/20 px-4 py-2 text-sm font-medium shadow-sm hover:bg-muted/10 disabled:opacity-50"
+            className="rounded-md border border-muted/20 px-4 py-2 text-sm font-medium shadow-sm transition-shadow duration-200 hover:bg-muted/10 focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:focus:ring-blue-400/50"
           >
             {healthLoading ? 'Se testează...' : 'Test conexiune'}
           </button>
@@ -422,7 +501,7 @@ export default function SettingsSerper() {
               className={`text-xs ${healthResult.status === 'ok' ? 'text-success' : 'text-error'}`}
             >
               {healthResult.status === 'ok'
-                ? `Conexiune OK (${healthResult.responseTimeMs ?? 0}ms)`
+                ? `Conexiune OK (${(healthResult.responseTimeMs ?? 0).toLocaleString('ro-RO')} ms)`
                 : healthResult.status === 'disabled'
                   ? 'Serper dezactivat'
                   : healthResult.status === 'missing_key'
@@ -432,21 +511,21 @@ export default function SettingsSerper() {
           ) : null}
         </div>
         {!canSave && !isConnected ? (
-          <div className="text-xs text-warning">
+          <div className="text-xs text-warning dark:text-amber-400">
             Pentru a salva conexiunea, testează mai întâi conexiunea Serper.
           </div>
         ) : null}
         {connectionStatus && connectionStatus !== 'unknown' ? (
-          <div className="text-xs text-muted">
-            Status conexiune: {connectionStatus}
-            {lastCheckedAt ? ` · verificat ${new Date(lastCheckedAt).toLocaleString()}` : ''}
-            {lastSuccessAt ? ` · succes ${new Date(lastSuccessAt).toLocaleString()}` : ''}
+          <div className="text-xs text-muted dark:text-slate-400">
+            Status conexiune: {CONNECTION_STATUS_LABELS[connectionStatus]}
+            {lastCheckedAt ? ` · verificat ${new Date(lastCheckedAt).toLocaleString('ro-RO')}` : ''}
+            {lastSuccessAt ? ` · succes ${new Date(lastSuccessAt).toLocaleString('ro-RO')}` : ''}
             {lastError ? ` · ${lastError}` : ''}
           </div>
         ) : null}
 
         {success ? (
-          <div className="rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success shadow-sm">
+          <div className="rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success shadow-sm dark:border-emerald-700/50 dark:bg-emerald-900/20">
             Setările Serper au fost salvate.
           </div>
         ) : null}

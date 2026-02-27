@@ -73,9 +73,9 @@ export function ProductsExportModal({
   }, [job, onPollAsyncExport]);
 
   const exportLabel = useMemo(() => {
-    if (!job) return `Start export (${totalCount})`;
-    if (job.status === 'completed') return 'Download export';
-    return 'Export in progress';
+    if (!job) return `Pornește export (${totalCount})`;
+    if (job.status === 'completed') return 'Descarcă export';
+    return 'Export în curs';
   }, [job, totalCount]);
 
   const toggleColumn = (column: string, checked: boolean) => {
@@ -94,16 +94,16 @@ export function ProductsExportModal({
 
   return (
     <PolarisModal open={open} onClose={onClose}>
-      <div className="space-y-4 p-4">
+      <div className="space-y-4 p-4 bg-white/80 backdrop-blur-sm dark:bg-slate-900/80 rounded-lg">
         <div>
-          <div className="text-h3">Export products</div>
-          <p className="text-body text-muted">
-            Export {totalCount} products with current filters applied.
+          <div className="text-h3 dark:text-slate-100">Export produse</div>
+          <p className="text-body text-muted dark:text-slate-400">
+            Exportă {totalCount} produse cu filtrele curente aplicate.
           </p>
         </div>
 
-        <div className="space-y-2 text-sm">
-          <div className="text-caption text-muted">Format</div>
+        <div className="space-y-2 text-sm dark:text-slate-300">
+          <div className="text-caption text-muted dark:text-slate-400">Format fișier</div>
           <label className="flex items-center gap-2">
             <input
               type="radio"
@@ -136,8 +136,8 @@ export function ProductsExportModal({
           </label>
         </div>
 
-        <div className="space-y-2 text-sm">
-          <div className="text-caption text-muted">Columns</div>
+        <div className="space-y-2 text-sm dark:text-slate-300">
+          <div className="text-caption text-muted dark:text-slate-400">Coloane</div>
           <div className="grid grid-cols-2 gap-2">
             {defaultColumns.map((column) => (
               <label key={column} className="flex items-center gap-2 text-xs">
@@ -152,32 +152,42 @@ export function ProductsExportModal({
           </div>
         </div>
 
-        <label className="flex items-center gap-2 text-sm">
+        <label className="flex cursor-pointer items-center gap-2 text-sm dark:text-slate-300 transition-colors hover:text-foreground dark:hover:text-slate-100">
           <input
             type="checkbox"
             checked={includeVariants}
             onChange={(e) => setIncludeVariants(e.target.checked)}
           />
-          Include variants as separate rows
+          Include variante ca rânduri separate
         </label>
 
-        <label className="flex items-center gap-2 text-sm">
+        <label className="flex cursor-pointer items-center gap-2 text-sm dark:text-slate-300 transition-colors hover:text-foreground dark:hover:text-slate-100">
           <input
             type="checkbox"
             checked={applyFilters}
             onChange={(e) => setApplyFilters(e.target.checked)}
           />
-          Apply current filters
+          Aplică filtrele curente
         </label>
 
         {job ? (
-          <div className="rounded-md border bg-muted/10 p-3 text-sm">
-            <div className="text-caption text-muted">Status</div>
-            <div className="text-sm capitalize">{job.status}</div>
+          <div className="rounded-md border border-border dark:border-slate-700 bg-muted/10 dark:bg-slate-800/50 p-3 text-sm">
+            <div className="text-caption text-muted dark:text-slate-400">Status</div>
+            <div className="text-sm capitalize">
+              {job.status === 'queued'
+                ? 'În coadă'
+                : job.status === 'processing'
+                  ? 'Se procesează'
+                  : job.status === 'completed'
+                    ? 'Finalizat'
+                    : job.status === 'failed'
+                      ? 'Eșuat'
+                      : job.status}
+            </div>
             {typeof job.progress === 'number' ? (
               <div className="mt-2">
-                <div className="text-caption text-muted">Progress</div>
-                <div className="mt-1 h-2 w-full overflow-hidden rounded bg-muted/30">
+                <div className="text-caption text-muted dark:text-slate-400">Progress</div>
+                <div className="mt-1 h-2 w-full overflow-hidden rounded bg-muted/30 dark:bg-slate-700">
                   <div
                     className="h-full bg-emerald-500"
                     style={{ width: `${Math.max(0, Math.min(100, job.progress))}%` }}
@@ -188,20 +198,20 @@ export function ProductsExportModal({
             {job.status === 'completed' && job.downloadUrl ? (
               <a
                 href={job.downloadUrl}
-                className="mt-3 inline-flex text-sm text-emerald-600 hover:underline"
+                className="mt-3 inline-flex text-sm text-emerald-600 transition-colors hover:text-emerald-700 hover:underline dark:text-emerald-400 dark:hover:text-emerald-300"
               >
-                Download export
+                Descarcă export
               </a>
             ) : null}
             {job.status === 'failed' && job.error ? (
-              <div className="mt-2 text-xs text-red-600">{job.error}</div>
+              <div className="mt-2 text-xs text-error">{job.error}</div>
             ) : null}
           </div>
         ) : null}
 
         <div className="flex flex-wrap items-center justify-end gap-2">
           <Button variant="ghost" onClick={onClose} disabled={loading}>
-            Close
+            Închide
           </Button>
           <Button variant="secondary" onClick={() => void onExport()} loading={loading}>
             {exportLabel}

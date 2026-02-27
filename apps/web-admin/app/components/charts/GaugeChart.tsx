@@ -1,5 +1,7 @@
 import { useId, useMemo } from 'react';
 
+import { useChartTheme } from './theme.js';
+
 export type GaugeThreshold = Readonly<{ value: number; color: string }>;
 
 export type GaugeChartProps = Readonly<{
@@ -21,7 +23,6 @@ export type GaugeChartProps = Readonly<{
 }>;
 
 const DEFAULT_SIZE = 84;
-const DEFAULT_TRACK_COLOR = '#e2e8f0';
 const DEFAULT_FILL_COLOR = '#0ea5e9';
 
 function clamp(n: number, min: number, max: number): number {
@@ -84,10 +85,13 @@ export function GaugeChart({
   formatValue,
   className,
   fillColor = DEFAULT_FILL_COLOR,
-  trackColor = DEFAULT_TRACK_COLOR,
+  trackColor,
   ariaLabel,
 }: GaugeChartProps) {
   const uid = useId().replace(/:/g, '');
+  const { semantic } = useChartTheme();
+
+  const resolvedTrackColor = trackColor ?? semantic.track;
   const safeMax = Number.isFinite(max) && max > min ? max : min + 1;
   const safeValue = Number.isFinite(value) ? value : min;
   const pct = clamp((safeValue - min) / (safeMax - min), 0, 1);
@@ -127,15 +131,15 @@ export function GaugeChart({
       thresholds?.length
         ? thresholds
         : [
-            { value: min + 0.75 * (safeMax - min), color: '#f59e0b' },
-            { value: min + 0.9 * (safeMax - min), color: '#ef4444' },
+            { value: min + 0.75 * (safeMax - min), color: semantic.warning },
+            { value: min + 0.9 * (safeMax - min), color: semantic.danger },
           ]
     )
       .slice()
       .sort((a, b) => a.value - b.value);
 
     let prev = min;
-    let prevColor = trackColor;
+    let prevColor = resolvedTrackColor;
     for (const t of sorted) {
       const v = clamp(t.value, min, safeMax);
       if (v > prev) {
@@ -146,7 +150,7 @@ export function GaugeChart({
     }
     if (prev < safeMax) segs.push({ from: prev, to: safeMax, color: prevColor });
     return segs;
-  }, [thresholds, min, safeMax, trackColor]);
+  }, [thresholds, min, safeMax, resolvedTrackColor, semantic.warning, semantic.danger]);
 
   const toAngle = (v: number) => startAngle + clamp((v - min) / (safeMax - min), 0, 1) * 180;
 
@@ -190,18 +194,18 @@ export function GaugeChart({
           </filter>
         </defs>
 
-        {/* Track: full semicircle, soft and rounded */}
+        {/* Track: full semicircle */}
         <path
           d={fullArcD}
           fill="none"
-          stroke={trackColor}
+          stroke={resolvedTrackColor}
           strokeWidth={strokeWidth}
           strokeLinecap="round"
           opacity={0.25}
-          style={{ transition: 'opacity 0.3s ease' }}
+          style={{ transition: 'stroke 0.3s ease, opacity 0.3s ease' }}
         />
 
-        {/* Zone segments (threshold bands) – optional background tint */}
+        {/* Zone segments (threshold bands) */}
         {zoneSegments.map((seg, idx) => (
           <path
             key={`zone-${idx}`}
@@ -211,11 +215,11 @@ export function GaugeChart({
             strokeWidth={strokeWidth}
             strokeLinecap="round"
             opacity={0.2}
-            style={{ transition: 'opacity 0.3s ease' }}
+            style={{ transition: 'stroke 0.3s ease, opacity 0.3s ease' }}
           />
         ))}
 
-        {/* Progress arc: animated fill via stroke-dashoffset */}
+        {/* Progress arc: animated fill via stroke-dashoffset with spring-like transition */}
         <path
           d={fullArcD}
           fill="none"
@@ -227,17 +231,17 @@ export function GaugeChart({
           filter={thresholds?.length ? undefined : `url(#gauge-glow-${uid})`}
           style={{
             transformOrigin: `${cx}px ${cy}px`,
-            transition: 'stroke-dashoffset 0.8s cubic-bezier(0.34, 1.2, 0.64, 1)',
+            transition: 'stroke-dashoffset 1s cubic-bezier(0.34, 1.56, 0.64, 1), stroke 0.3s ease',
           }}
         />
 
-        {/* Needle: smooth spring-like transition */}
+        {/* Needle: spring transition */}
         <g
           aria-hidden="true"
           style={{
             transformOrigin: `${cx}px ${cy}px`,
             transform: `rotate(${needleAngle}deg)`,
-            transition: 'transform 0.7s cubic-bezier(0.34, 1.2, 0.64, 1)',
+            transition: 'transform 0.9s cubic-bezier(0.34, 1.56, 0.64, 1)',
           }}
         >
           <line
@@ -245,22 +249,20 @@ export function GaugeChart({
             y1={cy}
             x2={cx}
             y2={cy - r + strokeWidth + 2}
-            stroke="currentColor"
+            stroke={semantic.needle}
             strokeWidth={2}
             strokeLinecap="round"
             opacity={0.85}
-            className="text-slate-600"
           />
         </g>
         <circle
           cx={cx}
           cy={cy}
           r={4}
-          fill="white"
-          stroke="currentColor"
+          fill={semantic.centerDot}
+          stroke={semantic.centerDotStroke}
           strokeWidth={1.5}
           opacity={0.9}
-          className="text-slate-400"
         />
       </svg>
 
@@ -280,14 +282,14 @@ export function GaugeChart({
           {showValue ? (
             <div
               key={displayValue}
-              className="text-xs font-semibold tabular-nums text-slate-700"
+              className="text-xs font-semibold tabular-nums text-slate-700 dark:text-slate-200"
               style={{ animation: 'gaugeValuePop 0.4s ease-out both' }}
             >
               {displayValue}
             </div>
           ) : null}
           {label ? (
-            <div className="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-500">
+            <div className="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
               {label}
             </div>
           ) : null}

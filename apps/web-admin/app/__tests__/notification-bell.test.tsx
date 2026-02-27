@@ -23,7 +23,8 @@ const apiMock = {
     }
     return {};
   }),
-  putApi: vi.fn(() => Promise.resolve({ updated: 1 })),
+  postApi: vi.fn(() => Promise.resolve({ updated: 1 })),
+  putApi: vi.fn(() => Promise.resolve({ updated: true })),
 };
 
 vi.mock('../hooks/use-api', () => ({
@@ -62,10 +63,10 @@ describe('notification bell', () => {
     const user = userEvent.setup();
     render(<NotificationBell />);
 
-    await user.click(screen.getByRole('button', { name: /Notificari/i }));
-    expect(screen.getByText(/Notificari/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Notificări/i }));
+    expect(screen.getAllByText(/Notificări/i).length).toBeGreaterThan(0);
 
-    await user.click(screen.getByRole('button', { name: /Marcheaza toate ca citite/i }));
-    expect(apiMock.putApi).toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: /Marchează toate ca citite/i }));
+    expect(apiMock.postApi).toHaveBeenCalled();
   });
 });

@@ -164,7 +164,7 @@ export function BudgetEditModal({
   return (
     <dialog
       ref={ref}
-      className="w-full max-w-xl rounded-lg border border-muted/20 bg-background p-0 shadow-lg backdrop:bg-black/40"
+      className="w-full max-w-xl rounded-2xl border border-white/20 bg-white/90 p-0 shadow-xl backdrop-blur-xl motion-safe:animate-[scale-in_180ms_ease-out] dark:border-white/10 dark:bg-slate-900/90 backdrop:bg-black/30 backdrop:backdrop-blur-sm"
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
       aria-modal="true"
@@ -172,32 +172,41 @@ export function BudgetEditModal({
         e.preventDefault();
         onClose();
       }}
+      onClick={(e) => {
+        if (e.target === ref.current) onClose();
+      }}
     >
-      <div className="border-b border-muted/20 p-4">
-        <div id={titleId} className="text-h3">
+      <div className="border-b border-slate-200/80 p-4 dark:border-slate-700/80">
+        <div id={titleId} className="text-base font-semibold text-slate-900 dark:text-slate-100">
           Editare bugete API
         </div>
-        <div id={descriptionId} className="mt-1 text-xs text-muted">
-          Configureaza limitele zilnice si pragurile de alerta pentru fiecare provider.
+        <div id={descriptionId} className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+          Configurează limitele zilnice și pragurile de alertă pentru fiecare provider.
         </div>
       </div>
       <div className="grid gap-3 p-4">
         {Object.keys(errors).length > 0 ? (
-          <div className="rounded-md border border-red-400/50 bg-red-50 p-2 text-xs text-red-700">
-            Corecteaza campurile marcate inainte de salvare.
+          <div className="rounded-md border border-red-400/50 bg-red-50 p-2 text-xs text-red-700 dark:border-red-700/50 dark:bg-red-950/30 dark:text-red-400">
+            Corectează câmpurile marcate înainte de salvare.
           </div>
         ) : null}
         {FIELD_CONFIG.map((field) => {
           const fieldId = `budget-edit-${field.key}`;
           const error = errors[field.key];
           return (
-            <label key={field.key} className="grid gap-1 text-xs" htmlFor={fieldId}>
+            <label
+              key={field.key}
+              className="grid gap-1 text-xs text-slate-700 dark:text-slate-300"
+              htmlFor={fieldId}
+            >
               {field.label}
               <input
                 id={fieldId}
                 inputMode="decimal"
-                className={`rounded border bg-background px-2 py-1 ${
-                  error ? 'border-red-500' : 'border-muted/30'
+                className={`rounded border bg-white px-2 py-1 text-slate-900 dark:bg-slate-800 dark:text-slate-100 ${
+                  error
+                    ? 'border-red-500 dark:border-red-400'
+                    : 'border-slate-200 dark:border-slate-600'
                 }`}
                 value={form[field.key] ?? ''}
                 placeholder={field.placeholder}
@@ -214,12 +223,12 @@ export function BudgetEditModal({
           );
         })}
       </div>
-      <div className="flex items-center justify-end gap-2 border-t border-muted/20 p-3">
+      <div className="flex items-center justify-end gap-2 border-t border-slate-200/80 p-3 dark:border-slate-700/80">
         <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
-          Anuleaza
+          Anulează
         </Button>
         <Button onClick={submit} loading={isSubmitting} disabled={isSubmitting || hasErrors}>
-          Salveaza
+          Salvează
         </Button>
       </div>
     </dialog>

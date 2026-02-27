@@ -247,7 +247,7 @@ describe('Queue Monitor /queues UI', () => {
     expect(snap.getByRole('button', { name: 'Verificare token Shopify' })).toBeInTheDocument();
 
     // Status distribution chart section should be present.
-    expect(await screen.findByText('Distribuție status')).toBeInTheDocument();
+    expect((await screen.findAllByText('Distribuție status')).length).toBeGreaterThan(0);
   });
 
   it('switches to Jobs tab and searches by job id', async () => {
@@ -283,8 +283,8 @@ describe('Queue Monitor /queues UI', () => {
       ).toBe(true);
     });
 
-    // Enter search (SearchInput renders a native <input> labelled "Search").
-    const input = await screen.findByLabelText('Search');
+    // Enter search (SearchInput renders a native <input> labelled "Caută").
+    const input = await screen.findByLabelText('Caută');
     await user.clear(input);
     // Avoid typing character-by-character because each change updates the URL and can interrupt typing.
     fireEvent.change(input, { target: { value: 'job-xyz' } });
@@ -332,8 +332,8 @@ describe('Queue Monitor /queues UI', () => {
     // Wait for jobs row.
     expect(await screen.findByRole('button', { name: '1' })).toBeInTheDocument();
 
-    const details = await screen.findByText('Details');
-    await user.click(details);
+    const details = await screen.findAllByText('Detalii');
+    await user.click(details[0]!);
 
     await waitFor(() => {
       expect(apiCalls.some((c) => c.method === 'GET' && c.path === '/queues/webhooks/jobs/1')).toBe(
@@ -341,8 +341,8 @@ describe('Queue Monitor /queues UI', () => {
       );
     });
 
-    expect(await screen.findByText(/Job details/i)).toBeInTheDocument();
-    expect(screen.getByText(/webhooks/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Detalii job/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/webhooks/i).length).toBeGreaterThan(0);
   });
 
   it('switches to Workers tab and loads workers', async () => {
@@ -411,7 +411,7 @@ describe('Queue Monitor /queues UI', () => {
     const checkbox = await screen.findByLabelText('Select job 1');
     await user.click(checkbox);
 
-    const deleteSelected = await screen.findByText('Delete Selected');
+    const deleteSelected = await screen.findByText('Șterge selectate');
     await user.click(deleteSelected.closest('polaris-button') ?? deleteSelected);
 
     // No DELETE call should happen before confirm.
@@ -420,9 +420,9 @@ describe('Queue Monitor /queues UI', () => {
     ).toBe(false);
 
     // Confirm dialog should appear.
-    expect(await screen.findByText(/Actiunea este ireversibila\./i)).toBeInTheDocument();
-    const confirm = await screen.findByText('Sterge job');
-    await user.click(confirm.closest('polaris-button') ?? confirm);
+    expect((await screen.findAllByText(/ireversibilă/i)).length).toBeGreaterThan(0);
+    const confirm = await screen.findByRole('button', { name: /Șterge job/i });
+    await user.click(confirm);
 
     await waitFor(() => {
       expect(
@@ -493,7 +493,7 @@ describe('Queue Monitor /queues UI', () => {
     render(<RouterProvider router={router} />);
 
     // Details modal should open from initial URL and load job.
-    expect(await screen.findByText(/Job details/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Detalii job/i)).toBeInTheDocument();
     await waitFor(() => {
       expect(apiCalls.some((c) => c.method === 'GET' && c.path === '/queues/webhooks/jobs/1')).toBe(
         true
@@ -504,10 +504,10 @@ describe('Queue Monitor /queues UI', () => {
     const checkbox = await screen.findByLabelText('Select job 1');
     await user.click(checkbox);
 
-    const deleteSelected = await screen.findByText('Delete Selected');
+    const deleteSelected = await screen.findByText('Șterge selectate');
     await user.click(deleteSelected.closest('polaris-button') ?? deleteSelected);
 
-    const confirm = await screen.findByText('Sterge job');
+    const confirm = await screen.findByText('Șterge job');
     await user.click(confirm.closest('polaris-button') ?? confirm);
 
     await waitFor(() => {

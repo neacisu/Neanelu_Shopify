@@ -6,6 +6,7 @@ import { Loader2, Play, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '../components/ui/button';
+import { InfoTooltip } from '../components/ui/info-tooltip';
 import { DateRangePicker } from '../components/ui/DateRangePicker';
 import { Timeline, type TimelineEvent } from '../components/ui/Timeline';
 import { EnrichmentPipelineViz } from '../components/domain/EnrichmentPipelineViz';
@@ -126,23 +127,31 @@ export default function EnrichmentDashboardPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end gap-3">
-        <DateRangePicker
-          label="Interval date"
-          value={selectedRange}
-          timeZone={timeZone}
-          onChange={(next) => {
-            const params = new URLSearchParams(searchParams);
-            const range = next ? toUtcIsoRange(next, timeZone) : null;
-            if (range) {
-              params.set('from', range.fromUtcIso);
-              params.set('to', range.toUtcIso);
-            } else {
-              params.delete('from');
-              params.delete('to');
-            }
-            setSearchParams(params, { replace: true });
-          }}
-        />
+        <span className="inline-flex items-center gap-1.5">
+          <DateRangePicker
+            label="Interval date"
+            value={selectedRange}
+            timeZone={timeZone}
+            onChange={(next) => {
+              const params = new URLSearchParams(searchParams);
+              const range = next ? toUtcIsoRange(next, timeZone) : null;
+              if (range) {
+                params.set('from', range.fromUtcIso);
+                params.set('to', range.toUtcIso);
+              } else {
+                params.delete('from');
+                params.delete('to');
+              }
+              setSearchParams(params, { replace: true });
+            }}
+          />
+          <InfoTooltip title="Interval date" side="bottom">
+            Intervalul de date filtrează statisticile de îmbogățire afișate. Selectează o perioadă
+            specifică pentru a vedea câte produse au fost îmbogățite, rata de succes și costurile
+            asociate. De exemplu, alege „Ultimele 7 zile" pentru a evalua performanța recentă. Sfat:
+            compară intervale diferite pentru a identifica tendințele.
+          </InfoTooltip>
+        </span>
         <Button
           size="sm"
           onClick={() => {
@@ -176,8 +185,14 @@ export default function EnrichmentDashboardPage() {
           ) : (
             <Play className="mr-2 h-4 w-4" />
           )}
-          Porneste enrichment
+          Pornește enrichment
         </Button>
+        <InfoTooltip title="Pornește enrichment" side="bottom">
+          Pornește procesul de îmbogățire automată a produselor. Sistemul va folosi sursele AI
+          configurate (OpenAI, Serper, Scraper) pentru a completa descrierile, imaginile și
+          atributele lipsă. De exemplu, un produs cu doar titlul poate primi descriere completă,
+          imagini și categorii. Sfat: verifică bugetul AI disponibil înainte de a porni procesul.
+        </InfoTooltip>
         <Button
           variant="secondary"
           size="sm"
@@ -187,7 +202,7 @@ export default function EnrichmentDashboardPage() {
           disabled={revalidator.state === 'loading' || starting}
         >
           <RefreshCw className="mr-2 h-4 w-4" />
-          Reincarca
+          Reîncarcă
         </Button>
         <DataFreshnessIndicator refreshedAt={sourcePerformance.refreshedAt} label="Date surse" />
       </div>
@@ -204,16 +219,16 @@ export default function EnrichmentDashboardPage() {
 
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
         <div className="space-y-4">
-          <div className="rounded-lg border border-muted/20 bg-background p-4">
-            <div className="mb-2 text-xs text-muted">Pipeline stages</div>
+          <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60">
+            <div className="mb-2 text-xs text-slate-500 dark:text-slate-400">Etape pipeline</div>
             <EnrichmentPipelineViz stages={progress.pipelineStages} />
           </div>
           <EnrichmentProgressChart data={progress.trendPoints} />
           <SourcePerformanceTable rows={sourcePerformance.sources} />
         </div>
-        <div className="rounded-lg border border-muted/20 bg-background p-4">
-          <div className="mb-2 text-xs text-muted">Activitate recenta</div>
-          <Timeline events={events} maxHeight={420} emptyState="Nu exista evenimente inca." />
+        <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60">
+          <div className="mb-2 text-xs text-slate-500 dark:text-slate-400">Activitate recentă</div>
+          <Timeline events={events} maxHeight={420} emptyState="Nu există evenimente încă." />
         </div>
       </div>
     </div>

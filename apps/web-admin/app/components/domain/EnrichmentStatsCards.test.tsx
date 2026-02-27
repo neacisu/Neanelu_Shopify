@@ -17,9 +17,9 @@ describe('EnrichmentStatsCards', () => {
       />
     );
 
-    expect(screen.getByText('Pending')).toBeTruthy();
-    expect(screen.getByText('In progress')).toBeTruthy();
-    expect(screen.getByText('Completed today')).toBeTruthy();
+    expect(screen.getAllByText('În așteptare').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('În curs').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Finalizate azi').length).toBeGreaterThan(0);
     expect(screen.getByText('10')).toBeTruthy();
     expect(screen.getByText('5')).toBeTruthy();
     expect(screen.getByText('7')).toBeTruthy();

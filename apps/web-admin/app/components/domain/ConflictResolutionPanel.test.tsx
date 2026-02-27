@@ -32,7 +32,7 @@ describe('ConflictResolutionPanel', () => {
       />
     );
 
-    const firstButton = screen.getAllByText('Select winner').at(0);
+    const firstButton = screen.getAllByText('Selectează câștigător').at(0);
     if (!firstButton) {
       throw new Error('missing_select_winner_button');
     }

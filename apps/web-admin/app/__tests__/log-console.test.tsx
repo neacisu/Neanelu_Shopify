@@ -8,7 +8,7 @@ import { LogConsole } from '../components/domain/log-console';
 describe('LogConsole', () => {
   it('shows empty state when no logs', () => {
     render(<LogConsole logs={[]} />);
-    expect(screen.getByText('No logs yet.')).toBeInTheDocument();
+    expect(screen.getByText('Nu există încă loguri.')).toBeInTheDocument();
   });
 
   it('filters to errors only when toggled', async () => {
@@ -33,7 +33,7 @@ describe('LogConsole', () => {
     expect(screen.getByText('info message')).toBeInTheDocument();
     expect(screen.getByText('error message')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Show Errors Only' }));
+    await user.click(screen.getByRole('button', { name: 'Doar erori' }));
 
     expect(screen.queryByText('info message')).not.toBeInTheDocument();
     expect(screen.getByText('error message')).toBeInTheDocument();

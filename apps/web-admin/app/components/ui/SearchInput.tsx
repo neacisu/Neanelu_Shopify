@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Search, X } from 'lucide-react';
 
 export type SearchSuggestion = Readonly<{
   id: string;
@@ -94,7 +95,6 @@ export function SearchInput(props: SearchInputProps) {
       }
     }
 
-    // Prepend recent searches when input is empty.
     if (trimmed.length === 0 && recentSearches.length > 0) {
       const existing = new Set(base.map((x) => x.value));
       for (const v of recentSearches) {
@@ -169,6 +169,19 @@ export function SearchInput(props: SearchInputProps) {
     [multiline, onChange, onSearch, onSelectSuggestion]
   );
 
+  const clearValue = useCallback(() => {
+    setDraft('');
+    onChange('');
+    onSearch?.('');
+    setOpen(false);
+    setActiveIndex(-1);
+    if (multiline) {
+      textareaRef.current?.focus();
+    } else {
+      inputRef.current?.focus();
+    }
+  }, [multiline, onChange, onSearch]);
+
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       if (e.key === 'ArrowDown') {
@@ -221,7 +234,7 @@ export function SearchInput(props: SearchInputProps) {
     disabled,
     placeholder,
     className:
-      'mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-[var(--shadow-sm)] outline-none transition-colors placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60',
+      'mt-1.5 w-full rounded-xl border border-border bg-card pl-10 pr-9 py-2.5 text-sm text-foreground shadow-[var(--shadow-sm)] outline-none transition-[border-color,box-shadow] duration-200 placeholder:text-muted focus:border-accent focus:shadow-[0_0_0_3px_rgba(59,130,246,0.15)] dark:border-border dark:bg-card dark:text-foreground dark:focus:shadow-[0_0_0_3px_rgba(96,165,250,0.2)] disabled:opacity-60',
     role: 'combobox',
     'aria-controls': listboxId,
     'aria-expanded': shouldShowMenu,
@@ -252,13 +265,15 @@ export function SearchInput(props: SearchInputProps) {
 
   return (
     <div className={className}>
-      <label
-        htmlFor={inputId}
-        className="text-xs font-medium uppercase tracking-wider text-slate-500"
-      >
+      <label htmlFor={inputId} className="text-xs font-medium uppercase tracking-wider text-muted">
         {label}
       </label>
       <div className="relative">
+        <Search
+          className="pointer-events-none absolute left-3 top-1/2 mt-[3px] size-4 -translate-y-1/2 text-muted"
+          aria-hidden
+        />
+
         {multiline ? (
           <textarea
             ref={textareaRef}
@@ -266,6 +281,7 @@ export function SearchInput(props: SearchInputProps) {
             aria-haspopup={ariaHasPopup}
             aria-autocomplete={ariaAutocomplete}
             {...commonProps}
+            className={commonProps.className.replace('pl-10', 'pl-3')}
           />
         ) : (
           <input
@@ -276,9 +292,24 @@ export function SearchInput(props: SearchInputProps) {
             {...commonProps}
           />
         )}
+
+        {draft.length > 0 && !loading ? (
+          <button
+            type="button"
+            onClick={clearValue}
+            className="absolute right-3 top-1/2 mt-[3px] -translate-y-1/2 rounded-md p-0.5 text-muted transition-all duration-200 hover:bg-subtle hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 motion-safe:animate-[fadeIn_150ms_ease-out] dark:focus-visible:ring-blue-400/50"
+            aria-label="Șterge căutarea"
+          >
+            <X className="size-3.5" />
+          </button>
+        ) : null}
+
         {loading ? (
-          <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-500">
-            Se încarcă…
+          <div className="pointer-events-none absolute right-3 top-1/2 mt-[3px] -translate-y-1/2">
+            <span
+              className="inline-block size-4 animate-spin rounded-full border-2 border-muted/40 border-t-muted"
+              aria-hidden
+            />
           </div>
         ) : null}
 
@@ -290,36 +321,39 @@ export function SearchInput(props: SearchInputProps) {
 
         {shouldShowMenu ? (
           <div
-            className="absolute z-50 mt-1.5 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[var(--shadow-md)]"
+            className="absolute z-50 mt-1.5 w-full overflow-hidden rounded-xl border border-white/20 bg-white/80 shadow-lg shadow-black/5 backdrop-blur-xl motion-safe:animate-[fadeSlideUp_0.2s_ease-out] dark:border-white/10 dark:bg-slate-900/80 dark:shadow-black/20"
             role="listbox"
             id={listboxId}
           >
-            {filtered.map((s, idx) => {
-              const active = idx === activeIndex;
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  data-search-suggestion="true"
-                  id={`${listboxId}-opt-${idx}`}
-                  role="option"
-                  aria-selected={active}
-                  tabIndex={-1}
-                  className={
-                    'flex w-full items-center justify-between px-3 py-2.5 text-left text-sm text-slate-700 transition-colors ' +
-                    (active ? 'bg-slate-100' : 'hover:bg-slate-50')
-                  }
-                  onMouseEnter={() => setActiveIndex(idx)}
-                  onMouseDown={(ev) => {
-                    // Prevent input blur before we can select.
-                    ev.preventDefault();
-                  }}
-                  onClick={() => select(s.value)}
-                >
-                  <span className="truncate">{s.label}</span>
-                </button>
-              );
-            })}
+            <div className="max-h-64 overflow-y-auto">
+              {filtered.map((s, idx) => {
+                const active = idx === activeIndex;
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    data-search-suggestion="true"
+                    id={`${listboxId}-opt-${idx}`}
+                    role="option"
+                    aria-selected={active}
+                    tabIndex={-1}
+                    className={
+                      'flex w-full items-center justify-between px-3 py-2.5 text-left text-sm text-foreground transition-colors duration-150 ' +
+                      (active
+                        ? 'bg-blue-50/80 dark:bg-blue-900/30'
+                        : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/50')
+                    }
+                    onMouseEnter={() => setActiveIndex(idx)}
+                    onMouseDown={(ev) => {
+                      ev.preventDefault();
+                    }}
+                    onClick={() => select(s.value)}
+                  >
+                    <span className="truncate">{s.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         ) : null}
       </div>

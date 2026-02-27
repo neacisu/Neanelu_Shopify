@@ -20,6 +20,7 @@ let bulkOrchestratorWorker: WorkerLike | null = null;
 let bulkPollerWorker: WorkerLike | null = null;
 let bulkMutationReconcileWorker: WorkerLike | null = null;
 let bulkIngestWorker: WorkerLike | null = null;
+let pimManualSyncWorker: WorkerLike | null = null;
 let aiBatchWorker: WorkerLike | null = null;
 let enrichmentWorker: WorkerLike | null = null;
 let similaritySearchWorker: WorkerLike | null = null;
@@ -62,6 +63,10 @@ export function setBulkMutationReconcileWorkerHandle(handle: WorkerHandleLike | 
 
 export function setBulkIngestWorkerHandle(handle: WorkerHandleLike | null): void {
   bulkIngestWorker = handle?.worker ?? null;
+}
+
+export function setPimManualSyncWorkerHandle(handle: WorkerHandleLike | null): void {
+  pimManualSyncWorker = handle?.worker ?? null;
 }
 
 export function setAiBatchWorkerHandle(handle: WorkerHandleLike | null): void {
@@ -155,6 +160,7 @@ export function getWorkerReadiness(): Readonly<{
   bulkPollerWorkerOk: boolean | null;
   bulkMutationReconcileWorkerOk: boolean | null;
   bulkIngestWorkerOk: boolean | null;
+  pimManualSyncWorkerOk: boolean | null;
   aiBatchWorkerOk: boolean | null;
   enrichmentWorkerOk: boolean | null;
   similaritySearchWorkerOk: boolean | null;
@@ -181,6 +187,7 @@ export function getWorkerReadiness(): Readonly<{
       ? isWorkerRunning(bulkMutationReconcileWorker)
       : null,
     bulkIngestWorkerOk: bulkIngestWorker ? isWorkerRunning(bulkIngestWorker) : null,
+    pimManualSyncWorkerOk: pimManualSyncWorker ? isWorkerRunning(pimManualSyncWorker) : null,
     aiBatchWorkerOk: aiBatchWorker ? isWorkerRunning(aiBatchWorker) : null,
     enrichmentWorkerOk: enrichmentWorker ? isWorkerRunning(enrichmentWorker) : null,
     similaritySearchWorkerOk: similaritySearchWorker

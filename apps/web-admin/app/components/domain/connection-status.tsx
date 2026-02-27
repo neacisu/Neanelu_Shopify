@@ -1,5 +1,7 @@
 import { useMemo } from 'react';
 
+import { InfoTooltip } from '../ui/info-tooltip';
+
 type ConnectionStatusProps = Readonly<{
   status: 'connected' | 'degraded' | 'disconnected';
   tokenHealthy: boolean;
@@ -17,30 +19,45 @@ export function ConnectionStatus({
 }: ConnectionStatusProps) {
   const badge = useMemo(() => {
     if (status === 'connected') {
-      return { label: 'Connected', className: 'border-success/30 bg-success/10 text-success' };
+      return { label: 'Conectat', className: 'border-success/30 bg-success/10 text-success' };
     }
     if (status === 'degraded') {
-      return { label: 'Degraded', className: 'border-warning/30 bg-warning/10 text-warning' };
+      return { label: 'Degradat', className: 'border-warning/30 bg-warning/10 text-warning' };
     }
-    return { label: 'Disconnected', className: 'border-error/30 bg-error/10 text-error' };
+    return { label: 'Deconectat', className: 'border-error/30 bg-error/10 text-error' };
   }, [status]);
 
   return (
     <div className="space-y-3 rounded-md border border-muted/20 bg-background p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-medium">Status conexiune</span>
+        <InfoTooltip title="Status conexiune Shopify" side="bottom" portalToBody>
+          Verifică dacă aplicația poate comunica cu API-ul Shopify. Conectat = totul OK. Degradat =
+          rate limit sau probleme temporare. Deconectat = token expirat sau invalid.
+        </InfoTooltip>
+      </div>
       <div className="flex flex-wrap items-center gap-3">
-        <span className={`rounded-full border px-3 py-1 text-sm ${badge.className}`}>
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm ${badge.className}`}
+        >
+          {status === 'connected' ? (
+            <span
+              className="size-2 rounded-full bg-green-500 motion-safe:animate-[pulse_2s_ease-in-out_infinite]"
+              aria-hidden
+            />
+          ) : null}
           {badge.label}
         </span>
         <span className="text-sm text-muted">
-          Token health: {tokenHealthy ? 'OK' : 'Needs attention'}
+          Token: {tokenHealthy ? 'OK' : 'Necesită atenție'}
         </span>
         {typeof rateLimitRemaining === 'number' ? (
-          <span className="text-sm text-muted">Rate limit remaining: {rateLimitRemaining}</span>
+          <span className="text-sm text-muted">Rate limit rămas: {rateLimitRemaining}</span>
         ) : null}
       </div>
 
       <div className="text-xs text-muted">
-        Ultima verificare: {checkedAt ? new Date(checkedAt).toLocaleString() : '—'}
+        Ultima verificare: {checkedAt ? new Date(checkedAt).toLocaleString('ro-RO') : '—'}
       </div>
 
       {!tokenHealthy ? (
@@ -49,7 +66,9 @@ export function ConnectionStatus({
         </div>
       ) : null}
 
-      {scopes.length ? <div className="text-xs text-muted">Scopes: {scopes.join(', ')}</div> : null}
+      {scopes.length ? (
+        <div className="text-xs text-muted">Permisiuni: {scopes.join(', ')}</div>
+      ) : null}
     </div>
   );
 }

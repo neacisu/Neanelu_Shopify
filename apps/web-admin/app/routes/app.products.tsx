@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useScrollReveal } from '../hooks/useScrollReveal';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
 import type {
@@ -11,6 +12,7 @@ import type {
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { PageHeader } from '../components/layout/page-header';
+import { InfoTooltip } from '../components/ui/info-tooltip';
 import { EmptyState } from '../components/patterns';
 import { SearchInput } from '../components/ui/SearchInput';
 import { Button } from '../components/ui/button';
@@ -120,8 +122,8 @@ export default function ProductsPage() {
 
   const breadcrumbs = useMemo(
     () => [
-      { label: 'Home', href: '/' },
-      { label: 'Products', href: location.pathname },
+      { label: 'Acasă', href: '/' },
+      { label: 'Produse', href: location.pathname },
     ],
     [location.pathname]
   );
@@ -303,7 +305,7 @@ export default function ProductsPage() {
   const onForceSync = async (singleProductId?: string) => {
     const idsToSync = singleProductId ? [singleProductId] : Array.from(selectedIds);
     if (idsToSync.length === 0) {
-      toast.error('Select at least one product');
+      toast.error('Selectează cel puțin un produs');
       return;
     }
     await api.postApi('/products/bulk-sync', { productIds: idsToSync });
@@ -337,7 +339,7 @@ export default function ProductsPage() {
 
   const onAssignCategory = () => {
     if (selectedIds.size === 0) {
-      toast.error('Select at least one product');
+      toast.error('Selectează cel puțin un produs');
       return;
     }
     setAssignCategoryOpen(true);
@@ -345,7 +347,7 @@ export default function ProductsPage() {
 
   const onAddToCollection = async () => {
     if (selectedIds.size === 0) {
-      toast.error('Select at least one product');
+      toast.error('Selectează cel puțin un produs');
       return;
     }
     if (!collections.length) {
@@ -364,11 +366,11 @@ export default function ProductsPage() {
 
   const onCompare = async () => {
     if (selectedIds.size < 2) {
-      toast.error('Select at least 2 products to compare');
+      toast.error('Selectează cel puțin 2 produse pentru comparație');
       return;
     }
     if (selectedIds.size > 3) {
-      toast.error('Compare supports up to 3 products');
+      toast.error('Compararea suportă maxim 3 produse');
       return;
     }
     const response = await api.postApi<{ items: typeof compareItems }, { productIds: string[] }>(
@@ -381,7 +383,7 @@ export default function ProductsPage() {
 
   const onRequestEnrichment = async () => {
     if (selectedIds.size === 0) {
-      toast.error('Select at least one product');
+      toast.error('Selectează cel puțin un produs');
       return;
     }
     await api.postApi('/products/bulk-request-enrichment', {
@@ -395,25 +397,49 @@ export default function ProductsPage() {
     void navigate(`/search?q=${encodeURIComponent(query.trim())}`);
   };
 
+  const [contentRef, contentVisible] = useScrollReveal<HTMLDivElement>({
+    rootMargin: '0px 0px -40px 0px',
+  });
+
   return (
-    <div className="space-y-4">
+    <div
+      ref={contentRef}
+      className="space-y-4 dark:text-slate-100"
+      style={{
+        animation: contentVisible ? 'fadeSlideUp 0.4s ease-out both' : 'none',
+      }}
+    >
       <Breadcrumbs items={breadcrumbs} />
       <PageHeader
-        title="Products"
-        description="Manage products, quality levels, and enrichment."
+        title="Produse"
+        description="Gestionează produsele, nivelurile de calitate și îmbogățirea datelor."
         actions={
-          <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => void navigate('/products/import')}>
-              Import
-            </Button>
-            <Button variant="secondary" onClick={onExport}>
-              Export
-            </Button>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5">
+              <Button variant="secondary" onClick={() => void navigate('/products/import')}>
+                Import
+              </Button>
+              <InfoTooltip title="Import produse" side="bottom">
+                Deschide pagina de import: încarcă un fișier CSV sau Excel cu produse. Sistemul
+                mapează coloanele și permite validare înainte de import. Util pentru migrări sau
+                adăugare în masă din alte surse.
+              </InfoTooltip>
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Button variant="secondary" onClick={onExport}>
+                Export
+              </Button>
+              <InfoTooltip title="Export produse" side="bottom">
+                Exportă produsele filtrate în CSV sau Excel. Poți alege coloanele, include
+                variantele și aplica filtrele curente. Exportul rulează în fundal; vei primi link de
+                descărcare când e gata.
+              </InfoTooltip>
+            </span>
           </div>
         }
       />
 
-      <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+      <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)] dark:text-slate-200">
         <ProductsFilters
           filters={filters}
           options={options}
@@ -427,33 +453,41 @@ export default function ProductsPage() {
             <SearchInput
               value={query}
               onChange={setQuery}
-              label="Search products"
-              placeholder="Search products..."
+              label="Caută produse"
+              placeholder="Caută produse..."
               loading={loading}
             />
-            <div className="flex items-center gap-2 rounded-md border px-2 py-1 text-xs">
-              <label className="flex items-center gap-1">
-                <input
-                  type="radio"
-                  name="search-mode"
-                  checked={searchMode === 'exact'}
-                  onChange={() => setSearchMode('exact')}
-                />
-                Exact
-              </label>
-              <label className="flex items-center gap-1">
-                <input
-                  type="radio"
-                  name="search-mode"
-                  checked={searchMode === 'semantic'}
-                  onChange={() => setSearchMode('semantic')}
-                />
-                Semantic
-              </label>
+            <div className="flex items-center gap-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1 text-xs dark:text-slate-300">
+              <span className="flex items-center gap-1">
+                <InfoTooltip title="Mod căutare" side="bottom">
+                  Exact: potrivire text în titlu, SKU sau alte câmpuri. Semantic: căutare AI după
+                  sens — ideal pentru fraze în limbaj natural (ex. „pantofi sport pentru alergare").
+                  Semantic folosește embedding-uri și găsește produse relevante chiar dacă nu conțin
+                  cuvintele exacte.
+                </InfoTooltip>
+                <label className="flex items-center gap-1">
+                  <input
+                    type="radio"
+                    name="search-mode"
+                    checked={searchMode === 'exact'}
+                    onChange={() => setSearchMode('exact')}
+                  />
+                  Exact
+                </label>
+                <label className="flex items-center gap-1">
+                  <input
+                    type="radio"
+                    name="search-mode"
+                    checked={searchMode === 'semantic'}
+                    onChange={() => setSearchMode('semantic')}
+                  />
+                  Semantic
+                </label>
+              </span>
             </div>
             {searchMode === 'semantic' ? (
               <Button variant="secondary" onClick={onSemanticSearch}>
-                Open Semantic Search
+                Deschide căutare semantică
               </Button>
             ) : null}
           </div>
@@ -530,7 +564,7 @@ export default function ProductsPage() {
             categoryId,
           });
           setAssignCategoryOpen(false);
-          toast.success('Category assigned');
+          toast.success('Categorie atribuită');
         }}
       />
 
@@ -544,7 +578,7 @@ export default function ProductsPage() {
             collectionId,
           });
           setAddToCollectionOpen(false);
-          toast.success('Added to collection');
+          toast.success('Adăugat la colecție');
         }}
       />
 

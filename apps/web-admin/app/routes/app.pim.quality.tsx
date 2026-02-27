@@ -5,6 +5,7 @@ import { RefreshCw, Trophy } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '../components/ui/button';
+import { InfoTooltip } from '../components/ui/info-tooltip';
 import { QualityDistributionChart } from '../components/domain/QualityDistributionChart';
 import { QualityTrendChart } from '../components/domain/QualityTrendChart';
 import { PromotionRateCard } from '../components/domain/PromotionRateCard';
@@ -82,9 +83,9 @@ export default function QualityProgressPage() {
   );
   const selectedLevel = searchParams.get('level');
   const rangeLabel = quality.trendRange
-    ? `${new Date(quality.trendRange.from).toLocaleDateString()} → ${new Date(
+    ? `${new Date(quality.trendRange.from).toLocaleDateString('ro-RO')} → ${new Date(
         quality.trendRange.to
-      ).toLocaleDateString()}`
+      ).toLocaleDateString('ro-RO')}`
     : undefined;
 
   useEffect(() => {
@@ -170,24 +171,25 @@ export default function QualityProgressPage() {
           onClick={() => {
             void revalidator.revalidate();
           }}
+          title="Reîmprospătează datele de calitate"
         >
           <RefreshCw className="mr-2 h-4 w-4" />
-          Reincarca
+          Reîncarcă
         </Button>
         <DataFreshnessIndicator refreshedAt={quality.refreshedAt} label="Date calitate" />
       </div>
 
       {latestMilestoneEvent?.milestone ? (
-        <div className="flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4">
-          <Trophy className="h-6 w-6 text-amber-600" />
+        <div className="flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-600/50 dark:bg-amber-900/20">
+          <Trophy className="h-6 w-6 text-amber-600 dark:text-amber-400" />
           <div>
-            <div className="text-sm font-semibold text-amber-700">
+            <div className="text-sm font-semibold text-amber-700 dark:text-amber-300">
               Prag: {latestMilestoneEvent.milestone} Golden Records
             </div>
-            <div className="text-xs text-muted">
+            <div className="text-xs text-slate-500 dark:text-slate-400">
               Atins la{' '}
               {latestMilestoneEvent.createdAt
-                ? new Date(latestMilestoneEvent.createdAt).toLocaleDateString()
+                ? new Date(latestMilestoneEvent.createdAt).toLocaleDateString('ro-RO')
                 : '—'}
             </div>
           </div>
@@ -235,16 +237,24 @@ export default function QualityProgressPage() {
         />
       </div>
 
-      <div className="rounded-lg border border-muted/20 bg-background p-4">
-        <div className="mb-2 text-xs text-muted">Sumar nivele de calitate</div>
+      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60">
+        <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+          <span>Sumar nivele de calitate</span>
+          <InfoTooltip title="Sumar calitate">
+            Sumarul arată numărul de produse și scorul mediu pentru fiecare nivel. De ce contează:
+            identifici rapid distribuția calității în catalog. Exemplu: 200 Bronze cu scor 0.3
+            indică produse care necesită enrichment. Sfat: țintește mutarea produselor din Bronze
+            spre Silver prin enrichment.
+          </InfoTooltip>
+        </div>
         <div className="grid gap-4 md:grid-cols-4">
           <div
-            className="rounded-md border border-muted/20 p-3"
+            className="rounded-md border border-muted/20 p-3 dark:border-slate-700 dark:bg-slate-800/50"
             aria-label="Bronze quality summary"
           >
-            <div className="text-xs text-muted">Bronze</div>
-            <div className="text-h5">{quality.bronze.count}</div>
-            <div className="text-xs text-muted">
+            <div className="text-xs text-slate-500 dark:text-slate-400">Bronze</div>
+            <div className="text-h5 text-slate-800 dark:text-slate-100">{quality.bronze.count}</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
               Medie:{' '}
               {quality.bronze.avgQualityScore != null
                 ? quality.bronze.avgQualityScore.toFixed(2)
@@ -252,12 +262,12 @@ export default function QualityProgressPage() {
             </div>
           </div>
           <div
-            className="rounded-md border border-muted/20 p-3"
+            className="rounded-md border border-muted/20 p-3 dark:border-slate-700 dark:bg-slate-800/50"
             aria-label="Silver quality summary"
           >
-            <div className="text-xs text-muted">Silver</div>
-            <div className="text-h5">{quality.silver.count}</div>
-            <div className="text-xs text-muted">
+            <div className="text-xs text-slate-500 dark:text-slate-400">Silver</div>
+            <div className="text-h5 text-slate-800 dark:text-slate-100">{quality.silver.count}</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
               Medie:{' '}
               {quality.silver.avgQualityScore != null
                 ? quality.silver.avgQualityScore.toFixed(2)
@@ -265,12 +275,12 @@ export default function QualityProgressPage() {
             </div>
           </div>
           <div
-            className="rounded-md border border-muted/20 p-3"
+            className="rounded-md border border-muted/20 p-3 dark:border-slate-700 dark:bg-slate-800/50"
             aria-label="Golden quality summary"
           >
-            <div className="text-xs text-muted">Golden</div>
-            <div className="text-h5">{quality.golden.count}</div>
-            <div className="text-xs text-muted">
+            <div className="text-xs text-slate-500 dark:text-slate-400">Golden</div>
+            <div className="text-h5 text-slate-800 dark:text-slate-100">{quality.golden.count}</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
               Medie:{' '}
               {quality.golden.avgQualityScore != null
                 ? quality.golden.avgQualityScore.toFixed(2)
@@ -278,12 +288,12 @@ export default function QualityProgressPage() {
             </div>
           </div>
           <div
-            className="rounded-md border border-muted/20 p-3"
+            className="rounded-md border border-muted/20 p-3 dark:border-slate-700 dark:bg-slate-800/50"
             aria-label="Review quality summary"
           >
-            <div className="text-xs text-muted">Review necesar</div>
-            <div className="text-h5">{quality.review.count}</div>
-            <div className="text-xs text-muted">
+            <div className="text-xs text-slate-500 dark:text-slate-400">Review necesar</div>
+            <div className="text-h5 text-slate-800 dark:text-slate-100">{quality.review.count}</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
               Medie:{' '}
               {quality.review.avgQualityScore != null
                 ? quality.review.avgQualityScore.toFixed(2)
@@ -293,10 +303,18 @@ export default function QualityProgressPage() {
         </div>
       </div>
 
-      <div className="rounded-lg border border-muted/20 bg-background p-4">
+      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
-            <div className="text-xs text-muted">Detaliere pe nivel de calitate</div>
+            <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+              <span>Detaliere pe nivel de calitate</span>
+              <InfoTooltip title="Detaliere calitate">
+                Detaliererea arată produsele dintr-un anumit nivel de calitate. De ce contează: poți
+                vedea exact care produse au nevoie de atenție. Exemplu: click pe Bronze pentru a
+                vedea produsele cu date incomplete. Sfat: folosește linkul „Vezi toate produsele"
+                pentru o listă completă filtrată.
+              </InfoTooltip>
+            </div>
             <div className="text-sm">
               {selectedLevel ? `Nivel: ${selectedLevel}` : 'Selecteaza un segment pentru detalii'}
             </div>
@@ -325,9 +343,9 @@ export default function QualityProgressPage() {
         </div>
 
         {selectedLevel ? (
-          <div className="overflow-hidden rounded-md border border-muted/20">
+          <div className="overflow-hidden rounded-md border border-muted/20 dark:border-slate-700">
             <table className="w-full text-sm">
-              <thead className="bg-muted/30 text-xs text-muted">
+              <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                 <tr>
                   <th className="px-3 py-2 text-left font-medium">Produs</th>
                   <th className="px-3 py-2 text-left font-medium">Vendor</th>
@@ -337,13 +355,19 @@ export default function QualityProgressPage() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td className="px-3 py-3 text-sm text-muted" colSpan={3}>
+                    <td
+                      className="px-3 py-3 text-sm text-slate-500 dark:text-slate-400"
+                      colSpan={3}
+                    >
                       Se încarcă produsele...
                     </td>
                   </tr>
                 ) : products?.items.length ? (
                   products.items.map((item) => (
-                    <tr key={item.id} className="border-t border-muted/20">
+                    <tr
+                      key={item.id}
+                      className="border-t border-muted/20 dark:border-slate-700 text-slate-800 dark:text-slate-200"
+                    >
                       <td className="px-3 py-2">
                         <Link className="text-primary" to={`/products/${item.id}`}>
                           {item.title}
@@ -357,7 +381,10 @@ export default function QualityProgressPage() {
                   ))
                 ) : (
                   <tr>
-                    <td className="px-3 py-3 text-sm text-muted" colSpan={3}>
+                    <td
+                      className="px-3 py-3 text-sm text-slate-500 dark:text-slate-400"
+                      colSpan={3}
+                    >
                       Nu există produse pentru nivelul selectat.
                     </td>
                   </tr>

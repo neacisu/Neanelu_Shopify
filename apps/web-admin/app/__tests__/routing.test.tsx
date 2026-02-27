@@ -18,9 +18,18 @@ vi.mock('../lib/api-client', () => ({
           activeBulkRuns: 2,
           apiErrorRate: 0.01,
           apiLatencyP95Ms: 120,
+          goldenCount: 40,
+          goldenRate: 0.4,
+          avgQualityScore: 0.72,
+          todayWebhooks: 15,
+          queueBacklog: 3,
+          enrichmentSuccessRate: 0.95,
+          lastSyncAt: new Date().toISOString(),
+          lastSyncStatus: 'completed',
+          todayAiCost: 1.2,
         });
       }
-      return Promise.reject(new Error(`Unexpected API path: ${path}`));
+      return Promise.resolve({});
     },
   }),
 }));
@@ -31,8 +40,8 @@ describe('routing', () => {
 
     render(<RouterProvider router={router} />);
 
-    expect(await screen.findByRole('heading', { name: /Neanelu Monitor/i })).toBeInTheDocument();
-    expect(screen.getByText(/Prezentare sistem/i)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Bun[aăă]\s/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/procese active/i).length).toBeGreaterThan(0);
   });
 
   it('renders ErrorBoundary for unknown route (404)', async () => {

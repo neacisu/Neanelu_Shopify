@@ -44,3 +44,46 @@ export type DashboardClearCacheResponse = Readonly<{
   deletedKeys: number;
   truncated: boolean;
 }>;
+
+export type DashboardSummaryResponse = Readonly<{
+  totalProducts: number;
+  activeBulkRuns: number;
+  apiErrorRate: number | null;
+  apiLatencyP95Ms: number | null;
+  goldenCount: number;
+  goldenRate: number;
+  avgQualityScore: number;
+  todayWebhooks: number;
+  queueBacklog: number;
+  enrichmentSuccessRate: number;
+  lastSyncAt: string | null;
+  lastSyncStatus: string | null;
+  todayAiCost: number;
+}>;
+
+export type DashboardSummaryTrendPoint = Readonly<{
+  date: string;
+  totalProducts: number;
+  goldenRate: number;
+  avgQualityScore: number;
+  queueBacklog: number;
+  enrichmentSuccessRate: number;
+  apiErrorRate: number;
+  todayAiCost: number;
+}>;
+
+export type DashboardSummaryTrendResponse = Readonly<{
+  days: number;
+  points: readonly DashboardSummaryTrendPoint[];
+}>;
+
+export type DashboardHealthScoreResponse = Readonly<{
+  score: number;
+  components: Readonly<{
+    redis: Readonly<{ ok: boolean; score: number }>;
+    errorRate: Readonly<{ value: number; score: number }>;
+    latency: Readonly<{ valueMs: number; score: number }>;
+    backlog: Readonly<{ count: number; score: number }>;
+  }>;
+  status: 'healthy' | 'degraded' | 'critical';
+}>;

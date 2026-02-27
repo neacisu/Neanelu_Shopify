@@ -8,6 +8,10 @@ import type {
   DashboardStartSyncResponse,
   DashboardClearCacheResponse,
   DashboardAlert,
+  DashboardSummaryResponse,
+  DashboardSummaryTrendResponse,
+  DashboardSummaryTrendPoint,
+  DashboardHealthScoreResponse,
 } from '@app/types';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { Redis as RedisClient } from 'ioredis';
@@ -22,20 +26,12 @@ type DashboardPluginOptions = Readonly<{
   sessionConfig: SessionConfig;
 }>;
 
-// Local list to avoid depending on dist exports of @app/queue-manager during tests.
 const DASHBOARD_QUEUE_NAMES = [
   'webhook-queue',
   'sync-queue',
   'bulk-queue',
   'ai-batch-queue',
 ] as const;
-
-type DashboardSummaryResponse = Readonly<{
-  totalProducts: number;
-  activeBulkRuns: number;
-  apiErrorRate: number | null;
-  apiLatencyP95Ms: number | null;
-}>;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -112,11 +108,9 @@ const START_SYNC_COOLDOWN_KEY_PREFIX = 'dashboard:start-sync:cooldown:v1:';
 const CLEAR_CACHE_MAX_KEYS = 2000;
 const CLEAR_CACHE_SCAN_COUNT = 500;
 const CLEAR_CACHE_ALLOWED_PATTERNS = new Set<string>([
-  // Backward-compatible inputs; they will be expanded under env.redisPrefix.
   'dashboard:*',
   'cache:*',
   'shopify:*',
-  // Preferred: explicitly namespaced patterns.
   'neanelu:*',
 ]);
 
@@ -149,7 +143,6 @@ async function scanDeletePattern(redis: RedisClient, pattern: string, maxKeys: n
         const pipeline = redis.pipeline();
         for (const k of toDelete) pipeline.del(k);
         const exec = await pipeline.exec();
-        // `del` returns integer per key.
         deleted +=
           exec?.reduce((acc, item) => {
             const n = Array.isArray(item) ? item[1] : 0;
@@ -174,14 +167,11 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
   const redis = createRedisConnection({
     redisUrl: env.redisUrl,
     redisOptions: {
-      // Avoid eager connect during server startup (especially in tests/CI).
       lazyConnect: true,
-      // Keep individual route calls from hanging when Redis is down.
       maxRetriesPerRequest: 1,
     },
   });
 
-  // Prevent noisy/"Unhandled error event" logs from ioredis when Redis is not reachable.
   redis.on('error', (error: unknown) => {
     logger.warn({ error }, 'Redis error (dashboard)');
   });
@@ -203,10 +193,22 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
 
     const now = new Date();
     const since = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+    const todayStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+    ).toISOString();
 
-    const summary = await withTenantContext(session.shopId, async (client) => {
-      const [productsResult, activeBulkRunsResult, apiTotalsResult, apiLatencyResult] =
-        await Promise.all([
+    const [dbSummary, queueBacklog] = await Promise.all([
+      withTenantContext(session.shopId, async (client) => {
+        const [
+          productsResult,
+          activeBulkRunsResult,
+          apiTotalsResult,
+          apiLatencyResult,
+          qualityResult,
+          lastSyncResult,
+          enrichmentResult,
+          aiCostResult,
+        ] = await Promise.all([
           client.query<{ total_products: string }>(
             `SELECT COUNT(*)::text as total_products
                FROM shopify_products
@@ -241,27 +243,254 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
                 AND response_time_ms IS NOT NULL`,
             [session.shopId, since]
           ),
+          client.query<{ golden_count: string; total_count: string; avg_score: string }>(
+            `SELECT
+                 COALESCE(SUM(CASE WHEN quality_level = 'golden' THEN 1 ELSE 0 END), 0)::text as golden_count,
+                 COUNT(*)::text as total_count,
+                 COALESCE(AVG(quality_score), 0)::text as avg_score
+               FROM shopify_products
+              WHERE shop_id = $1`,
+            [session.shopId]
+          ),
+          client.query<{ started_at: string | null; status: string | null }>(
+            `SELECT started_at::text, status
+               FROM bulk_runs
+              WHERE shop_id = $1
+              ORDER BY started_at DESC NULLS LAST
+              LIMIT 1`,
+            [session.shopId]
+          ),
+          client.query<{ success_count: string; total_count: string }>(
+            `SELECT
+                 COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0)::text as success_count,
+                 COUNT(*)::text as total_count
+               FROM enrichment_jobs
+              WHERE shop_id = $1
+                AND created_at >= $2`,
+            [session.shopId, since]
+          ),
+          client.query<{ total_cost: string }>(
+            `SELECT COALESCE(SUM(cost_usd), 0)::text as total_cost
+               FROM api_usage_log
+              WHERE shop_id = $1
+                AND created_at >= $2
+                AND cost_usd IS NOT NULL`,
+            [session.shopId, todayStart]
+          ),
         ]);
 
-      const totalProducts = Number(productsResult.rows[0]?.total_products ?? 0);
-      const activeBulkRuns = Number(activeBulkRunsResult.rows[0]?.active_runs ?? 0);
+        const totalProducts = Number(productsResult.rows[0]?.total_products ?? 0);
+        const activeBulkRuns = Number(activeBulkRunsResult.rows[0]?.active_runs ?? 0);
 
-      const totalCount = Number(apiTotalsResult.rows[0]?.total_count ?? 0);
-      const errorCount = Number(apiTotalsResult.rows[0]?.error_count ?? 0);
-      const apiErrorRate = totalCount > 0 ? errorCount / totalCount : null;
+        const totalApiCount = Number(apiTotalsResult.rows[0]?.total_count ?? 0);
+        const errorApiCount = Number(apiTotalsResult.rows[0]?.error_count ?? 0);
+        const apiErrorRate = totalApiCount > 0 ? errorApiCount / totalApiCount : null;
 
-      const apiLatencyP95MsRaw = apiLatencyResult.rows[0]?.p95_ms;
-      const apiLatencyP95Ms = typeof apiLatencyP95MsRaw === 'number' ? apiLatencyP95MsRaw : null;
+        const apiLatencyP95MsRaw = apiLatencyResult.rows[0]?.p95_ms;
+        const apiLatencyP95Ms = typeof apiLatencyP95MsRaw === 'number' ? apiLatencyP95MsRaw : null;
 
-      return {
-        totalProducts,
-        activeBulkRuns,
-        apiErrorRate,
-        apiLatencyP95Ms,
-      } satisfies DashboardSummaryResponse;
-    });
+        const goldenCount = Number(qualityResult.rows[0]?.golden_count ?? 0);
+        const qualityTotal = Number(qualityResult.rows[0]?.total_count ?? 0);
+        const goldenRate = qualityTotal > 0 ? goldenCount / qualityTotal : 0;
+        const avgQualityScore = Number(qualityResult.rows[0]?.avg_score ?? 0);
+
+        const lastSyncRow = lastSyncResult.rows[0];
+        const lastSyncAt = lastSyncRow?.started_at ?? null;
+        const lastSyncStatus = lastSyncRow?.status ?? null;
+
+        const enrichSuccessCount = Number(enrichmentResult.rows[0]?.success_count ?? 0);
+        const enrichTotalCount = Number(enrichmentResult.rows[0]?.total_count ?? 0);
+        const enrichmentSuccessRate =
+          enrichTotalCount > 0 ? enrichSuccessCount / enrichTotalCount : 0;
+
+        const todayAiCost = Number(aiCostResult.rows[0]?.total_cost ?? 0);
+
+        return {
+          totalProducts,
+          activeBulkRuns,
+          apiErrorRate,
+          apiLatencyP95Ms,
+          goldenCount,
+          goldenRate,
+          avgQualityScore,
+          lastSyncAt,
+          lastSyncStatus,
+          enrichmentSuccessRate,
+          todayAiCost,
+        };
+      }),
+      getPendingJobsBacklog(env).catch((error: unknown) => {
+        logger.warn({ error }, 'Error computing queue backlog for summary');
+        return 0;
+      }),
+    ]);
+
+    const todayKey = activityKeyForUtcDate(now, keyPrefix);
+    let todayWebhooks = 0;
+    try {
+      const raw = await redis.hget(todayKey, 'webhook');
+      todayWebhooks = raw ? Number(raw) || 0 : 0;
+    } catch {
+      // ignore
+    }
+
+    const summary: DashboardSummaryResponse = {
+      ...dbSummary,
+      todayWebhooks,
+      queueBacklog,
+    };
 
     void reply.status(200).send(successEnvelope(request.id, summary));
+  });
+
+  server.get('/dashboard/summary/trend', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      void reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+      return;
+    }
+
+    const days = parseIntParam((request.query as { days?: unknown }).days, 7, 1, 14);
+    const now = new Date();
+
+    const points: DashboardSummaryTrendPoint[] = [];
+
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      d.setUTCDate(d.getUTCDate() - i);
+      const dateStr = formatUtcDate(d);
+      const dayEnd = new Date(d.getTime() + 24 * 60 * 60 * 1000).toISOString();
+
+      const dayData = await withTenantContext(session.shopId, async (client) => {
+        const [productsRes, qualityRes, enrichRes, apiRes, costRes] = await Promise.all([
+          client.query<{ cnt: string }>(
+            `SELECT COUNT(*)::text as cnt FROM shopify_products WHERE shop_id = $1 AND created_at < $2`,
+            [session.shopId, dayEnd]
+          ),
+          client.query<{ golden: string; total: string; avg_score: string }>(
+            `SELECT
+               COALESCE(SUM(CASE WHEN quality_level = 'golden' THEN 1 ELSE 0 END), 0)::text as golden,
+               COUNT(*)::text as total,
+               COALESCE(AVG(quality_score), 0)::text as avg_score
+             FROM shopify_products WHERE shop_id = $1 AND created_at < $2`,
+            [session.shopId, dayEnd]
+          ),
+          client.query<{ success_count: string; total_count: string }>(
+            `SELECT
+               COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0)::text as success_count,
+               COUNT(*)::text as total_count
+             FROM enrichment_jobs
+             WHERE shop_id = $1 AND created_at >= $2 AND created_at < $3`,
+            [session.shopId, d.toISOString(), dayEnd]
+          ),
+          client.query<{ total_count: string; error_count: string }>(
+            `SELECT
+               COALESCE(SUM(request_count), 0)::text as total_count,
+               COALESCE(SUM(CASE WHEN http_status >= 400 THEN request_count ELSE 0 END), 0)::text as error_count
+             FROM api_usage_log
+             WHERE shop_id = $1 AND created_at >= $2 AND created_at < $3`,
+            [session.shopId, d.toISOString(), dayEnd]
+          ),
+          client.query<{ total_cost: string }>(
+            `SELECT COALESCE(SUM(cost_usd), 0)::text as total_cost
+             FROM api_usage_log
+             WHERE shop_id = $1 AND created_at >= $2 AND created_at < $3 AND cost_usd IS NOT NULL`,
+            [session.shopId, d.toISOString(), dayEnd]
+          ),
+        ]);
+
+        const totalProducts = Number(productsRes.rows[0]?.cnt ?? 0);
+        const golden = Number(qualityRes.rows[0]?.golden ?? 0);
+        const total = Number(qualityRes.rows[0]?.total ?? 0);
+        const goldenRate = total > 0 ? golden / total : 0;
+        const avgQualityScore = Number(qualityRes.rows[0]?.avg_score ?? 0);
+
+        const enrichSuccess = Number(enrichRes.rows[0]?.success_count ?? 0);
+        const enrichTotal = Number(enrichRes.rows[0]?.total_count ?? 0);
+        const enrichmentSuccessRate = enrichTotal > 0 ? enrichSuccess / enrichTotal : 0;
+
+        const apiTotal = Number(apiRes.rows[0]?.total_count ?? 0);
+        const apiErrors = Number(apiRes.rows[0]?.error_count ?? 0);
+        const apiErrorRate = apiTotal > 0 ? apiErrors / apiTotal : 0;
+
+        const todayAiCost = Number(costRes.rows[0]?.total_cost ?? 0);
+
+        return {
+          totalProducts,
+          goldenRate,
+          avgQualityScore,
+          enrichmentSuccessRate,
+          apiErrorRate,
+          todayAiCost,
+        };
+      });
+
+      points.push({
+        date: dateStr,
+        ...dayData,
+        queueBacklog: 0,
+      });
+    }
+
+    void reply
+      .status(200)
+      .send(successEnvelope(request.id, { days, points } satisfies DashboardSummaryTrendResponse));
+  });
+
+  server.get('/dashboard/health-score', requireAdminSession, async (request, reply) => {
+    const redisOk = await pingRedis(redis, 1500);
+    const redisScore = redisOk ? 25 : 0;
+
+    const latencySnap = getHttpLatencySnapshot();
+    const latencyMs = latencySnap.sampleCount > 0 ? latencySnap.p95Seconds * 1000 : 0;
+    const latencyScore = latencyMs <= 500 ? 25 : latencyMs <= 1000 ? 15 : latencyMs <= 2000 ? 5 : 0;
+
+    let errorRateValue = 0;
+    let errorRateScore = 25;
+    try {
+      const session = getSessionFromRequest(request, sessionConfig);
+      if (session) {
+        const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const result = await withTenantContext(session.shopId, async (client) => {
+          return client.query<{ total_count: string; error_count: string }>(
+            `SELECT
+               COALESCE(SUM(request_count), 0)::text as total_count,
+               COALESCE(SUM(CASE WHEN http_status >= 400 THEN request_count ELSE 0 END), 0)::text as error_count
+             FROM api_usage_log WHERE shop_id = $1 AND created_at >= $2`,
+            [session.shopId, since]
+          );
+        });
+        const total = Number(result.rows[0]?.total_count ?? 0);
+        const errors = Number(result.rows[0]?.error_count ?? 0);
+        errorRateValue = total > 0 ? errors / total : 0;
+        errorRateScore =
+          errorRateValue < 0.05 ? 25 : errorRateValue < 0.1 ? 15 : errorRateValue < 0.2 ? 5 : 0;
+      }
+    } catch {
+      errorRateScore = 12;
+    }
+
+    const backlog = await getPendingJobsBacklog(env).catch(() => 0);
+    const backlogScore = backlog < 100 ? 25 : backlog < 500 ? 15 : backlog < 1000 ? 5 : 0;
+
+    const score = redisScore + latencyScore + errorRateScore + backlogScore;
+    const status: 'healthy' | 'degraded' | 'critical' =
+      score >= 80 ? 'healthy' : score >= 50 ? 'degraded' : 'critical';
+
+    const response: DashboardHealthScoreResponse = {
+      score,
+      components: {
+        redis: { ok: redisOk, score: redisScore },
+        errorRate: { value: errorRateValue, score: errorRateScore },
+        latency: { valueMs: latencyMs, score: latencyScore },
+        backlog: { count: backlog, score: backlogScore },
+      },
+      status,
+    };
+
+    void reply.status(200).send(successEnvelope(request.id, response));
   });
 
   server.get('/dashboard/activity', requireAdminSession, async (request, reply) => {
@@ -344,7 +573,6 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
       });
     }
 
-    // Restrict: max 3 alerts visible.
     const visible = alerts.slice(0, 3);
     void reply
       .status(200)

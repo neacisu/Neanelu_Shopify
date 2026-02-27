@@ -14,6 +14,8 @@ import {
   YAxis,
 } from 'recharts';
 
+import { InfoTooltip } from '../ui/info-tooltip';
+
 export type QueueMetricsPoint = Readonly<{
   ts: number;
   timestamp: string;
@@ -60,7 +62,7 @@ function formatTs(ts: number): string {
 }
 
 const cardBase =
-  'overflow-hidden rounded-xl border border-slate-200/90 bg-white p-4 shadow-[var(--shadow-sm)] transition-shadow hover:shadow-[var(--shadow-md)]';
+  'overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 backdrop-blur-sm p-4 shadow-[var(--shadow-sm)] transition-shadow hover:shadow-[var(--shadow-md)] dark:border-slate-700/60 dark:bg-slate-900/80';
 
 const tooltipContentStyle = {
   padding: '10px 14px',
@@ -92,8 +94,12 @@ export function QueueMetricsCharts(props: {
   return (
     <>
       <article className={cardBase}>
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+        <h3 className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Throughput (jobs/s)
+          <InfoTooltip title="Throughput" side="bottom" maxWidth={320}>
+            Numărul de job-uri finalizate pe secundă în ultimele minute. O valoare ridicată înseamnă
+            că coada procesează rapid. Linia roșie indică limita recomandată (50 jobs/s).
+          </InfoTooltip>
         </h3>
         <div style={{ width: '100%', height: CHART_HEIGHT, minHeight: 1 }}>
           <ResponsiveContainer width="100%" height={CHART_HEIGHT} minWidth={1} minHeight={1}>
@@ -108,16 +114,23 @@ export function QueueMetricsCharts(props: {
                   <stop offset="100%" stopColor={COLORS.throughput} stopOpacity={0.02} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+              <CartesianGrid
+                strokeDasharray="3 3"
+                className="[&_line]:stroke-slate-200 dark:[&_line]:stroke-slate-700"
+                stroke="#e2e8f0"
+                vertical={false}
+              />
               <XAxis
                 dataKey="ts"
                 tickFormatter={formatTs}
-                tick={{ fontSize: 11, fill: '#64748b' }}
+                tick={{ fontSize: 11 }}
+                className="[&_text]:fill-slate-500 dark:[&_text]:fill-slate-400"
                 axisLine={{ stroke: '#e2e8f0' }}
                 tickLine={false}
               />
               <YAxis
-                tick={{ fontSize: 11, fill: '#64748b' }}
+                tick={{ fontSize: 11 }}
+                className="[&_text]:fill-slate-500 dark:[&_text]:fill-slate-400"
                 axisLine={false}
                 tickLine={false}
                 width={28}
@@ -158,8 +171,12 @@ export function QueueMetricsCharts(props: {
       </article>
 
       <article className={cardBase}>
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+        <h3 className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Rezultate (delta)
+          <InfoTooltip title="Rezultate" side="bottom" maxWidth={320}>
+            Modificarea numărului de job-uri finalizate (verde) și eșuate (roșu) între măsurători.
+            Ajută să vezi dacă apar eșecuri în rafală sau dacă procesarea merge bine.
+          </InfoTooltip>
         </h3>
         <div style={{ width: '100%', height: CHART_HEIGHT, minHeight: 1 }}>
           <ResponsiveContainer width="100%" height={CHART_HEIGHT} minWidth={1} minHeight={1}>
@@ -226,8 +243,12 @@ export function QueueMetricsCharts(props: {
       </article>
 
       <article className={cardBase}>
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+        <h3 className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Distribuție status
+          <InfoTooltip title="Distribuție status" side="bottom" maxWidth={340}>
+            Repartiția job-urilor pe stări: în așteptare, active, amânate, finalizate, eșuate. Oferă
+            o imagine de ansamblu rapidă asupra sănătății cozii.
+          </InfoTooltip>
         </h3>
         {distData.length > 0 ? (
           <div
@@ -272,13 +293,17 @@ export function QueueMetricsCharts(props: {
             </ResponsiveContainer>
             {totalDist > 0 && (
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-                <span className="text-2xl font-bold tabular-nums text-slate-800">{totalDist}</span>
-                <span className="text-[10px] uppercase tracking-wide text-slate-500">total</span>
+                <span className="text-2xl font-bold tabular-nums text-slate-800 dark:text-slate-100">
+                  {totalDist}
+                </span>
+                <span className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  total
+                </span>
               </div>
             )}
           </div>
         ) : (
-          <div className="flex h-[200px] items-center justify-center text-sm text-slate-500">
+          <div className="flex h-[200px] items-center justify-center text-sm text-slate-500 dark:text-slate-400">
             Fără date de distribuție
           </div>
         )}

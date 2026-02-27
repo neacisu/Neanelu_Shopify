@@ -37,6 +37,7 @@ export async function runPimSyncFromBulkRun(params: {
   shopId: string;
   bulkRunId: string;
   logger: Logger;
+  limit?: number;
 }): Promise<void> {
   const env = loadEnv();
 
@@ -100,6 +101,9 @@ export async function runPimSyncFromBulkRun(params: {
       client,
       shopId: params.shopId,
       bulkRunId: params.bulkRunId,
+      ...(typeof params.limit === 'number' && Number.isFinite(params.limit) && params.limit > 0
+        ? { limit: Math.floor(params.limit) }
+        : {}),
     });
 
     if (touched.length === 0) {
@@ -443,7 +447,10 @@ async function loadTouchedShopifyProducts(params: {
   };
   shopId: string;
   bulkRunId: string;
+  limit?: number;
 }): Promise<readonly ShopifyTouchedProduct[]> {
+  const hasLimit =
+    typeof params.limit === 'number' && Number.isFinite(params.limit) && params.limit > 0;
   const res = await params.client.query<ShopifyTouchedProduct>(
     `SELECT
        p.id as shopify_product_id,
@@ -469,8 +476,12 @@ async function loadTouchedShopifyProducts(params: {
      WHERE sp.bulk_run_id = $1
        AND sp.shop_id = $2
        AND sp.validation_status = 'valid'
-       AND sp.merge_status = 'merged'`,
-    [params.bulkRunId, params.shopId]
+       AND sp.merge_status = 'merged'
+     ORDER BY p.id ASC
+     ${hasLimit ? 'LIMIT $3' : ''}`,
+    hasLimit
+      ? [params.bulkRunId, params.shopId, Math.floor(params.limit!)]
+      : [params.bulkRunId, params.shopId]
   );
   return res.rows;
 }
@@ -514,8 +525,14 @@ async function findSimilarProducts(params: {
 }): Promise<readonly SimilarProductRow[]> {
   const vec = toPgVectorLiteral(params.queryEmbedding);
   const res = await params.client.query<SimilarProductRow>(
-    `SELECT product_id, similarity, title, brand
-     FROM find_similar_products($1::vector(2000), $2::float, $3::int)`,
+    `SELECT
+       f.product_id,
+       f.similarity,
+       pm.canonical_title as title,
+       pm.brand
+     FROM find_similar_products($1::vector(2000), $2::float, $3::int) f
+     LEFT JOIN prod_master pm
+       ON pm.id = f.product_id`,
     [vec, params.similarityThreshold, params.maxResults]
   );
   return res.rows;

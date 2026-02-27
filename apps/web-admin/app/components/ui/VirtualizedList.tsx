@@ -7,15 +7,8 @@ export type VirtualizedListProps<TItem> = Readonly<{
   items: readonly TItem[];
   renderItem: (item: TItem, index: number) => ReactNode;
 
-  /**
-   * Used for stable keys in React + virtualization.
-   * Defaults to index.
-   */
   itemKey?: (item: TItem, index: number) => string | number;
 
-  /**
-   * Estimate (in px) for item height. Use a constant for best performance.
-   */
   estimateSize: number | ((index: number) => number);
 
   /** Number of extra items to render above/below viewport. */
@@ -30,28 +23,16 @@ export type VirtualizedListProps<TItem> = Readonly<{
   itemClassName?: string;
 
   loading?: boolean;
-  /** Plan alias: loading indicator (recommended for infinite scroll use-cases). */
   isLoading?: boolean;
 
-  /** Infinite scroll callback. Called when the list is scrolled near the end. */
   loadMore?: () => void | Promise<void>;
-
-  /** Whether more items can be loaded (defaults to true if loadMore is provided). */
   hasMore?: boolean;
-
-  /** Pixel threshold to trigger loadMore near the end. */
   loadMoreThresholdPx?: number;
 
-  /** Optional keyboard navigation (ArrowUp/ArrowDown/Home/End). */
   keyboardNavigation?: boolean;
-
-  /** Initial active index for keyboard navigation. */
   defaultActiveIndex?: number;
-
-  /** Notification when active index changes (keyboard nav / focus). */
   onActiveIndexChange?: (index: number) => void;
 
-  /** Optional footer shown when isLoading is true and items exist. */
   loadingMoreState?: ReactNode;
   loadingState?: ReactNode;
   emptyState?: ReactNode;
@@ -91,6 +72,7 @@ export function VirtualizedList<TItem>(props: VirtualizedListProps<TItem>) {
   const hasMore = hasMoreProp ?? Boolean(loadMore);
 
   const [activeIndex, setActiveIndex] = useState<number>(() => defaultActiveIndex);
+  const [scrollProgress, setScrollProgress] = useState(0);
 
   const focusRenderedIndex = useCallback((index: number) => {
     const root = parentRef.current;
@@ -186,6 +168,17 @@ export function VirtualizedList<TItem>(props: VirtualizedListProps<TItem>) {
 
   const virtualItems = virtualizer.getVirtualItems();
 
+  const updateScrollProgress = useCallback(() => {
+    const el = parentRef.current;
+    if (!el) return;
+    const maxScroll = el.scrollHeight - el.clientHeight;
+    if (maxScroll <= 0) {
+      setScrollProgress(0);
+      return;
+    }
+    setScrollProgress(Math.min(1, el.scrollTop / maxScroll));
+  }, []);
+
   const maybeLoadMore = useCallback(() => {
     const el = parentRef.current;
     if (!el) return;
@@ -206,12 +199,10 @@ export function VirtualizedList<TItem>(props: VirtualizedListProps<TItem>) {
   }, [hasMore, isLoading, items.length, loadMore, loadMoreThresholdPx, loading]);
 
   useEffect(() => {
-    // If the list doesn't fill the viewport, try fetching more.
     maybeLoadMore();
   }, [items.length, maybeLoadMore]);
 
   useEffect(() => {
-    // Near-end detection based on what's currently virtualized.
     const last = virtualItems[virtualItems.length - 1];
     if (!last) return;
     if (last.index >= Math.max(0, items.length - 1)) {
@@ -225,7 +216,6 @@ export function VirtualizedList<TItem>(props: VirtualizedListProps<TItem>) {
       setActiveIndex(clamped);
       onActiveIndexChange?.(clamped);
       virtualizer.scrollToIndex(clamped, { align: 'auto' });
-      // Focus after virtualization has had a chance to render the row.
       if (typeof window !== 'undefined') {
         window.setTimeout(() => focusRenderedIndex(clamped), 0);
       }
@@ -262,21 +252,18 @@ export function VirtualizedList<TItem>(props: VirtualizedListProps<TItem>) {
     [activeIndex, focusIndex, items.length, keyboardNavigation]
   );
 
-  // Back-compat: `loading` keeps the old behavior (always shows loading state).
   if (loading) {
     return (
       <div className={className} style={{ height, width, overflow: 'auto' }} aria-label={ariaLabel}>
-        {loadingState ?? <div className="p-3 text-sm text-muted">Loading…</div>}
+        {loadingState ?? <div className="p-3 text-sm text-muted">Se încarcă…</div>}
       </div>
     );
   }
 
-  // New behavior: `isLoading` is treated as initial-load when the list is empty,
-  // otherwise it shows a bottom loading indicator.
   if (isLoading && items.length === 0) {
     return (
       <div className={className} style={{ height, width, overflow: 'auto' }} aria-label={ariaLabel}>
-        {loadingState ?? <div className="p-3 text-sm text-muted">Loading…</div>}
+        {loadingState ?? <div className="p-3 text-sm text-muted">Se încarcă…</div>}
       </div>
     );
   }
@@ -284,57 +271,74 @@ export function VirtualizedList<TItem>(props: VirtualizedListProps<TItem>) {
   if (items.length === 0) {
     return (
       <div className={className} style={{ height, width, overflow: 'auto' }} aria-label={ariaLabel}>
-        {emptyState ?? <div className="p-3 text-sm text-muted">No items.</div>}
+        {emptyState ?? <div className="p-3 text-sm text-muted">Niciun element.</div>}
       </div>
     );
   }
 
-  return (
-    <div
-      ref={parentRef}
-      className={className}
-      style={{ height, width, overflow: 'auto' }}
-      aria-label={ariaLabel}
-      onScroll={() => maybeLoadMore()}
-      onKeyDown={onKeyDown}
-      role={keyboardNavigation ? 'listbox' : undefined}
-    >
-      <div
-        className={listClassName}
-        style={{ height: virtualizer.getTotalSize(), width: '100%', position: 'relative' }}
-      >
-        {virtualItems.map((virtualRow) => {
-          const index = virtualRow.index;
-          const item = items[index];
+  const totalSize = virtualizer.getTotalSize();
+  const showScrollIndicator = totalSize > (typeof height === 'number' ? height : 0);
 
-          return (
-            <div
-              key={virtualRow.key}
-              className={itemClassName}
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                transform: `translateY(${virtualRow.start}px)`,
-              }}
-              data-virtualized-index={index}
-              role={keyboardNavigation ? 'option' : undefined}
-              tabIndex={keyboardNavigation && index === activeIndex ? 0 : -1}
-              onFocus={() => {
-                if (!keyboardNavigation) return;
-                setActiveIndex(index);
-                onActiveIndexChange?.(index);
-              }}
-            >
-              {renderItem(item as TItem, index)}
-            </div>
-          );
-        })}
+  return (
+    <div className="relative">
+      <div
+        ref={parentRef}
+        className={className}
+        style={{ height, width, overflow: 'auto', scrollBehavior: 'smooth' }}
+        aria-label={ariaLabel}
+        onScroll={() => {
+          maybeLoadMore();
+          updateScrollProgress();
+        }}
+        onKeyDown={onKeyDown}
+        role={keyboardNavigation ? 'listbox' : undefined}
+      >
+        <div
+          className={listClassName}
+          style={{ height: totalSize, width: '100%', position: 'relative' }}
+        >
+          {virtualItems.map((virtualRow) => {
+            const index = virtualRow.index;
+            const item = items[index];
+
+            return (
+              <div
+                key={virtualRow.key}
+                className={itemClassName}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+                data-virtualized-index={index}
+                role={keyboardNavigation ? 'option' : undefined}
+                tabIndex={keyboardNavigation && index === activeIndex ? 0 : -1}
+                onFocus={() => {
+                  if (!keyboardNavigation) return;
+                  setActiveIndex(index);
+                  onActiveIndexChange?.(index);
+                }}
+              >
+                {renderItem(item as TItem, index)}
+              </div>
+            );
+          })}
+        </div>
+
+        {isLoading && items.length > 0 ? (
+          <div className="p-2 text-sm text-muted">{loadingMoreState ?? 'Se încarcă…'}</div>
+        ) : null}
       </div>
 
-      {isLoading && items.length > 0 ? (
-        <div className="p-2 text-sm text-muted">{loadingMoreState ?? 'Loading…'}</div>
+      {showScrollIndicator ? (
+        <div className="absolute bottom-0 left-0 right-0 h-1 overflow-hidden rounded-b bg-slate-200/50 dark:bg-slate-700/50">
+          <div
+            className="h-full rounded-full bg-blue-400/60 transition-[width] duration-150 dark:bg-blue-500/60"
+            style={{ width: `${scrollProgress * 100}%` }}
+          />
+        </div>
       ) : null}
     </div>
   );

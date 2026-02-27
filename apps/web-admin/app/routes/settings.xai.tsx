@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 
 import type { XaiHealthResponse, XaiSettingsResponse, XaiSettingsUpdateRequest } from '@app/types';
 
+import { InfoTooltip } from '../components/ui/info-tooltip';
 import { SubmitButton } from '../components/forms/submit-button';
 import { useApiClient } from '../hooks/use-api';
 
@@ -23,12 +24,12 @@ const STATUS_LABELS: Record<XaiConnectionStatus, string> = {
 };
 
 const STATUS_STYLES: Record<XaiConnectionStatus, string> = {
-  unknown: 'bg-muted/20 text-muted',
-  connected: 'bg-success/15 text-success',
-  error: 'bg-error/15 text-error',
-  disabled: 'bg-warning/15 text-warning',
-  missing_key: 'bg-warning/15 text-warning',
-  pending: 'bg-blue-500/15 text-blue-600',
+  unknown: 'bg-muted/20 text-muted dark:bg-slate-700/30 dark:text-slate-400',
+  connected: 'bg-success/15 text-success dark:bg-emerald-900/30 dark:text-emerald-400',
+  error: 'bg-error/15 text-error dark:bg-red-900/30 dark:text-red-400',
+  disabled: 'bg-warning/15 text-warning dark:bg-amber-900/30 dark:text-amber-400',
+  missing_key: 'bg-warning/15 text-warning dark:bg-amber-900/30 dark:text-amber-400',
+  pending: 'bg-blue-500/15 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400',
 };
 
 function normalizeStatus(value: XaiSettingsResponse['connectionStatus']): XaiConnectionStatus {
@@ -282,45 +283,57 @@ export default function SettingsXai() {
   return (
     <div className="space-y-4">
       {loading ? (
-        <div className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted">
+        <div className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
           Se încarcă setările xAI Grok...
         </div>
       ) : null}
 
       {error ? (
-        <div className="rounded-md border border-error/30 bg-error/10 p-4 text-error shadow-sm">
+        <div className="rounded-md border border-error/30 bg-error/10 p-4 text-error shadow-sm dark:border-red-700/50 dark:bg-red-900/20">
           {error}
         </div>
       ) : null}
 
-      <div className="rounded-lg border border-muted/20 bg-background p-4 text-sm">
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+      <div className="rounded-lg border border-muted/20 bg-background p-4 text-sm dark:border-slate-700 dark:bg-slate-900/80">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted dark:text-slate-400">
           <span>Status conexiune</span>
           <span className={`rounded-full px-2 py-1 text-xs font-medium ${statusStyle}`}>
             {statusLabel}
           </span>
-          {lastCheckedAt ? <span>verificat {new Date(lastCheckedAt).toLocaleString()}</span> : null}
-          {lastSuccessAt ? <span>succes {new Date(lastSuccessAt).toLocaleString()}</span> : null}
+          {lastCheckedAt ? (
+            <span>verificat {new Date(lastCheckedAt).toLocaleString('ro-RO')}</span>
+          ) : null}
+          {lastSuccessAt ? (
+            <span>succes {new Date(lastSuccessAt).toLocaleString('ro-RO')}</span>
+          ) : null}
         </div>
         {lastError ? <div className="mt-1 text-xs text-error">{lastError}</div> : null}
       </div>
 
       {todayUsage ? (
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-lg border border-muted/20 p-4">
-            <div className="text-sm text-muted">Requests azi</div>
-            <div className="mt-1 text-2xl font-semibold">{todayUsage.requests}</div>
-          </div>
-          <div className="rounded-lg border border-muted/20 p-4">
-            <div className="text-sm text-muted">Tokens input</div>
-            <div className="mt-1 text-2xl font-semibold">{todayUsage.inputTokens}</div>
-          </div>
-          <div className="rounded-lg border border-muted/20 p-4">
-            <div className="text-sm text-muted">Buget utilizat</div>
-            <div className="mt-1 text-2xl font-semibold">
-              {(todayUsage.percentUsed * 100).toFixed(1)}%
+          <div className="rounded-lg border border-muted/20 p-4 dark:border-slate-700 dark:bg-slate-900/80">
+            <div className="text-sm text-muted dark:text-slate-400">Cereri azi</div>
+            <div className="mt-1 text-2xl font-semibold dark:text-slate-100">
+              {todayUsage.requests.toLocaleString('ro-RO')}
             </div>
-            <div className="mt-2 h-2 w-full rounded-full bg-muted/10">
+          </div>
+          <div className="rounded-lg border border-muted/20 p-4 dark:border-slate-700 dark:bg-slate-900/80">
+            <div className="text-sm text-muted dark:text-slate-400">Tokeni intrare</div>
+            <div className="mt-1 text-2xl font-semibold dark:text-slate-100">
+              {todayUsage.inputTokens.toLocaleString('ro-RO')}
+            </div>
+          </div>
+          <div className="rounded-lg border border-muted/20 p-4 dark:border-slate-700 dark:bg-slate-900/80">
+            <div className="text-sm text-muted dark:text-slate-400">Buget utilizat</div>
+            <div className="mt-1 text-2xl font-semibold dark:text-slate-100">
+              {(todayUsage.percentUsed * 100).toLocaleString('ro-RO', {
+                minimumFractionDigits: 1,
+                maximumFractionDigits: 1,
+              })}
+              %
+            </div>
+            <div className="mt-2 h-2 w-full rounded-full bg-muted/10 dark:bg-slate-700/50">
               <div
                 className="h-2 rounded-full bg-primary/60"
                 style={{ width: `${budgetPercent * 100}%` }}
@@ -331,7 +344,7 @@ export default function SettingsXai() {
       ) : null}
 
       <form onSubmit={(event) => void saveSettings(event)} className="space-y-4">
-        <label className="flex items-center gap-2 text-body">
+        <label className="flex items-center gap-2 text-body dark:text-slate-200">
           <input
             type="checkbox"
             className="size-4 accent-primary"
@@ -346,8 +359,16 @@ export default function SettingsXai() {
         </label>
 
         <div>
-          <label className="text-caption text-muted" htmlFor="xai-api-key">
-            xAI API Key
+          <label
+            className="text-caption text-muted dark:text-slate-400 inline-flex items-center gap-1"
+            htmlFor="xai-api-key"
+          >
+            Cheie API xAI
+            <InfoTooltip title="Cheie API xAI Grok" side="bottom" portalToBody>
+              Cheia de acces la API-ul xAI pentru AI Auditor și extracția structurată de date din
+              pagini web. Obțineți o cheie din contul xAI (console.x.ai). De exemplu, format:
+              „xai-abc123...". Sfat: cheia e stocată criptat; lăsați câmpul gol dacă e deja salvată.
+            </InfoTooltip>
           </label>
           <input
             id="xai-api-key"
@@ -360,19 +381,28 @@ export default function SettingsXai() {
               setLastTestedKey(null);
             }}
             placeholder={hasApiKey ? '••••••••' : 'xai-...'}
-            className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body"
+            className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
           />
-          <p className="mt-1 text-xs text-muted">Cheia este stocată criptat în baza de date.</p>
+          <p className="mt-1 text-xs text-muted dark:text-slate-400">
+            Cheia este stocată criptat în baza de date.
+          </p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
           <label className="space-y-1 text-sm">
-            <span className="text-muted">Model</span>
+            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+              Model
+              <InfoTooltip title="Model xAI" side="bottom" portalToBody>
+                Modelul Grok folosit pentru AI Auditor și extracția structurată de date din paginile
+                scrappate. grok-2-mini e rapid și economic; grok-3 e mai precis pentru validări
+                complexe. De exemplu, grok-2-mini procesează o pagină în ~2 secunde. Sfat: lista se
+                actualizează după testul conexiunii.
+              </InfoTooltip>
+            </span>
             <select
               value={model}
               onChange={(event) => setModel(event.target.value)}
-              title="Modelul folosit pentru AI Audit și extracție"
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2"
+              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
             >
               {availableModels.map((item) => (
                 <option key={item} value={item}>
@@ -380,24 +410,47 @@ export default function SettingsXai() {
                 </option>
               ))}
             </select>
-            <p className="text-xs text-muted">Folosit pentru AI Audit și extracție.</p>
+            <p className="text-xs text-muted dark:text-slate-400">
+              Folosit pentru AI Audit și extracție.
+            </p>
           </label>
           <label className="space-y-1 text-sm">
-            <span className="text-muted">Max tokens per request</span>
+            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+              Tokeni max per cerere
+              <InfoTooltip title="Tokeni max per cerere" side="bottom" portalToBody>
+                Limita maximă de tokeni pentru răspunsul modelului la o singură cerere. Valori mai
+                mari permit răspunsuri mai detaliate dar cresc costul per cerere. De exemplu,
+                extragerea specificațiilor unui laptop necesită ~1500 tokeni. Sfat: 2000–4000 e
+                suficient pentru majoritatea produselor.
+              </InfoTooltip>
+            </span>
             <input
               type="number"
               min={256}
               max={8000}
               value={maxTokens}
               onChange={(event) => setMaxTokens(Number(event.target.value))}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2"
+              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
             />
           </label>
         </div>
 
         <div>
-          <label className="text-caption text-muted" htmlFor="xai-temperature">
-            Temperature: {temperature.toFixed(2)}
+          <label
+            className="text-caption text-muted dark:text-slate-400 inline-flex items-center gap-1"
+            htmlFor="xai-temperature"
+          >
+            Temperatură:{' '}
+            {temperature.toLocaleString('ro-RO', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
+            <InfoTooltip title="Temperatură xAI" side="bottom" portalToBody>
+              Controlul aleatoriei în răspunsurile modelului. 0 = determinist maxim, ideal pentru
+              extracție structurată unde vrei consistență. Valori mai mari (0,5–0,7) produc
+              răspunsuri mai variate. De exemplu, la 0,1 aceleași date de intrare produc mereu
+              același JSON. Sfat: 0,1 e recomandat pentru reproductibilitate.
+            </InfoTooltip>
           </label>
           <input
             id="xai-temperature"
@@ -407,35 +460,57 @@ export default function SettingsXai() {
             step={0.01}
             value={temperature}
             onChange={(event) => setTemperature(Number(event.target.value))}
-            className="mt-2 w-full"
+            className="mt-2 w-full accent-primary"
           />
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
           <label className="space-y-1 text-sm">
-            <span className="text-muted">Rate limit (req/min)</span>
+            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+              Limită rată (cereri/min)
+              <InfoTooltip title="Limită rată xAI" side="bottom" portalToBody>
+                Câte cereri se pot trimite pe minut către xAI API. Protejează contra depășirii
+                limitelor API și a costurilor neprevăzute. De exemplu, 60 cereri/min procesează ~1
+                produs/secundă. Sfat: 60 cereri/min e un echilibru bun; creșteți pentru volume mari
+                de procesare.
+              </InfoTooltip>
+            </span>
             <input
               type="number"
               min={1}
               max={1000}
               value={rateLimit}
               onChange={(event) => setRateLimit(Number(event.target.value))}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2"
+              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
             />
           </label>
           <label className="space-y-1 text-sm">
-            <span className="text-muted">Daily budget</span>
+            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+              Buget zilnic
+              <InfoTooltip title="Buget zilnic xAI" side="bottom" portalToBody>
+                Numărul maxim de cereri către xAI pe zi. La atingerea limitei, procesarea AI Auditor
+                se oprește automat până a doua zi. De exemplu, cu 1000 cereri/zi poți procesa ~1000
+                pagini de produs. Sfat: ajustează în funcție de volumul catalogului tău.
+              </InfoTooltip>
+            </span>
             <input
               type="number"
               min={0}
               max={100000}
               value={dailyBudget}
               onChange={(event) => setDailyBudget(Number(event.target.value))}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2"
+              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
             />
           </label>
           <label className="space-y-1 text-sm">
-            <span className="text-muted">Alert threshold</span>
+            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+              Prag alertă buget
+              <InfoTooltip title="Prag alertă buget xAI" side="bottom" portalToBody>
+                Procentul din bugetul zilnic la care primești o avertizare vizuală. Te ajută să
+                reacționezi înainte de atingerea limitei absolute. De exemplu, la 0,8 cu buget de
+                1000, alerta apare după 800 cereri. Sfat: setează la 80–90% pentru marjă suficientă.
+              </InfoTooltip>
+            </span>
             <input
               type="number"
               min={0.5}
@@ -443,14 +518,23 @@ export default function SettingsXai() {
               step={0.01}
               value={budgetAlertThreshold}
               onChange={(event) => setBudgetAlertThreshold(Number(event.target.value))}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2"
+              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
             />
           </label>
         </div>
 
         <div>
-          <label className="text-caption text-muted" htmlFor="xai-base-url">
-            xAI Base URL (opțional)
+          <label
+            className="text-caption text-muted dark:text-slate-400 inline-flex items-center gap-1"
+            htmlFor="xai-base-url"
+          >
+            URL bază xAI (opțional)
+            <InfoTooltip title="URL bază xAI" side="bottom" portalToBody>
+              Adresa serverului API xAI — lăsați gol pentru API-ul oficial (https://api.x.ai/v1).
+              Completați doar dacă folosiți un proxy sau endpoint alternativ. De exemplu, un proxy
+              intern: „https://proxy.intern/xai/v1". Sfat: URL-ul trebuie să includă protocol și
+              versiune.
+            </InfoTooltip>
           </label>
           <input
             id="xai-base-url"
@@ -458,7 +542,7 @@ export default function SettingsXai() {
             value={baseUrl}
             onChange={(event) => setBaseUrl(event.target.value)}
             placeholder="https://api.x.ai/v1"
-            className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body"
+            className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
           />
         </div>
 
@@ -471,7 +555,7 @@ export default function SettingsXai() {
               type="button"
               onClick={() => void disconnectConnection()}
               disabled={saving}
-              className="rounded-md border border-error/40 px-4 py-2 text-sm font-medium text-error shadow-sm hover:bg-error/5 disabled:opacity-50"
+              className="rounded-md border border-error/40 px-4 py-2 text-sm font-medium text-error shadow-sm hover:bg-error/5 disabled:opacity-50 dark:border-red-700/50 dark:text-red-400 dark:hover:bg-red-900/20"
             >
               Deconectează
             </button>
@@ -480,7 +564,7 @@ export default function SettingsXai() {
             type="button"
             onClick={() => void testHealth()}
             disabled={!hasApiKey && !apiKeyDirty}
-            className="rounded-md border border-muted/20 px-4 py-2 text-sm font-medium shadow-sm hover:bg-muted/10 disabled:opacity-50"
+            className="rounded-md border border-muted/20 px-4 py-2 text-sm font-medium shadow-sm transition-shadow duration-200 hover:bg-muted/10 focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:focus:ring-blue-400/50"
           >
             {healthLoading ? 'Se testează...' : 'Test conexiune'}
           </button>
@@ -489,7 +573,7 @@ export default function SettingsXai() {
               className={`text-xs ${healthResult.status === 'ok' ? 'text-success' : 'text-error'}`}
             >
               {healthResult.status === 'ok'
-                ? `Conexiune OK (${healthResult.latencyMs ?? 0}ms)`
+                ? `Conexiune OK (${(healthResult.latencyMs ?? 0).toLocaleString('ro-RO')} ms)`
                 : healthResult.status === 'disabled'
                   ? 'xAI dezactivat'
                   : healthResult.status === 'missing_key'
@@ -500,12 +584,12 @@ export default function SettingsXai() {
         </div>
 
         {!canSave && !isConnected ? (
-          <div className="text-xs text-warning">
+          <div className="text-xs text-warning dark:text-amber-400">
             Pentru a salva conexiunea, testează mai întâi conexiunea xAI.
           </div>
         ) : null}
         {success ? (
-          <div className="rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success shadow-sm">
+          <div className="rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success shadow-sm dark:border-emerald-700/50 dark:bg-emerald-900/20">
             Setările xAI au fost salvate.
           </div>
         ) : null}

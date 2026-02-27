@@ -1,30 +1,42 @@
+import { InfoTooltip } from '../ui/info-tooltip';
+
 type Status = 'sent' | 'pending' | 'failed' | 'retrying';
 
-export function WebhookDeliveryStatusBadge(props: { status: Status; title?: string }) {
-  const palette =
-    props.status === 'sent'
-      ? 'border-success/30 bg-success/10 text-success'
-      : props.status === 'failed'
-        ? 'border-error/30 bg-error/10 text-error'
-        : props.status === 'retrying'
-          ? 'border-primary/30 bg-primary/10 text-primary'
-          : 'border-warning/30 bg-warning/10 text-warning';
-  const label =
-    props.status === 'sent'
-      ? 'Sent'
-      : props.status === 'failed'
-        ? 'Failed'
-        : props.status === 'retrying'
-          ? 'Retrying'
-          : 'Pending';
+const LABELS: Record<Status, string> = {
+  sent: 'Trimis',
+  pending: 'În așteptare',
+  failed: 'Eșuat',
+  retrying: 'Reîncercare',
+};
 
+const PALETTES: Record<Status, string> = {
+  sent: 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+  pending:
+    'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  failed:
+    'border-red-300 bg-red-50 text-red-700 dark:border-red-700 dark:bg-red-900/30 dark:text-red-300',
+  retrying:
+    'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-900/30 dark:text-sky-300',
+};
+
+export function WebhookDeliveryStatusBadge(props: { status: Status; title?: string }) {
   return (
-    <span
-      title={props.title}
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${palette}`}
-    >
-      <span className="inline-block h-1.5 w-1.5 rounded-full bg-current" />
-      {label}
+    <span className="inline-flex items-center gap-1">
+      <span
+        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-transform duration-150 hover:scale-105 ${PALETTES[props.status]}`}
+      >
+        <span className="inline-block size-1.5 rounded-full bg-current" />
+        {LABELS[props.status]}
+      </span>
+      <InfoTooltip title="Status livrare webhook">
+        Acest indicator arată starea livrării webhook-ului către aplicația ta. „Trimis" înseamnă că
+        webhook-ul a fost livrat cu succes — serverul a răspuns cu cod 2xx. „În așteptare" înseamnă
+        că mesajul urmează să fie trimis — verifică că endpoint-ul tău este online. „Eșuat" înseamnă
+        că livrarea a eșuat — serverul a returnat eroare, timeout sau este indisponibil.
+        „Reîncercare" înseamnă că sistemul reîncearcă automat după un eșec anterior (maxim 3
+        încercări). Sfat: dacă vezi multe eșecuri, verifică jurnalele serverului tău și asigură-te
+        că endpoint-ul răspunde în sub 5 secunde.
+      </InfoTooltip>
     </span>
   );
 }

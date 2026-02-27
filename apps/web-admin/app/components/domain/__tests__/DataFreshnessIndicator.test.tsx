@@ -10,8 +10,8 @@ describe('DataFreshnessIndicator', () => {
 
   it('renders fallback text when refreshedAt is null', () => {
     render(<DataFreshnessIndicator refreshedAt={null} label="Quality data" />);
-    expect(screen.getByText('Quality data refreshed')).toBeTruthy();
-    expect(screen.getByText('Never refreshed')).toBeTruthy();
+    expect(screen.getByText('Quality data actualizat')).toBeTruthy();
+    expect(screen.getByText('Niciodată actualizat')).toBeTruthy();
   });
 
   it('renders recent and old timestamps with relative age', () => {
@@ -21,17 +21,17 @@ describe('DataFreshnessIndicator', () => {
     const { rerender } = render(
       <DataFreshnessIndicator refreshedAt="2026-02-10T11:40:00Z" label="Quality data" />
     );
-    expect(screen.getByText('20m ago')).toBeTruthy();
+    expect(screen.getByText('acum 20 min')).toBeTruthy();
 
     rerender(<DataFreshnessIndicator refreshedAt="2026-02-10T10:30:00Z" label="Quality data" />);
-    expect(screen.getByText('1h ago')).toBeTruthy();
+    expect(screen.getByText('acum 1 h')).toBeTruthy();
 
     rerender(<DataFreshnessIndicator refreshedAt="2026-02-10T07:00:00Z" label="Quality data" />);
-    expect(screen.getByText('5h ago')).toBeTruthy();
+    expect(screen.getByText('acum 5 h')).toBeTruthy();
   });
 
   it('renders unknown refresh time for invalid date', () => {
     render(<DataFreshnessIndicator refreshedAt="invalid-date" />);
-    expect(screen.getByText('Unknown refresh time')).toBeTruthy();
+    expect(screen.getByText('Timp necunoscut')).toBeTruthy();
   });
 });

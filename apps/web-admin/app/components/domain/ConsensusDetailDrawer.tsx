@@ -166,20 +166,33 @@ export function ConsensusDetailDrawer({
   }, [conflicts]);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-foreground/20">
-      <div className="h-full w-full max-w-3xl bg-background p-4 shadow-xl">
+    <div
+      className="fixed inset-0 z-50 flex justify-end bg-black/30 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out_both]"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="consensus-drawer-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="h-full w-full max-w-3xl border-l border-white/20 bg-white/90 backdrop-blur-xl p-4 shadow-xl animate-[slide-in-right_0.25s_ease-out_both] dark:border-white/10 dark:bg-slate-900/90"
+        style={{ animationFillMode: 'both' }}
+      >
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-h6">Consensus Details</div>
-            <div className="mt-1 flex items-center gap-2 text-xs text-muted">
+            <div id="consensus-drawer-title" className="text-h6 text-slate-800 dark:text-slate-100">
+              Detalii consens
+            </div>
+            <div className="mt-1 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
               <ConsensusStatusBadge status={status} />
-              <span>Score: {qualityScore != null ? qualityScore.toFixed(2) : '—'}</span>
+              <span>Scor: {qualityScore != null ? qualityScore.toFixed(2) : '—'}</span>
               <ConflictIndicator count={conflictsCount} />
             </div>
           </div>
           <div className="flex items-center gap-2">
             <Button size="sm" variant="ghost" onClick={onClose}>
-              Close
+              Închide
             </Button>
             <Button
               size="sm"
@@ -187,40 +200,45 @@ export function ConsensusDetailDrawer({
               onClick={onRecompute}
               disabled={!onRecompute || isRecomputing}
             >
-              {isRecomputing ? 'Recompute...' : 'Recompute'}
+              {isRecomputing ? 'Recalculez…' : 'Recalculează'}
             </Button>
             <Button size="sm" variant="ghost" onClick={onExport} disabled={!onExport}>
-              Export
+              Exportă
             </Button>
             <Button size="sm" variant="ghost" onClick={onViewProduct} disabled={!onViewProduct}>
-              View product
+              Vezi produsul
             </Button>
           </div>
         </div>
 
         <div className="mt-4 space-y-4 overflow-y-auto">
-          <div className="rounded-md border border-muted/20 p-3">
-            <div className="text-sm font-semibold">{title}</div>
+          <div className="rounded-md border border-muted/20 p-3 dark:border-slate-700">
+            <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</div>
             <div className="mt-3">
               <QualityScoreBreakdown breakdown={breakdown} score={qualityScore ?? null} />
             </div>
           </div>
 
-          <details className="rounded-md border border-muted/20 p-3" open>
-            <summary className="cursor-pointer text-sm font-semibold">Sources</summary>
-            <div className="mt-3 overflow-hidden rounded-md border border-muted/20">
+          <details className="rounded-md border border-muted/20 p-3 dark:border-slate-700" open>
+            <summary className="cursor-pointer text-sm font-semibold text-slate-800 dark:text-slate-100">
+              Surse
+            </summary>
+            <div className="mt-3 overflow-hidden rounded-md border border-muted/20 dark:border-slate-700">
               <table className="w-full text-sm">
-                <thead className="bg-muted/30 text-xs text-muted">
+                <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                   <tr>
-                    <th className="px-3 py-2 text-left font-medium">Source</th>
+                    <th className="px-3 py-2 text-left font-medium">Sursă</th>
                     <th className="px-3 py-2 text-right font-medium">Trust</th>
-                    <th className="px-3 py-2 text-right font-medium">Similarity</th>
+                    <th className="px-3 py-2 text-right font-medium">Similaritate</th>
                     <th className="px-3 py-2 text-right font-medium">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {sources.map((source, idx) => (
-                    <tr key={`${source.sourceName}-${idx}`} className="border-t border-muted/20">
+                    <tr
+                      key={`${source.sourceName}-${idx}`}
+                      className="border-t border-muted/20 dark:border-slate-700 text-slate-800 dark:text-slate-200"
+                    >
                       <td className="px-3 py-2">{source.sourceName}</td>
                       <td className="px-3 py-2 text-right">
                         <TrustScoreBadge score={source.trustScore} />
@@ -234,21 +252,26 @@ export function ConsensusDetailDrawer({
             </div>
           </details>
 
-          <details className="rounded-md border border-muted/20 p-3" open>
-            <summary className="cursor-pointer text-sm font-semibold">Consensus Results</summary>
-            <div className="mt-3 overflow-hidden rounded-md border border-muted/20">
+          <details className="rounded-md border border-muted/20 p-3 dark:border-slate-700" open>
+            <summary className="cursor-pointer text-sm font-semibold text-slate-800 dark:text-slate-100">
+              Rezultate consens
+            </summary>
+            <div className="mt-3 overflow-hidden rounded-md border border-muted/20 dark:border-slate-700">
               <table className="w-full text-sm">
-                <thead className="bg-muted/30 text-xs text-muted">
+                <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                   <tr>
-                    <th className="px-3 py-2 text-left font-medium">Attribute</th>
-                    <th className="px-3 py-2 text-left font-medium">Value</th>
-                    <th className="px-3 py-2 text-right font-medium">Sources</th>
-                    <th className="px-3 py-2 text-right font-medium">Confidence</th>
+                    <th className="px-3 py-2 text-left font-medium">Atribut</th>
+                    <th className="px-3 py-2 text-left font-medium">Valoare</th>
+                    <th className="px-3 py-2 text-right font-medium">Surse</th>
+                    <th className="px-3 py-2 text-right font-medium">Încredere</th>
                   </tr>
                 </thead>
                 <tbody>
                   {results.map((row) => (
-                    <tr key={row.attribute} className="border-t border-muted/20">
+                    <tr
+                      key={row.attribute}
+                      className="border-t border-muted/20 dark:border-slate-700 text-slate-800 dark:text-slate-200"
+                    >
                       <td className="px-3 py-2">{row.attribute}</td>
                       <td className="px-3 py-2">{row.value}</td>
                       <td className="px-3 py-2 text-right">{row.sourcesCount}</td>
@@ -261,12 +284,16 @@ export function ConsensusDetailDrawer({
           </details>
 
           {conflicts.length > 0 ? (
-            <details className="rounded-md border border-muted/20 p-3" open>
-              <summary className="cursor-pointer text-sm font-semibold">Conflicts</summary>
+            <details className="rounded-md border border-muted/20 p-3 dark:border-slate-700" open>
+              <summary className="cursor-pointer text-sm font-semibold text-slate-800 dark:text-slate-100">
+                Conflicte
+              </summary>
               <div className="mt-3 space-y-4">
                 {conflictPanels.map(({ conflict, options }) => (
                   <div key={conflict.attributeName} className="space-y-2">
-                    <div className="text-xs text-muted">{conflict.reason}</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                      {conflict.reason}
+                    </div>
                     <ConflictResolutionPanel
                       attributeName={conflict.attributeName}
                       options={options}
@@ -279,19 +306,19 @@ export function ConsensusDetailDrawer({
           ) : null}
 
           {selectedAttribute ? (
-            <details className="rounded-md border border-muted/20 p-3" open>
-              <summary className="cursor-pointer text-sm font-semibold">
-                Multi-source Voting
+            <details className="rounded-md border border-muted/20 p-3 dark:border-slate-700" open>
+              <summary className="cursor-pointer text-sm font-semibold text-slate-800 dark:text-slate-100">
+                Votare multi-sursă
               </summary>
               <div className="mt-3 flex flex-wrap gap-2">
                 {attributeOptions.map((attribute) => (
                   <button
                     key={attribute}
                     type="button"
-                    className={`rounded-full px-3 py-1 text-xs ${
+                    className={`rounded-full px-3 py-1 text-xs transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50 ${
                       selectedAttribute === attribute
-                        ? 'bg-primary/20 text-primary'
-                        : 'bg-muted/20 text-muted'
+                        ? 'bg-primary/20 text-primary dark:bg-primary/30'
+                        : 'bg-muted/20 text-muted dark:bg-slate-700 dark:text-slate-400'
                     }`}
                     onClick={() => setSelectedAttribute(attribute)}
                   >
@@ -305,8 +332,10 @@ export function ConsensusDetailDrawer({
             </details>
           ) : null}
 
-          <details className="rounded-md border border-muted/20 p-3">
-            <summary className="cursor-pointer text-sm font-semibold">Provenance Timeline</summary>
+          <details className="rounded-md border border-muted/20 p-3 dark:border-slate-700">
+            <summary className="cursor-pointer text-sm font-semibold text-slate-800 dark:text-slate-100">
+              Cronologie proveniență
+            </summary>
             <div className="mt-3">
               <ProvenanceTimeline entries={provenance} />
             </div>

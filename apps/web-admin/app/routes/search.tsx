@@ -9,6 +9,7 @@ import type {
 } from '@app/types';
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
+import { InfoTooltip } from '../components/ui/info-tooltip';
 import { EmptyState } from '../components/patterns';
 import { ExportResultsModal } from '../components/domain/export-results-modal';
 import { RecentSearchesDropdown } from '../components/domain/recent-searches-dropdown';
@@ -209,25 +210,36 @@ export default function SearchPage() {
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <Breadcrumbs items={breadcrumbs} />
-          <h1 className="text-2xl font-bold tracking-tight text-slate-800">Căutare produse</h1>
-          <p className="text-sm text-slate-500">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-slate-100 motion-safe:animate-[fadeSlideUp_0.5s_ease-out_both]">
+            Căutare produse
+          </h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
             Căutare semantica (AI) în catalogul de produse. Ajustează filtrele și pragul pentru
             rezultate relevante.
           </p>
         </div>
         {results.length > 0 ? (
-          <Button
-            variant="secondary"
-            onClick={() => setExportOpen(true)}
-            className="shrink-0 transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
-          >
-            Exportă
-          </Button>
+          <span className="inline-flex items-center gap-1.5">
+            <Button
+              variant="secondary"
+              onClick={() => setExportOpen(true)}
+              className="shrink-0 transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
+            >
+              Exportă
+            </Button>
+            <InfoTooltip title="Exportă rezultate" side="bottom">
+              Exportă rezultatele căutării curente în CSV sau Excel. Poți alege formatul și
+              limitele. Exportul rulează în fundal; vei primi link de descărcare când e gata.
+            </InfoTooltip>
+          </span>
         ) : null}
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
-        <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white p-4 shadow-[var(--shadow-sm)]">
+        <article
+          className="overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 backdrop-blur-sm p-4 shadow-[var(--shadow-sm)] dark:border-slate-700/60 dark:bg-slate-900/80"
+          style={{ animation: 'fadeSlideUp 0.4s ease-out both' }}
+        >
           <div className="space-y-4">
             <div
               ref={containerRef}
@@ -259,8 +271,13 @@ export default function SearchPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <label className="space-y-1.5">
-                <span className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   Prag
+                  <InfoTooltip title="Prag similaritate" side="bottom">
+                    Minim 0.1–1.0. Rezultatele cu scor sub prag sunt excluse. Prag mai mare =
+                    rezultate mai relevante dar mai puține. Ex: 0.9 returnează doar potriviri foarte
+                    similare.
+                  </InfoTooltip>
                 </span>
                 <input
                   type="range"
@@ -272,13 +289,19 @@ export default function SearchPage() {
                     const next = clampNumber(Number(e.target.value), 0.1, 1);
                     setThreshold(next);
                   }}
-                  className="mt-1 block w-full accent-blue-600"
+                  className="mt-1 block w-full accent-blue-600 dark:accent-blue-400"
                 />
-                <div className="text-sm font-medium text-slate-700">{threshold.toFixed(2)}</div>
+                <div className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  {threshold.toFixed(2)}
+                </div>
               </label>
               <label className="space-y-1.5">
-                <span className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   Limită
+                  <InfoTooltip title="Limită rezultate" side="bottom">
+                    Numărul maxim de rezultate returnate (1–100). Mai multe rezultate = căutare mai
+                    lentă. Pentru exporturi mari, folosește butonul Exportă după căutare.
+                  </InfoTooltip>
                 </span>
                 <input
                   type="number"
@@ -289,18 +312,18 @@ export default function SearchPage() {
                     const next = clampNumber(Number(e.target.value), 1, 100);
                     setLimit(next);
                   }}
-                  className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 shadow-[var(--shadow-sm)] transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 shadow-[var(--shadow-sm)] transition-shadow duration-200 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:focus:ring-blue-400/50"
                 />
               </label>
             </div>
 
-            <label className="flex cursor-pointer items-center gap-3 text-sm text-slate-700">
+            <label className="flex cursor-pointer items-center gap-3 text-sm text-slate-700 dark:text-slate-300">
               <button
                 type="button"
                 role="switch"
                 aria-checked={showJson}
-                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:ring-offset-2 ${
-                  showJson ? 'bg-blue-600' : 'bg-slate-200'
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50 focus:ring-offset-2 dark:focus:ring-offset-slate-900 ${
+                  showJson ? 'bg-blue-600' : 'bg-slate-200 dark:bg-slate-600'
                 }`}
                 onClick={() => setShowJson(!showJson)}
               >
@@ -310,7 +333,14 @@ export default function SearchPage() {
                   }`}
                 />
               </button>
-              <span>Afișează metadate JSON la click pe card</span>
+              <span className="flex items-center gap-1.5">
+                Afișează metadate JSON la click pe card
+                <InfoTooltip title="Afișare metadate" side="bottom">
+                  Când e activ, click pe un card afișează JSON-ul complet al rezultatului (id,
+                  titlu, scor, similaritate etc.). Util pentru debugging sau pentru a vedea
+                  structura datelor returnate de căutarea semantică.
+                </InfoTooltip>
+              </span>
             </label>
 
             <Button
@@ -331,14 +361,19 @@ export default function SearchPage() {
           </div>
         </article>
 
-        <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white p-4 shadow-[var(--shadow-sm)] sm:p-6">
+        <article
+          className="overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 backdrop-blur-sm p-4 shadow-[var(--shadow-sm)] sm:p-6 dark:border-slate-700/60 dark:bg-slate-900/80"
+          style={{ animation: 'fadeSlideUp 0.4s ease-out 0.1s both' }}
+        >
           <div className="space-y-4">
             {resultsHeader ? (
-              <p className="text-sm font-medium text-slate-600">{resultsHeader}</p>
+              <p className="text-sm font-medium text-slate-600 dark:text-slate-400">
+                {resultsHeader}
+              </p>
             ) : null}
 
             {typing ? (
-              <div className="rounded-xl border border-slate-100 bg-slate-50/50 py-8 text-center text-sm text-slate-500">
+              <div className="rounded-xl border border-slate-100 bg-slate-50/50 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
                 Se actualizează...
               </div>
             ) : null}
@@ -348,18 +383,19 @@ export default function SearchPage() {
                 {Array.from({ length: 6 }).map((_, idx) => (
                   <div
                     key={`skeleton-${idx}`}
-                    className="h-52 animate-pulse rounded-xl border border-slate-200/80 bg-slate-100/50"
+                    className="h-52 animate-pulse rounded-xl border border-slate-200/80 bg-slate-100/50 dark:border-slate-700/60 dark:bg-slate-800/50"
+                    style={{ animationDelay: `${idx * 80}ms` }}
                   />
                 ))}
               </div>
             ) : null}
 
             {!loading && error ? (
-              <div className="rounded-xl border border-red-200/90 bg-red-50/80 p-4 text-sm text-red-800">
+              <div className="rounded-xl border border-red-200/90 bg-red-50/80 p-4 text-sm text-red-800 dark:border-red-800/50 dark:bg-red-950/40 dark:text-red-300">
                 <p>{error}</p>
                 <Button
                   variant="ghost"
-                  className="mt-3 text-red-700 hover:bg-red-100"
+                  className="mt-3 text-red-700 hover:bg-red-100 dark:text-red-400 dark:hover:bg-red-900/30"
                   onClick={() => void runSearch(query)}
                 >
                   Reîncearcă
@@ -385,10 +421,11 @@ export default function SearchPage() {
 
             {!loading && results.length > 0 ? (
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {results.map((result) => (
+                {results.map((result, idx) => (
                   <VectorResultCard
                     key={result.id}
                     result={result}
+                    index={idx}
                     onClick={() => {
                       if (!showJson) return;
                       setActiveJson(result);
@@ -446,7 +483,9 @@ export default function SearchPage() {
       {showJson && activeJson ? (
         <PolarisModal open={Boolean(activeJson)} onClose={() => setActiveJson(null)}>
           <div className="space-y-4 p-4">
-            <h2 className="text-lg font-semibold text-slate-800">Metadate rezultat</h2>
+            <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
+              Metadate rezultat
+            </h2>
             <JsonViewer value={activeJson} />
             <div className="flex justify-end">
               <Button

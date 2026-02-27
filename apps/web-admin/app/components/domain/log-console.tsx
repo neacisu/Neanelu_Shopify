@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../ui/button';
+import { InfoTooltip } from '../ui/info-tooltip';
 import { MultiSelect, type MultiSelectOption } from '../ui/MultiSelect';
 import { VirtualizedList } from '../ui/VirtualizedList';
 import { PolarisBadge } from '../../../components/polaris/index.js';
@@ -23,7 +24,7 @@ const levelLabels: Record<LogLevel, string> = {
 function formatTimestamp(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  const time = date.toLocaleTimeString('en-GB', {
+  const time = date.toLocaleTimeString('ro-RO', {
     hour12: false,
     hour: '2-digit',
     minute: '2-digit',
@@ -89,8 +90,8 @@ export function LogConsole({
     () => [
       { value: 'debug', label: 'Debug' },
       { value: 'info', label: 'Info' },
-      { value: 'warn', label: 'Warn' },
-      { value: 'error', label: 'Error' },
+      { value: 'warn', label: 'Avertisment' },
+      { value: 'error', label: 'Eroare' },
     ],
     []
   );
@@ -147,9 +148,17 @@ export function LogConsole({
           {statusLabel ? (
             <PolarisBadge tone={statusTone ?? 'warning'}>{statusLabel}</PolarisBadge>
           ) : connected !== undefined ? (
-            <PolarisBadge tone={connected ? 'success' : 'warning'}>
-              {connected ? 'Live' : 'Offline'}
-            </PolarisBadge>
+            <span className="inline-flex items-center gap-1.5">
+              {connected ? (
+                <span
+                  className="size-2 rounded-full bg-green-500 motion-safe:animate-[pulse_2s_ease-in-out_infinite]"
+                  aria-hidden
+                />
+              ) : null}
+              <PolarisBadge tone={connected ? 'success' : 'warning'}>
+                {connected ? 'Live' : 'Offline'}
+              </PolarisBadge>
+            </span>
           ) : null}
           {error ? <span className="text-caption text-muted">{error}</span> : null}
         </div>
@@ -169,17 +178,27 @@ export function LogConsole({
               }}
             />
           </div>
-          <Button variant="secondary" size="sm" onClick={() => setShowErrorsOnly((prev) => !prev)}>
-            {showErrorsOnly ? 'Show All' : 'Show Errors Only'}
-          </Button>
+          <span className="inline-flex items-center gap-1.5">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setShowErrorsOnly((prev) => !prev)}
+            >
+              {showErrorsOnly ? 'Afișează toate' : 'Doar erori'}
+            </Button>
+            <InfoTooltip title="Filtru erori" side="bottom" maxWidth={320}>
+              Când e activ, afișează doar mesajele de eroare. Util pentru a identifica rapid
+              problemele fără zgomotul din logurile normale. [ERROR] apare roșu, [WARN] galben.
+            </InfoTooltip>
+          </span>
           {paused !== undefined ? (
             <Button variant="neutral" size="sm" onClick={paused ? onResume : onPause}>
-              {paused ? 'Resume' : 'Pause'}
+              {paused ? 'Continuă' : 'Pauză'}
             </Button>
           ) : null}
           {onClear ? (
             <Button variant="ghost" size="sm" onClick={onClear}>
-              Clear
+              Golește
             </Button>
           ) : null}
         </div>
@@ -187,14 +206,14 @@ export function LogConsole({
 
       <div
         ref={containerRef}
-        className="rounded-md border bg-gray-950 px-2 py-2 text-xs text-gray-100"
+        className="rounded-md border border-slate-800 bg-gray-950 px-2 py-2 text-xs text-gray-100 dark:border-slate-700"
       >
         <VirtualizedList
           items={filteredLogs}
           height={320}
           estimateSize={20}
           className="log-console-scroll font-mono"
-          emptyState={<div className="p-3 text-gray-500">No logs yet.</div>}
+          emptyState={<div className="p-3 text-gray-500">Nu există încă loguri.</div>}
           renderItem={(log) => (
             <div className="flex flex-wrap items-start gap-2 px-2 py-0.5">
               <span className="text-gray-500">[{formatTimestamp(log.timestamp)}]</span>

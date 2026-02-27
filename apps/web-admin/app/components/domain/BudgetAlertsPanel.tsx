@@ -55,7 +55,7 @@ export function BudgetAlertsPanel({
 }: BudgetAlertsPanelProps) {
   if (!budget) {
     return (
-      <div className="rounded-lg border border-muted/20 bg-background p-4 text-sm text-muted">
+      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 text-sm text-slate-500 dark:bg-slate-900/80 dark:border-slate-700/60 dark:text-slate-400">
         Bugetul nu este configurat in baza de date.
       </div>
     );
@@ -77,13 +77,13 @@ export function BudgetAlertsPanel({
       : undefined;
 
   return (
-    <div className="rounded-lg border border-muted/20 bg-background p-4">
+    <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-md dark:bg-slate-900/80 dark:border-slate-700/60">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm font-medium">
+        <div className="flex items-center gap-2 text-sm font-medium text-slate-800 dark:text-slate-100">
           <AlertTriangle className="h-4 w-4 text-warning" />
           {statusText}
         </div>
-        <div className="text-xs text-muted">
+        <div className="text-xs text-slate-500 dark:text-slate-400">
           {budget.used.toFixed(2)} / {budget.daily.toFixed(2)}
         </div>
       </div>
@@ -97,14 +97,21 @@ export function BudgetAlertsPanel({
             {...(thresholds ? { thresholds } : {})}
           />
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Button variant="secondary" size="sm" onClick={onPauseQueue} disabled={actionsDisabled}>
-              Pauzeaza coada
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onPauseQueue}
+              disabled={actionsDisabled}
+              title="Pauzează coada de enrichment"
+            >
+              Pauzează coada
             </Button>
             <Button
               variant="secondary"
               size="sm"
               onClick={onResumeQueue}
               disabled={actionsDisabled}
+              title="Reia coada de enrichment"
             >
               Reia coada
             </Button>
@@ -113,19 +120,26 @@ export function BudgetAlertsPanel({
               size="sm"
               onClick={onPauseAllQueues}
               disabled={actionsDisabled}
+              title="Pauzează toate cozile cost-sensitive"
             >
-              Pauzeaza toate cozile
+              Pauzează toate cozile
             </Button>
             <Button
               variant="secondary"
               size="sm"
               onClick={onResumeAllQueues}
               disabled={actionsDisabled}
+              title="Reia toate cozile cost-sensitive"
             >
               Reia toate cozile
             </Button>
-            <Button size="sm" onClick={onIncreaseBudget} disabled={actionsDisabled}>
-              Editeaza bugete
+            <Button
+              size="sm"
+              onClick={onIncreaseBudget}
+              disabled={actionsDisabled}
+              title="Editează limitele zilnice și pragurile de alertă"
+            >
+              Editează bugete
             </Button>
           </div>
         </div>
@@ -153,11 +167,11 @@ export function BudgetAlertsPanel({
               return (
                 <div
                   key={provider.provider}
-                  className="rounded border border-muted/20 bg-background/50 p-3"
+                  className="rounded border border-muted/20 bg-white/50 p-3 dark:border-slate-700 dark:bg-slate-800/50"
                 >
-                  <div className="mb-2 flex items-center justify-between text-xs">
+                  <div className="mb-2 flex items-center justify-between text-xs text-slate-800 dark:text-slate-200">
                     <span>{providerLabel}</span>
-                    <span className="text-muted">
+                    <span className="text-slate-500 dark:text-slate-400">
                       {provider.primary.used > 0
                         ? `${provider.primary.used.toFixed(2)} / ${provider.primary.limit.toFixed(2)}`
                         : 'Nicio utilizare astazi'}

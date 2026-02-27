@@ -1,7 +1,17 @@
 export { ChartContainer } from './ChartContainer.js';
 export type { ChartContainerProps } from './ChartContainer.js';
 
-export { chartColors } from './theme.js';
+export {
+  chartColors,
+  chartPaletteLight,
+  chartPaletteDark,
+  chartTextLight,
+  chartTextDark,
+  chartGridLight,
+  chartGridDark,
+  chartSemanticColors,
+  useChartTheme,
+} from './theme.js';
 export type { ChartColor } from './theme.js';
 
 export { ChartGrid } from './ChartGrid.js';

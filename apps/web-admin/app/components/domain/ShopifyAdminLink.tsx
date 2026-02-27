@@ -192,7 +192,7 @@ export function ShopifyAdminLink(props: ShopifyAdminLinkProps) {
   );
 
   const baseStyles =
-    'inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:text-blue-400 dark:hover:text-blue-300';
+    'inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:text-blue-400 dark:hover:text-blue-300 transition-colors duration-150';
 
   const disabledStyles = disabled
     ? 'opacity-50 cursor-not-allowed pointer-events-none'

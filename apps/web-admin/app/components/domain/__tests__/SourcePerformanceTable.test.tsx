@@ -52,6 +52,6 @@ describe('SourcePerformanceTable', () => {
     expect(bodyRows[0]?.textContent).toContain('Beta');
 
     rerender(<SourcePerformanceTable rows={[]} />);
-    expect(screen.getByText('No source performance data yet.')).toBeTruthy();
+    expect(screen.getByText('Nu există date de performanță încă.')).toBeTruthy();
   });
 });

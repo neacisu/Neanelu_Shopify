@@ -103,15 +103,16 @@ describe('Ingestion history page', () => {
 
     render(<RouterProvider router={router} />);
 
-    expect(await screen.findByText(/1 runs/i)).toBeInTheDocument();
+    expect(await screen.findByText(/1 rulări/i)).toBeInTheDocument();
 
     const user = userEvent.setup();
-    const retryButtons = screen.getAllByRole('button', { name: 'Retry' });
+    const retryButtons = screen.getAllByRole('button', { name: /Reîncearcă/i });
     await user.click(retryButtons[0]!);
 
-    await user.click(screen.getByRole('radio', { name: 'Full restart' }));
+    const restartOptions = screen.getAllByText(/Repornire completă/i);
+    await user.click(restartOptions[0]!);
 
-    const modalRetryButtons = screen.getAllByRole('button', { name: 'Retry' });
+    const modalRetryButtons = screen.getAllByRole('button', { name: /Reîncearcă/i });
     await user.click(modalRetryButtons[modalRetryButtons.length - 1]!);
 
     await waitFor(() => {

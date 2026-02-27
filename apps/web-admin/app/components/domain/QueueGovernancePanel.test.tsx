@@ -18,10 +18,10 @@ describe('QueueGovernancePanel', () => {
       />
     );
 
-    expect(screen.getByText(/Guvernanta cozi cost-sensitive/i)).toBeTruthy();
+    expect(screen.getByText(/Guvernanță cozi sensibile la cost/)).toBeTruthy();
     expect(screen.getByText(/PIM Enrichment Queue/i)).toBeTruthy();
     expect(screen.getByText(/PIM AI Audit/i)).toBeTruthy();
-    expect(screen.getByText(/Pauzata/i)).toBeTruthy();
-    expect(screen.getByText(/Activa/i)).toBeTruthy();
+    expect(screen.getByText('Pauzată')).toBeTruthy();
+    expect(screen.getByText('Activă')).toBeTruthy();
   });
 });

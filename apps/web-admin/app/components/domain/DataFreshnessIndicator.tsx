@@ -11,7 +11,7 @@ function formatRelativeAge(refreshedAt: string | null): {
 } {
   if (!refreshedAt) {
     return {
-      text: 'Never refreshed',
+      text: 'Niciodată actualizat',
       toneClass: 'text-muted',
     };
   }
@@ -19,7 +19,7 @@ function formatRelativeAge(refreshedAt: string | null): {
   const refreshedTime = new Date(refreshedAt).getTime();
   if (Number.isNaN(refreshedTime)) {
     return {
-      text: 'Unknown refresh time',
+      text: 'Timp necunoscut',
       toneClass: 'text-muted',
     };
   }
@@ -30,18 +30,18 @@ function formatRelativeAge(refreshedAt: string | null): {
 
   if (ageMinutes < 60) {
     return {
-      text: `${ageMinutes}m ago`,
+      text: `acum ${ageMinutes} min`,
       toneClass: 'text-emerald-600 dark:text-emerald-400',
     };
   }
   if (ageHours < 3) {
     return {
-      text: `${ageHours}h ago`,
+      text: `acum ${ageHours} h`,
       toneClass: 'text-amber-600 dark:text-amber-400',
     };
   }
   return {
-    text: `${ageHours}h ago`,
+    text: `acum ${ageHours} h`,
     toneClass: 'text-red-600 dark:text-red-400',
   };
 }
@@ -59,7 +59,7 @@ export function DataFreshnessIndicator({
       role="status"
     >
       <Clock3 className="h-3.5 w-3.5 text-muted" />
-      <span className="text-muted">{label} refreshed</span>
+      <span className="text-muted">{label} actualizat</span>
       <span className={age.toneClass}>{age.text}</span>
     </div>
   );

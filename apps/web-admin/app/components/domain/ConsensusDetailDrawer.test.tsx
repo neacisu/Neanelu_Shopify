@@ -76,10 +76,12 @@ describe('ConsensusDetailDrawer', () => {
     );
 
     expect(screen.getByText('Product One')).toBeInTheDocument();
-    expect(screen.getAllByText('Conflicts').length).toBeGreaterThan(0);
-    expect(screen.getByText('Multi-source Voting')).toBeInTheDocument();
+    expect(screen.getAllByText('Conflicte').length).toBeGreaterThan(0);
+    expect(screen.getByText('Votare multi-sursă')).toBeInTheDocument();
     expect(
-      screen.getByText('Winner: red (votes: 1, weight: 0.720). Min votes required: 1')
+      screen.getByText(
+        /Câștigător: red \(voturi: 1, pondere: 0\.720\)\.\s*Voturi minime necesare: 1/
+      )
     ).toBeInTheDocument();
   });
 });

@@ -51,8 +51,8 @@ describe('PIM consensus page', () => {
     render(<RouterProvider router={router} />);
 
     expect(await screen.findByRole('button', { name: 'Reincarca' })).toBeTruthy();
-    expect(screen.getByText('Evenimente consensus in timp real')).toBeTruthy();
-    expect(screen.getByText('Distributie conflicte')).toBeTruthy();
+    expect(screen.getByText('Evenimente consens în timp real')).toBeTruthy();
+    expect(screen.getAllByText('Distribuție conflicte').length).toBeGreaterThan(0);
     expect(screen.getByText('Toate produsele')).toBeTruthy();
     expect(screen.getAllByText('In asteptare').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Conflicte').length).toBeGreaterThan(0);

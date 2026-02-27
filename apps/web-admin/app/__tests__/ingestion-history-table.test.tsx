@@ -52,16 +52,14 @@ describe('IngestionHistoryTable', () => {
     expect(screen.getByText('failed')).toBeInTheDocument();
     expect(screen.getByText('completed')).toBeInTheDocument();
 
-    const statusSelect = document.querySelector('polaris-select[label="Status"]');
-    if (!statusSelect) throw new Error('Missing status select');
-    Object.defineProperty(statusSelect, 'value', { value: 'failed', configurable: true });
-    fireEvent(statusSelect, new Event('change', { bubbles: true }));
+    const statusSelect = screen.getByLabelText('Status');
+    fireEvent.change(statusSelect, { target: { value: 'failed' } });
     expect(onStatusChange).toHaveBeenCalledWith('failed');
 
     fireEvent.click(screen.getByRole('button', { name: /Start/i }));
     expect(onSortChange).toHaveBeenCalledWith('startedAt');
 
-    fireEvent.click(screen.getByRole('button', { name: /Next/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Următorul/i }));
     expect(onPageChange).toHaveBeenCalledWith(1);
   });
 });

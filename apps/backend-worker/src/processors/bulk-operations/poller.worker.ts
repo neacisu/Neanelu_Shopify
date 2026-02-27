@@ -50,7 +50,7 @@ import { withBulkSpan } from './otel/spans.js';
 const env = loadEnv();
 
 const POLL_BACKOFF_MS = [5_000, 10_000, 20_000, 30_000] as const;
-const TIMEOUT_MS = 4 * 60 * 60 * 1000;
+const TIMEOUT_MS = 6 * 60 * 60 * 1000;
 const SHOPIFY_BULK_URL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function computeDurationSeconds(

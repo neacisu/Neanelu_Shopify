@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 
 import type { AiHealthResponse, AiSettingsResponse, AiSettingsUpdateRequest } from '@app/types';
 
+import { InfoTooltip } from '../components/ui/info-tooltip';
 import { SubmitButton } from '../components/forms/submit-button';
 import { useApiClient } from '../hooks/use-api';
 
@@ -30,6 +31,15 @@ function normalizeStatus(value: AiSettingsResponse['connectionStatus']): OpenAiC
 function coerceNullableString(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
 }
+
+const CONNECTION_STATUS_LABELS: Record<OpenAiConnectionStatus, string> = {
+  unknown: 'necunoscut',
+  connected: 'conectat',
+  error: 'eroare',
+  disabled: 'dezactivat',
+  missing_key: 'cheie lipsă',
+  pending: 'în așteptare',
+};
 
 export default function SettingsOpenAi() {
   const api = useApiClient();
@@ -256,38 +266,46 @@ export default function SettingsOpenAi() {
   return (
     <div className="space-y-4">
       {aiLoading ? (
-        <div className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted">
+        <div className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
           Se încarcă setările OpenAI...
         </div>
       ) : null}
 
       {aiError ? (
-        <div className="rounded-md border border-error/30 bg-error/10 p-4 text-error shadow-sm">
+        <div className="rounded-md border border-error/30 bg-error/10 p-4 text-error shadow-sm dark:border-red-700/50 dark:bg-red-900/20">
           {aiError}
         </div>
       ) : null}
 
       {todayUsage ? (
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-lg border border-muted/20 p-4">
-            <div className="text-sm text-muted">Requests azi</div>
-            <div className="mt-1 text-2xl font-semibold">{todayUsage.requests}</div>
+          <div className="rounded-lg border border-muted/20 p-4 dark:border-slate-700 dark:bg-slate-900/80">
+            <div className="text-sm text-muted dark:text-slate-400">Cereri azi</div>
+            <div className="mt-1 text-2xl font-semibold dark:text-slate-100">
+              {todayUsage.requests.toLocaleString('ro-RO')}
+            </div>
           </div>
-          <div className="rounded-lg border border-muted/20 p-4">
-            <div className="text-sm text-muted">Tokens input</div>
-            <div className="mt-1 text-2xl font-semibold">{todayUsage.inputTokens}</div>
+          <div className="rounded-lg border border-muted/20 p-4 dark:border-slate-700 dark:bg-slate-900/80">
+            <div className="text-sm text-muted dark:text-slate-400">Tokeni intrare</div>
+            <div className="mt-1 text-2xl font-semibold dark:text-slate-100">
+              {todayUsage.inputTokens.toLocaleString('ro-RO')}
+            </div>
           </div>
-          <div className="rounded-lg border border-muted/20 p-4">
-            <div className="text-sm text-muted">Buget utilizat</div>
-            <div className="mt-1 text-2xl font-semibold">
-              {(todayUsage.percentUsed * 100).toFixed(1)}%
+          <div className="rounded-lg border border-muted/20 p-4 dark:border-slate-700 dark:bg-slate-900/80">
+            <div className="text-sm text-muted dark:text-slate-400">Buget utilizat</div>
+            <div className="mt-1 text-2xl font-semibold dark:text-slate-100">
+              {(todayUsage.percentUsed * 100).toLocaleString('ro-RO', {
+                minimumFractionDigits: 1,
+                maximumFractionDigits: 1,
+              })}
+              %
             </div>
           </div>
         </div>
       ) : null}
 
       <form onSubmit={(event) => void saveAiSettings(event)} className="space-y-4">
-        <label className="flex items-center gap-2 text-body">
+        <label className="flex items-center gap-2 text-body dark:text-slate-200">
           <input
             type="checkbox"
             className="size-4 accent-primary"
@@ -298,12 +316,29 @@ export default function SettingsOpenAi() {
               setLastTestedKey(null);
             }}
           />
-          Activează OpenAI pentru acest shop
+          <span className="inline-flex items-center gap-1">
+            Activează OpenAI pentru acest shop
+            <InfoTooltip title="Activare OpenAI" side="bottom" portalToBody>
+              Activează sau dezactivează integrarea OpenAI pentru generarea embedding-urilor și
+              căutarea semantică. Fără OpenAI activ, potrivirile de similaritate nu vor funcționa.
+              De exemplu, dezactivarea oprește imediat procesarea embedding-urilor noi. Sfat:
+              dezactivează doar dacă vrei să oprești temporar costurile.
+            </InfoTooltip>
+          </span>
         </label>
 
         <div>
-          <label className="text-caption text-muted" htmlFor="openai-api-key">
-            OpenAI API Key
+          <label
+            className="text-caption text-muted dark:text-slate-400 inline-flex items-center gap-1"
+            htmlFor="openai-api-key"
+          >
+            Cheie API OpenAI
+            <InfoTooltip title="Cheie API OpenAI" side="bottom" portalToBody>
+              Cheia de acces la API-ul OpenAI pentru generarea embedding-urilor și căutarea
+              semantică. Obțineți o cheie din contul OpenAI (platform.openai.com). De exemplu,
+              format: „sk-proj-abc123...". Sfat: cheia e stocată criptat; lăsați câmpul gol dacă e
+              deja salvată.
+            </InfoTooltip>
           </label>
           <input
             id="openai-api-key"
@@ -316,18 +351,28 @@ export default function SettingsOpenAi() {
               setLastTestedKey(null);
             }}
             placeholder={aiHasApiKey ? '••••••••' : 'sk-...'}
-            className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body"
+            className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
           />
-          <p className="mt-1 text-xs text-muted">Cheia este stocată criptat în baza de date.</p>
+          <p className="mt-1 text-xs text-muted dark:text-slate-400">
+            Cheia este stocată criptat în baza de date.
+          </p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
           <label className="space-y-1 text-sm">
-            <span className="text-muted">Model embeddings</span>
+            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+              Model embeddings
+              <InfoTooltip title="Model embeddings" side="bottom" portalToBody>
+                Modelul folosit pentru transformarea textului în vectori numerici (embeddings).
+                text-embedding-3-small oferă un echilibru bun între calitate și cost. De exemplu,
+                „text-embedding-3-large" e mai precis dar de 6× mai scump. Sfat: lista se
+                actualizează automat după testul conexiunii.
+              </InfoTooltip>
+            </span>
             <select
               value={aiEmbeddingsModel}
               onChange={(event) => setAiEmbeddingsModel(event.target.value)}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2"
+              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
             >
               {aiModels.map((model) => (
                 <option key={model} value={model}>
@@ -337,21 +382,42 @@ export default function SettingsOpenAi() {
             </select>
           </label>
           <label className="space-y-1 text-sm">
-            <span className="text-muted">Batch size</span>
+            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+              Dimensiune lot
+              <InfoTooltip title="Dimensiune lot (Batch Size)" side="bottom" portalToBody>
+                Câte produse se procesează simultan la generarea embedding-urilor. Loturi mai mari
+                reduc numărul de apeluri API dar cresc consumul de memorie. De exemplu, 200
+                produse/lot face 5 apeluri pentru 1000 produse în loc de 10. Sfat: 100–200 pentru
+                cataloage medii; 50 pentru servere mici.
+              </InfoTooltip>
+            </span>
             <input
               type="number"
               min={10}
               max={500}
               value={aiBatchSize}
               onChange={(event) => setAiBatchSize(Number(event.target.value))}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2"
+              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
             />
           </label>
         </div>
 
         <div>
-          <label className="text-caption text-muted" htmlFor="openai-threshold">
-            Similarity threshold: {aiSimilarityThreshold.toFixed(2)}
+          <label
+            className="text-caption text-muted dark:text-slate-400 inline-flex items-center gap-1"
+            htmlFor="openai-threshold"
+          >
+            Prag similaritate:{' '}
+            {aiSimilarityThreshold.toLocaleString('ro-RO', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
+            <InfoTooltip title="Prag similaritate" side="bottom" portalToBody>
+              Produsele cu scor de similaritate sub acest prag nu sunt considerate potriviri. Valori
+              mari (0,9+) reduc falsurile pozitive dar pot rata potriviri valide. De exemplu, la
+              0.85, „husă iPhone 15" se potrivește cu „carcasă iPhone 15 Pro". Sfat: 0,80–0,85 oferă
+              cel mai bun echilibru.
+            </InfoTooltip>
           </label>
           <input
             id="openai-threshold"
@@ -361,13 +427,22 @@ export default function SettingsOpenAi() {
             step={0.01}
             value={aiSimilarityThreshold}
             onChange={(event) => setAiSimilarityThreshold(Number(event.target.value))}
-            className="mt-2 w-full"
+            className="mt-2 w-full accent-primary"
           />
         </div>
 
         <div>
-          <label className="text-caption text-muted" htmlFor="openai-base-url">
-            OpenAI Base URL (opțional)
+          <label
+            className="text-caption text-muted dark:text-slate-400 inline-flex items-center gap-1"
+            htmlFor="openai-base-url"
+          >
+            URL bază OpenAI (opțional)
+            <InfoTooltip title="URL bază OpenAI" side="bottom" portalToBody>
+              Adresa serverului API — lăsați gol pentru API-ul oficial OpenAI. Completați doar dacă
+              folosiți un proxy sau un serviciu compatibil (Azure OpenAI, LiteLLM etc.). De exemplu,
+              „https://my-proxy.example.com/v1". Sfat: formatul trebuie să fie URL complet cu
+              protocol.
+            </InfoTooltip>
           </label>
           <input
             id="openai-base-url"
@@ -375,38 +450,54 @@ export default function SettingsOpenAi() {
             value={aiBaseUrl}
             onChange={(event) => setAiBaseUrl(event.target.value)}
             placeholder="https://api.openai.com"
-            className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body"
+            className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
           />
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <SubmitButton state={aiSubmitState} disabled={!canSave || isConnected}>
-            {isConnected ? 'Conexiune activă' : 'Salvează setări OpenAI'}
-          </SubmitButton>
+          <span className="inline-flex items-center gap-1">
+            <SubmitButton state={aiSubmitState} disabled={!canSave || isConnected}>
+              {isConnected ? 'Conexiune activă' : 'Salvează setări OpenAI'}
+            </SubmitButton>
+            <InfoTooltip title="Salvare setări" side="bottom" portalToBody>
+              Salvează toate modificările de pe această pagină (model, batch size, prag, URL). Cheia
+              API se trimite doar dacă a fost modificată. De exemplu, poți schimba pragul de
+              similaritate fără a retrimite cheia. Sfat: testează conexiunea înainte de prima
+              salvare.
+            </InfoTooltip>
+          </span>
           {isConnected ? (
             <button
               type="button"
               onClick={() => void disconnectConnection()}
               disabled={aiSaving}
-              className="rounded-md border border-error/40 px-4 py-2 text-sm font-medium text-error shadow-sm hover:bg-error/5 disabled:opacity-50"
+              className="rounded-md border border-error/40 px-4 py-2 text-sm font-medium text-error shadow-sm hover:bg-error/5 disabled:opacity-50 dark:border-red-700/50 dark:text-red-400 dark:hover:bg-red-900/20"
             >
               Deconectează
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={() => void testOpenAiHealth()}
-            disabled={!aiHasApiKey && !aiApiKeyDirty}
-            className="rounded-md border border-muted/20 px-4 py-2 text-sm font-medium shadow-sm hover:bg-muted/10 disabled:opacity-50"
-          >
-            {aiHealthLoading ? 'Se testează...' : 'Test conexiune'}
-          </button>
+          <span className="inline-flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => void testOpenAiHealth()}
+              disabled={!aiHasApiKey && !aiApiKeyDirty}
+              className="rounded-md border border-muted/20 px-4 py-2 text-sm font-medium shadow-sm transition-shadow duration-200 hover:bg-muted/10 focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:focus:ring-blue-400/50"
+            >
+              {aiHealthLoading ? 'Se testează...' : 'Test conexiune'}
+            </button>
+            <InfoTooltip title="Test conexiune OpenAI" side="bottom" portalToBody>
+              Verifică dacă cheia API este validă și API-ul OpenAI răspunde corect. Testul
+              returnează latența și lista modelelor disponibile. De exemplu, un test reușit
+              actualizează automat lista de modele. Sfat: obligatoriu înainte de prima salvare a
+              cheii.
+            </InfoTooltip>
+          </span>
           {aiHealthResult ? (
             <span
               className={`text-xs ${aiHealthResult.status === 'ok' ? 'text-success' : 'text-error'}`}
             >
               {aiHealthResult.status === 'ok'
-                ? `Conexiune OK (${aiHealthResult.latencyMs ?? 0}ms)`
+                ? `Conexiune OK (${(aiHealthResult.latencyMs ?? 0).toLocaleString('ro-RO')} ms)`
                 : aiHealthResult.status === 'disabled'
                   ? 'OpenAI dezactivat'
                   : aiHealthResult.status === 'missing_key'
@@ -417,21 +508,21 @@ export default function SettingsOpenAi() {
         </div>
 
         {!canSave && !isConnected ? (
-          <div className="text-xs text-warning">
+          <div className="text-xs text-warning dark:text-amber-400">
             Pentru a salva conexiunea, testează mai întâi conexiunea OpenAI.
           </div>
         ) : null}
         {connectionStatus && connectionStatus !== 'unknown' ? (
-          <div className="text-xs text-muted">
-            Status conexiune: {connectionStatus}
-            {lastCheckedAt ? ` · verificat ${new Date(lastCheckedAt).toLocaleString()}` : ''}
-            {lastSuccessAt ? ` · succes ${new Date(lastSuccessAt).toLocaleString()}` : ''}
+          <div className="text-xs text-muted dark:text-slate-400">
+            Status conexiune: {CONNECTION_STATUS_LABELS[connectionStatus]}
+            {lastCheckedAt ? ` · verificat ${new Date(lastCheckedAt).toLocaleString('ro-RO')}` : ''}
+            {lastSuccessAt ? ` · succes ${new Date(lastSuccessAt).toLocaleString('ro-RO')}` : ''}
             {lastError ? ` · ${lastError}` : ''}
           </div>
         ) : null}
 
         {aiSuccess ? (
-          <div className="rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success shadow-sm">
+          <div className="rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success shadow-sm dark:border-emerald-700/50 dark:bg-emerald-900/20">
             Setările OpenAI au fost salvate.
           </div>
         ) : null}

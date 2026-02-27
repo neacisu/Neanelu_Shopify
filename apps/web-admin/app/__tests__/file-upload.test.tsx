@@ -47,7 +47,7 @@ describe('FileUpload', () => {
       },
     });
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/Max 1 files/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Maxim 1 fișiere/i);
   });
 
   it('validates accept and maxSize and shows an error message', async () => {
@@ -98,9 +98,9 @@ describe('FileUpload', () => {
     });
 
     expect(await screen.findByText('hello.txt')).toBeInTheDocument();
-    expect(await screen.findByText('done')).toBeInTheDocument();
+    expect(await screen.findByText('Finalizat')).toBeInTheDocument();
     expect(
-      await screen.findByRole('progressbar', { name: /Upload progress for hello\.txt/i })
+      await screen.findByRole('progressbar', { name: /Progres pentru hello\.txt/i })
     ).toBeInTheDocument();
     expect(onUpload).toHaveBeenCalledTimes(1);
   });

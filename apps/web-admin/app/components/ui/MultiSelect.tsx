@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, X } from 'lucide-react';
 
 export type MultiSelectOption = Readonly<{
   value: string;
@@ -38,7 +38,7 @@ function clamp(n: number, min: number, max: number): number {
 export function MultiSelect(props: MultiSelectProps) {
   const {
     label = 'Select',
-    placeholder = 'Select…',
+    placeholder = 'Selectează…',
     options,
     value,
     onChange,
@@ -155,17 +155,16 @@ export function MultiSelect(props: MultiSelectProps) {
 
   return (
     <div className={className}>
-      <label htmlFor={inputId} className="text-xs font-medium text-slate-500">
+      <label htmlFor={inputId} className="text-xs font-medium text-muted">
         {label}
       </label>
 
       <div
         className={
-          'mt-1.5 rounded-xl border border-slate-200 bg-white p-2.5 text-sm shadow-[var(--shadow-sm)] transition-colors focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 ' +
+          'mt-1.5 rounded-xl border border-border bg-card p-2.5 text-sm shadow-[var(--shadow-sm)] transition-[border-color,box-shadow] duration-200 focus-within:border-accent focus-within:shadow-[0_0_0_3px_rgba(59,130,246,0.15)] dark:focus-within:shadow-[0_0_0_3px_rgba(96,165,250,0.2)] ' +
           (disabled ? 'opacity-60' : '')
         }
         onMouseDown={(e) => {
-          // Keep focus within control when clicking on container.
           e.preventDefault();
           inputRef.current?.focus();
           if (!disabled) setOpen(true);
@@ -175,13 +174,13 @@ export function MultiSelect(props: MultiSelectProps) {
           {selectedLabels.map((o) => (
             <span
               key={o.value}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-100/80 px-2.5 py-1 text-slate-700"
+              className="inline-flex items-center gap-1 rounded-lg border border-border bg-subtle/80 py-1 pl-2.5 pr-1.5 text-sm text-foreground motion-safe:animate-[fadeIn_150ms_ease-out] dark:border-slate-600 dark:bg-slate-700/60"
             >
-              <span className="max-w-48 truncate text-sm">{o.label}</span>
+              <span className="max-w-48 truncate">{o.label}</span>
               <button
                 type="button"
                 aria-label={`Elimină ${o.label}`}
-                className="rounded p-0.5 text-slate-500 transition-colors hover:bg-slate-200/80 hover:text-slate-800"
+                className="rounded-md p-0.5 text-muted transition-all duration-150 hover:bg-red-100 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:hover:bg-red-900/30 dark:hover:text-red-400"
                 disabled={disabled}
                 onClick={(e) => {
                   e.preventDefault();
@@ -189,7 +188,7 @@ export function MultiSelect(props: MultiSelectProps) {
                   removeValue(o.value);
                 }}
               >
-                ×
+                <X className="size-3.5" />
               </button>
             </span>
           ))}
@@ -200,7 +199,7 @@ export function MultiSelect(props: MultiSelectProps) {
             value={query}
             disabled={disabled}
             placeholder={selectedLabels.length === 0 ? placeholder : ''}
-            className="min-w-24 flex-1 bg-transparent text-slate-800 outline-none placeholder:text-slate-400"
+            className="min-w-24 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted"
             role="combobox"
             aria-haspopup="listbox"
             aria-expanded={open}
@@ -275,7 +274,10 @@ export function MultiSelect(props: MultiSelectProps) {
           />
         </div>
         <div className="mt-2 flex items-center justify-end">
-          <ChevronDown className="size-4 text-slate-400" aria-hidden="true" />
+          <ChevronDown
+            className={`size-4 text-muted transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+            aria-hidden="true"
+          />
         </div>
       </div>
 
@@ -287,7 +289,7 @@ export function MultiSelect(props: MultiSelectProps) {
           className="relative"
           aria-label={`${label} options`}
         >
-          <div className="absolute z-50 mt-1.5 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[var(--shadow-md)]">
+          <div className="absolute z-50 mt-1.5 w-full overflow-hidden rounded-xl border border-white/20 bg-white/80 shadow-lg shadow-black/5 backdrop-blur-xl motion-safe:animate-[fadeSlideUp_0.2s_ease-out] dark:border-white/10 dark:bg-slate-900/80 dark:shadow-black/20">
             <div className="max-h-64 overflow-y-auto">
               {menuItems.length > 0 ? (
                 menuItems.map((item, idx) => {
@@ -304,8 +306,10 @@ export function MultiSelect(props: MultiSelectProps) {
                         aria-selected={active}
                         tabIndex={-1}
                         className={
-                          'flex w-full items-center justify-between px-3 py-2.5 text-left text-sm text-slate-700 transition-colors ' +
-                          (active ? 'bg-slate-100' : 'hover:bg-slate-50')
+                          'flex w-full items-center justify-between px-3 py-2.5 text-left text-sm text-foreground transition-colors duration-150 ' +
+                          (active
+                            ? 'bg-blue-50/80 dark:bg-blue-900/30'
+                            : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/50')
                         }
                         onMouseEnter={() => setActiveIndex(idx)}
                         onMouseDown={(ev) => ev.preventDefault()}
@@ -335,8 +339,10 @@ export function MultiSelect(props: MultiSelectProps) {
                       tabIndex={-1}
                       disabled={disabled === true || optionDisabled}
                       className={
-                        'flex w-full items-center justify-between px-3 py-2.5 text-left text-sm text-slate-700 transition-colors ' +
-                        (active ? 'bg-slate-100' : 'hover:bg-slate-50') +
+                        'flex w-full items-center justify-between px-3 py-2.5 text-left text-sm text-foreground transition-colors duration-150 ' +
+                        (active
+                          ? 'bg-blue-50/80 dark:bg-blue-900/30'
+                          : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/50') +
                         (optionDisabled ? ' opacity-60' : '')
                       }
                       onMouseEnter={() => setActiveIndex(idx)}
@@ -344,20 +350,32 @@ export function MultiSelect(props: MultiSelectProps) {
                       onClick={() => toggleValue(o.value)}
                     >
                       <span className="flex min-w-0 items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          readOnly
-                          tabIndex={-1}
-                          aria-hidden="true"
-                        />
+                        <span
+                          className={`flex size-4 shrink-0 items-center justify-center rounded border transition-colors ${
+                            checked
+                              ? 'border-blue-500 bg-blue-500 text-white dark:border-blue-400 dark:bg-blue-500'
+                              : 'border-slate-300 dark:border-slate-600'
+                          }`}
+                        >
+                          {checked ? (
+                            <svg className="size-3" viewBox="0 0 12 12" fill="none">
+                              <path
+                                d="M2.5 6L5 8.5L9.5 3.5"
+                                stroke="currentColor"
+                                strokeWidth="1.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          ) : null}
+                        </span>
                         <span className="truncate">{o.label}</span>
                       </span>
                     </button>
                   );
                 })
               ) : (
-                <div className="px-3 py-2.5 text-sm text-slate-500">Niciun rezultat</div>
+                <div className="px-3 py-2.5 text-sm text-muted">Niciun rezultat</div>
               )}
             </div>
           </div>

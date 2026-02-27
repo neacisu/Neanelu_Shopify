@@ -10,6 +10,7 @@ import { PageHeader } from '../components/layout/page-header';
 import { Timeline } from '../components/ui/Timeline';
 import { JsonViewer } from '../components/ui/JsonViewer';
 import { Button } from '../components/ui/button';
+import { InfoTooltip } from '../components/ui/info-tooltip';
 import { PromotionEligibilityCard } from '../components/domain/PromotionEligibilityCard';
 import { ShopifyAdminLink } from '../components/domain/ShopifyAdminLink';
 import { QualityLevelBadge } from '../components/domain/QualityLevelBadge';
@@ -85,9 +86,9 @@ export default function ProductDetailPage() {
 
   const breadcrumbs = useMemo(
     () => [
-      { label: 'Home', href: '/' },
-      { label: 'Products', href: '/products' },
-      { label: product?.title ?? 'Details', href: location.pathname },
+      { label: 'Acasă', href: '/' },
+      { label: 'Produse', href: '/products' },
+      { label: product?.title ?? 'Detalii', href: location.pathname },
     ],
     [location.pathname, product?.title]
   );
@@ -263,60 +264,82 @@ export default function ProductDetailPage() {
   };
 
   if (loading || !product) {
-    return <div className="text-sm text-muted">Se incarca...</div>;
+    return <div className="text-sm text-muted dark:text-slate-400">Se încarcă...</div>;
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 transition-opacity duration-300 dark:text-slate-100">
       <Breadcrumbs items={breadcrumbs} />
       <PageHeader
         title={product.title}
         description={product.vendor ?? 'Detalii produs'}
         actions={
           <div className="flex gap-2">
-            <Button
-              variant="secondary"
-              onClick={() => void handleExternalSearch()}
-              disabled={externalSearchLoading}
+            <span className="inline-flex items-center gap-1">
+              <InfoTooltip title="Căutare externă">
+                Pornește căutarea automată de date suplimentare (GTIN, descrieri) din surse externe.
+                Rezultatele vor apărea în secțiunea „Potriviri enrichment”.
+              </InfoTooltip>
+              <Button
+                variant="secondary"
+                onClick={() => void handleExternalSearch()}
+                disabled={externalSearchLoading}
+              >
+                {externalSearchLoading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Search className="mr-2 h-4 w-4" />
+                )}
+                Caută extern
+              </Button>
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <InfoTooltip title="Detalii consensus">
+                Afișează cum s-au combinat datele din mai multe surse (enrichment) într-o singură
+                valoare. Util pentru verificarea conflictelor și a surselor.
+              </InfoTooltip>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  void handleOpenConsensus();
+                }}
+                disabled={consensusLoading}
+              >
+                {consensusLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Detalii consensus
+              </Button>
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <InfoTooltip title="Forțare sincronizare">
+                Trimite produsul în coada de sincronizare cu Shopify. Folosește când datele locale
+                trebuie actualizate cu cele din magazin.
+              </InfoTooltip>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  void handleForceSync();
+                }}
+              >
+                Forțare sync
+              </Button>
+            </span>
+            <ShopifyAdminLink
+              resourceType="products"
+              resourceId={product.id}
+              title="Deschide produsul în panoul de administrare Shopify"
             >
-              {externalSearchLoading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Search className="mr-2 h-4 w-4" />
-              )}
-              Cauta extern
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                void handleOpenConsensus();
-              }}
-              disabled={consensusLoading}
-            >
-              {consensusLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Detalii consensus
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                void handleForceSync();
-              }}
-            >
-              Fortare sync
-            </Button>
-            <ShopifyAdminLink resourceType="products" resourceId={product.id}>
-              Vezi in Shopify
+              Vezi în Shopify
             </ShopifyAdminLink>
             <Button variant="secondary" onClick={handleEdit}>
-              Editeaza
+              Editează
             </Button>
           </div>
         }
       />
 
-      <section className="rounded-lg border bg-background p-4">
+      <section className="rounded-lg border border-border dark:border-slate-700 bg-white dark:bg-slate-900/80 p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-sm)]">
         <div className="flex gap-4">
-          <div className="h-24 w-24 overflow-hidden rounded-md border bg-muted/10">
+          <div className="h-24 w-24 overflow-hidden rounded-md border border-border dark:border-slate-700 bg-muted/10 dark:bg-slate-800">
             {product.featuredImageUrl ? (
               <img
                 src={product.featuredImageUrl}
@@ -325,33 +348,61 @@ export default function ProductDetailPage() {
                 loading="lazy"
               />
             ) : (
-              <div className="flex h-full w-full items-center justify-center text-xs text-muted">
-                Fara imagine
+              <div className="flex h-full w-full items-center justify-center text-xs text-muted dark:text-slate-500">
+                Fără imagine
               </div>
             )}
           </div>
           <div className="space-y-2">
-            <div className="text-sm text-muted">Status: {product.status ?? '-'}</div>
-            <div className="text-sm text-muted">Vendor: {product.vendor ?? '-'}</div>
-            <div className="text-sm text-muted">Handle: {product.handle}</div>
+            <div className="flex items-center gap-1">
+              <span className="text-sm text-muted dark:text-slate-400">Status:</span>
+              <InfoTooltip title="Status produs">
+                active = vizibil în magazin, draft = salvat dar nepublicat, archived = arhivat.
+              </InfoTooltip>
+              <span className="text-sm text-muted dark:text-slate-400">
+                {product.status ?? '-'}
+              </span>
+            </div>
+            <div className="text-sm text-muted dark:text-slate-400">
+              Vânzător: {product.vendor ?? '-'}
+            </div>
+            <div className="text-sm text-muted dark:text-slate-400">Handle: {product.handle}</div>
             <div className="flex items-center gap-2">
-              <QualityLevelBadge
-                level={product.pim?.qualityLevel ?? null}
-                recentlyPromoted={recentlyPromoted}
-              />
-              <span className="text-xs text-muted">Scor: {product.pim?.qualityScore ?? '-'}</span>
+              <span className="inline-flex items-center gap-1">
+                <InfoTooltip title="Nivel calitate">
+                  Bronze = date minime, Silver = date îmbogățite, Golden = date complete și
+                  verificate.
+                </InfoTooltip>
+                <QualityLevelBadge
+                  level={product.pim?.qualityLevel ?? null}
+                  recentlyPromoted={recentlyPromoted}
+                />
+              </span>
+              <span className="text-xs text-muted dark:text-slate-400">
+                Scor: {product.pim?.qualityScore ?? '-'}
+              </span>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="rounded-lg border bg-background p-4">
-        <div className="text-sm font-semibold">Calitate si promovare</div>
+      <section className="rounded-lg border border-border dark:border-slate-700 bg-white dark:bg-slate-900/80 p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-sm)]">
+        <div className="flex items-center gap-1">
+          <span className="text-sm font-semibold dark:text-slate-100">Calitate și promovare</span>
+          <InfoTooltip title="Promovare nivel">
+            Produsele pot fi promovate la niveluri superioare când îndeplinesc cerințele (ex. număr
+            surse, GTIN, descrieri). Promovarea deschide mai multe opțiuni de vânzare.
+          </InfoTooltip>
+        </div>
         <div className="mt-3">
           {qualityLevel.loading ? (
-            <div className="text-xs text-muted">Se incarca datele de promovare...</div>
+            <div className="text-xs text-muted dark:text-slate-400">
+              Se incarca datele de promovare...
+            </div>
           ) : qualityLevel.error ? (
-            <div className="text-xs text-muted">Nu pot incarca datele de promovare.</div>
+            <div className="text-xs text-muted dark:text-slate-400">
+              Nu pot incarca datele de promovare.
+            </div>
           ) : qualityLevel.data ? (
             <PromotionEligibilityCard
               productId={product.id}
@@ -371,15 +422,26 @@ export default function ProductDetailPage() {
               }}
             />
           ) : (
-            <div className="text-xs text-muted">Date de promovare indisponibile.</div>
+            <div className="text-xs text-muted dark:text-slate-400">
+              Date de promovare indisponibile.
+            </div>
           )}
         </div>
       </section>
 
-      <section className="rounded-lg border bg-background p-4" ref={variantsRef}>
-        <div className="text-sm font-semibold">Variante</div>
-        <div className="mt-3 overflow-hidden rounded-md border">
-          <div className="grid grid-cols-5 gap-2 bg-muted/10 px-3 py-2 text-xs font-semibold">
+      <section
+        className="rounded-lg border border-border dark:border-slate-700 bg-white dark:bg-slate-900/80 p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-sm)]"
+        ref={variantsRef}
+      >
+        <div className="flex items-center gap-1">
+          <span className="text-sm font-semibold dark:text-slate-100">Variante</span>
+          <InfoTooltip title="Variante produs">
+            Fiecare combinație de mărime, culoare etc. este o variantă. Prețul și stocul se
+            gestionează per variantă.
+          </InfoTooltip>
+        </div>
+        <div className="mt-3 overflow-hidden rounded-md border dark:border-slate-700">
+          <div className="grid grid-cols-5 gap-2 bg-muted/10 dark:bg-slate-800/50 px-3 py-2 text-xs font-semibold dark:text-slate-300">
             <span>SKU</span>
             <span>Pret</span>
             <span>Stoc</span>
@@ -387,7 +449,10 @@ export default function ProductDetailPage() {
             <span>Status</span>
           </div>
           {(variants.length ? variants : product.variants).map((variant) => (
-            <div key={variant.id} className="grid grid-cols-5 gap-2 px-3 py-2 text-xs">
+            <div
+              key={variant.id}
+              className="grid grid-cols-5 gap-2 px-3 py-2 text-xs dark:text-slate-300 border-t dark:border-slate-700/50"
+            >
               <span>{variant.sku ?? '-'}</span>
               <span>{variant.price}</span>
               <span>{variant.inventoryQuantity}</span>
@@ -398,21 +463,38 @@ export default function ProductDetailPage() {
         </div>
       </section>
 
-      <section className="rounded-lg border bg-background p-4">
-        <div className="text-sm font-semibold">Metafields</div>
+      <section className="rounded-lg border border-border dark:border-slate-700 bg-white dark:bg-slate-900/80 p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-sm)]">
+        <div className="flex items-center gap-1">
+          <span className="text-sm font-semibold dark:text-slate-100">Metafields</span>
+          <InfoTooltip title="Metafields">
+            Câmpuri personalizate care extind informațiile produsului (ex. materiale, dimensiuni,
+            certificări).
+          </InfoTooltip>
+        </div>
         <div className="mt-3 space-y-3">
           {Object.entries(groupedMetafields).map(([namespace, values]) => (
-            <div key={namespace} className="rounded-md border p-2">
-              <div className="text-xs font-semibold text-muted">{namespace}</div>
+            <div key={namespace} className="rounded-md border dark:border-slate-700 p-2">
+              <div className="text-xs font-semibold text-muted dark:text-slate-400">
+                {namespace}
+              </div>
               <JsonViewer value={values} />
             </div>
           ))}
         </div>
       </section>
 
-      <section className="rounded-lg border bg-background p-4" ref={matchesRef}>
-        <div className="text-sm font-semibold">Potriviri enrichment</div>
-        <div className="mt-3 space-y-2 text-xs text-muted">
+      <section
+        className="rounded-lg border border-border dark:border-slate-700 bg-white dark:bg-slate-900/80 p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-sm)]"
+        ref={matchesRef}
+      >
+        <div className="flex items-center gap-1">
+          <span className="text-sm font-semibold dark:text-slate-100">Potriviri enrichment</span>
+          <InfoTooltip title="Potriviri îmbogățire">
+            Surse externe găsite automat care pot completa datele produsului. Poți confirma sau
+            respinge fiecare potrivire.
+          </InfoTooltip>
+        </div>
+        <div className="mt-3 space-y-2 text-xs text-muted dark:text-slate-400">
           {matches.length === 0 ? (
             'Nu exista potriviri de enrichment.'
           ) : (
@@ -420,10 +502,10 @@ export default function ProductDetailPage() {
               {matches.map((match) => (
                 <div key={match.id} className="flex items-center justify-between gap-2">
                   <div>
-                    <div className="text-sm text-foreground">
+                    <div className="text-sm text-foreground dark:text-slate-200">
                       {match.source_title ?? match.source_url}
                     </div>
-                    <div className="text-xs text-muted">
+                    <div className="text-xs text-muted dark:text-slate-400">
                       Similaritate: {match.similarity_score} • {match.match_confidence}
                     </div>
                   </div>
@@ -443,7 +525,7 @@ export default function ProductDetailPage() {
                         });
                       }}
                     >
-                      Confirma
+                      Confirmă
                     </Button>
                     <Button
                       size="sm"
@@ -469,20 +551,29 @@ export default function ProductDetailPage() {
           )}
           <button
             type="button"
-            className="mt-2 text-xs text-primary underline"
+            className="mt-2 text-xs text-primary underline transition-colors hover:text-primary/80"
             onClick={() => {
               const pimId = product?.pim?.masterId;
               if (!pimId) return;
               void navigate(`/similarity-matches?productId=${pimId}`);
             }}
           >
-            Vezi toate matches
+            Vezi toate potrivirile
           </button>
         </div>
       </section>
 
-      <section className="rounded-lg border bg-background p-4" ref={historyRef}>
-        <div className="text-sm font-semibold">Istoric sincronizare</div>
+      <section
+        className="rounded-lg border border-border dark:border-slate-700 bg-white dark:bg-slate-900/80 p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-sm)]"
+        ref={historyRef}
+      >
+        <div className="flex items-center gap-1">
+          <span className="text-sm font-semibold dark:text-slate-100">Istoric sincronizare</span>
+          <InfoTooltip title="Istoric sincronizare">
+            Evenimente de promovare sau retrogradare a nivelului de calitate, generate la
+            sincronizare.
+          </InfoTooltip>
+        </div>
         <div className="mt-3">
           <Timeline
             events={events.map((event) => {
@@ -497,15 +588,26 @@ export default function ProductDetailPage() {
                 : base;
             })}
             emptyState={
-              <div className="text-xs text-muted">Nu exista evenimente de sincronizare.</div>
+              <div className="text-xs text-muted dark:text-slate-400">
+                Nu exista evenimente de sincronizare.
+              </div>
             }
           />
         </div>
       </section>
 
-      <section className="rounded-lg border bg-background p-4" ref={aiRef}>
-        <div className="text-sm font-semibold">AI insights</div>
-        <div className="mt-2 space-y-2 text-xs text-muted">
+      <section
+        className="rounded-lg border border-border dark:border-slate-700 bg-white dark:bg-slate-900/80 p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-sm)]"
+        ref={aiRef}
+      >
+        <div className="flex items-center gap-1">
+          <span className="text-sm font-semibold dark:text-slate-100">Sugestii AI</span>
+          <InfoTooltip title="Produse similare (AI)">
+            Produse din catalog găsite ca fiind similare semantic, pe baza descrierilor și
+            titlurilor.
+          </InfoTooltip>
+        </div>
+        <div className="mt-2 space-y-2 text-xs text-muted dark:text-slate-400">
           {similarProducts.length === 0
             ? 'Status embedding indisponibil pentru acest produs.'
             : similarProducts.map((item) => (
@@ -516,8 +618,17 @@ export default function ProductDetailPage() {
         </div>
       </section>
 
-      <section className="rounded-lg border bg-background p-4" ref={extractionsRef}>
-        <div className="text-sm font-semibold">Sesiuni de extractie</div>
+      <section
+        className="rounded-lg border border-border dark:border-slate-700 bg-white dark:bg-slate-900/80 p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-sm)]"
+        ref={extractionsRef}
+      >
+        <div className="flex items-center gap-1">
+          <span className="text-sm font-semibold dark:text-slate-100">Sesiuni de extracție</span>
+          <InfoTooltip title="Extracție date">
+            Fiecare rulare a procesului de extragere automată a datelor din surse externe (pagini
+            web, PDF-uri).
+          </InfoTooltip>
+        </div>
         <div className="mt-3">
           {extractionsLoading ? (
             <LoadingState label="Se incarca sesiunile de extractie..." />
@@ -525,13 +636,13 @@ export default function ProductDetailPage() {
           {extractionsError ? <div className="text-xs text-error">{extractionsError}</div> : null}
           {!extractionsLoading && !extractionsError ? (
             extractionSessions.length === 0 ? (
-              <div className="text-xs text-muted">
+              <div className="text-xs text-muted dark:text-slate-400">
                 Nu exista sesiuni de extractie pentru acest produs.
               </div>
             ) : (
-              <div className="overflow-auto rounded-md border">
-                <table className="min-w-[760px] w-full text-xs">
-                  <thead className="bg-muted/20 text-muted">
+              <div className="overflow-auto rounded-md border dark:border-slate-700">
+                <table className="min-w-[760px] w-full text-xs dark:text-slate-300">
+                  <thead className="bg-muted/20 dark:bg-slate-800/50 text-muted dark:text-slate-400">
                     <tr>
                       <th className="px-3 py-2 text-left font-medium">ID</th>
                       <th className="px-3 py-2 text-left font-medium">Model</th>
@@ -545,7 +656,7 @@ export default function ProductDetailPage() {
                   </thead>
                   <tbody>
                     {extractionSessions.map((s) => (
-                      <tr key={s.id} className="border-t border-muted/20">
+                      <tr key={s.id} className="border-t border-muted/20 dark:border-slate-700/50">
                         <td className="px-3 py-2 font-mono">{s.id.slice(0, 8)}…</td>
                         <td className="px-3 py-2">{s.modelName ?? s.agentVersion}</td>
                         <td className="px-3 py-2 text-right">{s.confidenceScore ?? '—'}</td>
@@ -563,7 +674,9 @@ export default function ProductDetailPage() {
                             {s.sourceType}
                           </a>
                         </td>
-                        <td className="px-3 py-2">{new Date(s.createdAt).toLocaleString()}</td>
+                        <td className="px-3 py-2">
+                          {new Date(s.createdAt).toLocaleString('ro-RO')}
+                        </td>
                         <td className="px-3 py-2">{s.errorMessage ?? '—'}</td>
                       </tr>
                     ))}
@@ -634,7 +747,7 @@ export default function ProductDetailPage() {
             votesByAttribute={consensusDetail.votesByAttribute}
           />
         ) : consensusLoading ? (
-          <div className="rounded-lg border bg-background p-4">
+          <div className="rounded-lg border dark:border-slate-700 bg-white dark:bg-slate-900/80 p-4">
             <LoadingState label="Se incarca detaliile consensus..." />
           </div>
         ) : null

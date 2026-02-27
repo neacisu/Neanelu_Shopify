@@ -1,8 +1,10 @@
+import { useCallback, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { Cell, Legend, Pie, PieChart as RechartsPieChart, ResponsiveContainer } from 'recharts';
 
 import { ChartTooltip, type ChartTooltipProps } from './ChartTooltip.js';
+import { useChartTheme } from './theme.js';
 
 export type PieChartDatum = Readonly<{
   name: string;
@@ -34,8 +36,22 @@ export function PieChart({
   innerRadius,
 }: PieChartProps) {
   const safeHeight = Math.max(1, height);
+  const { isDark, text } = useChartTheme();
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+
+  const onCellEnter = useCallback((_: unknown, index: number) => {
+    setHoveredIndex(index);
+  }, []);
+
+  const onCellLeave = useCallback(() => {
+    setHoveredIndex(null);
+  }, []);
+
   return (
-    <div style={{ width: '100%', height: safeHeight, minHeight: safeHeight, minWidth: 1 }}>
+    <div
+      className="animate-[chartFadeIn_0.5s_ease-out_0.1s_both]"
+      style={{ width: '100%', height: safeHeight, minHeight: safeHeight, minWidth: 1 }}
+    >
       <ResponsiveContainer width="100%" height={safeHeight} minWidth={1} minHeight={safeHeight}>
         <RechartsPieChart>
           <ChartTooltip content={tooltipContent} {...tooltipProps} />
@@ -48,22 +64,46 @@ export function PieChart({
             {...(innerRadius !== undefined ? { innerRadius } : {})}
             label={showLabels}
             isAnimationActive
+            animationDuration={900}
+            animationBegin={100}
+            onMouseEnter={onCellEnter}
+            onMouseLeave={onCellLeave}
             {...(onSliceClick
               ? {
                   onClick: (_e: unknown, index: number) => {
                     const datum = data[index];
                     if (datum) onSliceClick(datum);
                   },
+                  cursor: 'pointer',
                 }
               : {})}
           >
             {data.map((entry, index) => (
-              <Cell key={`cell-${index}`} fill={entry.color ?? '#94a3b8'} />
+              <Cell
+                key={`cell-${index}`}
+                fill={entry.color ?? '#94a3b8'}
+                opacity={hoveredIndex !== null && hoveredIndex !== index ? 0.4 : 1}
+                strokeWidth={hoveredIndex === index ? 2 : 0}
+                stroke={
+                  hoveredIndex === index
+                    ? (entry.color ?? '#94a3b8')
+                    : isDark
+                      ? '#0f172a'
+                      : '#ffffff'
+                }
+                style={{ transition: 'opacity 0.2s ease-out, stroke-width 0.15s ease-out' }}
+              />
             ))}
           </Pie>
 
           {centerLabel ? (
-            <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle">
+            <text
+              x="50%"
+              y="50%"
+              textAnchor="middle"
+              dominantBaseline="middle"
+              style={{ fontSize: 14, fontWeight: 600, fill: text.fill }}
+            >
               {typeof centerLabel === 'string' || typeof centerLabel === 'number'
                 ? centerLabel
                 : ''}

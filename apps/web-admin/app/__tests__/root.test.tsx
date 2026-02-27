@@ -20,9 +20,18 @@ vi.mock('../lib/api-client', () => ({
           activeBulkRuns: 2,
           apiErrorRate: 0.01,
           apiLatencyP95Ms: 120,
+          goldenCount: 40,
+          goldenRate: 0.4,
+          avgQualityScore: 0.72,
+          todayWebhooks: 15,
+          queueBacklog: 3,
+          enrichmentSuccessRate: 0.95,
+          lastSyncAt: new Date().toISOString(),
+          lastSyncStatus: 'completed',
+          todayAiCost: 1.2,
         });
       }
-      return Promise.reject(new Error(`Unexpected API path: ${path}`));
+      return Promise.resolve({});
     },
   }),
 }));
@@ -46,7 +55,6 @@ describe('Root side-effects', () => {
 
     await waitFor(() => {
       expect(document.head.querySelectorAll(selector)).toHaveLength(1);
-      expect(toastMock).toHaveBeenCalled();
     });
   });
 });

@@ -16,6 +16,7 @@ import { requireSession, getSessionFromRequest } from '../auth/session.js';
 import { startBulkQueryFromContract } from '../processors/bulk-operations/orchestrator.js';
 import { readIngestCheckpoint } from '../processors/bulk-operations/pipeline/checkpoint.js';
 import { enqueueBulkIngestJob } from '@app/queue-manager';
+import { enqueueBulkPollerJobWithUniqueId } from '../processors/bulk-operations/poller-enqueue.js';
 
 const DEFAULT_LIMIT = 20;
 
@@ -1080,7 +1081,8 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
 
     const run = await withTenantContext(session.shopId, async (client) => {
       const res = await client.query<BulkRunRow>(
-        `SELECT id, query_type FROM bulk_runs WHERE id = $1 LIMIT 1`,
+        `SELECT id, query_type, status, shopify_operation_id, shopify_status
+         FROM bulk_runs WHERE id = $1 LIMIT 1`,
         [id]
       );
       return res.rows[0] ?? null;
@@ -1093,6 +1095,112 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
 
     const body = (request.body ?? {}) as { mode?: unknown };
     const mode = body.mode === 'restart' ? 'restart' : 'resume';
+
+    // When mode=resume (or default) and we have a Shopify operation ID,
+    // query Shopify to decide whether to resume polling or start fresh.
+    if (mode !== 'restart' && run.shopify_operation_id) {
+      const encryptionKey = Buffer.from(env.encryptionKeyHex, 'hex');
+      const nodeQuery = buildBulkOperationNodeQuery();
+
+      let shopifyStatus: string | null = null;
+      let resultUrl: string | null = null;
+      try {
+        const res = await withTokenRetry(
+          session.shopId,
+          encryptionKey,
+          logger,
+          async (accessToken, shopDomain) => {
+            const client = shopifyApi.createClient({ shopDomain, accessToken });
+            return await client.request<{
+              node?: {
+                __typename?: string;
+                status?: string | null;
+                url?: string | null;
+                partialDataUrl?: string | null;
+              } | null;
+            }>(nodeQuery, { id: run.shopify_operation_id });
+          }
+        );
+        const node = res.data?.node;
+        if (node?.__typename === 'BulkOperation') {
+          shopifyStatus = node.status ?? null;
+          resultUrl = node.url ?? node.partialDataUrl ?? null;
+        }
+      } catch (err) {
+        logger.warn(
+          { err, bulkRunId: id, shopifyOperationId: run.shopify_operation_id },
+          'Failed to check Shopify bulk operation status during retry; falling back to restart'
+        );
+      }
+
+      if (shopifyStatus === 'RUNNING' || shopifyStatus === 'CREATED') {
+        // Shopify is still processing — reset our DB state and resume polling.
+        await withTenantContext(session.shopId, async (client) => {
+          await client.query(
+            `UPDATE bulk_runs
+             SET status = 'polling',
+                 error_code = NULL,
+                 error_message = NULL,
+                 updated_at = now()
+             WHERE id = $1`,
+            [id]
+          );
+        });
+
+        await enqueueBulkPollerJobWithUniqueId({
+          shopId: session.shopId,
+          bulkRunId: id,
+          shopifyOperationId: run.shopify_operation_id,
+          triggeredBy: 'manual',
+          requestedAt: Date.now(),
+        });
+
+        void reply.status(200).send(
+          successEnvelope(request.id, {
+            retried: true,
+            mode: 'resume_polling',
+            shopifyStatus,
+            message: 'Shopify operation still running; resumed polling',
+          })
+        );
+        return;
+      }
+
+      if (shopifyStatus === 'COMPLETED' && resultUrl) {
+        // Shopify finished — reset DB and enqueue ingest directly, no new Shopify call.
+        await withTenantContext(session.shopId, async (client) => {
+          await client.query(
+            `UPDATE bulk_runs
+             SET status = 'downloading',
+                 error_code = NULL,
+                 error_message = NULL,
+                 updated_at = now()
+             WHERE id = $1`,
+            [id]
+          );
+        });
+
+        await enqueueBulkIngestJob({
+          shopId: session.shopId,
+          bulkRunId: id,
+          resultUrl,
+          triggeredBy: 'manual',
+          requestedAt: Date.now(),
+        });
+
+        void reply.status(200).send(
+          successEnvelope(request.id, {
+            retried: true,
+            mode: 'resume_ingest',
+            shopifyStatus,
+            message: 'Shopify operation already completed; enqueued ingestion',
+          })
+        );
+        return;
+      }
+
+      // FAILED / CANCELED / EXPIRED / unknown — fall through to start fresh.
+    }
 
     await startBulkQueryFromContract(session.shopId, {
       operationType: 'PRODUCTS_EXPORT',

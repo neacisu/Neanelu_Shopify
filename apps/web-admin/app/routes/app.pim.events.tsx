@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 
 import { Button } from '../components/ui/button';
 import { DateRangePicker } from '../components/ui/DateRangePicker';
+import { InfoTooltip } from '../components/ui/info-tooltip';
 import { Timeline, type TimelineEvent } from '../components/ui/Timeline';
 import { WebhookDeliveryStatusBadge } from '../components/domain/WebhookDeliveryStatusBadge';
 import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
@@ -208,7 +209,7 @@ export default function QualityEventsPage() {
     const badgeStatus = resolveWebhookBadgeStatus(evt.webhookStatus, evt.webhookSent);
     const webhookLabel =
       badgeStatus === 'sent'
-        ? `Webhook trimis${evt.webhookSentAt ? ` la ${new Date(evt.webhookSentAt).toLocaleString()}` : ''}`
+        ? `Webhook trimis${evt.webhookSentAt ? ` la ${new Date(evt.webhookSentAt).toLocaleString('ro-RO')}` : ''}`
         : badgeStatus === 'failed'
           ? `Webhook esuat${evt.webhookLastHttpStatus ? ` (HTTP ${evt.webhookLastHttpStatus})` : ''}`
           : badgeStatus === 'retrying'
@@ -238,11 +239,19 @@ export default function QualityEventsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-lg border border-muted/20 bg-background p-4">
+      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60">
         <div className="mb-3 flex items-center justify-between">
-          <div className="text-caption text-muted">Filtre</div>
+          <div className="flex items-center gap-1.5 text-caption text-slate-500 dark:text-slate-400">
+            Filtre
+            <InfoTooltip title="Filtre evenimente">
+              Filtrele permit restrângerea listei de evenimente. De ce contează: poți găsi rapid
+              promovări, retrogradări sau praguri atinse. Exemplu: selectează „Promovat" pentru a
+              vedea doar produsele care au urcat în nivel. Sfat: combină tipul cu intervalul de date
+              pentru analize precise.
+            </InfoTooltip>
+          </div>
           {isLoading ? (
-            <div className="inline-flex items-center gap-2 text-caption text-muted">
+            <div className="inline-flex items-center gap-2 text-caption text-slate-500 dark:text-slate-400">
               <Loader2 className="size-4 animate-spin" />
               <span>Se incarca…</span>
             </div>
@@ -251,9 +260,17 @@ export default function QualityEventsPage() {
 
         <div className="grid gap-3 lg:grid-cols-[200px_1fr_1fr_auto]">
           <div>
-            <label className="text-caption text-muted">Tip eveniment</label>
+            <label className="flex items-center gap-1.5 text-caption text-slate-500 dark:text-slate-400">
+              Tip eveniment
+              <InfoTooltip title="Tip eveniment">
+                Tipul filtrează evenimentele după categorie: promovare, retrogradare, review sau
+                prag. De ce contează: fiecare tip reflectă o acțiune diferită în fluxul de calitate.
+                Exemplu: „Prag atins" arată când un milestone Golden Records a fost depășit. Sfat:
+                selectează „Toate" pentru o imagine completă.
+              </InfoTooltip>
+            </label>
             <select
-              className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
+              className="mt-1 h-9 w-full rounded-md border bg-white px-2 text-sm transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
               value={eventType}
               onChange={(e) => setEventType((e.target as HTMLSelectElement).value)}
             >
@@ -265,9 +282,16 @@ export default function QualityEventsPage() {
             </select>
           </div>
           <div>
-            <label className="text-caption text-muted">Cautare produs</label>
+            <label className="flex items-center gap-1.5 text-caption text-slate-500 dark:text-slate-400">
+              Cautare produs
+              <InfoTooltip title="Căutare produs">
+                Căutarea permite filtrarea evenimentelor după ID-ul produsului. De ce contează: poți
+                urmări istoria unui produs specific. Exemplu: introdu ID-ul pentru a vedea toate
+                promovările și retrogradările sale. Sfat: copiază ID-ul din tabul Produse.
+              </InfoTooltip>
+            </label>
             <input
-              className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
+              className="mt-1 h-9 w-full rounded-md border bg-white px-2 text-sm transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
               placeholder="ID produs"
               value={query}
               onChange={(e) => setQuery((e.target as HTMLInputElement).value)}
@@ -318,9 +342,9 @@ export default function QualityEventsPage() {
         </div>
       </div>
 
-      <div className="rounded-lg border border-muted/20 bg-background p-4">
+      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60">
         {isLoading ? (
-          <div className="mb-3 inline-flex items-center gap-2 text-caption text-muted">
+          <div className="mb-3 inline-flex items-center gap-2 text-caption text-slate-500 dark:text-slate-400">
             <Loader2 className="size-4 animate-spin" />
             <span>Actualizez evenimentele…</span>
           </div>

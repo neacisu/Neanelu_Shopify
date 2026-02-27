@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Check, Copy } from 'lucide-react';
 
 import { JsonView } from 'react-json-view-lite';
 
@@ -34,22 +35,11 @@ export type JsonViewerProps = Readonly<{
   collapsed?: boolean;
   onCollapsedChange?: (collapsed: boolean) => void;
 
-  /** Plan prop: theme hint for the viewer container. */
-  theme?: 'light' | 'dark';
+  /** Plan prop: theme hint for the viewer container. 'auto' uses system/parent dark mode. */
+  theme?: 'light' | 'dark' | 'auto';
 
-  /**
-   * If JSON stringify exceeds this size, the viewer defaults to "collapsed" rendering.
-   * This avoids DOM-heavy rendering for large payloads.
-   */
   collapseThresholdChars?: number;
-
-  /** Collapsed depth when collapsed mode is active. */
   collapsedDepth?: number;
-
-  /**
-   * If the stringified JSON exceeds this limit, it is truncated for rendering/copy.
-   * This prevents giant payloads from freezing the UI.
-   */
   maxStringifyChars?: number;
 
   maxHeight?: number | string;
@@ -130,13 +120,42 @@ export function JsonViewer(props: JsonViewerProps) {
     copyable = true,
     collapsed,
     onCollapsedChange,
-    theme = 'light',
+    theme: themeProp = 'auto',
     searchable = true,
     searchPlaceholder = 'Caută…',
     maxSearchResults = 200,
   } = props;
 
   const value = valueProp !== undefined ? valueProp : data;
+
+  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() => {
+    if (themeProp === 'auto' && typeof window !== 'undefined') {
+      if (document.documentElement.classList.contains('dark')) return 'dark';
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
+      return 'light';
+    }
+    return themeProp === 'auto' ? 'light' : themeProp;
+  });
+
+  useEffect(() => {
+    if (themeProp !== 'auto' || typeof window === 'undefined') return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const check = () => {
+      setResolvedTheme(
+        document.documentElement.classList.contains('dark') || mq.matches ? 'dark' : 'light'
+      );
+    };
+    check();
+    mq.addEventListener('change', check);
+    const obs = new MutationObserver(check);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => {
+      mq.removeEventListener('change', check);
+      obs.disconnect();
+    };
+  }, [themeProp]);
+
+  const theme = themeProp === 'auto' ? resolvedTheme : themeProp;
 
   const { rawText, truncated } = useMemo(() => {
     const { text } = safeStringify(value, 2);
@@ -171,9 +190,12 @@ export function JsonViewer(props: JsonViewerProps) {
     return searchJson(value, search, maxSearchResults);
   }, [maxSearchResults, search, searchable, value]);
 
+  const [copied, setCopied] = useState(false);
   const copyText = async () => {
     try {
       await navigator.clipboard.writeText(rawText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch {
       // ignore
     }
@@ -183,13 +205,17 @@ export function JsonViewer(props: JsonViewerProps) {
 
   const toolbar = showToolbar ? (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      {title ? <div className="text-base font-semibold text-slate-800">{title}</div> : <div />}
+      {title ? (
+        <div className="text-base font-semibold text-slate-800 dark:text-slate-200">{title}</div>
+      ) : (
+        <div />
+      )}
       <div className="flex flex-wrap items-center gap-2">
         {searchable ? (
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-9 w-48 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 shadow-[var(--shadow-sm)] outline-none transition-colors placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+            className="h-9 w-48 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 shadow-[var(--shadow-sm)] outline-none transition-[border-color,box-shadow] duration-200 placeholder:text-slate-400 focus:border-blue-500 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.15)] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:placeholder:text-slate-500 dark:focus:shadow-[0_0_0_3px_rgba(96,165,250,0.2)]"
             placeholder={searchPlaceholder}
             aria-label="Caută"
           />
@@ -200,7 +226,7 @@ export function JsonViewer(props: JsonViewerProps) {
             type="button"
             onClick={() => setExpanded(!expanded)}
             aria-pressed={expanded}
-            className="text-slate-700"
+            className="text-slate-700 dark:text-slate-300"
           >
             {expanded ? 'Restrânge' : 'Extinde'}
           </Button>
@@ -210,9 +236,19 @@ export function JsonViewer(props: JsonViewerProps) {
             variant="ghost"
             type="button"
             onClick={() => void copyText()}
-            className="text-slate-700"
+            className="text-slate-700 dark:text-slate-300"
           >
-            Copiază
+            {copied ? (
+              <span className="inline-flex items-center gap-1.5 motion-safe:animate-[fadeIn_150ms_ease-out]">
+                <Check className="size-3.5 text-emerald-500" />
+                Copiat!
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5">
+                <Copy className="size-3.5" />
+                Copiază
+              </span>
+            )}
           </Button>
         ) : null}
       </div>
@@ -224,38 +260,41 @@ export function JsonViewer(props: JsonViewerProps) {
       {toolbar}
 
       {searchable && search.trim() ? (
-        <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-xs">
-          <div className="text-sm font-medium text-slate-600">
-            Potriviri: <span className="font-semibold text-slate-800">{matches.length}</span>
+        <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-xs dark:border-slate-700 dark:bg-slate-800/50">
+          <div className="text-sm font-medium text-slate-600 dark:text-slate-400">
+            Potriviri:{' '}
+            <span className="font-semibold text-slate-800 dark:text-slate-200">
+              {matches.length}
+            </span>
             {matches.length >= maxSearchResults ? ' (limitat)' : ''}
           </div>
           {matches.length ? (
             <div className="mt-1.5 max-h-32 overflow-auto">
               {matches.map((m) => (
                 <div key={`${m.path}:${m.preview}`} className="flex items-start gap-2 py-0.5">
-                  <span className="shrink-0 font-mono text-[11px] text-slate-500">{m.path}</span>
-                  <span className="truncate text-[11px] text-slate-700">{m.preview}</span>
+                  <span className="shrink-0 font-mono text-[11px] text-slate-500 dark:text-slate-500">
+                    {m.path}
+                  </span>
+                  <span className="truncate text-[11px] text-slate-700 dark:text-slate-400">
+                    {m.preview}
+                  </span>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="mt-1 text-slate-500">Nicio potrivire.</div>
+            <div className="mt-1 text-slate-500 dark:text-slate-500">Nicio potrivire.</div>
           )}
         </div>
       ) : null}
 
       <div
-        className={`${showToolbar ? 'mt-2' : ''} overflow-auto rounded-xl border p-3 text-xs ${
+        className={`${showToolbar ? 'mt-2' : ''} overflow-auto rounded-xl border p-3 text-xs transition-colors duration-200 ${
           theme === 'dark'
-            ? 'bg-zinc-950 text-zinc-50 border-white/10'
-            : 'border-slate-200 bg-slate-50/50 text-slate-800'
+            ? 'border-white/10 bg-zinc-950 text-zinc-50'
+            : 'border-slate-200 bg-slate-50/50 text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'
         }`}
         style={{ maxHeight }}
       >
-        {/*
-          We avoid importing library CSS here; we rely on the default markup
-          and tailwind container styles above.
-        */}
         <JsonView
           data={viewValue}
           shouldExpandNode={(level) => (expanded ? true : level < collapsedDepth)}
@@ -264,9 +303,9 @@ export function JsonViewer(props: JsonViewerProps) {
       </div>
 
       {isLarge ? (
-        <div className="mt-1 text-xs text-slate-500">
-          {truncated ? 'Truncat · ' : ''}Payload mare ({rawText.length.toLocaleString()} caractere)
-          — afișare restrânsă implicit.
+        <div className="mt-1 text-xs text-slate-500 dark:text-slate-500">
+          {truncated ? 'Truncat · ' : ''}Payload mare ({rawText.length.toLocaleString('ro-RO')}{' '}
+          caractere) — afișare restrânsă implicit.
         </div>
       ) : null}
     </div>

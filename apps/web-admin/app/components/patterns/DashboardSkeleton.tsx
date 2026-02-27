@@ -15,14 +15,16 @@ export function DashboardSkeleton({
   return (
     <div
       className={`grid gap-4 ${columns >= 4 ? 'lg:grid-cols-4' : columns === 3 ? 'md:grid-cols-3' : columns === 2 ? 'md:grid-cols-2' : ''}`}
-      aria-label="Loading dashboard"
+      aria-label="Se încarcă tabloul de bord"
       role="status"
     >
       {items.map((item) => (
         <div
           key={item}
-          className={`animate-pulse rounded-lg border border-muted/20 bg-muted/10 ${blockHeight}`}
-        />
+          className={`overflow-hidden rounded-xl border border-slate-200/60 bg-slate-100/80 dark:border-slate-700/60 dark:bg-slate-800/50 ${blockHeight}`}
+        >
+          <div className="h-full w-full animate-[shimmer-loading_1.5s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-white/40 to-transparent bg-[length:200%_100%] dark:via-white/5" />
+        </div>
       ))}
     </div>
   );

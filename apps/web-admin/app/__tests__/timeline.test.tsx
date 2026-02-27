@@ -54,8 +54,8 @@ describe('Timeline', () => {
       render(<Timeline events={events} showGroupHeaders relativeTime={false} timeFormat="HH:mm" />);
 
       // Today and Yesterday headers should appear
-      expect(screen.getByText('Today')).toBeInTheDocument();
-      expect(screen.getByText('Yesterday')).toBeInTheDocument();
+      expect(screen.getByText('Azi')).toBeInTheDocument();
+      expect(screen.getByText('Ieri')).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }

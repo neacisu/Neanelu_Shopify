@@ -30,8 +30,8 @@ describe('ProductsCompareModal', () => {
       />
     );
 
-    expect(screen.getByText('Compare products')).toBeInTheDocument();
-    expect(screen.getByText('Title')).toBeInTheDocument();
+    expect(screen.getByText('Compară produse')).toBeInTheDocument();
+    expect(screen.getByText('Titlu')).toBeInTheDocument();
     expect(screen.getAllByText('Product 1').length).toBeGreaterThan(0);
   });
 });

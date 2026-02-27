@@ -80,6 +80,44 @@ if (typeof HTMLDialogElement !== 'undefined') {
   }
 }
 
+// JSDOM doesn't implement ResizeObserver.
+class ResizeObserverStub {
+  observe() {
+    /* noop stub */
+  }
+  unobserve() {
+    /* noop stub */
+  }
+  disconnect() {
+    /* noop stub */
+  }
+}
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  (globalThis as Record<string, unknown>)['ResizeObserver'] = ResizeObserverStub;
+}
+
+// JSDOM doesn't implement IntersectionObserver.
+class IntersectionObserverStub {
+  readonly root = null;
+  readonly rootMargin = '0px';
+  readonly thresholds: readonly number[] = [0];
+  observe() {
+    /* noop stub */
+  }
+  unobserve() {
+    /* noop stub */
+  }
+  disconnect() {
+    /* noop stub */
+  }
+  takeRecords(): IntersectionObserverEntry[] {
+    return [];
+  }
+}
+if (typeof globalThis.IntersectionObserver === 'undefined') {
+  (globalThis as Record<string, unknown>)['IntersectionObserver'] = IntersectionObserverStub;
+}
+
 // JSDOM doesn't implement matchMedia, which is required by some libraries (e.g. TanStack Query DevTools).
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
