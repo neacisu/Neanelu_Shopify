@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import urllib.error
 import urllib.request
 
 
@@ -13,8 +14,15 @@ def die(msg: str) -> None:
     raise SystemExit(2)
 
 
+def clean_secret(raw: str) -> str:
+    value = raw.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        value = value[1:-1].strip()
+    return value
+
+
 def normalize_openbao_addr(raw: str) -> str:
-    addr = raw.strip().rstrip("/")
+    addr = clean_secret(raw).rstrip("/")
     if addr.endswith("/v1"):
         addr = addr[:-3]
     return addr.rstrip("/")
@@ -28,11 +36,23 @@ def req_json(method: str, url: str, payload: dict | None = None, token: str | No
     if payload is not None:
         body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
-    with urllib.request.urlopen(req, timeout=20) as r:
-        data = r.read()
-        if not data:
-            return {}
-        return json.loads(data.decode("utf-8", errors="replace"))
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            data = r.read()
+            if not data:
+                return {}
+            return json.loads(data.decode("utf-8", errors="replace"))
+    except urllib.error.HTTPError as err:
+        raw = err.read().decode("utf-8", errors="replace").strip()
+        detail = raw
+        try:
+            parsed = json.loads(raw) if raw else {}
+            errors = parsed.get("errors")
+            if isinstance(errors, list) and errors:
+                detail = "; ".join(str(e) for e in errors)
+        except json.JSONDecodeError:
+            pass
+        die(f"OpenBao request failed: status={err.code} url={url} detail={detail}")
 
 
 def write_env(k: str, v: str) -> None:
@@ -51,8 +71,8 @@ def add_mask(v: str) -> None:
 
 def main() -> int:
     bao = normalize_openbao_addr(os.environ.get("OPENBAO_ADDR") or "")
-    rid = (os.environ.get("OPENBAO_CICD_ROLE_ID") or "").strip()
-    sid = (os.environ.get("OPENBAO_CICD_SECRET_ID") or "").strip()
+    rid = clean_secret(os.environ.get("OPENBAO_CICD_ROLE_ID") or "")
+    sid = clean_secret(os.environ.get("OPENBAO_CICD_SECRET_ID") or "")
     if not bao:
         die("OPENBAO_ADDR missing")
     if not rid:
