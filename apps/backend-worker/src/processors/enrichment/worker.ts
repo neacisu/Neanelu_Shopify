@@ -1,7 +1,6 @@
 import type { Logger } from '@app/logger';
 import { loadEnv } from '@app/config';
-import { Redis as IORedis } from 'ioredis';
-import { withTenantContext } from '@app/database';
+import { withTenantContext, createManagedRedis } from '@app/database';
 import {
   ENRICHMENT_JOB_NAME,
   ENRICHMENT_QUEUE_NAME,
@@ -25,7 +24,7 @@ export interface EnrichmentWorkerHandle {
 
 export function startEnrichmentWorker(logger: Logger): EnrichmentWorkerHandle {
   const env = loadEnv();
-  const redis = new IORedis(env.redisUrl, {
+  const redis = createManagedRedis('enrichment-worker', {
     enableReadyCheck: true,
     maxRetriesPerRequest: null,
     keyPrefix: env.redisPrefix,

@@ -11,7 +11,7 @@ import {
 import { loadEnv, SHOPIFY_API_VERSION } from '@app/config';
 import { OTEL_ATTR, type Logger } from '@app/logger';
 import { validateBulkPollerJobPayload, type BulkPollerJobPayload } from '@app/types';
-import { withTenantContext } from '@app/database';
+import { withTenantContext, createManagedRedis } from '@app/database';
 import { withTokenRetry } from '../../auth/token-lifecycle.js';
 import { shopifyApi } from '../../shopify/client.js';
 import {
@@ -20,7 +20,7 @@ import {
   syncShopifyGraphqlThrottleStatus,
 } from '../../shopify/graphql-rate-limit.js';
 import { computeGraphqlDelayMs } from '@app/shopify-client';
-import { Redis as IORedis, type Redis } from 'ioredis';
+import type { Redis } from 'ioredis';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
 import {
   insertBulkError,
@@ -396,7 +396,7 @@ export interface BulkPollerWorkerHandle {
 }
 
 export function startBulkPollerWorker(logger: Logger): BulkPollerWorkerHandle {
-  const redis: Redis = new IORedis(env.redisUrl);
+  const redis: Redis = createManagedRedis('bulk-poller-worker');
   const cfg = getShopifyGraphqlRateLimitConfig();
   const qmOptions = { config: configFromEnv(env) };
 

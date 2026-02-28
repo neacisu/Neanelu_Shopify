@@ -21,9 +21,28 @@ export {
   rotatePool,
   setTenantContext,
   withTenantContext,
+  isAuthError,
+  registerCredentialRefreshFn,
+  createSecondaryPool,
 } from './db.js';
+export type { SecondaryPoolHandle } from './db.js';
 
-export { startCredentialWatcher, stopCredentialWatcher } from './credential-watcher.js';
+export {
+  startCredentialWatcher,
+  stopCredentialWatcher,
+  triggerCredentialRefresh,
+  registerSecondaryPoolRotator,
+  parseAllSecrets,
+} from './credential-watcher.js';
+
+export {
+  createManagedRedis,
+  rotateAllManagedRedis,
+  registerWorkerRecreator,
+  recreateAllWorkers,
+  closeManagedRedisConnections,
+  getManagedRedisConnectionsCount,
+} from './redis-manager.js';
 
 export { logAuditEvent } from './audit.js';
 export type { AuditAction, AuditActorType, AuditContext } from './audit.js';

@@ -7,7 +7,7 @@
 
 import { pgTable, uuid, text, timestamp, jsonb, customType, index } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-import { shops } from './shops.ts';
+import { shops } from './shops.js';
 
 const inet = customType<{ data: string | null }>({
   dataType() {

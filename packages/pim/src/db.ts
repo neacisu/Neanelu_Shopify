@@ -1,31 +1,35 @@
-import pg from 'pg';
+import type pg from 'pg';
 
-const { Pool } = pg;
+import { createSecondaryPool, type SecondaryPoolHandle } from '@app/database';
 
-let pool: pg.Pool | null = null;
+let _pimPoolHandle: SecondaryPoolHandle | null = null;
 
-function parseDbSslMode(value: string | undefined): 'disable' | 'require' | 'verify-full' {
-  const raw = (value ?? 'disable').trim().toLowerCase();
-  if (raw === 'disable' || raw === 'require' || raw === 'verify-full') return raw;
-  throw new Error(`Invalid DB_SSL_MODE: ${String(value)} (expected disable|require|verify-full)`);
+function getOrCreatePimPoolHandle(): SecondaryPoolHandle {
+  if (_pimPoolHandle) return _pimPoolHandle;
+
+  const runtimeConnectionString = process.env['DATABASE_URL'];
+  _pimPoolHandle = createSecondaryPool({
+    name: 'pim',
+    maxConnections: Number(process.env['DB_POOL_SIZE'] ?? 2),
+    ...(runtimeConnectionString ? { connectionString: runtimeConnectionString } : {}),
+  });
+  return _pimPoolHandle;
 }
 
 export function getDbPool(): pg.Pool {
-  if (pool) return pool;
-  const connectionString = process.env['DATABASE_URL'] ?? '';
-  if (!connectionString) {
-    throw new Error('Missing DATABASE_URL');
-  }
-  const cfg: pg.PoolConfig = {
-    connectionString,
-    max: Number(process.env['DB_POOL_SIZE'] ?? 2),
-    idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 10_000,
-  };
-  const dbSslMode = parseDbSslMode(process.env['DB_SSL_MODE']);
-  if (dbSslMode === 'require') cfg.ssl = { rejectUnauthorized: false };
-  else if (dbSslMode === 'verify-full') cfg.ssl = { rejectUnauthorized: true };
+  return getOrCreatePimPoolHandle().pool;
+}
 
-  pool = new Pool(cfg);
-  return pool;
+export async function rotatePimPool(newConnectionString: string): Promise<void> {
+  await getOrCreatePimPoolHandle().rotate(newConnectionString);
+}
+
+export function getCurrentPimConnectionString(): string | undefined {
+  return getOrCreatePimPoolHandle().getCurrentConnectionString();
+}
+
+export async function closePimPool(): Promise<void> {
+  if (!_pimPoolHandle) return;
+  await _pimPoolHandle.close();
+  _pimPoolHandle = null;
 }

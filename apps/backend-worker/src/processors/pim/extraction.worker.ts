@@ -272,7 +272,7 @@ export function startExtractionWorker(logger: Logger): ExtractionWorkerHandle {
                   (await withTenantContext(payload.shopId, async (client) =>
                     ensureDefaultScraperConfig(client, payload.shopId, sourceId, match.source_url)
                   ));
-                const redisClient = new Redis(env.redisUrl);
+                const redisClient = new Redis(process.env['REDIS_URL'] ?? env.redisUrl);
                 let activeRunId: string | null = null;
                 const scrapeResult = await scrapeProductPage(match.source_url, {
                   redis: redisClient,
@@ -760,7 +760,7 @@ async function runScraperQueueSweep(env: AppEnv, logger: Logger): Promise<void> 
           continue;
         }
 
-        const redis = new Redis(env.redisUrl);
+        const redis = new Redis(process.env['REDIS_URL'] ?? env.redisUrl);
         let runId: string | null = null;
         try {
           const result = await scrapeProductPage(row.url, {

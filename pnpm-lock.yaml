@@ -377,6 +377,9 @@ importers:
       '@app/config':
         specifier: workspace:*
         version: link:../config
+      '@app/database':
+        specifier: workspace:*
+        version: link:../database
       '@opentelemetry/api':
         specifier: ^1.9.0
         version: 1.9.0

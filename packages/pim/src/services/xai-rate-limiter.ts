@@ -1,12 +1,13 @@
-import { Redis } from 'ioredis';
+import type { Redis } from 'ioredis';
 import { loadEnv } from '@app/config';
+import { createManagedRedis } from '@app/database';
 
 let redisClient: Redis | null = null;
 
 function getRedis(): Redis {
   if (!redisClient) {
     const env = loadEnv();
-    redisClient = new Redis(env.redisUrl, {
+    redisClient = createManagedRedis('pim-xai-rate-limiter', {
       enableReadyCheck: true,
       connectTimeout: 10_000,
       maxRetriesPerRequest: null,

@@ -1,19 +1,28 @@
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  Legend,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+import { useEffect, useRef, useState } from 'react';
+import { Area, AreaChart, CartesianGrid, Legend, Tooltip, XAxis, YAxis } from 'recharts';
 
 import type { ScraperActivityDataPoint } from '@app/types';
 
 import { InfoTooltip } from '../ui/info-tooltip';
 
 export function ScraperActivityChart({ data }: { data: readonly ScraperActivityDataPoint[] }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      if (width > 0 && height > 0) {
+        setSize({ w: Math.floor(width), h: Math.floor(height) });
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <div className="rounded-lg border border-muted/20 bg-background p-4 dark:border-slate-700 dark:bg-slate-900/80">
       <div className="mb-2 flex items-center gap-2">
@@ -25,9 +34,9 @@ export function ScraperActivityChart({ data }: { data: readonly ScraperActivityD
           graficul arată tendința pe ultimele 7 zile.
         </InfoTooltip>
       </div>
-      <div className="h-64">
-        <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-          <AreaChart data={data}>
+      <div ref={containerRef} className="h-64 min-w-0">
+        {size != null ? (
+          <AreaChart width={size.w} height={size.h} data={data}>
             <CartesianGrid strokeDasharray="3 3" className="dark:[&>line]:stroke-slate-700" />
             <XAxis
               dataKey="date"
@@ -59,7 +68,7 @@ export function ScraperActivityChart({ data }: { data: readonly ScraperActivityD
             />
             <Area type="monotone" dataKey="deduped" stackId="2" stroke="#64748b" fill="#64748b55" />
           </AreaChart>
-        </ResponsiveContainer>
+        ) : null}
       </div>
     </div>
   );

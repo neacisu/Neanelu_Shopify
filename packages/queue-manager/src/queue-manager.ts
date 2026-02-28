@@ -135,10 +135,18 @@ const dlqEntriesTotal = meter.createCounter('queue_dlq_entries_total', {
 });
 
 export function configFromEnv(env: AppEnv): QueueManagerConfig {
+  const runtimeRedisUrl = process.env['REDIS_URL']?.trim();
+  const runtimeBullmqPrefix = process.env['BULLMQ_PREFIX']?.trim();
+  const runtimeBullmqToken = process.env['BULLMQ_PRO_TOKEN']?.trim();
+
   return {
-    redisUrl: env.redisUrl,
-    bullmqPrefix: env.bullmqPrefix,
-    bullmqProToken: env.bullmqProToken,
+    redisUrl: runtimeRedisUrl && runtimeRedisUrl.length > 0 ? runtimeRedisUrl : env.redisUrl,
+    bullmqPrefix:
+      runtimeBullmqPrefix && runtimeBullmqPrefix.length > 0
+        ? runtimeBullmqPrefix
+        : env.bullmqPrefix,
+    bullmqProToken:
+      runtimeBullmqToken && runtimeBullmqToken.length > 0 ? runtimeBullmqToken : env.bullmqProToken,
   };
 }
 
@@ -287,7 +295,7 @@ export type CreateWorkerOptions<TData = unknown> = Readonly<{
 export function createWorker<TData = unknown>(
   options: CreateQueueManagerOptions,
   worker: CreateWorkerOptions<TData>
-): { worker: BullWorker<TData>; dlqQueue?: BullQueue } {
+): { worker: BullWorker<TData>; dlqQueue?: BullQueue; recreate: () => Promise<BullWorker<TData>> } {
   requireNonEmpty(options.config.bullmqProToken, 'BULLMQ_PRO_TOKEN');
   const policy = defaultQueuePolicy();
   const strictDlq = process.env['QUEUE_MANAGER_DLQ_STRICT'] === 'true';
@@ -478,8 +486,14 @@ export function createWorker<TData = unknown>(
     });
   }
 
-  if (dlqQueue) return { worker: w, dlqQueue };
-  return { worker: w };
+  const recreate = async (): Promise<BullWorker<TData>> => {
+    await w.close();
+    const recreated = createWorker(options, worker);
+    return recreated.worker;
+  };
+
+  if (dlqQueue) return { worker: w, dlqQueue, recreate };
+  return { worker: w, recreate };
 }
 
 export type PruneQueueOptions = Readonly<{

@@ -12,8 +12,8 @@
 
 import type { FastifyPluginCallback } from 'fastify';
 import { loadEnv } from '@app/config';
-import Redis from 'ioredis';
 import type { Redis as RedisClient } from 'ioredis';
+import { createManagedRedis } from '@app/database';
 import { verifyWebhookHmac } from './webhooks.hmac.js';
 import { isDuplicateWebhook, markWebhookProcessed } from './webhooks.dedupe.js';
 import { enqueueWebhookJob } from '@app/queue-manager';
@@ -34,12 +34,7 @@ import {
 const env = loadEnv();
 const REDIS_PREFIX = env.redisPrefix.endsWith(':') ? env.redisPrefix : `${env.redisPrefix}:`;
 
-// Redis connection for deduplication
-// We use a separate connection or reuse one, but for simplicity here we create new
-// Ideally this should be injected or shared
-// Ideally this should be injected or shared
-const RedisCtor = Redis as unknown as new (url: string) => RedisClient;
-const redis: RedisClient = new RedisCtor(env.redisUrl);
+const redis: RedisClient = createManagedRedis('webhook-ingress-dedupe');
 
 const WEBHOOK_BODY_LIMIT_BYTES = 1_048_576; // 1 MiB
 const WEBHOOK_PAYLOAD_TTL_SECONDS = 300; // 5 minutes

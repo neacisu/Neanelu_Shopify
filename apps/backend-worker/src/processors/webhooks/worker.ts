@@ -11,8 +11,8 @@ import { pool, withTenantContext } from '@app/database';
 import { OTEL_ATTR, withSpan, type Logger } from '@app/logger';
 import { validateWebhookJobPayload, type WebhookJobPayload } from '@app/types';
 import { createHash } from 'node:crypto';
-import Redis from 'ioredis';
 import type { Redis as RedisClient } from 'ioredis';
+import { createManagedRedis } from '@app/database';
 import {
   configFromEnv,
   createQueue,
@@ -42,8 +42,6 @@ import { incrementDashboardActivity } from '../../runtime/dashboard-activity.js'
 import { invalidateSearchCache } from '../ai/cache.js';
 
 const env = loadEnv();
-
-const RedisCtor = Redis as unknown as new (url: string) => RedisClient;
 
 export interface WebhookWorkerHandle {
   worker: { close: () => Promise<void>; isRunning?: () => boolean };
@@ -169,7 +167,7 @@ async function invalidateSearchCacheBestEffort(
 }
 
 export function startWebhookWorker(logger: Logger): WebhookWorkerHandle {
-  const redis = new RedisCtor(env.redisUrl);
+  const redis = createManagedRedis('webhook-worker');
   const qmOptions = { config: configFromEnv(env) };
 
   const queue = createQueue(qmOptions, { name: WEBHOOK_QUEUE_NAME });

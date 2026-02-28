@@ -157,11 +157,73 @@ if (dbSslMode === 'require') {
 }
 
 // ============================================
+// AUTH ERROR DETECTION
+// ============================================
+
+/**
+ * Detectează erori de autentificare PostgreSQL (SQLSTATE 28P01/28000).
+ * Folosit pentru a triggera rotația automată a credențialelor.
+ */
+export function isAuthError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const pgErr = err as { code?: string };
+  if (pgErr.code === '28P01' || pgErr.code === '28000') return true;
+  return /password authentication failed/i.test(err.message);
+}
+
+// ============================================
+// CREDENTIAL REFRESH CALLBACK
+// ============================================
+
+type CredentialRefreshFn = () => Promise<boolean>;
+
+let _credentialRefreshFn: CredentialRefreshFn | null = null;
+
+/**
+ * Înregistrează callback-ul de refresh al credențialelor.
+ * Apelat de credential-watcher.ts la pornire — evită dependență circulară.
+ */
+export function registerCredentialRefreshFn(fn: CredentialRefreshFn): void {
+  _credentialRefreshFn = fn;
+}
+
+const AUTH_ERROR_DEBOUNCE_MS = 5_000;
+let _lastAuthErrorHandledAt = 0;
+let _authErrorRefreshInFlight: Promise<boolean> | null = null;
+
+async function handleAuthError(): Promise<boolean> {
+  if (!_credentialRefreshFn) return false;
+
+  const now = Date.now();
+  if (now - _lastAuthErrorHandledAt < AUTH_ERROR_DEBOUNCE_MS) {
+    if (_authErrorRefreshInFlight) return _authErrorRefreshInFlight;
+    return false;
+  }
+  _lastAuthErrorHandledAt = now;
+
+  try {
+    _authErrorRefreshInFlight = _credentialRefreshFn();
+    const rotated = await _authErrorRefreshInFlight;
+    return rotated;
+  } catch (refreshErr) {
+    console.error('[DB] Credential refresh failed:', refreshErr);
+    return false;
+  } finally {
+    _authErrorRefreshInFlight = null;
+  }
+}
+
+// ============================================
 // POOL MANAGER (hot-swap via Proxy)
 // ============================================
 
 function attachPoolErrorHandler(p: pg.Pool): void {
   p.on('error', (err) => {
+    if (isAuthError(err)) {
+      console.error('[DB] Auth error on idle client — triggering credential refresh');
+      void handleAuthError();
+      return;
+    }
     console.error('[DB] Idle client error (non-fatal, pool continues):', err.message);
   });
 }
@@ -193,15 +255,35 @@ let _drainTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * Proxy transparent — consumatorii (68+ fișiere) văd același `pool`.
- * Toate apelurile (connect, query, on, end, etc.) sunt delegate la _pool curent.
+ * Interceptează `connect()` și `query()` pentru retry automat pe auth error.
+ * Restul apelurilor (on, end, etc.) sunt delegate direct la _pool curent.
  */
 export const pool: pg.Pool = new Proxy(Object.create(null) as pg.Pool, {
   get(_, prop) {
     const target = _pool;
     const value = Reflect.get(target, prop, target) as unknown;
-    return typeof value === 'function'
-      ? (value as (...args: unknown[]) => unknown).bind(target)
-      : value;
+    if (typeof value !== 'function') return value;
+
+    const bound = (value as (...args: unknown[]) => unknown).bind(target);
+
+    if (prop === 'connect' || prop === 'query') {
+      return async (...args: unknown[]) => {
+        try {
+          return await (bound as (...a: unknown[]) => Promise<unknown>)(...args);
+        } catch (err) {
+          if (!isAuthError(err)) throw err;
+          const rotated = await handleAuthError();
+          if (!rotated) throw err;
+          const freshTarget = _pool;
+          const freshFn = Reflect.get(freshTarget, prop, freshTarget) as (
+            ...a: unknown[]
+          ) => Promise<unknown>;
+          return await freshFn.bind(freshTarget)(...args);
+        }
+      };
+    }
+
+    return bound;
   },
 });
 
@@ -303,6 +385,124 @@ export async function closePool(): Promise<void> {
   await _pool.end();
 }
 
+export type SecondaryPoolHandle = Readonly<{
+  pool: pg.Pool;
+  rotate: (newConnectionString: string) => Promise<void>;
+  close: () => Promise<void>;
+  getCurrentConnectionString: () => string | undefined;
+}>;
+
+export function createSecondaryPool(opts: {
+  name: string;
+  maxConnections?: number;
+  connectionString?: string;
+}): SecondaryPoolHandle {
+  const initialConnectionString = opts.connectionString ?? process.env['DATABASE_URL'] ?? '';
+  if (!initialConnectionString) {
+    throw new Error(`[DB:${opts.name}] Missing DATABASE_URL`);
+  }
+
+  const initialParsed = parseConnectionString(initialConnectionString);
+  const secondaryPoolConfig: pg.PoolConfig = {
+    ...poolConfig,
+    connectionString: initialParsed.connectionString,
+    max: opts.maxConnections ?? Number(process.env['DB_POOL_SIZE'] ?? 2),
+  };
+
+  let activePool = new Pool(secondaryPoolConfig);
+  attachPoolErrorHandler(activePool);
+  let currentConnectionString = initialParsed.connectionString;
+  let drainTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const poolProxy: pg.Pool = new Proxy(Object.create(null) as pg.Pool, {
+    get(_, prop) {
+      const target = activePool;
+      const value = Reflect.get(target, prop, target) as unknown;
+      if (typeof value !== 'function') return value;
+      const bound = (value as (...args: unknown[]) => unknown).bind(target);
+
+      if (prop === 'connect' || prop === 'query') {
+        return async (...args: unknown[]) => {
+          try {
+            return await (bound as (...a: unknown[]) => Promise<unknown>)(...args);
+          } catch (err) {
+            if (!isAuthError(err)) throw err;
+            const rotated = await handleAuthError();
+            if (!rotated) throw err;
+            const freshTarget = activePool;
+            const freshFn = Reflect.get(freshTarget, prop, freshTarget) as (
+              ...a: unknown[]
+            ) => Promise<unknown>;
+            return await freshFn.bind(freshTarget)(...args);
+          }
+        };
+      }
+
+      return bound;
+    },
+  });
+
+  const rotate = async (newConnectionString: string): Promise<void> => {
+    const parsed = parseConnectionString(newConnectionString);
+    const nextPoolConfig: pg.PoolConfig = {
+      ...secondaryPoolConfig,
+      connectionString: parsed.connectionString,
+    };
+    const nextPool = new Pool(nextPoolConfig);
+    attachPoolErrorHandler(nextPool);
+
+    const client = await nextPool.connect();
+    try {
+      await client.query('SELECT 1');
+    } finally {
+      client.release();
+    }
+
+    const oldPool = activePool;
+    activePool = nextPool;
+    currentConnectionString = parsed.connectionString;
+
+    if (drainTimer) {
+      clearTimeout(drainTimer);
+      drainTimer = null;
+    }
+
+    drainTimer = setTimeout(() => {
+      drainTimer = null;
+      oldPool.end().catch((err: unknown) => {
+        console.error(`[DB:${opts.name}] Error draining old secondary pool:`, err);
+      });
+    }, DRAIN_TIMEOUT_MS);
+  };
+
+  const close = async (): Promise<void> => {
+    if (drainTimer) {
+      clearTimeout(drainTimer);
+      drainTimer = null;
+    }
+    await activePool.end();
+  };
+
+  // Avoid static import cycle (db.ts <-> credential-watcher.ts).
+  void import('./credential-watcher.js')
+    .then((mod: { registerSecondaryPoolRotator: (fn: (url: string) => Promise<void>) => void }) => {
+      mod.registerSecondaryPoolRotator(async (newUrl: string) => {
+        if (newUrl === currentConnectionString) return;
+        await rotate(newUrl);
+      });
+    })
+    .catch((err: unknown) => {
+      console.error(`[DB:${opts.name}] Failed to register secondary pool rotator:`, err);
+    });
+
+  return {
+    pool: poolProxy,
+    rotate,
+    close,
+    getCurrentConnectionString: () => currentConnectionString,
+  };
+}
+
 // ============================================
 // RLS CONTEXT HELPER
 // ============================================
@@ -328,7 +528,7 @@ export async function setTenantContext(client: pg.PoolClient, shopId: string): P
   await client.query(`SELECT set_config('app.current_shop_id', $1::text, true)`, [shopId]);
 }
 
-export async function withTenantContext<T>(
+async function _withTenantContextCore<T>(
   shopId: string,
   fn: (client: pg.PoolClient) => Promise<T>
 ): Promise<T> {
@@ -341,10 +541,28 @@ export async function withTenantContext<T>(
     await client.query('COMMIT');
     return result;
   } catch (error) {
-    await client.query('ROLLBACK');
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      /* drain may fail on dead conn */
+    }
     throw error;
   } finally {
     client.release();
+  }
+}
+
+export async function withTenantContext<T>(
+  shopId: string,
+  fn: (client: pg.PoolClient) => Promise<T>
+): Promise<T> {
+  try {
+    return await _withTenantContextCore(shopId, fn);
+  } catch (error) {
+    if (!isAuthError(error)) throw error;
+    const rotated = await handleAuthError();
+    if (!rotated) throw error;
+    return await _withTenantContextCore(shopId, fn);
   }
 }
 

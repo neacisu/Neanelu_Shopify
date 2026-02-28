@@ -34,7 +34,6 @@ need docker
 need curl
 
 ENV_API="${ENV_API:-/run/neanelu/runtime-secrets/api/neanelu-api.env}"
-ENV_WORKERS="${ENV_WORKERS:-/run/neanelu/runtime-secrets/workers/neanelu-workers.env}"
 ENV_INFRA_DIR="${ENV_INFRA_DIR:-/run/neanelu/runtime-secrets/infra}"
 
 echo "neanelu_verify host=$(hostname -f 2>/dev/null || hostname) strict=${STRICT}"
@@ -43,9 +42,6 @@ check_runtime_secrets() {
   if [[ ! -f "${ENV_API}" ]]; then
     fail "missing_env_api=${ENV_API}"
     return
-  fi
-  if [[ ! -f "${ENV_WORKERS}" ]]; then
-    warn "missing_env_workers=${ENV_WORKERS} (workers may be disabled)"
   fi
   if [[ ! -f "${ENV_INFRA_DIR}/pgbouncer.ini" ]]; then
     fail "missing_pgbouncer_ini=${ENV_INFRA_DIR}/pgbouncer.ini"

@@ -21,9 +21,8 @@ Recomandat: separa clar ce e per-environment (prod/staging) vs shared (ex: domen
 ## AppRoles (naming)
 
 - `approle/neanelu-prod-api`
-- `approle/neanelu-prod-workers`
 - `approle/neanelu-staging-api`
-- `approle/neanelu-staging-workers`
+- `approle/neanelu-dev-api`
 - `approle/neanelu-infra` (optional: pentru sidecar/agent configs)
 - `approle/neanelu-cicd` (FAZA 1)
 
@@ -32,10 +31,10 @@ Recomandat: separa clar ce e per-environment (prod/staging) vs shared (ex: domen
 Vezi `infra/config/openbao/policies/`:
 
 - `neanelu-prod-api.hcl`
-- `neanelu-prod-workers.hcl`
 - `neanelu-staging-api.hcl`
-- `neanelu-staging-workers.hcl`
+- `neanelu-dev-api.hcl`
 - `neanelu-infra.hcl`
+- `neanelu-cicd.hcl`
 
 ## Apply
 
@@ -47,3 +46,25 @@ Variabile necesare:
 
 - `BAO_ADDR` (ex: `http://127.0.0.1:8200` pe orchestrator, sau `https://s3cr3ts.neanelu.ro` prin Traefik)
 - `BAO_TOKEN` (token admin temporar pentru bootstrap)
+
+## Credential rotation (runtime)
+
+Hot-reload-ul credentialelor este gestionat in aplicatie (`credential-watcher.ts`).
+Unitatile systemd `neanelu-secrets-restart@*.path` sunt pastrate doar pentru rollback.
+
+Dezactivare recomandata pe host-uri runtime:
+
+- `systemctl disable --now neanelu-secrets-restart@prod.path`
+- `systemctl disable --now neanelu-secrets-restart@staging.path`
+- `systemctl disable --now neanelu-secrets-restart@dev.path`
+
+## Cleanup workers AppRole-uri (manual)
+
+Dupa rollout complet, resursele workers pot fi curate manual in OpenBao/hosturi:
+
+- `bao delete auth/approle/role/neanelu-prod-workers`
+- `bao delete auth/approle/role/neanelu-staging-workers`
+- `bao delete auth/approle/role/neanelu-dev-workers`
+- `rm /opt/neanelu/secrets/prod_workers_role_id /opt/neanelu/secrets/prod_workers_secret_id`
+- `rm /opt/neanelu/secrets/staging_workers_role_id /opt/neanelu/secrets/staging_workers_secret_id`
+- `rm /opt/neanelu/secrets/dev_workers_role_id /opt/neanelu/secrets/dev_workers_secret_id`

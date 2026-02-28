@@ -200,8 +200,8 @@ export function IngestionHistoryTable(props: IngestionHistoryTableProps) {
                 const rows = [
                   <tr
                     key={run.id}
-                    className="border-b last:border-b-0 transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/60 dark:border-slate-700/60 motion-safe:animate-[fadeSlideUp_0.3s_ease-out_both]"
-                    style={{ animationDelay: `${idx * 50}ms` }}
+                    className="border-b last:border-b-0 transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/60 dark:border-slate-700/60"
+                    style={{ animation: `fadeSlideUp 0.3s ease-out ${idx * 50}ms both` }}
                   >
                     <td className="px-3 py-2 font-mono text-xs">
                       {formatDate(run.startedAt ?? run.createdAt)}

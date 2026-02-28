@@ -42,11 +42,11 @@ export function InfoTooltip({
   side = 'bottom',
   maxWidth = 425,
   boundaryRef,
-  portalToBody = false,
+  portalToBody = true,
 }: InfoTooltipProps) {
   const id = useId();
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLSpanElement>(null);
+  const popoverRef = useRef<HTMLSpanElement>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);
   const [align, setAlign] = useState<Align>('center');
@@ -264,7 +264,7 @@ export function InfoTooltip({
 
   const effectivePortalPos = portalToBody ? bodyPortalPosition : portalPosition;
   const tooltipContent = (
-    <div
+    <span
       ref={popoverRef}
       id={id}
       role="tooltip"
@@ -282,7 +282,7 @@ export function InfoTooltip({
           : { width: maxWidth, maxWidth }),
       }}
       className={`
-        rounded-lg bg-slate-800 px-4 py-3 text-left text-sm leading-relaxed text-slate-100
+        relative block rounded-lg bg-slate-800 px-4 py-3 text-left text-sm normal-case leading-relaxed text-slate-100
         shadow-lg shadow-black/20 ring-1 ring-white/10
         transition-all duration-200 ease-out
         ${
@@ -311,11 +311,13 @@ export function InfoTooltip({
         <span className={`absolute ${arrowVertical} ${arrowHorizontal} h-0 w-0 border-[6px]`} />
       )}
 
-      <div className="mb-1.5 text-[13px] font-semibold text-white dark:text-slate-100">{title}</div>
-      <div className="text-[12.5px] leading-[1.6] text-slate-300 dark:text-slate-300">
+      <span className="mb-1.5 block text-[13px] font-semibold text-white dark:text-slate-100">
+        {title}
+      </span>
+      <span className="block text-[12.5px] leading-[1.6] text-slate-300 dark:text-slate-300">
         {children}
-      </div>
-    </div>
+      </span>
+    </span>
   );
 
   const useBoundaryPortal = boundaryRef != null && open && portalPosition != null;
@@ -323,11 +325,12 @@ export function InfoTooltip({
 
   return (
     <span className="relative inline-flex">
-      <button
+      <span
         ref={triggerRef}
-        type="button"
+        role="button"
+        tabIndex={0}
         aria-describedby={id}
-        className="inline-flex items-center justify-center rounded-full p-0.5
+        className="inline-flex cursor-pointer items-center justify-center rounded-full p-0.5
                    text-muted/60 transition-all duration-200
                    hover:text-primary hover:scale-110
                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-1"
@@ -337,7 +340,7 @@ export function InfoTooltip({
         onBlur={handleLeave}
       >
         <Info className="size-4" />
-      </button>
+      </span>
 
       {useBoundaryPortal && portalPosition != null && typeof document !== 'undefined'
         ? createPortal(
@@ -378,14 +381,14 @@ export function InfoTooltip({
         : null}
 
       {!useBoundaryPortal && !useBodyPortal && boundaryRef == null && !portalToBody ? (
-        <div
+        <span
           className={`
-            absolute z-50 ${verticalPos} ${horizontalPos}
+            absolute z-50 block ${verticalPos} ${horizontalPos}
             ${open ? '' : 'invisible'}
           `}
         >
           {tooltipContent}
-        </div>
+        </span>
       ) : null}
     </span>
   );

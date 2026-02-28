@@ -245,11 +245,12 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
           ),
           client.query<{ golden_count: string; total_count: string; avg_score: string }>(
             `SELECT
-                 COALESCE(SUM(CASE WHEN quality_level = 'golden' THEN 1 ELSE 0 END), 0)::text as golden_count,
+                 COALESCE(SUM(CASE WHEN pm.data_quality_level = 'golden' THEN 1 ELSE 0 END), 0)::text as golden_count,
                  COUNT(*)::text as total_count,
-                 COALESCE(AVG(quality_score), 0)::text as avg_score
-               FROM shopify_products
-              WHERE shop_id = $1`,
+                 COALESCE(AVG(pm.quality_score), 0)::text as avg_score
+               FROM prod_channel_mappings pcm
+               JOIN prod_master pm ON pm.id = pcm.product_id
+              WHERE pcm.shop_id = $1 AND pcm.channel = 'shopify'`,
             [session.shopId]
           ),
           client.query<{ started_at: string | null; status: string | null }>(
@@ -264,17 +265,18 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
             `SELECT
                  COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0)::text as success_count,
                  COUNT(*)::text as total_count
-               FROM enrichment_jobs
+               FROM job_runs
               WHERE shop_id = $1
-                AND created_at >= $2`,
+                AND created_at >= $2
+                AND queue_name LIKE '%enrichment%'`,
             [session.shopId, since]
           ),
           client.query<{ total_cost: string }>(
-            `SELECT COALESCE(SUM(cost_usd), 0)::text as total_cost
+            `SELECT COALESCE(SUM(estimated_cost), 0)::text as total_cost
                FROM api_usage_log
               WHERE shop_id = $1
                 AND created_at >= $2
-                AND cost_usd IS NOT NULL`,
+                AND estimated_cost IS NOT NULL`,
             [session.shopId, todayStart]
           ),
         ]);
@@ -371,18 +373,21 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
           ),
           client.query<{ golden: string; total: string; avg_score: string }>(
             `SELECT
-               COALESCE(SUM(CASE WHEN quality_level = 'golden' THEN 1 ELSE 0 END), 0)::text as golden,
+               COALESCE(SUM(CASE WHEN pm.data_quality_level = 'golden' THEN 1 ELSE 0 END), 0)::text as golden,
                COUNT(*)::text as total,
-               COALESCE(AVG(quality_score), 0)::text as avg_score
-             FROM shopify_products WHERE shop_id = $1 AND created_at < $2`,
+               COALESCE(AVG(pm.quality_score), 0)::text as avg_score
+             FROM prod_channel_mappings pcm
+             JOIN prod_master pm ON pm.id = pcm.product_id
+             WHERE pcm.shop_id = $1 AND pcm.channel = 'shopify' AND pcm.created_at < $2`,
             [session.shopId, dayEnd]
           ),
           client.query<{ success_count: string; total_count: string }>(
             `SELECT
                COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0)::text as success_count,
                COUNT(*)::text as total_count
-             FROM enrichment_jobs
-             WHERE shop_id = $1 AND created_at >= $2 AND created_at < $3`,
+             FROM job_runs
+             WHERE shop_id = $1 AND created_at >= $2 AND created_at < $3
+               AND queue_name LIKE '%enrichment%'`,
             [session.shopId, d.toISOString(), dayEnd]
           ),
           client.query<{ total_count: string; error_count: string }>(
@@ -394,9 +399,9 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
             [session.shopId, d.toISOString(), dayEnd]
           ),
           client.query<{ total_cost: string }>(
-            `SELECT COALESCE(SUM(cost_usd), 0)::text as total_cost
+            `SELECT COALESCE(SUM(estimated_cost), 0)::text as total_cost
              FROM api_usage_log
-             WHERE shop_id = $1 AND created_at >= $2 AND created_at < $3 AND cost_usd IS NOT NULL`,
+             WHERE shop_id = $1 AND created_at >= $2 AND created_at < $3 AND estimated_cost IS NOT NULL`,
             [session.shopId, d.toISOString(), dayEnd]
           ),
         ]);

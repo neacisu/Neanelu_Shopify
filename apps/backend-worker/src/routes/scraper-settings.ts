@@ -17,7 +17,7 @@ import { chromium } from 'playwright-core';
 import type { SessionConfig } from '../auth/session.js';
 import { requireSession } from '../auth/session.js';
 import { isUrlAllowed } from '@app/scraper';
-import { Redis } from 'ioredis';
+import { createManagedRedis } from '@app/database';
 
 type ScraperSettingsPluginOptions = Readonly<{
   env: AppEnv;
@@ -800,7 +800,7 @@ export const scraperSettingsRoutes: FastifyPluginCallback<ScraperSettingsPluginO
       if (!body.url) {
         return reply.status(400).send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing url'));
       }
-      const redis = new Redis(env.redisUrl);
+      const redis = createManagedRedis('scraper-robots-test');
       try {
         const allowed = await isUrlAllowed(
           body.url,
@@ -826,8 +826,6 @@ export const scraperSettingsRoutes: FastifyPluginCallback<ScraperSettingsPluginO
         return reply
           .status(500)
           .send(errorEnvelope(request.id, 500, 'INTERNAL_SERVER_ERROR', 'Robots test failed'));
-      } finally {
-        await redis.quit();
       }
     }
   );

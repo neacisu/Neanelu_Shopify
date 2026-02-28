@@ -28,3 +28,6 @@ export * from './jobs/mv-refresh.js';
 
 // Utilities exports
 export * from './utils/index.js';
+
+// Database pool rotation exports
+export { rotatePimPool, getCurrentPimConnectionString, closePimPool } from './db.js';

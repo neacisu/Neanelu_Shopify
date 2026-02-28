@@ -9,7 +9,7 @@ import { loadEnv } from '@app/config';
 import type { Logger } from '@app/logger';
 import { ShopifyRateLimitedError } from '@app/shopify-client';
 import { checkAndConsumeCost, configFromEnv, createQueue, createWorker } from '@app/queue-manager';
-import { Redis as IORedis } from 'ioredis';
+import { createManagedRedis } from '@app/database';
 
 import {
   createTokenHealthJobConfig,
@@ -43,7 +43,7 @@ async function closeWithTimeout(label: string, fn: () => Promise<void>, timeoutM
 
 function startTokenHealthWorker(logger: Logger): TokenHealthWorkerHandle {
   const qmOptions = { config: configFromEnv(env) };
-  const redis = new IORedis(env.redisUrl);
+  const redis = createManagedRedis('token-health-worker');
 
   // Ensure the queue exists (used for fan-out scheduling).
   const queue = createQueue(qmOptions, { name: TOKEN_HEALTH_QUEUE_NAME });

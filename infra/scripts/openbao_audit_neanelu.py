@@ -89,17 +89,17 @@ def main() -> int:
     # Policies + roles expected by repo conventions.
     expected_policies = [
         "neanelu-prod-api",
-        "neanelu-prod-workers",
         "neanelu-staging-api",
-        "neanelu-staging-workers",
+        "neanelu-dev-api",
         "neanelu-infra",
+        "neanelu-cicd",
     ]
     expected_approles = [
         "neanelu-prod-api",
-        "neanelu-prod-workers",
         "neanelu-staging-api",
-        "neanelu-staging-workers",
+        "neanelu-dev-api",
         "neanelu-infra",
+        "neanelu-cicd",
     ]
     expected_db_roles = [
         "neanelu-prod-dynamic",

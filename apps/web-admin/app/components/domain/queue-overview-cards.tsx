@@ -75,8 +75,9 @@ export function QueueOverviewCard({
           : 'border-slate-200/90 hover:border-slate-300/80 dark:border-slate-700/80 dark:hover:border-slate-600/80'
       }`}
       style={{
-        animation: isVisible ? `queueCardEnter ${ENTER_DURATION_MS}ms ease-out both` : 'none',
-        animationDelay: isVisible ? `${Math.min(index, STAGGER_CAP) * STAGGER_MS}ms` : '0ms',
+        animation: isVisible
+          ? `queueCardEnter ${ENTER_DURATION_MS}ms ease-out ${Math.min(index, STAGGER_CAP) * STAGGER_MS}ms both`
+          : 'none',
       }}
     >
       {/* Accent bar: amber when has failed, blue when active, slate when idle */}

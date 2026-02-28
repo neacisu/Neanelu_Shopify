@@ -31,22 +31,25 @@ void mock.module('@app/database', {
     pool: {
       query: () => Promise.resolve({ rows: [{ id: '00000000-0000-0000-0000-000000000001' }] }),
     },
+    createManagedRedis: (_name: string) => ({
+      quit: () => Promise.resolve(),
+      set: () => Promise.resolve('OK'),
+      get: () => Promise.resolve(null),
+      exists: () => Promise.resolve(0),
+      ping: () => Promise.resolve('PONG'),
+    }),
+    createSecondaryPool: () => ({
+      pool: {
+        query: () => Promise.resolve({ rows: [] }),
+        connect: () =>
+          Promise.resolve({ query: () => Promise.resolve({ rows: [] }), release: () => undefined }),
+        end: () => Promise.resolve(),
+      },
+      rotate: () => Promise.resolve(),
+      close: () => Promise.resolve(),
+      getCurrentConnectionString: () => 'mock',
+    }),
   },
-});
-
-// Mock Redis (ioredis) used in webhooks.ts
-const RedisMock = class {
-  quit() {
-    return Promise.resolve();
-  }
-  set() {
-    return Promise.resolve('OK');
-  }
-};
-
-// With default import, we just need defaultExport
-void mock.module('ioredis', {
-  defaultExport: RedisMock,
 });
 
 const enqueueMock = mock.fn((_payload: WebhookJobPayload) => Promise.resolve());

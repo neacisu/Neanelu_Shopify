@@ -109,11 +109,6 @@ def main() -> int:
     if args.mode == "prod":
         roles = [
             AppRoleFiles("neanelu-prod-api", "/opt/neanelu/secrets/prod_api_role_id", "/opt/neanelu/secrets/prod_api_secret_id"),
-            AppRoleFiles(
-                "neanelu-prod-workers",
-                "/opt/neanelu/secrets/prod_workers_role_id",
-                "/opt/neanelu/secrets/prod_workers_secret_id",
-            ),
             # Infra role is shared in OpenBao; we still keep separate file names on disk.
             AppRoleFiles(
                 "neanelu-infra",
@@ -129,25 +124,15 @@ def main() -> int:
                 "/opt/neanelu/secrets/staging_api_secret_id",
             ),
             AppRoleFiles(
-                "neanelu-staging-workers",
-                "/opt/neanelu/secrets/staging_workers_role_id",
-                "/opt/neanelu/secrets/staging_workers_secret_id",
-            ),
-            AppRoleFiles(
                 "neanelu-infra",
                 "/opt/neanelu/secrets/staging_infra_role_id",
                 "/opt/neanelu/secrets/staging_infra_secret_id",
             ),
         ]
     else:
-        # Dev needs only API + workers; it can reuse the existing infra/pgbouncer stack.
+        # Dev needs only API; it can reuse the existing infra/pgbouncer stack.
         roles = [
             AppRoleFiles("neanelu-dev-api", "/opt/neanelu/secrets/dev_api_role_id", "/opt/neanelu/secrets/dev_api_secret_id"),
-            AppRoleFiles(
-                "neanelu-dev-workers",
-                "/opt/neanelu/secrets/dev_workers_role_id",
-                "/opt/neanelu/secrets/dev_workers_secret_id",
-            ),
         ]
 
     for r in roles:

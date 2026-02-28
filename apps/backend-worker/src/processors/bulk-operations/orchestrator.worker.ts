@@ -30,8 +30,8 @@ import {
   type DlqEntry,
   type DlqQueueLike,
 } from '@app/queue-manager';
-import Redis from 'ioredis';
 import type { Redis as RedisClient } from 'ioredis';
+import { createManagedRedis } from '@app/database';
 import { ShopifyRateLimitedError } from '@app/shopify-client';
 
 import { shopifyApi } from '../../shopify/client.js';
@@ -70,8 +70,6 @@ import {
 import { withBulkSpan } from './otel/spans.js';
 
 const env = loadEnv();
-
-const RedisCtor = Redis as unknown as new (url: string) => RedisClient;
 
 export interface BulkOrchestratorWorkerHandle {
   worker: { close: () => Promise<void>; isRunning?: () => boolean };
@@ -222,7 +220,7 @@ async function syncThrottleStatusIfPresent(params: {
 }
 
 export function startBulkOrchestratorWorker(logger: Logger): BulkOrchestratorWorkerHandle {
-  const redis = new RedisCtor(env.redisUrl);
+  const redis = createManagedRedis('bulk-orchestrator');
   const qmOptions = { config: configFromEnv(env) };
   const graphqlLimiterCfg = getShopifyGraphqlRateLimitConfig();
 

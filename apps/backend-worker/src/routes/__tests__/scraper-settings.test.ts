@@ -67,6 +67,25 @@ void mock.module('@app/database', {
       connect: () =>
         Promise.resolve({ query: () => Promise.resolve({ rows: [] }), release: () => undefined }),
     },
+    createManagedRedis: (_name: string) => ({
+      quit: () => Promise.resolve(),
+      set: () => Promise.resolve('OK'),
+      get: () => Promise.resolve(null),
+      exists: () => Promise.resolve(0),
+      ping: () => Promise.resolve('PONG'),
+      del: () => Promise.resolve(0),
+    }),
+    createSecondaryPool: () => ({
+      pool: {
+        query: () => Promise.resolve({ rows: [] }),
+        connect: () =>
+          Promise.resolve({ query: () => Promise.resolve({ rows: [] }), release: () => undefined }),
+        end: () => Promise.resolve(),
+      },
+      rotate: () => Promise.resolve(),
+      close: () => Promise.resolve(),
+      getCurrentConnectionString: () => 'mock',
+    }),
     withTenantContext: async (
       _shopId: string,
       fn: (client: {

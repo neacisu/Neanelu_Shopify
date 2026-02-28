@@ -383,8 +383,10 @@ export default function SearchPage() {
                 {Array.from({ length: 6 }).map((_, idx) => (
                   <div
                     key={`skeleton-${idx}`}
-                    className="h-52 animate-pulse rounded-xl border border-slate-200/80 bg-slate-100/50 dark:border-slate-700/60 dark:bg-slate-800/50"
-                    style={{ animationDelay: `${idx * 80}ms` }}
+                    className="h-52 rounded-xl border border-slate-200/80 bg-slate-100/50 dark:border-slate-700/60 dark:bg-slate-800/50"
+                    style={{
+                      animation: `pulse 2s cubic-bezier(0.4, 0, 0.6, 1) ${idx * 80}ms infinite`,
+                    }}
                   />
                 ))}
               </div>

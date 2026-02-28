@@ -181,8 +181,11 @@ export function ProductsTable({
         }
         renderItem={(item, index) => (
           <div
-            className="grid cursor-pointer items-center gap-3 px-3 py-3 text-sm transition-all duration-150 hover:bg-white/80 hover:backdrop-blur-sm dark:hover:bg-slate-800/80 dark:text-slate-200 motion-safe:animate-[fadeSlideUp_0.3s_ease-out_both]"
-            style={{ gridTemplateColumns, animationDelay: `${Math.min((index ?? 0) * 30, 300)}ms` }}
+            className="grid cursor-pointer items-center gap-3 px-3 py-3 text-sm transition-all duration-150 hover:bg-white/80 hover:backdrop-blur-sm dark:hover:bg-slate-800/80 dark:text-slate-200"
+            style={{
+              gridTemplateColumns,
+              animation: `fadeSlideUp 0.3s ease-out ${Math.min((index ?? 0) * 30, 300)}ms both`,
+            }}
             role="row"
           >
             <label className="flex items-center justify-center">

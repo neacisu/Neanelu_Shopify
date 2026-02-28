@@ -15,6 +15,23 @@ void mock.module(sessionPath, {
 
 void mock.module('@app/database', {
   namedExports: {
+    createSecondaryPool: () => ({
+      pool: {
+        query: () => Promise.resolve({ rows: [] }),
+        connect: () =>
+          Promise.resolve({ query: () => Promise.resolve({ rows: [] }), release: () => undefined }),
+      },
+      rotate: () => Promise.resolve(),
+      close: () => Promise.resolve(),
+      getCurrentConnectionString: () => 'postgresql://test',
+    }),
+    createManagedRedis: () => ({
+      on: () => undefined,
+      get: () => Promise.resolve(null),
+      setex: () => Promise.resolve('OK'),
+      quit: () => Promise.resolve('OK'),
+      disconnect: () => undefined,
+    }),
     pool: {
       query: () => Promise.resolve({ rows: [] }),
       connect: () =>

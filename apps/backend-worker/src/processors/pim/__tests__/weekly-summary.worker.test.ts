@@ -6,6 +6,23 @@ const fetchCalls: { url: string; headers: Record<string, string> }[] = [];
 
 void mock.module('@app/database', {
   namedExports: {
+    createManagedRedis: () => ({
+      on: () => undefined,
+      get: () => Promise.resolve(null),
+      setex: () => Promise.resolve('OK'),
+      quit: () => Promise.resolve('OK'),
+      disconnect: () => undefined,
+    }),
+    createSecondaryPool: () => ({
+      pool: {
+        query: () => Promise.resolve({ rows: [] }),
+        connect: () =>
+          Promise.resolve({ query: () => Promise.resolve({ rows: [] }), release: () => undefined }),
+      },
+      rotate: () => Promise.resolve(),
+      close: () => Promise.resolve(),
+      getCurrentConnectionString: () => 'postgresql://test',
+    }),
     pool: {
       query: (sql: string, params?: unknown[]) => {
         calls.push(params ? { sql, params } : { sql });

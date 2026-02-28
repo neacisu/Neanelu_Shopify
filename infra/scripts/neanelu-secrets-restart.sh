@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# DEPRECATED: replaced by app-level credential-watcher.ts hot-reload.
 # =============================================================================
 # Neanelu Secrets Restart
 # =============================================================================

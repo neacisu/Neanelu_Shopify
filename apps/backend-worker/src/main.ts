@@ -1,5 +1,3 @@
-import { Redis as IORedis } from 'ioredis';
-
 import { loadEnv } from '@app/config';
 import { createLogger } from '@app/logger';
 import {
@@ -7,8 +5,16 @@ import {
   closePool,
   startCredentialWatcher,
   stopCredentialWatcher,
+  createManagedRedis,
+  closeManagedRedisConnections,
+  registerWorkerRecreator,
 } from '@app/database';
-import { getMaxBudgetRatios, registerBudgetGuardHooks, registerOtelCallback } from '@app/pim';
+import {
+  getMaxBudgetRatios,
+  registerBudgetGuardHooks,
+  registerOtelCallback,
+  closePimPool,
+} from '@app/pim';
 import { closeEnrichmentQueue, configFromEnv } from '@app/queue-manager';
 
 import { buildServer } from './http/server.js';
@@ -228,8 +234,149 @@ let qualityWebhookSweepScheduler: Awaited<
   ReturnType<typeof startQualityWebhookSweepScheduler>
 > | null = null;
 let queueConfigListener: Awaited<ReturnType<typeof startQueueConfigListener>> | null = null;
-let budgetGaugeRedis: IORedis | null = null;
+let budgetGaugeRedis: ReturnType<typeof createManagedRedis> | null = null;
 let budgetGaugeInterval: NodeJS.Timeout | null = null;
+
+function buildQueueConfigRegistry() {
+  return {
+    'webhook-queue': webhookWorker?.worker as unknown as { concurrency?: number },
+    'sync-queue': syncWorker?.worker as unknown as { concurrency?: number },
+    'bulk-queue': bulkOrchestratorWorker?.worker as unknown as { concurrency?: number },
+    'bulk-poller-queue': bulkPollerWorker?.worker as unknown as { concurrency?: number },
+    'bulk-mutation-reconcile-queue': bulkMutationReconcileWorker?.worker as unknown as {
+      concurrency?: number;
+    },
+    'pim-manual-sync': pimManualSyncWorker?.worker as unknown as { concurrency?: number },
+    'ai-batch-queue': aiBatchWorker?.worker as unknown as { concurrency?: number },
+    'pim-enrichment-queue': enrichmentWorker?.worker as unknown as { concurrency?: number },
+    'pim-similarity-search': similaritySearchWorker?.worker as unknown as { concurrency?: number },
+    'pim-ai-audit': similarityAIAuditWorker?.worker as unknown as { concurrency?: number },
+    'pim-extraction': extractionWorker?.worker as unknown as { concurrency?: number },
+    'pim-consensus': consensusWorker?.worker as unknown as { concurrency?: number },
+    'pim-mv-refresh-queue': mvRefreshScheduler?.worker as unknown as { concurrency?: number },
+    'pim-auto-enrichment-scheduler-queue': autoEnrichmentScheduler?.worker as unknown as {
+      concurrency?: number;
+    },
+    'pim-raw-harvest-retention-queue': rawHarvestRetentionScheduler?.worker as unknown as {
+      concurrency?: number;
+    },
+    'pim-quality-webhook': qualityWebhookWorker?.worker as unknown as { concurrency?: number },
+    'pim-quality-webhook-sweep': qualityWebhookSweepScheduler?.worker as unknown as {
+      concurrency?: number;
+    },
+  };
+}
+
+async function recreateRedisDependentWorkers(newRedisUrl: string): Promise<void> {
+  logger.warn({ newRedisUrl }, 'Recreating Redis-dependent workers');
+
+  if (queueConfigListener) {
+    await queueConfigListener.quit().catch(() => undefined);
+    queueConfigListener = null;
+  }
+
+  if (webhookWorker) await webhookWorker.close();
+  webhookWorker = startWebhookWorker(logger);
+  setWebhookWorkerHandle(webhookWorker);
+
+  if (tokenHealthWorker) await tokenHealthWorker.close();
+  tokenHealthWorker = startTokenHealthWorker(logger);
+  setTokenHealthWorkerHandle(tokenHealthWorker);
+
+  if (syncWorker) await syncWorker.close();
+  syncWorker = startSyncWorker(logger);
+  setSyncWorkerHandle(syncWorker);
+
+  if (bulkOrchestratorWorker) await bulkOrchestratorWorker.close();
+  bulkOrchestratorWorker = startBulkOrchestratorWorker(logger);
+  setBulkOrchestratorWorkerHandle(bulkOrchestratorWorker);
+
+  if (bulkPollerWorker) await bulkPollerWorker.close();
+  bulkPollerWorker = startBulkPollerWorker(logger);
+  setBulkPollerWorkerHandle(bulkPollerWorker);
+
+  if (bulkMutationReconcileWorker) await bulkMutationReconcileWorker.close();
+  bulkMutationReconcileWorker = startBulkMutationReconcileWorker(logger);
+  setBulkMutationReconcileWorkerHandle(bulkMutationReconcileWorker);
+
+  if (bulkIngestWorker) await bulkIngestWorker.close();
+  bulkIngestWorker = startBulkIngestWorker(logger);
+  setBulkIngestWorkerHandle(bulkIngestWorker);
+
+  if (pimManualSyncWorker) await pimManualSyncWorker.close();
+  pimManualSyncWorker = startPimManualSyncWorker(logger);
+  (setPimManualSyncWorkerHandle as (h: typeof pimManualSyncWorker) => void)(pimManualSyncWorker);
+
+  if (bulkScheduleWorker) await bulkScheduleWorker.close();
+  bulkScheduleWorker = startBulkScheduleWorker(logger);
+
+  if (aiBatchWorker) await aiBatchWorker.close();
+  aiBatchWorker = startAiBatchWorker(logger);
+  setAiBatchWorkerHandle(aiBatchWorker);
+
+  if (aiBatchScheduleWorker) await aiBatchScheduleWorker.close();
+  aiBatchScheduleWorker = startAiBatchScheduleWorker(logger);
+
+  if (openAiHealthWorker) await openAiHealthWorker.close();
+  openAiHealthWorker = startOpenAiHealthWorker(logger);
+
+  if (serperHealthWorker) await serperHealthWorker.close();
+  serperHealthWorker = startSerperHealthWorker(logger);
+
+  if (xaiHealthWorker) await xaiHealthWorker.close();
+  xaiHealthWorker = startXaiHealthWorker(logger);
+
+  if (enrichmentWorker) await enrichmentWorker.close();
+  enrichmentWorker = startEnrichmentWorker(logger);
+  setEnrichmentWorkerHandle(enrichmentWorker);
+
+  if (similaritySearchWorker) await similaritySearchWorker.close();
+  similaritySearchWorker = startSimilaritySearchWorker(logger);
+  setSimilaritySearchWorkerHandle(similaritySearchWorker);
+
+  if (similarityAIAuditWorker) await similarityAIAuditWorker.close();
+  similarityAIAuditWorker = startAIAuditWorker(logger);
+  setSimilarityAIAuditWorkerHandle(similarityAIAuditWorker);
+
+  if (extractionWorker) await extractionWorker.close();
+  extractionWorker = startExtractionWorker(logger);
+  setExtractionWorkerHandle(extractionWorker);
+
+  if (consensusWorker) await consensusWorker.close();
+  consensusWorker = startConsensusWorker(logger);
+  setConsensusWorkerHandle(consensusWorker);
+
+  if (budgetResetScheduler) await budgetResetScheduler.close();
+  budgetResetScheduler = startBudgetResetScheduler(logger);
+  setBudgetResetSchedulerHandle(budgetResetScheduler);
+
+  if (weeklySummaryScheduler) await weeklySummaryScheduler.close();
+  weeklySummaryScheduler = startWeeklySummaryScheduler(logger);
+  setWeeklySummarySchedulerHandle(weeklySummaryScheduler);
+
+  if (mvRefreshScheduler) await mvRefreshScheduler.close();
+  mvRefreshScheduler = startMvRefreshScheduler(logger);
+  setMvRefreshSchedulerHandle(mvRefreshScheduler);
+
+  if (autoEnrichmentScheduler) await autoEnrichmentScheduler.close();
+  autoEnrichmentScheduler = startAutoEnrichmentScheduler(logger);
+  setAutoEnrichmentSchedulerHandle(autoEnrichmentScheduler);
+
+  if (rawHarvestRetentionScheduler) await rawHarvestRetentionScheduler.close();
+  rawHarvestRetentionScheduler = startRawHarvestRetentionScheduler(logger);
+  setRawHarvestRetentionSchedulerHandle(rawHarvestRetentionScheduler);
+
+  if (qualityWebhookWorker) await qualityWebhookWorker.close();
+  qualityWebhookWorker = startQualityWebhookWorker(logger);
+  setQualityWebhookWorkerHandle(qualityWebhookWorker);
+
+  if (qualityWebhookSweepScheduler) await qualityWebhookSweepScheduler.close();
+  qualityWebhookSweepScheduler = startQualityWebhookSweepScheduler(logger);
+  setQualityWebhookSweepSchedulerHandle(qualityWebhookSweepScheduler);
+
+  queueConfigListener = await startQueueConfigListener(env, logger, buildQueueConfigRegistry());
+  logger.warn({}, 'Redis-dependent workers recreated successfully');
+}
 
 try {
   await server.listen({ port: env.port, host: '0.0.0.0' });
@@ -301,7 +448,7 @@ try {
   });
 
   pimManualSyncWorker = startPimManualSyncWorker(logger);
-  setPimManualSyncWorkerHandle(pimManualSyncWorker);
+  (setPimManualSyncWorkerHandle as (h: typeof pimManualSyncWorker) => void)(pimManualSyncWorker);
   logger.info({}, 'pim manual sync worker started');
   emitQueueStreamEvent({
     type: 'worker.online',
@@ -466,7 +613,7 @@ try {
     timestamp: new Date().toISOString(),
   });
 
-  budgetGaugeRedis = new IORedis(env.redisUrl, {
+  budgetGaugeRedis = createManagedRedis('budget-gauge', {
     enableReadyCheck: true,
     maxRetriesPerRequest: null,
   });
@@ -488,36 +635,11 @@ try {
     void refreshBudgetMetrics();
   }, 15_000);
 
-  queueConfigListener = await startQueueConfigListener(env, logger, {
-    'webhook-queue': webhookWorker?.worker as unknown as { concurrency?: number },
-    'sync-queue': syncWorker?.worker as unknown as { concurrency?: number },
-    'bulk-queue': bulkOrchestratorWorker?.worker as unknown as { concurrency?: number },
-    'bulk-poller-queue': bulkPollerWorker?.worker as unknown as { concurrency?: number },
-    'bulk-mutation-reconcile-queue': bulkMutationReconcileWorker?.worker as unknown as {
-      concurrency?: number;
-    },
-    'pim-manual-sync': pimManualSyncWorker?.worker as unknown as { concurrency?: number },
-    'ai-batch-queue': aiBatchWorker?.worker as unknown as { concurrency?: number },
-    'pim-enrichment-queue': enrichmentWorker?.worker as unknown as { concurrency?: number },
-    'pim-similarity-search': similaritySearchWorker?.worker as unknown as { concurrency?: number },
-    'pim-ai-audit': similarityAIAuditWorker?.worker as unknown as { concurrency?: number },
-    'pim-extraction': extractionWorker?.worker as unknown as { concurrency?: number },
-    'pim-consensus': consensusWorker?.worker as unknown as { concurrency?: number },
-    'pim-mv-refresh-queue': mvRefreshScheduler?.worker as unknown as { concurrency?: number },
-    'pim-auto-enrichment-scheduler-queue': autoEnrichmentScheduler?.worker as unknown as {
-      concurrency?: number;
-    },
-    'pim-raw-harvest-retention-queue': rawHarvestRetentionScheduler?.worker as unknown as {
-      concurrency?: number;
-    },
-    'pim-quality-webhook': qualityWebhookWorker?.worker as unknown as { concurrency?: number },
-    'pim-quality-webhook-sweep': qualityWebhookSweepScheduler?.worker as unknown as {
-      concurrency?: number;
-    },
-  });
+  queueConfigListener = await startQueueConfigListener(env, logger, buildQueueConfigRegistry());
   logger.info({}, 'queue config listener started');
 
   await startCredentialWatcher();
+  registerWorkerRecreator('backend-worker-runtime', recreateRedisDependentWorkers);
   logger.info({}, 'credential watcher started');
 } catch (error) {
   logger.fatal({ error }, 'server failed to start');
@@ -614,7 +736,7 @@ const shutdown = async (signal: string): Promise<void> => {
     if (pimManualSyncWorker) {
       await pimManualSyncWorker.close();
       pimManualSyncWorker = null;
-      setPimManualSyncWorkerHandle(null);
+      (setPimManualSyncWorkerHandle as (h: null) => void)(null);
       logger.info({ signal }, 'pim manual sync worker stopped');
       emitQueueStreamEvent({
         type: 'worker.offline',
@@ -848,6 +970,7 @@ const shutdown = async (signal: string): Promise<void> => {
       await budgetGaugeRedis.quit();
       budgetGaugeRedis = null;
     }
+    await closeManagedRedisConnections();
 
     await closeTokenHealthQueue();
     await closeSimilarityQueues();
@@ -857,8 +980,9 @@ const shutdown = async (signal: string): Promise<void> => {
     await closeEnrichmentQueue();
 
     stopCredentialWatcher();
+    await closePimPool();
     await closePool();
-    logger.info({ signal }, 'database pool closed');
+    logger.info({ signal }, 'database pools closed (main + PIM)');
 
     await server.close();
     logger.info({ signal }, 'shutdown complete');

@@ -5,6 +5,23 @@ import type { FastifyInstance } from 'fastify';
 
 void mock.module('@app/database', {
   namedExports: {
+    createManagedRedis: () => ({
+      on: () => undefined,
+      get: () => Promise.resolve(null),
+      setex: () => Promise.resolve('OK'),
+      quit: () => Promise.resolve('OK'),
+      disconnect: () => undefined,
+    }),
+    createSecondaryPool: () => ({
+      pool: {
+        query: () => Promise.resolve({ rows: [] }),
+        connect: () =>
+          Promise.resolve({ query: () => Promise.resolve({ rows: [] }), release: () => undefined }),
+      },
+      rotate: () => Promise.resolve(),
+      close: () => Promise.resolve(),
+      getCurrentConnectionString: () => 'postgresql://test',
+    }),
     decryptAesGcm: () => Buffer.from(''),
     encryptAesGcm: () => ({
       ciphertext: Buffer.from(''),
@@ -58,6 +75,7 @@ void mock.module('@app/queue-manager', {
       quit: () => Promise.resolve(undefined),
     }),
     enqueueBulkOrchestratorJob: () => Promise.resolve(),
+    enqueueBulkPollerJob: () => Promise.resolve(),
     enqueueEnrichmentJob: () => Promise.resolve(),
     enqueueBulkIngestJob: () => Promise.resolve(),
     ENRICHMENT_QUEUE_NAME: 'pim-enrichment-queue',
@@ -71,6 +89,7 @@ void mock.module('@app/queue-manager', {
     ],
     WEBHOOK_QUEUE_NAME: 'webhooks',
     cleanupWebhookJobsForShopDomain: () => Promise.resolve(),
+    BULK_POLLER_QUEUE_NAME: 'bulk-poller-queue',
   },
 });
 

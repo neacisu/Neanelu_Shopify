@@ -393,11 +393,14 @@ export default function SimilarityMatchesPage() {
             setSelectedIds([]);
           }}
         />
-        {TAB_TOOLTIPS[activeTab] != null ? (
-          <InfoTooltip title={TAB_TOOLTIPS[activeTab].title} side="bottom">
-            {TAB_TOOLTIPS[activeTab].body}
-          </InfoTooltip>
-        ) : null}
+        {(() => {
+          const tip = TAB_TOOLTIPS[activeTab];
+          return tip != null ? (
+            <InfoTooltip title={tip.title} side="bottom">
+              {tip.body}
+            </InfoTooltip>
+          ) : null;
+        })()}
       </div>
 
       <SimilarityMatchesStats stats={stats} />
@@ -459,8 +462,10 @@ export default function SimilarityMatchesPage() {
           {Array.from({ length: 4 }).map((_, index) => (
             <div
               key={`skeleton-${index}`}
-              className="animate-pulse rounded-md border border-slate-200/60 bg-slate-100/50 p-4 text-sm text-slate-400 dark:border-slate-700/40 dark:bg-slate-800/50 dark:text-slate-500"
-              style={{ animationDelay: `${index * 100}ms` }}
+              className="rounded-md border border-slate-200/60 bg-slate-100/50 p-4 text-sm text-slate-400 dark:border-slate-700/40 dark:bg-slate-800/50 dark:text-slate-500"
+              style={{
+                animation: `pulse 2s cubic-bezier(0.4, 0, 0.6, 1) ${index * 100}ms infinite`,
+              }}
             >
               Se încarcă potrivirile...
             </div>

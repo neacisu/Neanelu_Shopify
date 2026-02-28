@@ -216,8 +216,10 @@ export function AppShell({
                   {navItems.map((item, index) => (
                     <div
                       key={item.to}
-                      className="animate-sidebar-link-enter opacity-0"
-                      style={{ animationDelay: `${index * 35}ms` }}
+                      className="opacity-0"
+                      style={{
+                        animation: `sidebarLinkEnter 0.35s ease-out ${index * 35}ms forwards`,
+                      }}
                     >
                       <NavLink
                         to={item.to}

@@ -32,7 +32,6 @@ install -m 0644 "$REPO_ROOT/infra/systemd/neanelu-secrets-restart@${NEANELU_ENV}
 
 echo "[4/5] Syncing OpenBao agent configs..."
 cp "$REPO_ROOT/infra/config/openbao/agent-api.hcl" /opt/neanelu/infra/config/openbao/agent-api.hcl
-cp "$REPO_ROOT/infra/config/openbao/agent-workers.hcl" /opt/neanelu/infra/config/openbao/agent-workers.hcl
 
 echo "[5/5] Enabling and starting systemd units..."
 systemctl daemon-reload

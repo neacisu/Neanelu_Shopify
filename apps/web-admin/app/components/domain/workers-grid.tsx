@@ -76,8 +76,7 @@ function WorkerCard({
         focus-within:ring-2 focus-within:ring-[rgb(var(--color-ring))]/40 focus-within:ring-offset-2
         dark:border-slate-700/80 dark:bg-slate-800/95 dark:hover:border-slate-600/80"
       style={{
-        animation: `workerCardEnter ${ENTER_DURATION_MS}ms ease-out both`,
-        animationDelay: `${Math.min(index, STAGGER_CAP) * STAGGER_MS}ms`,
+        animation: `workerCardEnter ${ENTER_DURATION_MS}ms ease-out ${Math.min(index, STAGGER_CAP) * STAGGER_MS}ms both`,
       }}
     >
       {/* Accent bar left: green online, amber when busy, slate offline */}

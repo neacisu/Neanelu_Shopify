@@ -2,12 +2,19 @@
 # Hot-reload dev override for hz.164
 # =============================================================================
 # Usage:
-#   pnpm dev:local:build   (first time or after dependency changes)
+#   pnpm dev:local:build   (first time or after dependency/API changes)
 #   pnpm dev:local          (start dev stack with hot-reload)
 #   pnpm dev:local:logs     (follow logs)
 #
 # Overrides backend-worker-dev and web-admin-dev from docker-compose.staging.yml
 # with local builds and source volume mounts for hot-reload.
+#
+# Volume mount strategy:
+#   - All internal packages mount both src/ and dist/ so that:
+#     (a) tsx hot-reload picks up source changes instantly
+#     (b) `pnpm -r --if-present run build` on host updates dist/ without
+#         requiring a full image rebuild
+#   - Image rebuild is only needed for node_modules changes (new deps)
 # =============================================================================
 
 services:
@@ -19,8 +26,31 @@ services:
         - npm_token
     image: neanelu-backend-worker:local-dev
     volumes:
+      # App source (hot-reload via tsx watch)
       - ./apps/backend-worker/src:/app/apps/backend-worker/src
+
+      # Internal packages — src (tsx hot-reload) + dist (module resolution)
+      - ./packages/ai-engine/src:/app/packages/ai-engine/src
+      - ./packages/ai-engine/dist:/app/packages/ai-engine/dist
+      - ./packages/config/src:/app/packages/config/src
+      - ./packages/config/dist:/app/packages/config/dist
       - ./packages/database/src:/app/packages/database/src
+      - ./packages/logger/src:/app/packages/logger/src
+      - ./packages/logger/dist:/app/packages/logger/dist
+      - ./packages/pim/src:/app/packages/pim/src
+      - ./packages/pim/dist:/app/packages/pim/dist
+      - ./packages/queue-manager/src:/app/packages/queue-manager/src
+      - ./packages/queue-manager/dist:/app/packages/queue-manager/dist
+      - ./packages/scraper/src:/app/packages/scraper/src
+      - ./packages/scraper/dist:/app/packages/scraper/dist
+      - ./packages/shopify-client/src:/app/packages/shopify-client/src
+      - ./packages/shopify-client/dist:/app/packages/shopify-client/dist
+      - ./packages/types/src:/app/packages/types/src
+      - ./packages/types/dist:/app/packages/types/dist
+      - ./packages/validation/src:/app/packages/validation/src
+      - ./packages/validation/dist:/app/packages/validation/dist
+
+      # Secrets (read-only from OpenBao agent tmpfs)
       - /run/neanelu-dev/runtime-secrets/api:/secrets:ro
     command:
       [

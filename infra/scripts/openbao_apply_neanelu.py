@@ -75,11 +75,8 @@ def main() -> int:
 
     policies = {
         "neanelu-prod-api": policies_dir / "neanelu-prod-api.hcl",
-        "neanelu-prod-workers": policies_dir / "neanelu-prod-workers.hcl",
         "neanelu-staging-api": policies_dir / "neanelu-staging-api.hcl",
-        "neanelu-staging-workers": policies_dir / "neanelu-staging-workers.hcl",
         "neanelu-dev-api": policies_dir / "neanelu-dev-api.hcl",
-        "neanelu-dev-workers": policies_dir / "neanelu-dev-workers.hcl",
         "neanelu-infra": policies_dir / "neanelu-infra.hcl",
         "neanelu-cicd": policies_dir / "neanelu-cicd.hcl",
     }
@@ -101,11 +98,8 @@ def main() -> int:
     # 4) Create/update roles
     roles = {
         "neanelu-prod-api": ["neanelu-prod-api"],
-        "neanelu-prod-workers": ["neanelu-prod-workers"],
         "neanelu-staging-api": ["neanelu-staging-api"],
-        "neanelu-staging-workers": ["neanelu-staging-workers"],
         "neanelu-dev-api": ["neanelu-dev-api"],
-        "neanelu-dev-workers": ["neanelu-dev-workers"],
         "neanelu-infra": ["neanelu-infra"],
         "neanelu-cicd": ["neanelu-cicd"],
     }

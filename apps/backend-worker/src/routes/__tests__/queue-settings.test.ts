@@ -22,6 +22,13 @@ void mock.module(requireAdminPath, {
 const queryMock = mock.fn(() => Promise.resolve({ rows: [] }));
 void mock.module('@app/database', {
   namedExports: {
+    createManagedRedis: () => ({
+      on: () => undefined,
+      get: () => Promise.resolve(null),
+      setex: () => Promise.resolve('OK'),
+      quit: () => Promise.resolve('OK'),
+      disconnect: () => undefined,
+    }),
     pool: {
       query: queryMock,
     },

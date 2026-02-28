@@ -32,8 +32,8 @@ export function ConsensusProductsTable({ items, onSelect }: ConsensusProductsTab
           {items.map((item, idx) => (
             <tr
               key={item.productId}
-              className="cursor-pointer border-t border-muted/20 transition-colors hover:bg-muted/10 dark:border-slate-700 dark:hover:bg-slate-800/50 text-slate-800 dark:text-slate-200 motion-safe:animate-[fadeSlideUp_0.3s_ease-out_both]"
-              style={{ animationDelay: `${idx * 50}ms` }}
+              className="cursor-pointer border-t border-muted/20 transition-colors hover:bg-muted/10 dark:border-slate-700 dark:hover:bg-slate-800/50 text-slate-800 dark:text-slate-200"
+              style={{ animation: `fadeSlideUp 0.3s ease-out ${idx * 50}ms both` }}
               onClick={() => onSelect?.(item)}
             >
               <td className="px-3 py-2">{item.title}</td>
@@ -42,7 +42,7 @@ export function ConsensusProductsTable({ items, onSelect }: ConsensusProductsTab
                 <ConsensusStatusBadge status={item.consensusStatus} />
               </td>
               <td className="px-3 py-2 text-right">
-                {item.qualityScore != null ? item.qualityScore.toFixed(2) : '—'}
+                {item.qualityScore != null ? Number(item.qualityScore).toFixed(2) : '—'}
               </td>
               <td className="px-3 py-2 text-right">
                 <ConflictIndicator count={item.conflictsCount} />

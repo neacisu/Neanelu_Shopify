@@ -13,7 +13,7 @@
 #
 # Notes:
 # - Secrets are rendered by OpenBao Agent into a host directory (ideally tmpfs):
-#     ${NEANELU_RENDERED_SECRETS_DIR}/(api|workers|infra)
+#     ${NEANELU_RENDERED_SECRETS_DIR}/(api|infra)
 # - This file is intentionally aditive; it does NOT include local Traefik/DB/Redis.
 # =============================================================================
 
@@ -49,39 +49,6 @@ services:
       - ./secrets/prod_api_secret_id:/openbao/config/secret_id:ro
     healthcheck:
       test: ['CMD', 'test', '-f', '/secrets/neanelu-api.env']
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 30s
-
-  # ==========================================================================
-  # OpenBao Agent (Workers)
-  # ==========================================================================
-  openbao-agent-workers:
-    image: quay.io/openbao/openbao:2.5.0
-    container_name: neanelu-openbao-agent-workers
-    restart: unless-stopped
-    user: '1000:1000'
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - SETGID
-      - SETUID
-    command: agent -config=/openbao/config/agent-workers.hcl
-    environment:
-      NEANELU_ENV: production
-    extra_hosts:
-      - 's3cr3ts.neanelu.ro:10.0.1.10'
-    volumes:
-      - ./infra/config/openbao/agent-workers.hcl:/openbao/config/agent-workers.hcl:ro
-      - ./infra/config/openbao/templates:/openbao/templates:ro
-      - ${NEANELU_RENDERED_SECRETS_DIR:-/run/neanelu/runtime-secrets}/workers:/secrets
-      - ./secrets/prod_workers_role_id:/openbao/config/role_id:ro
-      - ./secrets/prod_workers_secret_id:/openbao/config/secret_id:ro
-    healthcheck:
-      test: ['CMD', 'test', '-f', '/secrets/neanelu-workers.env']
       interval: 10s
       timeout: 5s
       retries: 30

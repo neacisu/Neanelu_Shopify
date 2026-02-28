@@ -1,4 +1,5 @@
-import { Redis as IORedis, type Redis, type RedisOptions } from 'ioredis';
+import type { Redis, RedisOptions } from 'ioredis';
+import { createManagedRedis } from '@app/database';
 
 export type RedisConnection = Redis;
 
@@ -7,9 +8,17 @@ export type CreateRedisConnectionOptions = Readonly<{
   redisOptions?: RedisOptions;
 }>;
 
+let redisConnectionCounter = 0;
+
 export function createRedisConnection(options: CreateRedisConnectionOptions): RedisConnection {
-  const { redisUrl, redisOptions } = options;
-  return new IORedis(redisUrl, {
+  const { redisOptions } = options;
+  const connectionName = redisOptions?.connectionName;
+  const managedName =
+    typeof connectionName === 'string' && connectionName.trim()
+      ? `queue-manager:${connectionName}`
+      : `queue-manager:auto-${redisConnectionCounter++}`;
+
+  return createManagedRedis(managedName, {
     enableReadyCheck: true,
     connectTimeout: 10_000,
     retryStrategy: (times) => Math.min(times * 50, 2_000),

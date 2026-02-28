@@ -1,11 +1,10 @@
-import { checkDatabaseConnection, pool } from '@app/database';
+import { checkDatabaseConnection, pool, createManagedRedis } from '@app/database';
 import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import fastifyMultipart from '@fastify/multipart';
 import fastifyWebsocket from '@fastify/websocket';
-import { createClient } from 'redis';
 import { randomUUID } from 'node:crypto';
 import { isShopifyApiConfigValid } from '@app/config';
 import { registerAuthRoutes } from '../auth/index.js';
@@ -723,34 +722,20 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   return server;
 }
 
-async function checkRedisConnection(redisUrl: string, timeoutMs = 1500): Promise<boolean> {
-  const client = createClient({ url: redisUrl });
-  // Node-redis emits 'error'; without a listener Node will crash the process.
-  client.on('error', () => undefined);
-
+async function checkRedisConnection(_redisUrl: string, timeoutMs = 1500): Promise<boolean> {
+  const client = createManagedRedis('health-ready-redis', {
+    lazyConnect: true,
+    maxRetriesPerRequest: 1,
+    enableOfflineQueue: false,
+  });
   const timeout = new Promise<never>((_, reject) => {
     setTimeout(() => reject(new Error('redis check timeout')), timeoutMs).unref();
   });
 
   try {
-    await Promise.race([client.connect(), timeout]);
     const pong = await Promise.race([client.ping(), timeout]);
     return pong === 'PONG';
   } catch {
     return false;
-  } finally {
-    try {
-      if (client.isReady) {
-        await Promise.race([client.quit(), timeout]);
-      } else {
-        await client.disconnect();
-      }
-    } catch {
-      try {
-        await client.disconnect();
-      } catch {
-        // ignore
-      }
-    }
   }
 }

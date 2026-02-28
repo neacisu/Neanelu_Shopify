@@ -144,7 +144,6 @@ export default function PimOverviewPage() {
           className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60 transition-shadow duration-200 hover:shadow-md"
           style={{
             animation: gridVisible ? 'fadeSlideUp 0.4s ease-out both' : 'none',
-            animationDelay: gridVisible ? '0ms' : '0ms',
           }}
         >
           <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
@@ -164,8 +163,7 @@ export default function PimOverviewPage() {
         <div
           className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60 transition-shadow duration-200 hover:shadow-md"
           style={{
-            animation: gridVisible ? 'fadeSlideUp 0.4s ease-out both' : 'none',
-            animationDelay: gridVisible ? '0.05s' : '0ms',
+            animation: gridVisible ? 'fadeSlideUp 0.4s ease-out 0.05s both' : 'none',
           }}
         >
           <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
@@ -182,8 +180,7 @@ export default function PimOverviewPage() {
         <div
           className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60 transition-shadow duration-200 hover:shadow-md"
           style={{
-            animation: gridVisible ? 'fadeSlideUp 0.4s ease-out both' : 'none',
-            animationDelay: gridVisible ? '0.1s' : '0ms',
+            animation: gridVisible ? 'fadeSlideUp 0.4s ease-out 0.1s both' : 'none',
           }}
         >
           <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
@@ -204,8 +201,7 @@ export default function PimOverviewPage() {
         <div
           className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60 transition-shadow duration-200 hover:shadow-md"
           style={{
-            animation: gridVisible ? 'fadeSlideUp 0.4s ease-out both' : 'none',
-            animationDelay: gridVisible ? '0.15s' : '0ms',
+            animation: gridVisible ? 'fadeSlideUp 0.4s ease-out 0.15s both' : 'none',
           }}
         >
           <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">

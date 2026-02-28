@@ -63,19 +63,21 @@ export function SimilarityMatchesTable({
               />
             </th>
             <th className="px-4 py-3">
-              <button
-                type="button"
-                onClick={() => toggleSort('product')}
-                className="flex items-center gap-1 transition-colors hover:text-slate-800 dark:hover:text-slate-200"
-              >
-                Produs
+              <span className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => toggleSort('product')}
+                  className="flex items-center gap-1 transition-colors hover:text-slate-800 dark:hover:text-slate-200"
+                >
+                  Produs
+                </button>
                 <InfoTooltip title="Produs local">
                   Produsul din catalogul tău căruia i s-a găsit o potrivire externă. Contează pentru
                   a vedea care produse au surse de enrichment. De exemplu, „Adidas Superstar"
                   potrivit cu o listare Google Shopping. Sfat: click pe antet pentru a sorta
                   alfabetic.
                 </InfoTooltip>
-              </button>
+              </span>
             </th>
             <th className="px-4 py-3">
               <span className="flex items-center gap-1">
@@ -89,18 +91,20 @@ export function SimilarityMatchesTable({
               </span>
             </th>
             <th className="px-4 py-3">
-              <button
-                type="button"
-                onClick={() => toggleSort('score')}
-                className="flex items-center gap-1 transition-colors hover:text-slate-800 dark:hover:text-slate-200"
-              >
-                Scor
+              <span className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => toggleSort('score')}
+                  className="flex items-center gap-1 transition-colors hover:text-slate-800 dark:hover:text-slate-200"
+                >
+                  Scor
+                </button>
                 <InfoTooltip title="Scor similaritate">
                   Cât de bine se potrivește sursa externă cu produsul tău (0–1). Scor mai mare =
                   potrivire mai bună. De exemplu, 0.98 indică aproape certitudine. Sfat: sortează
                   descrescător ca să vezi cele mai sigure potriviri primele.
                 </InfoTooltip>
-              </button>
+              </span>
             </th>
             <th className="px-4 py-3">
               <span className="flex items-center gap-1">
@@ -159,8 +163,8 @@ export function SimilarityMatchesTable({
           {matches.map((match, idx) => (
             <tr
               key={match.id}
-              className="cursor-pointer border-t border-slate-100 transition-colors duration-200 hover:bg-slate-50/70 dark:border-slate-800 dark:hover:bg-slate-800/50 motion-safe:animate-[fadeSlideUp_0.3s_ease-out_both]"
-              style={{ animationDelay: `${idx * 50}ms` }}
+              className="cursor-pointer border-t border-slate-100 transition-colors duration-200 hover:bg-slate-50/70 dark:border-slate-800 dark:hover:bg-slate-800/50"
+              style={{ animation: `fadeSlideUp 0.3s ease-out ${idx * 50}ms both` }}
               onClick={() => onRowClick?.(match)}
             >
               <td className="px-4 py-3">

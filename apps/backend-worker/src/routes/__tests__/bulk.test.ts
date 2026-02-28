@@ -45,7 +45,9 @@ void mock.module(orchestratorPath, {
 
 void mock.module('@app/queue-manager', {
   namedExports: {
+    BULK_POLLER_QUEUE_NAME: 'bulk-poller-queue',
     enqueueBulkIngestJob: () => Promise.resolve(undefined),
+    enqueueBulkPollerJob: () => Promise.resolve(undefined),
     configFromEnv: (env: { redisUrl?: string; bullmqProToken?: string }) => ({
       redisUrl: env.redisUrl ?? 'redis://localhost:6379',
       bullmqProToken: env.bullmqProToken ?? 'test-token',
@@ -93,6 +95,23 @@ const schedules = [{ id: 'sched-1', cron: '0 2 * * *', timezone: 'UTC', enabled:
 
 void mock.module('@app/database', {
   namedExports: {
+    createManagedRedis: () => ({
+      on: () => undefined,
+      get: () => Promise.resolve(null),
+      setex: () => Promise.resolve('OK'),
+      quit: () => Promise.resolve('OK'),
+      disconnect: () => undefined,
+    }),
+    createSecondaryPool: () => ({
+      pool: {
+        query: () => Promise.resolve({ rows: [] }),
+        connect: () =>
+          Promise.resolve({ query: () => Promise.resolve({ rows: [] }), release: () => undefined }),
+      },
+      rotate: () => Promise.resolve(),
+      close: () => Promise.resolve(),
+      getCurrentConnectionString: () => 'postgresql://test',
+    }),
     decryptAesGcm: () => Buffer.from(''),
     getOptimalEfSearch: () => 40,
     setHnswEfSearch: () => Promise.resolve(),

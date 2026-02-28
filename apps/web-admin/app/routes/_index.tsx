@@ -97,12 +97,12 @@ export default function DashboardIndex() {
 
   const qualityBreakdown = useQuery({
     queryKey: ['dashboard', 'quality-breakdown'],
-    queryFn: () => api.getApi<Record<string, unknown>>('/pim/stats/quality-breakdown'),
+    queryFn: () => api.getApi<Record<string, unknown>>('/pim/stats/quality-distribution'),
     staleTime: 60_000,
   });
   const apiUsage = useQuery({
     queryKey: ['dashboard', 'api-usage'],
-    queryFn: () => api.getApi<Record<string, unknown>>('/pim/stats/api-usage'),
+    queryFn: () => api.getApi<Record<string, unknown>>('/pim/stats/cost-tracking'),
     staleTime: 60_000,
   });
   const queuesSummary = useQuery({
@@ -123,7 +123,7 @@ export default function DashboardIndex() {
   });
   const productsAttention = useQuery({
     queryKey: ['dashboard', 'products-needing-enrichment'],
-    queryFn: () => api.getApi<Record<string, unknown>>('/pim/stats/products-needing-enrichment'),
+    queryFn: () => api.getApi<Record<string, unknown>>('/pim/stats/enrichment-progress'),
     staleTime: 60_000,
   });
   const recentRuns = useQuery({
@@ -133,7 +133,7 @@ export default function DashboardIndex() {
   });
   const enrichmentStatus = useQuery({
     queryKey: ['dashboard', 'enrichment-status'],
-    queryFn: () => api.getApi<Record<string, unknown>>('/pim/stats/enrichment-status'),
+    queryFn: () => api.getApi<Record<string, unknown>>('/pim/stats/enrichment-progress'),
     staleTime: 60_000,
   });
   const healthScoreQuery = useQuery({
@@ -680,8 +680,9 @@ export default function DashboardIndex() {
                 key={kpi.key}
                 className="group/kpi overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm transition-all duration-300 ease-out hover:-translate-y-0.5 hover:border-slate-300/80 hover:shadow-[var(--shadow-md)] focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:ring-offset-2 dark:border-slate-700/90 dark:bg-slate-900/80 dark:hover:border-slate-600/80 dark:focus-within:ring-offset-slate-900"
                 style={{
-                  animation: kpiSectionVisible ? `fadeSlideUp 0.4s ease-out both` : 'none',
-                  animationDelay: kpiSectionVisible ? `${index * 80}ms` : '0ms',
+                  animation: kpiSectionVisible
+                    ? `fadeSlideUp 0.4s ease-out ${index * 80}ms both`
+                    : 'none',
                 }}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -1015,13 +1016,10 @@ export default function DashboardIndex() {
         </section>
 
         <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <div className="animate-[fadeIn_0.5s_ease-out_both]" style={{ animationDelay: '350ms' }}>
+          <div className="animate-[fadeIn_0.5s_ease-out_350ms_both]">
             <ActivityTimeline />
           </div>
-          <div
-            className="animate-[fadeSlideUp_0.4s_ease-out_both]"
-            style={{ animationDelay: '450ms' }}
-          >
+          <div className="animate-[fadeSlideUp_0.4s_ease-out_450ms_both]">
             <QuickActionsPanel />
           </div>
         </section>

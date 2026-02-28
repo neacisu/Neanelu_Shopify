@@ -9,7 +9,7 @@
 import { loadEnv } from '@app/config';
 import type { Logger } from '@app/logger';
 import { configFromEnv, createWorker, withJobTelemetryContext } from '@app/queue-manager';
-import { Redis as IORedis } from 'ioredis';
+import { createManagedRedis } from '@app/database';
 
 import { createTokenHealthJobConfig } from '../../auth/jobs/token-health-job.js';
 import { withTokenRetry } from '../../auth/token-lifecycle.js';
@@ -28,7 +28,7 @@ export interface SyncWorkerHandle {
 
 export function startSyncWorker(logger: Logger): SyncWorkerHandle {
   const qmOptions = { config: configFromEnv(env) };
-  const redis = new IORedis(env.redisUrl);
+  const redis = createManagedRedis('sync-worker');
 
   const { worker } = createWorker<{ shopId: string; requestedAt?: number }>(qmOptions, {
     name: SYNC_QUEUE_NAME,
