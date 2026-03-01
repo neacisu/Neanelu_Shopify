@@ -1,4 +1,4 @@
-import { Search } from 'lucide-react';
+import { Filter, Search, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
 
@@ -21,7 +21,7 @@ import { Button } from '../components/ui/button';
 import { useApiClient } from '../hooks/use-api';
 import { useDebounce } from '../hooks/use-debounce';
 import { useRecentSearches } from '../hooks/use-recent-searches';
-import { PolarisModal } from '../../components/polaris/index.js';
+import { Modal } from '../components/ui/modal';
 
 const DEFAULT_LIMIT = 20;
 const DEFAULT_THRESHOLD = 0.7;
@@ -93,6 +93,7 @@ export default function SearchPage() {
   const [activeJson, setActiveJson] = useState<ProductSearchResult | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [recentOpen, setRecentOpen] = useState(false);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -235,11 +236,43 @@ export default function SearchPage() {
         ) : null}
       </header>
 
+      <Button
+        variant="secondary"
+        className="lg:hidden mb-2 inline-flex items-center gap-2"
+        onClick={() => setMobileFiltersOpen(true)}
+      >
+        <Filter className="size-4" />
+        Filtre
+      </Button>
+
+      {mobileFiltersOpen ? (
+        <div
+          className="fixed inset-0 z-[900] bg-black/30 backdrop-blur-sm lg:hidden"
+          onClick={() => setMobileFiltersOpen(false)}
+          aria-hidden
+        />
+      ) : null}
+
       <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
         <article
-          className="overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 backdrop-blur-sm p-4 shadow-[var(--shadow-sm)] dark:border-slate-700/60 dark:bg-slate-900/80"
+          className={`
+            overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 backdrop-blur-sm p-4 shadow-[var(--shadow-sm)] dark:border-slate-700/60 dark:bg-slate-900/80
+            max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:z-[950] max-lg:w-[340px] max-lg:max-w-[85vw] max-lg:overflow-auto max-lg:shadow-2xl
+            max-lg:transition-transform max-lg:duration-300 max-lg:ease-out
+            ${mobileFiltersOpen ? 'max-lg:translate-x-0' : 'max-lg:-translate-x-full'}
+          `}
           style={{ animation: 'fadeSlideUp 0.4s ease-out both' }}
         >
+          <div className="flex items-center justify-between lg:hidden mb-3">
+            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Filtre</h2>
+            <button
+              type="button"
+              onClick={() => setMobileFiltersOpen(false)}
+              className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+            >
+              <X className="size-5" />
+            </button>
+          </div>
           <div className="space-y-4">
             <div
               ref={containerRef}
@@ -483,7 +516,7 @@ export default function SearchPage() {
       />
 
       {showJson && activeJson ? (
-        <PolarisModal open={Boolean(activeJson)} onClose={() => setActiveJson(null)}>
+        <Modal open={Boolean(activeJson)} onClose={() => setActiveJson(null)}>
           <div className="space-y-4 p-4">
             <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
               Metadate rezultat
@@ -499,7 +532,7 @@ export default function SearchPage() {
               </Button>
             </div>
           </div>
-        </PolarisModal>
+        </Modal>
       ) : null}
     </div>
   );

@@ -129,6 +129,85 @@ body {
   backdrop-filter: blur(14px);
 }
 
+/* Dashboard Bento Grid layout */
+.dashboard-bento {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    'kpis'
+    'quality'
+    'queues'
+    'attention'
+    'costs'
+    'budget'
+    'qhealth'
+    'events'
+    'hscore'
+    'timeline'
+    'actions';
+}
+
+@media (min-width: 768px) {
+  .dashboard-bento {
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-areas:
+      'kpis      kpis'
+      'quality   queues'
+      'attention attention'
+      'costs     budget'
+      'qhealth   events'
+      'hscore    actions'
+      'timeline  timeline';
+  }
+}
+
+@media (min-width: 1280px) {
+  .dashboard-bento {
+    grid-template-columns: repeat(12, 1fr);
+    grid-template-areas:
+      'kpis      kpis      kpis      kpis      kpis      kpis      kpis      kpis      kpis      kpis      kpis      kpis'
+      'quality   quality   quality   quality   queues    queues    queues    queues    attention attention attention attention'
+      'costs     costs     costs     costs     costs     costs     budget    budget    budget    budget    budget    budget'
+      'qhealth   qhealth   qhealth   events    events    events    events    events    events    hscore    hscore    hscore'
+      'timeline  timeline  timeline  timeline  timeline  timeline  actions   actions   actions   actions   actions   actions';
+  }
+}
+
+.bento-kpis {
+  grid-area: kpis;
+}
+.bento-quality {
+  grid-area: quality;
+}
+.bento-queues {
+  grid-area: queues;
+}
+.bento-attention {
+  grid-area: attention;
+}
+.bento-costs {
+  grid-area: costs;
+}
+.bento-budget {
+  grid-area: budget;
+}
+.bento-qhealth {
+  grid-area: qhealth;
+}
+.bento-events {
+  grid-area: events;
+}
+.bento-hscore {
+  grid-area: hscore;
+}
+.bento-timeline {
+  grid-area: timeline;
+}
+.bento-actions {
+  grid-area: actions;
+}
+
 /* Staggered entrance animation for dashboard cards */
 @keyframes fadeSlideUp {
   from {

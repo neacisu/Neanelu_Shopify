@@ -1,4 +1,4 @@
-import { PolarisModal } from '../../../components/polaris/index.js';
+import { Modal } from '../ui/modal';
 
 type CompareItem = Readonly<{
   id: string;
@@ -48,7 +48,7 @@ function formatValue(value: CompareItem[keyof CompareItem]) {
 
 export function ProductsCompareModal({ open, items, onClose }: ProductsCompareModalProps) {
   return (
-    <PolarisModal open={open} onClose={onClose}>
+    <Modal open={open} onClose={onClose}>
       <div className="space-y-4 p-4 bg-white/80 backdrop-blur-sm dark:bg-slate-900/80 rounded-lg">
         <div>
           <div className="text-h3 dark:text-slate-100">Compară produse</div>
@@ -81,6 +81,6 @@ export function ProductsCompareModal({ open, items, onClose }: ProductsCompareMo
           ))}
         </div>
       </div>
-    </PolarisModal>
+    </Modal>
   );
 }

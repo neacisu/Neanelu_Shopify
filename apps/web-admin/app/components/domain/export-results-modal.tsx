@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import type { ProductSearchResult } from '@app/types';
 
-import { PolarisModal } from '../../../components/polaris/index.js';
+import { Modal } from '../ui/modal';
 import { exportToCSV, exportToJSON, copyJsonToClipboard } from '../../utils/export-helpers';
 import { Button } from '../ui/button';
 import { InfoTooltip } from '../ui/info-tooltip';
@@ -94,7 +94,7 @@ export function ExportResultsModal({
   const canExport = isAsync ? totalCount > 0 : results.length > 0;
 
   return (
-    <PolarisModal open={open} onClose={onClose}>
+    <Modal open={open} onClose={onClose}>
       <div
         className="space-y-4 rounded-xl bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80"
         style={{ animation: 'fadeSlideUp 0.3s ease-out both' }}
@@ -223,6 +223,6 @@ export function ExportResultsModal({
           </Button>
         </div>
       </div>
-    </PolarisModal>
+    </Modal>
   );
 }

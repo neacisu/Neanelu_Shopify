@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { Button } from '../ui/button';
 import { InfoTooltip } from '../ui/info-tooltip';
 import { ConfirmDialog } from './confirm-dialog';
-import { PolarisProgressBar } from '../../../components/polaris/index.js';
+import { ProgressBar } from '../ui/progress-bar';
 
 export type IngestionStepId = 'download' | 'parse' | 'transform' | 'save';
 
@@ -140,7 +140,7 @@ export function IngestionProgress({
             </span>
           </div>
           <div className="mt-2">
-            <PolarisProgressBar progress={Math.min(Math.max(progress, 0), 100)} />
+            <ProgressBar progress={Math.min(Math.max(progress, 0), 100)} />
           </div>
           {overallProcessedLabel || overallTotalLabel || overallSpeedLabel || overallEtaLabel ? (
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
@@ -168,7 +168,7 @@ export function IngestionProgress({
                     {stage.label}
                   </div>
                   <div className="mt-2">
-                    <PolarisProgressBar progress={normalizedProgress} />
+                    <ProgressBar progress={normalizedProgress} />
                   </div>
                   <div className="mt-2 space-y-1 text-xs text-slate-500 dark:text-slate-400">
                     <div>

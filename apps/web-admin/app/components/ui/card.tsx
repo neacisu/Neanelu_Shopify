@@ -1,10 +1,10 @@
 import type { ComponentPropsWithoutRef, PropsWithChildren } from 'react';
 
-export type PolarisCardProps = PropsWithChildren<
+export type CardProps = PropsWithChildren<
   ComponentPropsWithoutRef<'div'> & Record<string, unknown>
 >;
 
-export function PolarisCard({ children, className = '', ...props }: PolarisCardProps) {
+export function Card({ children, className = '', ...props }: CardProps) {
   return (
     <div
       className={`

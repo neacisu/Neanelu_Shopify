@@ -4,7 +4,8 @@ import { ChevronDown, ChevronUp, RotateCw, ScrollText } from 'lucide-react';
 
 import { Button } from '../ui/button';
 import { InfoTooltip } from '../ui/info-tooltip';
-import { PolarisBadge, PolarisSelect } from '../../../components/polaris/index.js';
+import { Badge } from '../ui/badge';
+import { Select } from '../ui/select';
 
 export type IngestionRunStatus =
   | 'pending'
@@ -150,7 +151,7 @@ export function IngestionHistoryTable(props: IngestionHistoryTableProps) {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-48">
-          <PolarisSelect
+          <Select
             label="Status"
             value={statusFilter}
             options={statusOptions}
@@ -213,7 +214,7 @@ export function IngestionHistoryTable(props: IngestionHistoryTableProps) {
                       {typeof run.recordsProcessed === 'number' ? run.recordsProcessed : '—'}
                     </td>
                     <td className="px-3 py-2">
-                      <PolarisBadge tone={statusTone(run.status)}>{run.status}</PolarisBadge>
+                      <Badge tone={statusTone(run.status)}>{run.status}</Badge>
                     </td>
                     <td className="px-3 py-2">
                       <button

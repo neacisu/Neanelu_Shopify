@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { PolarisBadge } from '../../../components/polaris/index.js';
+import { Badge } from '../ui/badge';
 import { Button } from '@/app/components/ui/button';
 import { InfoTooltip } from '@/app/components/ui/info-tooltip';
 import { JsonViewer } from '@/app/components/ui/JsonViewer';
@@ -167,7 +167,7 @@ export function JobDetailModal(props: {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {job?.state ? <PolarisBadge tone="neutral">{job.state}</PolarisBadge> : null}
+            {job?.state ? <Badge tone="neutral">{job.state}</Badge> : null}
             {job?.data ? (
               <span className="inline-flex items-center gap-1.5">
                 <Button

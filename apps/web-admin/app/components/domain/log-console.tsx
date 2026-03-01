@@ -4,7 +4,7 @@ import { Button } from '../ui/button';
 import { InfoTooltip } from '../ui/info-tooltip';
 import { MultiSelect, type MultiSelectOption } from '../ui/MultiSelect';
 import { VirtualizedList } from '../ui/VirtualizedList';
-import { PolarisBadge } from '../../../components/polaris/index.js';
+import { Badge } from '../ui/badge';
 import type { LogEntry, LogLevel } from '../../types/log';
 
 const levelColors: Record<LogLevel, string> = {
@@ -146,7 +146,7 @@ export function LogConsole({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           {statusLabel ? (
-            <PolarisBadge tone={statusTone ?? 'warning'}>{statusLabel}</PolarisBadge>
+            <Badge tone={statusTone ?? 'warning'}>{statusLabel}</Badge>
           ) : connected !== undefined ? (
             <span className="inline-flex items-center gap-1.5">
               {connected ? (
@@ -155,9 +155,9 @@ export function LogConsole({
                   aria-hidden
                 />
               ) : null}
-              <PolarisBadge tone={connected ? 'success' : 'warning'}>
+              <Badge tone={connected ? 'success' : 'warning'}>
                 {connected ? 'Live' : 'Offline'}
-              </PolarisBadge>
+              </Badge>
             </span>
           ) : null}
           {error ? <span className="text-caption text-muted">{error}</span> : null}

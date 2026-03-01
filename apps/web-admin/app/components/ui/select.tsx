@@ -1,15 +1,15 @@
 import type { ChangeEvent, ComponentPropsWithoutRef } from 'react';
 
-export type PolarisSelectOption = Readonly<{ label: string; value: string }>;
+export type SelectOption = Readonly<{ label: string; value: string }>;
 
-export type PolarisSelectProps = Omit<ComponentPropsWithoutRef<'select'>, 'value' | 'onChange'> & {
+export type SelectProps = Omit<ComponentPropsWithoutRef<'select'>, 'value' | 'onChange'> & {
   label?: string;
   value?: string;
-  options: readonly PolarisSelectOption[];
+  options: readonly SelectOption[];
   onChange?: (e: ChangeEvent<HTMLSelectElement>) => void;
 };
 
-export function PolarisSelect({
+export function Select({
   label,
   value = '',
   options,
@@ -18,8 +18,8 @@ export function PolarisSelect({
   className = '',
   id,
   ...rest
-}: PolarisSelectProps) {
-  const inputId = id ?? `polaris-select-${Math.random().toString(36).slice(2, 9)}`;
+}: SelectProps) {
+  const inputId = id ?? `select-${Math.random().toString(36).slice(2, 9)}`;
 
   return (
     <div className="flex flex-col gap-1.5">

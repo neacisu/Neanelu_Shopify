@@ -1,9 +1,6 @@
 import type { ChangeEvent, ComponentPropsWithoutRef } from 'react';
 
-export type PolarisTextFieldProps = Omit<
-  ComponentPropsWithoutRef<'input'>,
-  'value' | 'onChange'
-> & {
+export type TextFieldProps = Omit<ComponentPropsWithoutRef<'input'>, 'value' | 'onChange'> & {
   label?: string;
   value?: string;
   placeholder?: string;
@@ -11,7 +8,7 @@ export type PolarisTextFieldProps = Omit<
   error?: string;
 };
 
-export function PolarisTextField({
+export function TextField({
   label,
   value = '',
   placeholder,
@@ -22,8 +19,8 @@ export function PolarisTextField({
   type = 'text',
   error,
   ...rest
-}: PolarisTextFieldProps) {
-  const inputId = id ?? `polaris-text-field-${Math.random().toString(36).slice(2, 9)}`;
+}: TextFieldProps) {
+  const inputId = id ?? `text-field-${Math.random().toString(36).slice(2, 9)}`;
 
   return (
     <div className="flex flex-col gap-1.5">

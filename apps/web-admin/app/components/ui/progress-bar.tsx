@@ -1,14 +1,10 @@
 import type { ComponentPropsWithoutRef } from 'react';
 
-export type PolarisProgressBarProps = ComponentPropsWithoutRef<'div'> & {
+export type ProgressBarProps = ComponentPropsWithoutRef<'div'> & {
   progress?: number;
 };
 
-export function PolarisProgressBar({
-  progress = 0,
-  className = '',
-  ...rest
-}: PolarisProgressBarProps) {
+export function ProgressBar({ progress = 0, className = '', ...rest }: ProgressBarProps) {
   const pct = Math.min(Math.max(Number(progress) || 0, 0), 100);
 
   return (

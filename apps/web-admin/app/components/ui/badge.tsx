@@ -12,18 +12,13 @@ const TONE_CLASSES: Record<
   neutral: 'bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-300',
 };
 
-export type PolarisBadgeProps = PropsWithChildren<
+export type BadgeProps = PropsWithChildren<
   ComponentPropsWithoutRef<'span'> & {
     tone?: 'success' | 'warning' | 'critical' | 'info' | 'new' | 'neutral';
   }
 >;
 
-export function PolarisBadge({
-  children,
-  tone = 'neutral',
-  className = '',
-  ...props
-}: PolarisBadgeProps) {
+export function Badge({ children, tone = 'neutral', className = '', ...props }: BadgeProps) {
   const toneClass = TONE_CLASSES[tone];
 
   return (

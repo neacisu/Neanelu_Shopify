@@ -1,20 +1,14 @@
 import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useRef, type PropsWithChildren } from 'react';
 
-export type PolarisModalProps = PropsWithChildren<{
+export type ModalProps = PropsWithChildren<{
   open?: boolean;
   onClose?: () => void;
   className?: string;
   [key: string]: unknown;
 }>;
 
-export function PolarisModal({
-  children,
-  open = false,
-  onClose,
-  className = '',
-  ...rest
-}: PolarisModalProps) {
+export function Modal({ children, open = false, onClose, className = '', ...rest }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
 
   const handleKeyDown = useCallback(

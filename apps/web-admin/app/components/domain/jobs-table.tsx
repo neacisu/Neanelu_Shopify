@@ -1,11 +1,9 @@
 import { useCallback, useMemo, useState } from 'react';
 import { List, type RowComponentProps } from 'react-window';
 
-import {
-  PolarisBadge,
-  PolarisProgressBar,
-  PolarisSelect,
-} from '../../../components/polaris/index.js';
+import { Badge } from '../ui/badge';
+import { ProgressBar } from '../ui/progress-bar';
+import { Select } from '../ui/select';
 import { Button } from '../ui/button';
 import { InfoTooltip } from '../ui/info-tooltip';
 import { SearchInput } from '../ui/SearchInput';
@@ -190,10 +188,10 @@ export function JobsTable(props: {
           </div>
         </td>
         <td className="px-3 py-2">
-          <PolarisProgressBar progress={progressValue(job.progress)} />
+          <ProgressBar progress={progressValue(job.progress)} />
         </td>
         <td className="px-3 py-2">
-          <PolarisBadge tone={statusTone(job.status)}>{job.status ?? 'unknown'}</PolarisBadge>
+          <Badge tone={statusTone(job.status)}>{job.status ?? 'unknown'}</Badge>
         </td>
         <td className="px-3 py-2">
           <div className="flex items-center gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
@@ -298,13 +296,13 @@ export function JobsTable(props: {
           {job.payloadPreview ?? '—'}
         </div>
         <div className="w-45">
-          <PolarisProgressBar progress={progressValue(job.progress)} />
+          <ProgressBar progress={progressValue(job.progress)} />
         </div>
         <div className="w-35">
-          <PolarisBadge tone={statusTone(job.status)}>{job.status ?? 'unknown'}</PolarisBadge>
+          <Badge tone={statusTone(job.status)}>{job.status ?? 'unknown'}</Badge>
         </div>
         <div className="w-40">
-          <PolarisSelect
+          <Select
             value=""
             disabled={Boolean(loading)}
             options={[

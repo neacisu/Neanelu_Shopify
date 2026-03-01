@@ -6,7 +6,8 @@ import { CronExpressionParser } from 'cron-parser';
 import { Button } from '../ui/button';
 import { InfoTooltip } from '../ui/info-tooltip';
 import { DateRangePicker } from '../ui/DateRangePicker';
-import { PolarisSelect, PolarisTextField } from '../../../components/polaris/index.js';
+import { Select } from '../ui/select';
+import { TextField } from '../ui/text-field';
 
 export type SchedulePreset = 'daily' | 'weekly' | 'custom';
 
@@ -134,7 +135,7 @@ export function ScheduleForm({ schedule, onSubmit, onCancel, saving }: ScheduleF
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-2">
         <span className="inline-flex items-center gap-1.5">
-          <PolarisSelect
+          <Select
             label="Preset"
             value={preset}
             options={[
@@ -152,7 +153,7 @@ export function ScheduleForm({ schedule, onSubmit, onCancel, saving }: ScheduleF
             Intervalul minim între rulări este 1 oră.
           </InfoTooltip>
         </span>
-        <PolarisSelect
+        <Select
           label="Timezone"
           value={timezone}
           options={TIMEZONES.map((tz) => ({ label: tz, value: tz }))}
@@ -176,7 +177,7 @@ export function ScheduleForm({ schedule, onSubmit, onCancel, saving }: ScheduleF
 
       {preset === 'weekly' ? (
         <div className="grid gap-3 md:grid-cols-2">
-          <PolarisSelect
+          <Select
             label="Day of week"
             value={weeklyDay}
             options={[
@@ -202,7 +203,7 @@ export function ScheduleForm({ schedule, onSubmit, onCancel, saving }: ScheduleF
         </div>
       ) : null}
 
-      <PolarisTextField
+      <TextField
         label="Cron expression"
         value={cron}
         placeholder="0 2 * * *"

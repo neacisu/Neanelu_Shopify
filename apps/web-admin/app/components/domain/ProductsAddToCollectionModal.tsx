@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { PolarisModal } from '../../../components/polaris/index.js';
+import { Modal } from '../ui/modal';
 import { Button } from '../ui/button';
 
 type CollectionItem = Readonly<{
@@ -31,7 +31,7 @@ export function ProductsAddToCollectionModal({
   }, [collections, query]);
 
   return (
-    <PolarisModal open={open} onClose={onClose}>
+    <Modal open={open} onClose={onClose}>
       <div className="space-y-4 p-4 bg-white/80 backdrop-blur-sm dark:bg-slate-900/80 rounded-lg">
         <div>
           <div className="text-h3 dark:text-slate-100">Adaugă la colecție</div>
@@ -89,6 +89,6 @@ export function ProductsAddToCollectionModal({
           </Button>
         </div>
       </div>
-    </PolarisModal>
+    </Modal>
   );
 }

@@ -24,7 +24,7 @@ import { useApiClient } from '../hooks/use-api';
 import { ScraperActivityChart } from '../components/domain/ScraperActivityChart';
 import { ScraperDomainPerformanceTable } from '../components/domain/ScraperDomainPerformanceTable';
 import { InfoTooltip } from '../components/ui/info-tooltip';
-import { PolarisModal } from '../../components/polaris/index.js';
+import { Modal } from '../components/ui/modal';
 
 type BrowserStatus = ScraperSettingsResponse['browserStatus'];
 type RunStatus = ScraperRunResponse['status'];
@@ -946,7 +946,7 @@ export default function SettingsScraper() {
         )}
       </div>
 
-      <PolarisModal open={configModalOpen} onClose={() => setConfigModalOpen(false)}>
+      <Modal open={configModalOpen} onClose={() => setConfigModalOpen(false)}>
         <div className="space-y-4 p-4 dark:text-slate-200">
           <div className="text-h3 dark:text-slate-100">
             {configEditingId ? 'Editează configurația scraper' : 'Adaugă configurație scraper'}
@@ -1055,7 +1055,7 @@ export default function SettingsScraper() {
             </button>
           </div>
         </div>
-      </PolarisModal>
+      </Modal>
 
       <ConfirmDialog
         open={deactivateConfigId != null}

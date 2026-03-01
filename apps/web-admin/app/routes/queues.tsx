@@ -22,7 +22,7 @@ import { ErrorState } from '../components/patterns/error-state';
 import { Button } from '../components/ui/button';
 import { InfoTooltip } from '../components/ui/info-tooltip';
 import { Tabs } from '../components/ui/tabs';
-import { PolarisCard } from '../../components/polaris/index.js';
+import { Card } from '../components/ui/card';
 import { useQueueStream } from '../hooks/use-queue-stream';
 import { ApiError } from '../utils/api-error';
 import { getQueueDisplayInfo } from '../utils/queue-display';
@@ -673,7 +673,7 @@ export default function QueuesPage() {
         </div>
       </header>
 
-      <PolarisCard className="p-4 dark:bg-slate-800/80 dark:border-slate-700/60">
+      <Card className="p-4 dark:bg-slate-800/80 dark:border-slate-700/60">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-64">
             <div className="flex items-center gap-1.5">
@@ -730,7 +730,7 @@ export default function QueuesPage() {
             </span>
           </div>
         </div>
-      </PolarisCard>
+      </Card>
 
       <div className="flex flex-wrap items-center gap-4">
         <span className="inline-flex items-center gap-1.5">

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { PolarisModal } from '../../../components/polaris/index.js';
+import { Modal } from '../ui/modal';
 import type { ProductFiltersResponse } from '@app/types';
 
 import { TreeView, type TreeNode } from '../ui/TreeView';
@@ -31,7 +31,7 @@ export function ProductsAssignCategoryModal({
   const tree = useMemo(() => toTree(categories), [categories]);
 
   return (
-    <PolarisModal open={open} onClose={onClose}>
+    <Modal open={open} onClose={onClose}>
       <div className="space-y-4 p-4 bg-white/80 backdrop-blur-sm dark:bg-slate-900/80 rounded-lg">
         <div>
           <div className="text-h3 dark:text-slate-100">Atribuie categorie</div>
@@ -62,6 +62,6 @@ export function ProductsAssignCategoryModal({
           </Button>
         </div>
       </div>
-    </PolarisModal>
+    </Modal>
   );
 }

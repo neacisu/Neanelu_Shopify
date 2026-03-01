@@ -654,153 +654,163 @@ export default function DashboardIndex() {
 
         <SystemAlertsBanner />
 
-        <section
-          ref={kpiSectionRef}
-          aria-labelledby="dashboard-kpis-heading"
-          className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5"
-        >
-          <h2 id="dashboard-kpis-heading" className="sr-only">
-            Indicatori cheie
-          </h2>
-          {kpis.map((kpi, index) => {
-            const Icon = kpi.icon;
-            const displayValue =
-              kpi.numericValue != null && kpi.format ? (
-                <KpiCountUp
-                  key={`countup-${kpi.key}`}
-                  value={kpi.numericValue}
-                  format={kpi.format}
-                />
-              ) : (
-                kpi.value
-              );
+        <div className="dashboard-bento">
+          <section
+            ref={kpiSectionRef}
+            aria-labelledby="dashboard-kpis-heading"
+            className="bento-kpis grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5"
+          >
+            <h2 id="dashboard-kpis-heading" className="sr-only">
+              Indicatori cheie
+            </h2>
+            {kpis.map((kpi, index) => {
+              const Icon = kpi.icon;
+              const displayValue =
+                kpi.numericValue != null && kpi.format ? (
+                  <KpiCountUp
+                    key={`countup-${kpi.key}`}
+                    value={kpi.numericValue}
+                    format={kpi.format}
+                  />
+                ) : (
+                  kpi.value
+                );
 
-            return (
-              <article
-                key={kpi.key}
-                className="group/kpi overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm transition-all duration-300 ease-out hover:-translate-y-0.5 hover:border-slate-300/80 hover:shadow-[var(--shadow-md)] focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:ring-offset-2 dark:border-slate-700/90 dark:bg-slate-900/80 dark:hover:border-slate-600/80 dark:focus-within:ring-offset-slate-900"
-                style={{
-                  animation: kpiSectionVisible
-                    ? `fadeSlideUp 0.4s ease-out ${index * 80}ms both`
-                    : 'none',
-                }}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex shrink-0 items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                      {kpi.title}
-                      <InfoTooltip title={kpi.title}>{kpi.tooltip}</InfoTooltip>
-                    </div>
-                    <p className="mt-1.5 text-xl font-bold tabular-nums text-slate-800 transition-colors duration-200 group-hover/kpi:text-blue-600 dark:text-slate-100 dark:group-hover/kpi:text-blue-400">
-                      {displayValue}
-                    </p>
-                    <div className="mt-2 flex items-center gap-2 text-[11px]">
-                      <span
-                        className={`inline-flex items-center gap-0.5 ${
-                          kpi.trend >= 0
-                            ? 'text-emerald-600 dark:text-emerald-400'
-                            : 'text-rose-600 dark:text-rose-400'
-                        }`}
-                      >
-                        {kpi.trend >= 0 ? (
-                          <ArrowUpRight className="size-3" />
-                        ) : (
-                          <ArrowDownRight className="size-3" />
-                        )}
-                        {Math.abs(kpi.trend)}%
-                      </span>
-                      <Sparkline
-                        data={kpi.trendSeries.map((value) => Number(value))}
-                        color={kpi.trend >= 0 ? '#10b981' : '#ef4444'}
-                      />
-                    </div>
-                  </div>
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 transition-all duration-300 group-hover/kpi:bg-blue-50 group-hover/kpi:text-blue-600 dark:bg-slate-800 dark:text-slate-400 dark:group-hover/kpi:bg-blue-950 dark:group-hover/kpi:text-blue-400">
-                    <Icon className="size-5" />
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="mt-3 w-full text-left text-xs text-slate-500 transition hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"
-                  onClick={kpi.onClick}
+              return (
+                <article
+                  key={kpi.key}
+                  className="group/kpi overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm transition-all duration-300 ease-out hover:-translate-y-0.5 hover:border-slate-300/80 hover:shadow-[var(--shadow-md)] focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:ring-offset-2 dark:border-slate-700/90 dark:bg-slate-900/80 dark:hover:border-slate-600/80 dark:focus-within:ring-offset-slate-900"
+                  style={{
+                    animation: kpiSectionVisible
+                      ? `fadeSlideUp 0.4s ease-out ${index * 80}ms both`
+                      : 'none',
+                  }}
                 >
-                  {kpi.subtext}
-                </button>
-              </article>
-            );
-          })}
-        </section>
-
-        {dashboardWidgetsLoading ? (
-          <DashboardSkeleton columns={3} rows={1} variant="chart" />
-        ) : (
-          <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            <ChartContainer
-              title="Distribuție calitate"
-              description="Bronze / Silver / Golden / Review"
-              height={220}
-            >
-              <DonutChart
-                data={qualityDonutData}
-                centerLabel={numberFormatter.format(qualityValues.total)}
-                onSliceClick={() => {
-                  go('/pim/quality');
-                }}
-              />
-            </ChartContainer>
-            <ChartContainer title="Status cozi" description="Top cozi după încărcare" height={220}>
-              <BarChart
-                data={queueBars}
-                xAxisKey="name"
-                bars={[
-                  { dataKey: 'waiting', name: 'Waiting', color: '#f59e0b', stackId: 'q' },
-                  { dataKey: 'active', name: 'Active', color: '#0ea5e9', stackId: 'q' },
-                  { dataKey: 'failed', name: 'Failed', color: '#ef4444', stackId: 'q' },
-                ]}
-                stacked
-              />
-            </ChartContainer>
-            <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm dark:border-slate-700/90 dark:bg-slate-900/80">
-              <h3 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                Produse ce necesită atenție
-                <InfoTooltip title="Produse ce necesită atenție" side="bottom">
-                  CE ESTE: Produse cu date incomplete, în review sau care așteaptă îmbogățire AI. DE
-                  CE CONTEAZĂ: Aceste produse ar putea fi afișate greșit în magazin sau ar pierde
-                  oportunități de vânzare. EXEMPLU: 45 produse fără descriere sau imagini
-                  optimizate. SFAT: Click pe „Vezi produse" pentru a le filtra și prioritiza în
-                  pagina Calitate.
-                </InfoTooltip>
-              </h3>
-              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                Produse cu date incomplete sau în review
-              </p>
-              <p className="mt-3 text-2xl font-bold text-slate-800 tabular-nums dark:text-slate-100">
-                <KpiCountUp value={attentionCount} format={(n) => numberFormatter.format(n)} />
-              </p>
-              <div className="mt-3 flex items-center gap-1.5">
-                <Button className="flex-1" variant="secondary" onClick={() => go('/pim/quality')}>
-                  Vezi produse
-                </Button>
-                <InfoTooltip title="Vezi produse" side="bottom">
-                  CE ESTE: Navigare directă la pagina Calitate cu filtre active. DE CE CONTEAZĂ:
-                  Oferă acces rapid la produsele ce necesită revizuire manuală sau enrichment.
-                  EXEMPLU: Vei vedea lista filtrată cu toate produsele incomplete. SFAT: Poți
-                  trimite produsele direct la enrichment din acea pagină.
-                </InfoTooltip>
-              </div>
-            </article>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex shrink-0 items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        {kpi.title}
+                        <InfoTooltip title={kpi.title}>{kpi.tooltip}</InfoTooltip>
+                      </div>
+                      <p className="mt-1.5 text-xl font-bold tabular-nums text-slate-800 transition-colors duration-200 group-hover/kpi:text-blue-600 dark:text-slate-100 dark:group-hover/kpi:text-blue-400">
+                        {displayValue}
+                      </p>
+                      <div className="mt-2 flex items-center gap-2 text-[11px]">
+                        <span
+                          className={`inline-flex items-center gap-0.5 ${
+                            kpi.trend >= 0
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : 'text-rose-600 dark:text-rose-400'
+                          }`}
+                        >
+                          {kpi.trend >= 0 ? (
+                            <ArrowUpRight className="size-3" />
+                          ) : (
+                            <ArrowDownRight className="size-3" />
+                          )}
+                          {Math.abs(kpi.trend)}%
+                        </span>
+                        <Sparkline
+                          data={kpi.trendSeries.map((value) => Number(value))}
+                          color={kpi.trend >= 0 ? '#10b981' : '#ef4444'}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 transition-all duration-300 group-hover/kpi:bg-blue-50 group-hover/kpi:text-blue-600 dark:bg-slate-800 dark:text-slate-400 dark:group-hover/kpi:bg-blue-950 dark:group-hover/kpi:text-blue-400">
+                      <Icon className="size-5" />
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="mt-3 w-full text-left text-xs text-slate-500 transition hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"
+                    onClick={kpi.onClick}
+                  >
+                    {kpi.subtext}
+                  </button>
+                </article>
+              );
+            })}
           </section>
-        )}
 
-        <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <ChartContainer title="Costuri API pe provider" description="Ziua curentă" height={220}>
-            <BarChart
-              data={costsBarData}
-              xAxisKey="provider"
-              bars={[{ dataKey: 'cost', name: 'Cost USD', color: '#a855f7' }]}
-            />
-          </ChartContainer>
-          <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm dark:border-slate-700/90 dark:bg-slate-900/80">
+          {dashboardWidgetsLoading ? (
+            <DashboardSkeleton columns={3} rows={1} variant="chart" />
+          ) : (
+            <>
+              <div className="bento-quality">
+                <ChartContainer
+                  title="Distribuție calitate"
+                  description="Bronze / Silver / Golden / Review"
+                  height={220}
+                >
+                  <DonutChart
+                    data={qualityDonutData}
+                    centerLabel={numberFormatter.format(qualityValues.total)}
+                    onSliceClick={() => {
+                      go('/pim/quality');
+                    }}
+                  />
+                </ChartContainer>
+              </div>
+              <div className="bento-queues">
+                <ChartContainer
+                  title="Status cozi"
+                  description="Top cozi după încărcare"
+                  height={220}
+                >
+                  <BarChart
+                    data={queueBars}
+                    xAxisKey="name"
+                    bars={[
+                      { dataKey: 'waiting', name: 'Waiting', color: '#f59e0b', stackId: 'q' },
+                      { dataKey: 'active', name: 'Active', color: '#0ea5e9', stackId: 'q' },
+                      { dataKey: 'failed', name: 'Failed', color: '#ef4444', stackId: 'q' },
+                    ]}
+                    stacked
+                  />
+                </ChartContainer>
+              </div>
+              <article className="bento-attention overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm dark:border-slate-700/90 dark:bg-slate-900/80">
+                <h3 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Produse ce necesită atenție
+                  <InfoTooltip title="Produse ce necesită atenție" side="bottom">
+                    CE ESTE: Produse cu date incomplete, în review sau care așteaptă îmbogățire AI.
+                    DE CE CONTEAZĂ: Aceste produse ar putea fi afișate greșit în magazin sau ar
+                    pierde oportunități de vânzare. EXEMPLU: 45 produse fără descriere sau imagini
+                    optimizate. SFAT: Click pe „Vezi produse" pentru a le filtra și prioritiza în
+                    pagina Calitate.
+                  </InfoTooltip>
+                </h3>
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                  Produse cu date incomplete sau în review
+                </p>
+                <p className="mt-3 text-2xl font-bold text-slate-800 tabular-nums dark:text-slate-100">
+                  <KpiCountUp value={attentionCount} format={(n) => numberFormatter.format(n)} />
+                </p>
+                <div className="mt-3 flex items-center gap-1.5">
+                  <Button className="flex-1" variant="secondary" onClick={() => go('/pim/quality')}>
+                    Vezi produse
+                  </Button>
+                  <InfoTooltip title="Vezi produse" side="bottom">
+                    CE ESTE: Navigare directă la pagina Calitate cu filtre active. DE CE CONTEAZĂ:
+                    Oferă acces rapid la produsele ce necesită revizuire manuală sau enrichment.
+                    EXEMPLU: Vei vedea lista filtrată cu toate produsele incomplete. SFAT: Poți
+                    trimite produsele direct la enrichment din acea pagină.
+                  </InfoTooltip>
+                </div>
+              </article>
+            </>
+          )}
+
+          <div className="bento-costs">
+            <ChartContainer title="Costuri API pe provider" description="Ziua curentă" height={220}>
+              <BarChart
+                data={costsBarData}
+                xAxisKey="provider"
+                bars={[{ dataKey: 'cost', name: 'Cost USD', color: '#a855f7' }]}
+              />
+            </ChartContainer>
+          </div>
+          <article className="bento-budget overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm dark:border-slate-700/90 dark:bg-slate-900/80">
             <h3 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               Buget AI azi
               <InfoTooltip title="Buget AI azi" side="bottom">
@@ -838,10 +848,8 @@ export default function DashboardIndex() {
               </InfoTooltip>
             </div>
           </article>
-        </section>
 
-        <section className="grid grid-cols-1 gap-4 xl:grid-cols-4">
-          <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm dark:border-slate-700/90 dark:bg-slate-900/80">
+          <article className="bento-qhealth overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm dark:border-slate-700/90 dark:bg-slate-900/80">
             <h3 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               Queue Health
               <InfoTooltip title="Queue Health" side="bottom">
@@ -934,7 +942,7 @@ export default function DashboardIndex() {
             </div>
           </article>
 
-          <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm xl:col-span-2 dark:border-slate-700/90 dark:bg-slate-900/80">
+          <article className="bento-events overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm dark:border-slate-700/90 dark:bg-slate-900/80">
             <h3 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               Evenimente recente
               <InfoTooltip title="Evenimente recente" side="bottom">
@@ -973,7 +981,7 @@ export default function DashboardIndex() {
             </div>
           </article>
 
-          <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm dark:border-slate-700/90 dark:bg-slate-900/80">
+          <article className="bento-hscore overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm dark:border-slate-700/90 dark:bg-slate-900/80">
             <h3 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               Health Score
               <InfoTooltip title="Health Score" side="bottom">
@@ -1013,16 +1021,14 @@ export default function DashboardIndex() {
               />
             </div>
           </article>
-        </section>
 
-        <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <div className="animate-[fadeIn_0.5s_ease-out_350ms_both]">
+          <div className="bento-timeline animate-[fadeIn_0.5s_ease-out_350ms_both]">
             <ActivityTimeline />
           </div>
-          <div className="animate-[fadeSlideUp_0.4s_ease-out_450ms_both]">
+          <div className="bento-actions animate-[fadeSlideUp_0.4s_ease-out_450ms_both]">
             <QuickActionsPanel />
           </div>
-        </section>
+        </div>
       </SafeComponent>
     </div>
   );

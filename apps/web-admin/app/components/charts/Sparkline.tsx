@@ -1,6 +1,8 @@
 import { useId, useMemo } from 'react';
 import { Area, AreaChart, Line, LineChart as RechartsLineChart } from 'recharts';
 
+import { useChartTheme } from './theme';
+
 export type SparklineProps = Readonly<{
   data: readonly number[];
   width?: number;
@@ -29,27 +31,36 @@ const trendLabels: Record<'up' | 'down' | 'flat', string> = {
   flat: 'constant',
 };
 
-const trendArrowColors: Record<'up' | 'down' | 'flat', string> = {
+const trendArrowColorsLight: Record<'up' | 'down' | 'flat', string> = {
   up: '#16a34a',
   down: '#dc2626',
   flat: '#64748b',
+};
+
+const trendArrowColorsDark: Record<'up' | 'down' | 'flat', string> = {
+  up: '#4ade80',
+  down: '#f87171',
+  flat: '#94a3b8',
 };
 
 export function Sparkline({
   data,
   width = 50,
   height = 18,
-  color = '#008060',
+  color,
   showChange = false,
   trend,
   areaFill = true,
 }: SparklineProps) {
   const uid = useId().replace(/:/g, '');
+  const { isDark, palette } = useChartTheme();
+  const resolvedColor = color ?? palette[0];
   const points = useMemo(() => data.map((v, i) => ({ i, v })), [data]);
   const resolvedTrend = trend ?? computeTrend(data);
   const delta = (data[data.length - 1] ?? 0) - (data[0] ?? 0);
   const trendLabel = trendLabels[resolvedTrend];
-  const arrowColor = trendArrowColors[resolvedTrend];
+  const arrowColors = isDark ? trendArrowColorsDark : trendArrowColorsLight;
+  const arrowColor = arrowColors[resolvedTrend];
 
   const gradientId = `sparkline-grad-${uid}`;
 
@@ -59,14 +70,14 @@ export function Sparkline({
         <AreaChart width={width} height={height} data={points}>
           <defs>
             <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={color} stopOpacity={0.35} />
-              <stop offset="100%" stopColor={color} stopOpacity={0.02} />
+              <stop offset="0%" stopColor={resolvedColor} stopOpacity={0.35} />
+              <stop offset="100%" stopColor={resolvedColor} stopOpacity={0.02} />
             </linearGradient>
           </defs>
           <Area
             type="monotone"
             dataKey="v"
-            stroke={color}
+            stroke={resolvedColor}
             strokeWidth={2}
             fill={`url(#${gradientId})`}
             dot={false}
@@ -80,7 +91,7 @@ export function Sparkline({
           <Line
             type="monotone"
             dataKey="v"
-            stroke={color}
+            stroke={resolvedColor}
             strokeWidth={2}
             dot={false}
             isAnimationActive

@@ -13,7 +13,11 @@ describe('InfoTooltip – hover delay', () => {
   });
 
   it('tooltip is not visible immediately on hover', () => {
-    render(<InfoTooltip title="Test Title">Tooltip content</InfoTooltip>);
+    render(
+      <InfoTooltip title="Test Title" portalToBody={false}>
+        Tooltip content
+      </InfoTooltip>
+    );
 
     const trigger = screen.getByRole('button');
     fireEvent.mouseEnter(trigger);
@@ -23,7 +27,11 @@ describe('InfoTooltip – hover delay', () => {
   });
 
   it('tooltip becomes visible after 200ms delay', () => {
-    render(<InfoTooltip title="Test Title">Tooltip content</InfoTooltip>);
+    render(
+      <InfoTooltip title="Test Title" portalToBody={false}>
+        Tooltip content
+      </InfoTooltip>
+    );
 
     const trigger = screen.getByRole('button');
     fireEvent.mouseEnter(trigger);
@@ -39,7 +47,11 @@ describe('InfoTooltip – hover delay', () => {
   });
 
   it('tooltip has maxWidth of at least 360px', () => {
-    render(<InfoTooltip title="Title">Content</InfoTooltip>);
+    render(
+      <InfoTooltip title="Title" portalToBody={false}>
+        Content
+      </InfoTooltip>
+    );
 
     const trigger = screen.getByRole('button');
     fireEvent.mouseEnter(trigger);
@@ -54,7 +66,11 @@ describe('InfoTooltip – hover delay', () => {
   });
 
   it('Escape closes the tooltip', () => {
-    render(<InfoTooltip title="Title">Content</InfoTooltip>);
+    render(
+      <InfoTooltip title="Title" portalToBody={false}>
+        Content
+      </InfoTooltip>
+    );
 
     const trigger = screen.getByRole('button');
     fireEvent.mouseEnter(trigger);
@@ -72,7 +88,11 @@ describe('InfoTooltip – hover delay', () => {
   });
 
   it('tooltip disappears after mouse leaves (with close delay)', () => {
-    render(<InfoTooltip title="Title">Content</InfoTooltip>);
+    render(
+      <InfoTooltip title="Title" portalToBody={false}>
+        Content
+      </InfoTooltip>
+    );
 
     const trigger = screen.getByRole('button');
     fireEvent.mouseEnter(trigger);
