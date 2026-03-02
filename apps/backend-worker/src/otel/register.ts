@@ -8,6 +8,7 @@
  */
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+import type { Instrumentation } from '@opentelemetry/instrumentation';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
@@ -45,14 +46,12 @@ function createSampler() {
   return new TraceIdRatioBasedSampler(samplingRatio);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function filterInstrumentations(instrumentations: any[]): any[] {
+function filterInstrumentations(instrumentations: Instrumentation[]): Instrumentation[] {
   const disabledNames = new Set([
     '@opentelemetry/instrumentation-fs',
     '@opentelemetry/instrumentation-dns',
     '@opentelemetry/instrumentation-net',
   ]);
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
   return instrumentations.filter((inst) => !disabledNames.has(inst.instrumentationName));
 }
 
