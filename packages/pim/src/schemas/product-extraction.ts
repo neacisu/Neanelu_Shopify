@@ -29,6 +29,10 @@ export const ExtractedProductSchema = z.object({
     .array(ExtractedSpecificationSchema)
     .default([])
     .describe('Lista de specificatii tehnice'),
+  description: z
+    .string()
+    .optional()
+    .describe('Descriere detaliata a produsului in romana (minimum 100 cuvinte)'),
   price: ExtractedPriceSchema,
   images: z.array(z.string().url()).default([]).describe('URL imagini produs'),
   confidence: ExtractionConfidenceSchema,

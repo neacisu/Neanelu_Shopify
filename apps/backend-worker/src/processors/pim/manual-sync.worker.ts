@@ -44,6 +44,14 @@ export function startPimManualSyncWorker(logger: Logger): PimManualSyncWorkerHan
             bulkRunId: payload.bulkRunId,
             ...(typeof payload.limit === 'number' ? { limit: payload.limit } : {}),
             logger,
+            onProgress: (processed, total) => {
+              const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
+              void job.updateProgress(pct).catch(() => undefined);
+              logger.debug(
+                { shopId: payload.shopId, processed, total, pct },
+                'PIM manual sync progress'
+              );
+            },
           });
 
           logger.info(

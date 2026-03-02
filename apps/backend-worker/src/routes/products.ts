@@ -1468,37 +1468,6 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
     }
   });
 
-  server.get('/collections', requireAdminSession, async (request, reply) => {
-    const session = getSessionFromRequest(request, sessionConfig);
-    if (!session) {
-      void reply
-        .status(401)
-        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
-      return;
-    }
-
-    const collections = await withTenantContext(session.shopId, async (client) => {
-      const result = await client.query<{
-        id: string;
-        title: string;
-        collectionType: string;
-        productsCount: number;
-      }>(
-        `SELECT id,
-                title,
-                collection_type as "collectionType",
-                products_count as "productsCount"
-           FROM shopify_collections
-          WHERE shop_id = $1
-          ORDER BY title ASC`,
-        [session.shopId]
-      );
-      return result.rows;
-    });
-
-    void reply.status(200).send(successEnvelope(request.id, { collections }));
-  });
-
   server.get('/products/review', requireAdminSession, async (request, reply) => {
     const session = getSessionFromRequest(request, sessionConfig);
     if (!session) {

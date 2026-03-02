@@ -30,6 +30,7 @@ export function computeQualityBreakdown(params: {
   attributeVotes: Map<string, AttributeVote[]>;
   requiredFields: string[];
   sourceCount: number;
+  requiredMetafieldCodes?: string[];
 }): QualityBreakdown {
   const { consensusSpecs, attributeVotes, requiredFields } = params;
   const requiredNormalized = requiredFields.map((field) => normalizeKey(field));
@@ -39,7 +40,15 @@ export function computeQualityBreakdown(params: {
   const requiredPresent = totalRequired
     ? requiredNormalized.filter((field) => consensusKeys.has(field)).length
     : 0;
-  const completeness = totalRequired === 0 ? 1 : requiredPresent / totalRequired;
+  let completeness = totalRequired === 0 ? 1 : requiredPresent / totalRequired;
+
+  const requiredMetafieldCodes = params.requiredMetafieldCodes ?? [];
+  if (requiredMetafieldCodes.length > 0) {
+    const requiredMetaNormalized = requiredMetafieldCodes.map((code) => normalizeKey(code));
+    const metaPresent = requiredMetaNormalized.filter((code) => consensusKeys.has(code)).length;
+    const metafieldCompleteness = metaPresent / requiredMetaNormalized.length;
+    completeness = 0.7 * completeness + 0.3 * metafieldCompleteness;
+  }
 
   let confidenceTotal = 0;
   let confidenceCount = 0;
@@ -120,4 +129,22 @@ export async function getRequiredFieldsForTaxonomy(params: {
     })
     .filter((value): value is string => Boolean(value));
   return fields.length > 0 ? fields : [...CONSENSUS_CONFIG.DEFAULT_REQUIRED_FIELDS];
+}
+
+export async function getRequiredMetafieldCodesForTaxonomy(params: {
+  client?: DbClient;
+  taxonomyId: string | null;
+}): Promise<string[]> {
+  if (!params.taxonomyId) return [];
+  const pool = params.client ?? getDbPool();
+  const result = await pool.query<{ attr_code: string }>(
+    `SELECT attr_code
+     FROM pim_taxonomy_metafield_schema
+     WHERE taxonomy_id = $1
+       AND is_required = true`,
+    [params.taxonomyId]
+  );
+  return result.rows
+    .map((r) => r.attr_code)
+    .filter((v) => typeof v === 'string' && v.trim().length > 0);
 }

@@ -78,6 +78,9 @@ export class XaiExtractorService {
                 '- NU inventa sau presupune valori\n' +
                 '- Daca un camp nu exista, lasa-l undefined\n' +
                 '- Pentru GTIN/EAN/UPC verifica 8-14 cifre\n' +
+                '- Extrage descrierea completa a produsului in campul description\n' +
+                '- Descrierea trebuie sa fie in romana si sa aiba minimum 100 cuvinte\n' +
+                '- Daca nu exista descriere clara, lasa description undefined\n' +
                 '- Confidence < 0.8 daca informatiile sunt ambigue\n' +
                 '- Adauga in fieldsUncertain toate campurile nesigure',
             },

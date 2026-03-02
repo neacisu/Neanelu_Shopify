@@ -33,11 +33,16 @@ type SimilarProductRow = Readonly<{
   brand: string | null;
 }>;
 
+// Maximum products processed in a single DB write transaction.
+// Keeps each transaction short (< 5s) even under load.
+const WRITE_BATCH_SIZE = 500;
+
 export async function runPimSyncFromBulkRun(params: {
   shopId: string;
   bulkRunId: string;
   logger: Logger;
   limit?: number;
+  onProgress?: (processed: number, total: number) => void;
 }): Promise<void> {
   const env = loadEnv();
 
@@ -87,110 +92,143 @@ export async function runPimSyncFromBulkRun(params: {
   const highThreshold = env.bulkDedupeHighThreshold;
   const suspiciousThreshold = env.bulkDedupeSuspiciousThreshold;
   const maxResults = env.bulkDedupeMaxResults;
+  const requestedLimit =
+    typeof params.limit === 'number' && Number.isFinite(params.limit) && params.limit > 0
+      ? Math.floor(params.limit)
+      : null;
 
-  await withTenantContext(params.shopId, async (client) => {
-    const sourceId = await ensureProdSource({
+  // ── Tx 1: Ensure prod_source row exists (idempotent upsert, short tx) ──
+  const sourceId = await withTenantContext(params.shopId, (client) =>
+    ensureProdSource({
       client,
       name: 'shopify_bulk_import',
       sourceType: 'bulk_import',
       priority: 40,
       trustScore: 0.6,
-    });
+    })
+  );
 
-    const touched = await loadTouchedShopifyProducts({
+  const totalTouchedProducts = await withTenantContext(params.shopId, (client) =>
+    countTouchedShopifyProducts({
       client,
       shopId: params.shopId,
       bulkRunId: params.bulkRunId,
-      ...(typeof params.limit === 'number' && Number.isFinite(params.limit) && params.limit > 0
-        ? { limit: Math.floor(params.limit) }
-        : {}),
-    });
+    })
+  );
 
-    if (touched.length === 0) {
-      params.logger.info(
-        { [OTEL_ATTR.SHOP_ID]: params.shopId, bulkRunId: params.bulkRunId },
-        'PIM sync skipped (no touched products)'
-      );
-      return;
-    }
-
+  if (totalTouchedProducts === 0) {
     params.logger.info(
-      {
-        [OTEL_ATTR.SHOP_ID]: params.shopId,
+      { [OTEL_ATTR.SHOP_ID]: params.shopId, bulkRunId: params.bulkRunId },
+      'PIM sync skipped (no touched products)'
+    );
+    return;
+  }
+
+  params.logger.info(
+    {
+      [OTEL_ATTR.SHOP_ID]: params.shopId,
+      bulkRunId: params.bulkRunId,
+      touchedProducts: totalTouchedProducts,
+      pimSyncEnabled,
+      semanticEnabled,
+      consensusEnabled,
+      embeddingsProvider: provider.kind,
+    },
+    'PIM sync started'
+  );
+
+  const PAGE_SIZE = 10_000;
+  const progressTotal =
+    requestedLimit !== null ? Math.min(requestedLimit, totalTouchedProducts) : totalTouchedProducts;
+
+  let pageOffset = 0;
+  let processedTouched = 0;
+  let remainingProcessed = 0;
+
+  while (true) {
+    if (requestedLimit !== null && processedTouched >= requestedLimit) break;
+    const remainingLimit =
+      requestedLimit !== null ? Math.max(0, requestedLimit - processedTouched) : PAGE_SIZE;
+    const pageLimit = Math.min(PAGE_SIZE, remainingLimit);
+    if (pageLimit <= 0) break;
+
+    const touched = await withTenantContext(params.shopId, (client) =>
+      loadTouchedShopifyProducts({
+        client,
+        shopId: params.shopId,
         bulkRunId: params.bulkRunId,
-        touchedProducts: touched.length,
-        pimSyncEnabled,
-        semanticEnabled,
-        consensusEnabled,
-        embeddingsProvider: provider.kind,
-      },
-      'PIM sync started'
+        limit: pageLimit,
+        offset: pageOffset,
+      })
+    );
+    if (touched.length === 0) break;
+
+    // ── Tx 3: Preload existing channel mappings per page (read-only, short tx) ──
+    const existingMappingsByExternalId = await withTenantContext(params.shopId, (client) =>
+      loadExistingChannelMappings({
+        client,
+        shopId: params.shopId,
+        externalIds: touched.map((t) => t.shopify_gid),
+      })
     );
 
-    // Preload existing channel mappings for the touched external IDs.
-    const existingMappingsByExternalId = await loadExistingChannelMappings({
-      client,
-      shopId: params.shopId,
-      externalIds: touched.map((t) => t.shopify_gid),
-    });
-
-    // Preload GTIN exact matches.
+    // ── Tx 4: Preload GTIN map per page (read-only, short tx) ──
     const gtins = touched
       .map((t) => normalizeText(t.gtin) || null)
       .filter((g): g is string => Boolean(g));
-    const prodByGtin = await loadProdMasterIdsByGtin({ client, gtins });
+    const prodByGtin = await withTenantContext(params.shopId, (client) =>
+      loadProdMasterIdsByGtin({ client, gtins })
+    );
 
-    // 1) Handle items already mapped or GTIN-linked.
-    for (const p of touched) {
-      if (existingMappingsByExternalId.has(p.shopify_gid)) continue;
+    // ── Pass 1: GTIN exact-match linking ──
+    for (let batchStart = 0; batchStart < touched.length; batchStart += WRITE_BATCH_SIZE) {
+      const chunk = touched.slice(batchStart, batchStart + WRITE_BATCH_SIZE);
+      await withTenantContext(params.shopId, async (client) => {
+        for (const p of chunk) {
+          if (existingMappingsByExternalId.has(p.shopify_gid)) continue;
 
-      const gtin = normalizeText(p.gtin) || null;
-      if (!gtin) continue;
+          const gtin = normalizeText(p.gtin) || null;
+          if (!gtin) continue;
 
-      const matchId = prodByGtin.get(gtin);
-      if (!matchId) continue;
+          const matchId = prodByGtin.get(gtin);
+          if (!matchId) continue;
 
-      await upsertProdChannelMapping({
-        client,
-        shopId: params.shopId,
-        externalId: p.shopify_gid,
-        productId: matchId,
-        channelMeta: {
-          source: 'bulk_import',
-          reason: 'gtin_exact_match',
-          gtin,
-        },
+          await upsertProdChannelMapping({
+            client,
+            shopId: params.shopId,
+            externalId: p.shopify_gid,
+            productId: matchId,
+            channelMeta: { source: 'bulk_import', reason: 'gtin_exact_match', gtin },
+          });
+
+          existingMappingsByExternalId.set(p.shopify_gid, matchId);
+
+          if (consensusEnabled) {
+            await enqueueConsensusJob({
+              shopId: params.shopId,
+              productId: matchId,
+              trigger: 'batch',
+            });
+          }
+        }
       });
-
-      existingMappingsByExternalId.set(p.shopify_gid, matchId);
-
-      if (consensusEnabled) {
-        await enqueueConsensusJob({
-          shopId: params.shopId,
-          productId: matchId,
-          trigger: 'batch',
-        });
-      }
     }
 
-    // 2) Semantic dedup (Plan requirement: embed in batches of 100).
-    const semanticCandidates = touched.filter((p) => {
-      if (existingMappingsByExternalId.has(p.shopify_gid)) return false;
-      const gtin = normalizeText(p.gtin) || null;
-      if (gtin && prodByGtin.has(gtin)) return false;
-      return true;
-    });
+    // ── Pass 2: Semantic deduplication ──
+    if (semanticEnabled && provider.isAvailable()) {
+      const semanticCandidates = touched.filter((p) => {
+        if (existingMappingsByExternalId.has(p.shopify_gid)) return false;
+        const gtin = normalizeText(p.gtin) || null;
+        if (gtin && prodByGtin.has(gtin)) return false;
+        return true;
+      });
 
-    if (semanticEnabled && provider.isAvailable() && semanticCandidates.length > 0) {
-      const batchSize = 100;
-
-      for (let offset = 0; offset < semanticCandidates.length; offset += batchSize) {
-        const batch = semanticCandidates.slice(offset, offset + batchSize);
-        const batchTexts = batch.map((b) => {
-          const t = normalizeText(b.title);
-          const br = normalizeText(b.vendor);
-          return `${t} ${br}`.trim();
-        });
+      const EMBED_BATCH = 100;
+      for (let offset = 0; offset < semanticCandidates.length; offset += EMBED_BATCH) {
+        const batch = semanticCandidates.slice(offset, offset + EMBED_BATCH);
+        const batchTexts = batch.map((b) =>
+          `${normalizeText(b.title)} ${normalizeText(b.vendor)}`.trim()
+        );
 
         let embeddings: readonly (readonly number[])[];
         try {
@@ -199,7 +237,11 @@ export async function runPimSyncFromBulkRun(params: {
         } catch (err) {
           if (err instanceof BudgetExceededError) {
             params.logger.warn(
-              { [OTEL_ATTR.SHOP_ID]: params.shopId, bulkRunId: params.bulkRunId, err: err.message },
+              {
+                [OTEL_ATTR.SHOP_ID]: params.shopId,
+                bulkRunId: params.bulkRunId,
+                err: err.message,
+              },
               'OpenAI budget exceeded; stopping semantic dedup for remaining items'
             );
             break;
@@ -211,195 +253,197 @@ export async function runPimSyncFromBulkRun(params: {
             errorCode: 'AI_6003',
             errorMessage: err instanceof Error ? err.message : String(err),
           }).catch(() => undefined);
-
           params.logger.warn(
             { [OTEL_ATTR.SHOP_ID]: params.shopId, bulkRunId: params.bulkRunId, err },
             'Embeddings provider failed; continuing with exact-match-only'
           );
-          break; // fallback for remaining items
+          break;
         }
 
-        for (let i = 0; i < batch.length; i += 1) {
-          const item = batch[i]!;
-          const emb = embeddings[i];
-          if (!emb) continue;
+        await withTenantContext(params.shopId, async (client) => {
+          for (let i = 0; i < batch.length; i += 1) {
+            const item = batch[i]!;
+            const emb = embeddings[i];
+            if (!emb) continue;
 
-          // Persist per-tenant embeddings for Shopify products (builds future capability).
-          await upsertShopProductEmbedding({
-            client,
-            shopId: params.shopId,
-            shopifyProductId: item.shopify_product_id,
-            embedding: emb,
-            contentHash: sha256Hex(`${normalizeText(item.title)}|${normalizeText(item.vendor)}`),
-            modelVersion: provider.model.name,
-          });
+            await upsertShopProductEmbedding({
+              client,
+              shopId: params.shopId,
+              shopifyProductId: item.shopify_product_id,
+              embedding: emb,
+              contentHash: sha256Hex(`${normalizeText(item.title)}|${normalizeText(item.vendor)}`),
+              modelVersion: provider.model.name,
+            });
 
-          const matches = await findSimilarProducts({
-            client,
-            queryEmbedding: emb,
-            similarityThreshold: suspiciousThreshold,
-            maxResults,
-          });
+            const matches = await findSimilarProducts({
+              client,
+              queryEmbedding: emb,
+              similarityThreshold: suspiciousThreshold,
+              maxResults,
+            });
 
-          const decision = decidePimTarget({
-            existingChannelMappingProductId: null,
-            gtinExactMatchProductId: null,
-            semanticMatches: matches.map((m) => ({
-              productId: m.product_id,
-              similarity: m.similarity,
-              title: m.title,
-              brand: m.brand,
-            })),
-            thresholds: { highConfidence: highThreshold, suspicious: suspiciousThreshold },
-          });
+            const decision = decidePimTarget({
+              existingChannelMappingProductId: null,
+              gtinExactMatchProductId: null,
+              semanticMatches: matches.map((m) => ({
+                productId: m.product_id,
+                similarity: m.similarity,
+                title: m.title,
+                brand: m.brand,
+              })),
+              thresholds: { highConfidence: highThreshold, suspicious: suspiciousThreshold },
+            });
 
-          if (decision.kind === 'use_existing') {
+            if (decision.kind === 'use_existing') {
+              await upsertProdChannelMapping({
+                client,
+                shopId: params.shopId,
+                externalId: item.shopify_gid,
+                productId: decision.productId,
+                channelMeta: {
+                  source: 'bulk_import',
+                  reason: decision.reason,
+                  matched: matches.slice(0, 5),
+                },
+              });
+              existingMappingsByExternalId.set(item.shopify_gid, decision.productId);
+              if (consensusEnabled) {
+                await enqueueConsensusJob({
+                  shopId: params.shopId,
+                  productId: decision.productId,
+                  trigger: 'batch',
+                });
+              }
+              continue;
+            }
+
+            const gtin = normalizeText(item.gtin) || null;
+            const internalSku = gtin
+              ? `gtin:${gtin}`
+              : `shopify:${params.shopId}:${String(item.legacy_resource_id)}`;
+
+            const newId = await upsertProdMasterFromShopify({
+              client,
+              internalSku,
+              canonicalTitle: normalizeText(item.title),
+              brand: normalizeText(item.vendor) || null,
+              gtin,
+              primarySourceId: sourceId,
+              dedupeStatus: decision.needsReview ? 'suspicious' : 'unique',
+              needsReview: decision.needsReview,
+              reviewNotes: decision.needsReview ? 'semantic_suspicious' : null,
+            });
+
             await upsertProdChannelMapping({
               client,
               shopId: params.shopId,
               externalId: item.shopify_gid,
-              productId: decision.productId,
-              channelMeta: {
-                source: 'bulk_import',
-                reason: decision.reason,
-                matched: matches.slice(0, 5),
-              },
+              productId: newId,
+              channelMeta: { source: 'bulk_import', reason: decision.reason },
             });
 
-            existingMappingsByExternalId.set(item.shopify_gid, decision.productId);
+            existingMappingsByExternalId.set(item.shopify_gid, newId);
+
+            if (decision.needsReview) {
+              const best = matches[0];
+              if (best) {
+                const clusterId = await createSuspiciousDedupeCluster({
+                  client,
+                  canonicalProductId: best.product_id,
+                  newProductId: newId,
+                  similarity: best.similarity,
+                  matchCriteria: {
+                    method: 'semantic',
+                    embedding_type: 'title_brand',
+                    threshold: suspiciousThreshold,
+                    similarity: best.similarity,
+                  },
+                  matchFields: {
+                    title: normalizeText(item.title),
+                    vendor: normalizeText(item.vendor),
+                  },
+                });
+                await markProdMasterSuspicious({
+                  client,
+                  productId: newId,
+                  clusterId,
+                  reviewNotes: JSON.stringify({
+                    reason: decision.reason,
+                    canonicalCandidateId: best.product_id,
+                    similarity: best.similarity,
+                    shopify: { gid: item.shopify_gid, updatedAtShopify: item.updated_at_shopify },
+                  }),
+                });
+              }
+            }
+
+            await upsertProdEmbedding({
+              client,
+              productId: newId,
+              embeddingType: 'title_brand',
+              embedding: emb,
+              contentHash: sha256Hex(`${normalizeText(item.title)}|${normalizeText(item.vendor)}`),
+              modelVersion: provider.model.name,
+            });
 
             if (consensusEnabled) {
               await enqueueConsensusJob({
                 shopId: params.shopId,
-                productId: decision.productId,
+                productId: newId,
                 trigger: 'batch',
               });
             }
-
-            continue;
           }
-
-          const gtin = normalizeText(item.gtin) || null;
-          const internalSku = gtin
-            ? `gtin:${gtin}`
-            : `shopify:${params.shopId}:${String(item.legacy_resource_id)}`;
-
-          const newId = await upsertProdMasterFromShopify({
-            client,
-            internalSku,
-            canonicalTitle: normalizeText(item.title),
-            brand: normalizeText(item.vendor) || null,
-            gtin,
-            primarySourceId: sourceId,
-            dedupeStatus: decision.needsReview ? 'suspicious' : 'unique',
-            needsReview: decision.needsReview,
-            reviewNotes: decision.needsReview ? 'semantic_suspicious' : null,
-          });
-
-          await upsertProdChannelMapping({
-            client,
-            shopId: params.shopId,
-            externalId: item.shopify_gid,
-            productId: newId,
-            channelMeta: { source: 'bulk_import', reason: decision.reason },
-          });
-
-          existingMappingsByExternalId.set(item.shopify_gid, newId);
-
-          if (decision.needsReview) {
-            const best = matches[0];
-            if (best) {
-              const clusterId = await createSuspiciousDedupeCluster({
-                client,
-                canonicalProductId: best.product_id,
-                newProductId: newId,
-                similarity: best.similarity,
-                matchCriteria: {
-                  method: 'semantic',
-                  embedding_type: 'title_brand',
-                  threshold: suspiciousThreshold,
-                  similarity: best.similarity,
-                },
-                matchFields: {
-                  title: normalizeText(item.title),
-                  vendor: normalizeText(item.vendor),
-                },
-              });
-
-              await markProdMasterSuspicious({
-                client,
-                productId: newId,
-                clusterId,
-                reviewNotes: JSON.stringify({
-                  reason: decision.reason,
-                  canonicalCandidateId: best.product_id,
-                  similarity: best.similarity,
-                  shopify: { gid: item.shopify_gid, updatedAtShopify: item.updated_at_shopify },
-                }),
-              });
-            }
-          }
-
-          await upsertProdEmbedding({
-            client,
-            productId: newId,
-            embeddingType: 'title_brand',
-            embedding: emb,
-            contentHash: sha256Hex(`${normalizeText(item.title)}|${normalizeText(item.vendor)}`),
-            modelVersion: provider.model.name,
-          });
-
-          if (consensusEnabled) {
-            await enqueueConsensusJob({
-              shopId: params.shopId,
-              productId: newId,
-              trigger: 'batch',
-            });
-          }
-        }
-      }
-    }
-
-    // 3) Remaining items: exact-only create + optional mapping.
-    for (const p of touched) {
-      if (existingMappingsByExternalId.has(p.shopify_gid)) continue;
-
-      const createdId = await upsertProdMasterFromShopify({
-        client,
-        internalSku: normalizeText(p.gtin)
-          ? `gtin:${String(normalizeText(p.gtin))}`
-          : `shopify:${params.shopId}:${String(p.legacy_resource_id)}`,
-        canonicalTitle: normalizeText(p.title),
-        brand: normalizeText(p.vendor) || null,
-        gtin: normalizeText(p.gtin) || null,
-        primarySourceId: sourceId,
-        dedupeStatus: 'unique',
-        needsReview: false,
-        reviewNotes: null,
-      });
-
-      await upsertProdChannelMapping({
-        client,
-        shopId: params.shopId,
-        externalId: p.shopify_gid,
-        productId: createdId,
-        channelMeta: { source: 'bulk_import', reason: 'created_exact_only' },
-      });
-
-      if (consensusEnabled) {
-        await enqueueConsensusJob({
-          shopId: params.shopId,
-          productId: createdId,
-          trigger: 'batch',
         });
       }
     }
 
-    params.logger.info(
-      { [OTEL_ATTR.SHOP_ID]: params.shopId, bulkRunId: params.bulkRunId },
-      'PIM sync completed'
-    );
-  });
+    // ── Pass 3: Remaining items (no semantic match / semantic disabled) ──
+    for (let batchStart = 0; batchStart < touched.length; batchStart += WRITE_BATCH_SIZE) {
+      const chunk = touched.slice(batchStart, batchStart + WRITE_BATCH_SIZE);
+      const remainingChunk = chunk.filter((p) => !existingMappingsByExternalId.has(p.shopify_gid));
+      if (remainingChunk.length === 0) continue;
+
+      const createdMappings = await withTenantContext(params.shopId, async (client) =>
+        batchUpsertRemainingItems({
+          client,
+          shopId: params.shopId,
+          sourceId,
+          items: remainingChunk,
+        })
+      );
+
+      for (const row of createdMappings) {
+        existingMappingsByExternalId.set(row.external_id, row.product_id);
+        remainingProcessed += 1;
+        if (consensusEnabled) {
+          await enqueueConsensusJob({
+            shopId: params.shopId,
+            productId: row.product_id,
+            trigger: 'batch',
+          });
+        }
+      }
+    }
+
+    processedTouched += touched.length;
+    pageOffset += touched.length;
+    params.onProgress?.(Math.min(processedTouched, progressTotal), progressTotal);
+
+    if (touched.length < pageLimit) {
+      break;
+    }
+  }
+
+  params.logger.info(
+    {
+      [OTEL_ATTR.SHOP_ID]: params.shopId,
+      bulkRunId: params.bulkRunId,
+      total: progressTotal,
+      remainingCreated: remainingProcessed,
+    },
+    'PIM sync completed'
+  );
 }
 
 async function loadExistingChannelMappings(params: {
@@ -448,9 +492,23 @@ async function loadTouchedShopifyProducts(params: {
   shopId: string;
   bulkRunId: string;
   limit?: number;
+  offset?: number;
 }): Promise<readonly ShopifyTouchedProduct[]> {
   const hasLimit =
     typeof params.limit === 'number' && Number.isFinite(params.limit) && params.limit > 0;
+  const hasOffset =
+    typeof params.offset === 'number' && Number.isFinite(params.offset) && params.offset >= 0;
+  const queryValues: unknown[] = [params.bulkRunId, params.shopId];
+  let limitSql = '';
+  let offsetSql = '';
+  if (hasLimit) {
+    queryValues.push(Math.floor(params.limit!));
+    limitSql = `LIMIT $${queryValues.length}`;
+  }
+  if (hasOffset) {
+    queryValues.push(Math.floor(params.offset!));
+    offsetSql = `OFFSET $${queryValues.length}`;
+  }
   const res = await params.client.query<ShopifyTouchedProduct>(
     `SELECT
        p.id as shopify_product_id,
@@ -478,12 +536,30 @@ async function loadTouchedShopifyProducts(params: {
        AND sp.validation_status = 'valid'
        AND sp.merge_status = 'merged'
      ORDER BY p.id ASC
-     ${hasLimit ? 'LIMIT $3' : ''}`,
-    hasLimit
-      ? [params.bulkRunId, params.shopId, Math.floor(params.limit!)]
-      : [params.bulkRunId, params.shopId]
+     ${limitSql}
+     ${offsetSql}`,
+    queryValues
   );
   return res.rows;
+}
+
+async function countTouchedShopifyProducts(params: {
+  client: {
+    query: <T = unknown>(sql: string, values?: readonly unknown[]) => Promise<{ rows: T[] }>;
+  };
+  shopId: string;
+  bulkRunId: string;
+}): Promise<number> {
+  const res = await params.client.query<{ total: number }>(
+    `SELECT COUNT(*)::int AS total
+     FROM staging_products sp
+     WHERE sp.bulk_run_id = $1
+       AND sp.shop_id = $2
+       AND sp.validation_status = 'valid'
+       AND sp.merge_status = 'merged'`,
+    [params.bulkRunId, params.shopId]
+  );
+  return res.rows[0]?.total ?? 0;
 }
 
 async function ensureProdSource(params: {
@@ -591,6 +667,112 @@ async function upsertProdMasterFromShopify(params: {
   const id = res.rows[0]?.id;
   if (!id) throw new Error('pim_master_upsert_failed');
   return id;
+}
+
+type BatchUpsertCreatedMapping = Readonly<{
+  product_id: string;
+  external_id: string;
+}>;
+
+async function batchUpsertRemainingItems(params: {
+  client: {
+    query: <T = unknown>(sql: string, values?: readonly unknown[]) => Promise<{ rows: T[] }>;
+  };
+  shopId: string;
+  sourceId: string;
+  items: readonly ShopifyTouchedProduct[];
+}): Promise<readonly BatchUpsertCreatedMapping[]> {
+  if (params.items.length === 0) return [];
+
+  const internalSkus = params.items.map((p) => {
+    const normalizedGtin = normalizeText(p.gtin);
+    return normalizedGtin
+      ? `gtin:${String(normalizedGtin)}`
+      : `shopify:${params.shopId}:${String(p.legacy_resource_id)}`;
+  });
+  const titles = params.items.map((p) => normalizeText(p.title));
+  const brands = params.items.map((p) => normalizeText(p.vendor) || null);
+  const gtins = params.items.map((p) => normalizeText(p.gtin) || null);
+  const externalIds = params.items.map((p) => p.shopify_gid);
+
+  const res = await params.client.query<BatchUpsertCreatedMapping>(
+    `WITH incoming AS (
+       SELECT *
+       FROM unnest(
+         $1::text[],
+         $2::text[],
+         $3::text[],
+         $4::text[],
+         $5::text[]
+       ) AS t(internal_sku, canonical_title, brand, gtin, external_id)
+     ),
+     upserted_master AS (
+       INSERT INTO prod_master (
+         internal_sku,
+         canonical_title,
+         brand,
+         gtin,
+         primary_source_id,
+         dedupe_status,
+         data_quality_level,
+         needs_review,
+         review_notes,
+         created_at,
+         updated_at
+       )
+       SELECT
+         i.internal_sku,
+         i.canonical_title,
+         i.brand,
+         i.gtin,
+         $6,
+         'unique',
+         'bronze',
+         false,
+         NULL,
+         now(),
+         now()
+       FROM incoming i
+       ON CONFLICT (internal_sku) DO UPDATE SET
+         gtin = COALESCE(prod_master.gtin, EXCLUDED.gtin),
+         brand = COALESCE(prod_master.brand, EXCLUDED.brand),
+         updated_at = now()
+       RETURNING id, internal_sku
+     )
+     INSERT INTO prod_channel_mappings (
+       product_id,
+       channel,
+       shop_id,
+       external_id,
+       sync_status,
+       last_pulled_at,
+       channel_meta,
+       created_at,
+       updated_at
+     )
+     SELECT
+       um.id,
+       'shopify',
+       $7,
+       i.external_id,
+       'synced',
+       now(),
+       '{"source":"bulk_import","reason":"created_exact_only"}'::jsonb,
+       now(),
+       now()
+     FROM upserted_master um
+     JOIN incoming i
+       ON i.internal_sku = um.internal_sku
+     ON CONFLICT (channel, shop_id, external_id) DO UPDATE SET
+       product_id = EXCLUDED.product_id,
+       sync_status = 'synced',
+       last_pulled_at = now(),
+       channel_meta = (prod_channel_mappings.channel_meta || EXCLUDED.channel_meta),
+       updated_at = now()
+     RETURNING product_id, external_id`,
+    [internalSkus, titles, brands, gtins, externalIds, params.sourceId, params.shopId]
+  );
+  return res.rows;
 }
 
 async function markProdMasterSuspicious(params: {

@@ -3,6 +3,7 @@ import {
   calculateQualityScore,
   computeQualityBreakdown,
   getRequiredFieldsForTaxonomy,
+  getRequiredMetafieldCodesForTaxonomy,
 } from './quality-scorer.js';
 import { parseExtractedSpecs } from './specs-parser.js';
 import type {
@@ -369,11 +370,13 @@ export async function computeConsensus(params: {
   );
   const taxonomyId = productResult.rows[0]?.taxonomy_id ?? null;
   const requiredFields = await getRequiredFieldsForTaxonomy({ client, taxonomyId });
+  const requiredMetafieldCodes = await getRequiredMetafieldCodesForTaxonomy({ client, taxonomyId });
   const breakdown = computeQualityBreakdown({
     consensusSpecs,
     attributeVotes,
     requiredFields,
     sourceCount: matches.length,
+    requiredMetafieldCodes,
   });
   const qualityScore = calculateQualityScore(breakdown);
 

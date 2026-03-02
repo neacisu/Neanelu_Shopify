@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   Command,
   Cpu,
+  FolderOpen,
   LayoutDashboard,
   Menu,
   Moon,
@@ -124,6 +125,13 @@ export function AppShell({
         icon: Package,
         tooltip:
           'Lista și gestionarea produselor din magazin: vezi toate produsele sincronizate, filtrezi și cauți (exact sau semantic), deschizi detaliile într-un panou lateral, editezi, compari produse, asignezi categorii sau le adaugi în colecții. Poți face acțiuni în masă și export.',
+      },
+      {
+        to: '/collections',
+        label: 'Colecții',
+        icon: FolderOpen,
+        tooltip:
+          'Gestionarea colecțiilor Shopify: sincronizează, clasifică și atribuie taxonomii colecțiilor. Poți genera embedding-uri pentru taxonomii, asigna automat sau manual categorii, și push-ui metafields către Shopify. Vizualizezi produsele din fiecare colecție și statusul metafields.',
       },
       {
         to: '/pim',

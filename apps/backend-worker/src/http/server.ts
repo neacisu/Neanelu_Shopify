@@ -33,6 +33,8 @@ import { queueSettingsRoutes } from '../routes/queue-settings.js';
 import { pimStatsRoutes } from '../routes/pim-stats.js';
 import { qualityWebhookSettingsRoutes } from '../routes/quality-webhook-settings.js';
 import { uxEventsRoutes } from '../routes/ux-events.js';
+import { collectionsRoutes } from '../routes/collections.js';
+import { pimConfigRoutes } from '../routes/pim-config.js';
 import { setRequestIdAttribute } from '@app/logger';
 import {
   httpActiveRequests,
@@ -326,6 +328,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     sessionConfig,
   });
   await server.register(uxEventsRoutes, { prefix: '/api', env, logger, sessionConfig });
+  await server.register(collectionsRoutes, { prefix: '/api', env, logger, sessionConfig });
+  await server.register(pimConfigRoutes, { prefix: '/api', env, logger, sessionConfig });
 
   // Compatibility mounting without /api prefix.
   // Some reverse proxies (or legacy deployments) may strip `/api` before forwarding.
@@ -348,6 +352,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await server.register(queueSettingsRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(qualityWebhookSettingsRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(uxEventsRoutes, { prefix: '', env, logger, sessionConfig });
+  await server.register(collectionsRoutes, { prefix: '', env, logger, sessionConfig });
+  await server.register(pimConfigRoutes, { prefix: '', env, logger, sessionConfig });
 
   server.get('/api/health', (request, reply) => {
     void reply.status(200).send({

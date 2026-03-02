@@ -48,23 +48,19 @@ export class OpenAiBatchManager {
     purpose?: string;
   }): Promise<OpenAiFile> {
     if (!this.apiKey) throw new Error('OPENAI_API_KEY missing');
-
     const buffer = await readFile(params.filePath);
     const form = new FormData();
     const filename = basename(params.filePath);
-
     form.append('purpose', params.purpose ?? 'batch');
     form.append('file', new Blob([buffer]), filename);
-
-    const json = await this.fetchJson(`${this.baseUrl}/v1/files`, {
+    const json = await this.fetchJson<OpenAiFile>(`${this.baseUrl}/v1/files`, {
       method: 'POST',
       headers: {
         authorization: `Bearer ${this.apiKey}`,
       },
       body: form,
     });
-
-    return json as OpenAiFile;
+    return json;
   }
 
   public async createBatch(params: {
@@ -74,15 +70,13 @@ export class OpenAiBatchManager {
     metadata?: Record<string, string>;
   }): Promise<OpenAiBatch> {
     if (!this.apiKey) throw new Error('OPENAI_API_KEY missing');
-
     const body = {
       input_file_id: params.inputFileId,
       endpoint: params.endpoint ?? '/v1/embeddings',
       completion_window: params.completionWindow ?? '24h',
       ...(params.metadata ? { metadata: params.metadata } : {}),
     };
-
-    const json = await this.fetchJson(`${this.baseUrl}/v1/batches`, {
+    const json = await this.fetchJson<OpenAiBatch>(`${this.baseUrl}/v1/batches`, {
       method: 'POST',
       headers: {
         authorization: `Bearer ${this.apiKey}`,
@@ -90,39 +84,44 @@ export class OpenAiBatchManager {
       },
       body: JSON.stringify(body),
     });
-
-    return json as OpenAiBatch;
+    return json;
   }
 
   public async getBatch(batchId: string): Promise<OpenAiBatch> {
     if (!this.apiKey) throw new Error('OPENAI_API_KEY missing');
-
-    const json = await this.fetchJson(`${this.baseUrl}/v1/batches/${batchId}`, {
+    const json = await this.fetchJson<OpenAiBatch>(`${this.baseUrl}/v1/batches/${batchId}`, {
       method: 'GET',
       headers: {
         authorization: `Bearer ${this.apiKey}`,
       },
     });
+    return json;
+  }
 
-    return json as OpenAiBatch;
+  public async cancelBatch(batchId: string): Promise<OpenAiBatch> {
+    if (!this.apiKey) throw new Error('OPENAI_API_KEY missing');
+    const json = await this.fetchJson<OpenAiBatch>(`${this.baseUrl}/v1/batches/${batchId}/cancel`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${this.apiKey}`,
+      },
+    });
+    return json;
   }
 
   public async downloadFile(fileId: string): Promise<string> {
     if (!this.apiKey) throw new Error('OPENAI_API_KEY missing');
-
     const text = await this.fetchText(`${this.baseUrl}/v1/files/${fileId}/content`, {
       method: 'GET',
       headers: {
         authorization: `Bearer ${this.apiKey}`,
       },
     });
-
     return text;
   }
 
   public async deleteFile(fileId: string): Promise<void> {
     if (!this.apiKey) throw new Error('OPENAI_API_KEY missing');
-
     await this.fetchJson(`${this.baseUrl}/v1/files/${fileId}`, {
       method: 'DELETE',
       headers: {
@@ -131,10 +130,9 @@ export class OpenAiBatchManager {
     });
   }
 
-  private async fetchJson(url: string, init: RequestInit): Promise<unknown> {
+  private async fetchJson<T>(url: string, init: RequestInit): Promise<T> {
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), this.timeoutMs);
-
     try {
       const res = await fetch(url, { ...init, signal: controller.signal });
       if (!res.ok) {
@@ -143,7 +141,7 @@ export class OpenAiBatchManager {
           `OPENAI_REQUEST_FAILED: ${res.status} ${res.statusText}${body ? ` - ${body}` : ''}`
         );
       }
-      return await res.json();
+      return (await res.json()) as T;
     } finally {
       clearTimeout(t);
     }
@@ -152,7 +150,6 @@ export class OpenAiBatchManager {
   private async fetchText(url: string, init: RequestInit): Promise<string> {
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), this.timeoutMs);
-
     try {
       const res = await fetch(url, { ...init, signal: controller.signal });
       if (!res.ok) {

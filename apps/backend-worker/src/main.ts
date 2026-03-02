@@ -44,12 +44,16 @@ import { startAutoEnrichmentScheduler } from './processors/pim/auto-enrichment.w
 import { startRawHarvestRetentionScheduler } from './processors/pim/raw-harvest-retention.worker.js';
 import { startQualityWebhookWorker } from './processors/pim/quality-webhook.worker.js';
 import { startQualityWebhookSweepScheduler } from './processors/pim/quality-webhook-sweep.js';
+import { startCollectionsSyncWorker } from './processors/pim/collections-sync.worker.js';
+import { startCollectionMetafieldPushWorker } from './processors/pim/collection-metafield-push.worker.js';
 import { pauseCostSensitiveQueues } from './processors/pim/cost-sensitive-queues.js';
 import { scheduleTokenHealthJob, closeTokenHealthQueue } from './queue/token-health-queue.js';
 import { closeSimilarityQueues } from './queue/similarity-queues.js';
 import { closeQualityWebhookQueue } from './queue/quality-webhook-queue.js';
 import { closeConsensusQueue } from './queue/consensus-queue.js';
 import { closePimManualSyncQueue } from './queue/pim-manual-sync-queue.js';
+import { closeCollectionsSyncQueue } from './queue/collections-sync-queue.js';
+import { closeCollectionMetafieldPushQueue } from './queue/collection-metafield-push-queue.js';
 import {
   setBulkOrchestratorWorkerHandle,
   setBulkIngestWorkerHandle,
@@ -72,6 +76,8 @@ import {
   setRawHarvestRetentionSchedulerHandle,
   setWeeklySummarySchedulerHandle,
   setWebhookWorkerHandle,
+  setCollectionsSyncWorkerHandle,
+  setCollectionMetafieldPushWorkerHandle,
 } from './runtime/worker-registry.js';
 import { emitQueueStreamEvent } from './runtime/queue-stream.js';
 import { startQueueConfigListener } from './runtime/queue-config-listener.js';
@@ -233,6 +239,10 @@ let qualityWebhookWorker: Awaited<ReturnType<typeof startQualityWebhookWorker>> 
 let qualityWebhookSweepScheduler: Awaited<
   ReturnType<typeof startQualityWebhookSweepScheduler>
 > | null = null;
+let collectionsSyncWorker: Awaited<ReturnType<typeof startCollectionsSyncWorker>> | null = null;
+let collectionMetafieldPushWorker: Awaited<
+  ReturnType<typeof startCollectionMetafieldPushWorker>
+> | null = null;
 let queueConfigListener: Awaited<ReturnType<typeof startQueueConfigListener>> | null = null;
 let budgetGaugeRedis: ReturnType<typeof createManagedRedis> | null = null;
 let budgetGaugeInterval: NodeJS.Timeout | null = null;
@@ -305,7 +315,7 @@ async function recreateRedisDependentWorkers(newRedisUrl: string): Promise<void>
 
   if (pimManualSyncWorker) await pimManualSyncWorker.close();
   pimManualSyncWorker = startPimManualSyncWorker(logger);
-  (setPimManualSyncWorkerHandle as (h: typeof pimManualSyncWorker) => void)(pimManualSyncWorker);
+  setPimManualSyncWorkerHandle(pimManualSyncWorker);
 
   if (bulkScheduleWorker) await bulkScheduleWorker.close();
   bulkScheduleWorker = startBulkScheduleWorker(logger);
@@ -373,6 +383,14 @@ async function recreateRedisDependentWorkers(newRedisUrl: string): Promise<void>
   if (qualityWebhookSweepScheduler) await qualityWebhookSweepScheduler.close();
   qualityWebhookSweepScheduler = startQualityWebhookSweepScheduler(logger);
   setQualityWebhookSweepSchedulerHandle(qualityWebhookSweepScheduler);
+
+  if (collectionsSyncWorker) await collectionsSyncWorker.close();
+  collectionsSyncWorker = startCollectionsSyncWorker(logger);
+  setCollectionsSyncWorkerHandle(collectionsSyncWorker);
+
+  if (collectionMetafieldPushWorker) await collectionMetafieldPushWorker.close();
+  collectionMetafieldPushWorker = startCollectionMetafieldPushWorker(logger);
+  setCollectionMetafieldPushWorkerHandle(collectionMetafieldPushWorker);
 
   queueConfigListener = await startQueueConfigListener(env, logger, buildQueueConfigRegistry());
   logger.warn({}, 'Redis-dependent workers recreated successfully');
@@ -448,7 +466,7 @@ try {
   });
 
   pimManualSyncWorker = startPimManualSyncWorker(logger);
-  (setPimManualSyncWorkerHandle as (h: typeof pimManualSyncWorker) => void)(pimManualSyncWorker);
+  setPimManualSyncWorkerHandle(pimManualSyncWorker);
   logger.info({}, 'pim manual sync worker started');
   emitQueueStreamEvent({
     type: 'worker.online',
@@ -613,6 +631,24 @@ try {
     timestamp: new Date().toISOString(),
   });
 
+  collectionsSyncWorker = startCollectionsSyncWorker(logger);
+  setCollectionsSyncWorkerHandle(collectionsSyncWorker);
+  logger.info({}, 'collections sync worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'pim-collections-sync-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  collectionMetafieldPushWorker = startCollectionMetafieldPushWorker(logger);
+  setCollectionMetafieldPushWorkerHandle(collectionMetafieldPushWorker);
+  logger.info({}, 'collection metafield push worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'pim-collection-metafield-push-worker',
+    timestamp: new Date().toISOString(),
+  });
+
   budgetGaugeRedis = createManagedRedis('budget-gauge', {
     enableReadyCheck: true,
     maxRetriesPerRequest: null,
@@ -736,7 +772,7 @@ const shutdown = async (signal: string): Promise<void> => {
     if (pimManualSyncWorker) {
       await pimManualSyncWorker.close();
       pimManualSyncWorker = null;
-      (setPimManualSyncWorkerHandle as (h: null) => void)(null);
+      setPimManualSyncWorkerHandle(null);
       logger.info({ signal }, 'pim manual sync worker stopped');
       emitQueueStreamEvent({
         type: 'worker.offline',
@@ -956,6 +992,30 @@ const shutdown = async (signal: string): Promise<void> => {
       });
     }
 
+    if (collectionsSyncWorker) {
+      await collectionsSyncWorker.close();
+      collectionsSyncWorker = null;
+      setCollectionsSyncWorkerHandle(null);
+      logger.info({ signal }, 'collections sync worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'pim-collections-sync-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (collectionMetafieldPushWorker) {
+      await collectionMetafieldPushWorker.close();
+      collectionMetafieldPushWorker = null;
+      setCollectionMetafieldPushWorkerHandle(null);
+      logger.info({ signal }, 'collection metafield push worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'pim-collection-metafield-push-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     if (queueConfigListener) {
       await queueConfigListener.quit().catch(() => undefined);
       queueConfigListener = null;
@@ -978,6 +1038,8 @@ const shutdown = async (signal: string): Promise<void> => {
     await closeConsensusQueue();
     await closePimManualSyncQueue();
     await closeEnrichmentQueue();
+    await closeCollectionsSyncQueue();
+    await closeCollectionMetafieldPushQueue();
 
     stopCredentialWatcher();
     await closePimPool();

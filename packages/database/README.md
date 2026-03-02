@@ -18,7 +18,15 @@ This package owns the PostgreSQL schema, migrations, and DB utilities.
 
 ### Concurrency safety
 
-`pnpm db:migrate` uses a migration runner that acquires a PostgreSQL advisory lock (`pg_advisory_lock`) to prevent concurrent migration runs.
+`pnpm db:migrate` uses a migration runner that acquires a transaction-scoped PostgreSQL advisory lock (`pg_advisory_xact_lock`) to prevent concurrent migration runs.
+
+### Ownership invariant (critical)
+
+- Migrations must run under role `neanelu_app` (stable owner role).
+- The runner enforces this invariant and fails fast when ownership drift is detected on `public` tables/partitions/sequences.
+- If drift is detected, reconcile ownership on CT107 first:
+  - `sudo bash infra/scripts/ct107_reconcile_neanelu_ownership.sh --mode dry-run`
+  - `sudo bash infra/scripts/ct107_reconcile_neanelu_ownership.sh --mode apply`
 
 ## Environment
 

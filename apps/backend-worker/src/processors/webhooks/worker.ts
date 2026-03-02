@@ -37,6 +37,7 @@ import {
   queueFairnessGroupWaitSeconds,
 } from '../../otel/metrics.js';
 import { handleAppUninstalled } from './handlers/app-uninstalled.handler.js';
+import { handleCollectionDelete, handleCollectionUpsert } from './handlers/collections.js';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
 import { incrementDashboardActivity } from '../../runtime/dashboard-activity.js';
 import { invalidateSearchCache } from '../ai/cache.js';
@@ -280,6 +281,13 @@ export function startWebhookWorker(logger: Logger): WebhookWorkerHandle {
             case 'products/update':
             case 'products/delete':
               await invalidateSearchCacheBestEffort(redis, shopId, logger);
+              break;
+            case 'collections/create':
+            case 'collections/update':
+              await handleCollectionUpsert({ shopId, payload: payloadJson });
+              break;
+            case 'collections/delete':
+              await handleCollectionDelete({ shopId, payload: payloadJson });
               break;
             default:
               logger.info(

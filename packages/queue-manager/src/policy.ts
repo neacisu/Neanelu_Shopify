@@ -54,8 +54,6 @@ export const DEFAULT_QUEUE_TIMEOUTS_MS: QueueTimeoutsMs = {
   'pim-ai-audit': 10 * 60_000,
   // Extraction jobs can include large HTML payloads and external model calls.
   'pim-extraction': 10 * 60_000,
-  // Scraper queue retries and deferred crawl tasks.
-  'pim-scraper-queue': 10 * 60_000,
   // Consensus is CPU-bound and DB-heavy but should stay bounded.
   'pim-consensus': 10 * 60_000,
   // Webhook dispatch should be bounded; retries handle transient failures.
@@ -72,6 +70,16 @@ export const DEFAULT_QUEUE_TIMEOUTS_MS: QueueTimeoutsMs = {
   'pim-raw-harvest-retention-queue': 5 * 60_000,
   // MV refresh jobs run database functions and should complete quickly.
   'pim-mv-refresh-queue': 5 * 60_000,
+  // Category classifier uses embeddings + optional LLM fallback.
+  'pim-category-classifier': 10 * 60_000,
+  // Description generation uses external model calls.
+  'pim-description-generator': 10 * 60_000,
+  // Product metafield push calls Shopify GraphQL.
+  'pim-metafield-push': 10 * 60_000,
+  // Collection metafield push may aggregate many products.
+  'pim-collection-metafield-push': 15 * 60_000,
+  // Collection sync paginates all Shopify collections for a shop.
+  'pim-collections-sync': 30 * 60_000,
 } as const;
 
 export function defaultJobTimeoutMs(queueName: KnownQueueName): number {

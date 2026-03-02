@@ -34,6 +34,11 @@ let autoEnrichmentScheduler: WorkerLike | null = null;
 let rawHarvestRetentionScheduler: WorkerLike | null = null;
 let qualityWebhookWorker: WorkerLike | null = null;
 let qualityWebhookSweepScheduler: WorkerLike | null = null;
+let categoryClassifierWorker: WorkerLike | null = null;
+let descriptionGeneratorWorker: WorkerLike | null = null;
+let metafieldPushWorker: WorkerLike | null = null;
+let collectionMetafieldPushWorker: WorkerLike | null = null;
+let collectionsSyncWorker: WorkerLike | null = null;
 
 const currentJobByWorkerId = new Map<string, WorkerCurrentJob>();
 
@@ -121,6 +126,26 @@ export function setQualityWebhookSweepSchedulerHandle(handle: WorkerHandleLike |
   qualityWebhookSweepScheduler = handle?.worker ?? null;
 }
 
+export function setCategoryClassifierWorkerHandle(handle: WorkerHandleLike | null): void {
+  categoryClassifierWorker = handle?.worker ?? null;
+}
+
+export function setDescriptionGeneratorWorkerHandle(handle: WorkerHandleLike | null): void {
+  descriptionGeneratorWorker = handle?.worker ?? null;
+}
+
+export function setMetafieldPushWorkerHandle(handle: WorkerHandleLike | null): void {
+  metafieldPushWorker = handle?.worker ?? null;
+}
+
+export function setCollectionMetafieldPushWorkerHandle(handle: WorkerHandleLike | null): void {
+  collectionMetafieldPushWorker = handle?.worker ?? null;
+}
+
+export function setCollectionsSyncWorkerHandle(handle: WorkerHandleLike | null): void {
+  collectionsSyncWorker = handle?.worker ?? null;
+}
+
 export function setWorkerCurrentJob(workerId: string, job: WorkerCurrentJob): void {
   currentJobByWorkerId.set(workerId, job);
 }
@@ -174,6 +199,11 @@ export function getWorkerReadiness(): Readonly<{
   rawHarvestRetentionSchedulerOk: boolean | null;
   qualityWebhookWorkerOk: boolean | null;
   qualityWebhookSweepSchedulerOk: boolean | null;
+  categoryClassifierWorkerOk: boolean | null;
+  descriptionGeneratorWorkerOk: boolean | null;
+  metafieldPushWorkerOk: boolean | null;
+  collectionMetafieldPushWorkerOk: boolean | null;
+  collectionsSyncWorkerOk: boolean | null;
 }> {
   return {
     webhookWorkerOk: isWorkerRunning(webhookWorker),
@@ -213,5 +243,16 @@ export function getWorkerReadiness(): Readonly<{
     qualityWebhookSweepSchedulerOk: qualityWebhookSweepScheduler
       ? isWorkerRunning(qualityWebhookSweepScheduler)
       : null,
+    categoryClassifierWorkerOk: categoryClassifierWorker
+      ? isWorkerRunning(categoryClassifierWorker)
+      : null,
+    descriptionGeneratorWorkerOk: descriptionGeneratorWorker
+      ? isWorkerRunning(descriptionGeneratorWorker)
+      : null,
+    metafieldPushWorkerOk: metafieldPushWorker ? isWorkerRunning(metafieldPushWorker) : null,
+    collectionMetafieldPushWorkerOk: collectionMetafieldPushWorker
+      ? isWorkerRunning(collectionMetafieldPushWorker)
+      : null,
+    collectionsSyncWorkerOk: collectionsSyncWorker ? isWorkerRunning(collectionsSyncWorker) : null,
   };
 }

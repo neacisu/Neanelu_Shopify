@@ -13,6 +13,8 @@ const tabs = [
   { label: 'Costuri', value: 'costs', path: '/pim/costs' },
   { label: 'Evenimente', value: 'events', path: '/pim/events' },
   { label: 'Consens', value: 'consensus', path: '/pim/consensus' },
+  { label: 'Categorii', value: 'categories', path: '/pim/categories' },
+  { label: 'Configurare', value: 'config', path: '/pim/config' },
 ];
 
 function resolveActiveTab(pathname: string): string {
@@ -22,6 +24,8 @@ function resolveActiveTab(pathname: string): string {
   if (pathname.startsWith('/pim/costs')) return 'costs';
   if (pathname.startsWith('/pim/events')) return 'events';
   if (pathname.startsWith('/pim/consensus')) return 'consensus';
+  if (pathname.startsWith('/pim/categories')) return 'categories';
+  if (pathname.startsWith('/pim/config')) return 'config';
   return 'overview';
 }
 

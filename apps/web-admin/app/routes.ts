@@ -34,7 +34,10 @@ import QualityProgressPage, { loader as qualityProgressLoader } from './routes/a
 import CostTrackingPage, { loader as costTrackingLoader } from './routes/app.pim.costs';
 import QualityEventsPage, { loader as qualityEventsLoader } from './routes/app.pim.events';
 import PimConsensusPage from './routes/app.pim.consensus';
+import PimCategoriesPage from './routes/app.pim.categories';
+import PimConfigPage from './routes/app.pim.config';
 import PimRouteErrorBoundary from './routes/app.pim.error';
+import CollectionsPage from './routes/app.collections';
 import SettingsLayout from './routes/settings';
 import SettingsIndex from './routes/settings._index';
 import SettingsGeneral from './routes/settings.general';
@@ -143,6 +146,12 @@ export const routes: RouteObject[] = [
         element: createElement(ProductsReviewPage),
       },
       {
+        id: 'collections',
+        path: 'collections',
+        handle: { title: 'Collections' },
+        element: createElement(CollectionsPage),
+      },
+      {
         id: 'similarity-matches',
         path: 'similarity-matches',
         handle: { title: 'Similarity Matches' },
@@ -195,6 +204,18 @@ export const routes: RouteObject[] = [
             path: 'consensus',
             handle: { title: 'PIM - Consensus' },
             element: createElement(PimConsensusPage),
+          },
+          {
+            id: 'pim-categories',
+            path: 'categories',
+            handle: { title: 'PIM - Categories' },
+            element: createElement(PimCategoriesPage),
+          },
+          {
+            id: 'pim-config',
+            path: 'config',
+            handle: { title: 'PIM - Config' },
+            element: createElement(PimConfigPage),
           },
         ],
       },

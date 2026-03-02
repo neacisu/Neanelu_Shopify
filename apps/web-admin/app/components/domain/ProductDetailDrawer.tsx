@@ -67,6 +67,15 @@ export function ProductDetailDrawer({
   const [similarProducts, setSimilarProducts] = useState<
     { id: string; title: string; similarity: number }[]
   >([]);
+  const [metafieldLogs, setMetafieldLogs] = useState<
+    {
+      id: string;
+      pushed_at: string;
+      metafields_count: number | null;
+      status: string;
+      error_message: string | null;
+    }[]
+  >([]);
 
   useEffect(() => {
     if (!open || !product) return;
@@ -94,7 +103,14 @@ export function ProductDetailDrawer({
       )
       .then((data) => setSimilarProducts(data.results))
       .catch(() => undefined);
-  }, [api, open, product?.id]);
+
+    void api
+      .getApi<{ logs: typeof metafieldLogs }>(
+        `/pim/metafield-push/logs/${product.pim?.masterId ?? ''}`
+      )
+      .then((data) => setMetafieldLogs(data.logs))
+      .catch(() => undefined);
+  }, [api, open, product?.id, product?.pim?.masterId]);
 
   if (!open || !product) return null;
 
@@ -315,6 +331,114 @@ export function ProductDetailDrawer({
                       {item.title} ({Math.round(item.similarity * 100)}%)
                     </div>
                   ))}
+            </div>
+          </details>
+
+          <details className="rounded-md border border-border dark:border-slate-700 p-3 transition-colors hover:bg-muted/5 dark:hover:bg-slate-800/50">
+            <summary className="cursor-pointer text-sm font-semibold dark:text-slate-100">
+              Categorie AI
+            </summary>
+            <div className="mt-2 space-y-2 text-xs text-muted dark:text-slate-400">
+              <div>
+                Status:{' '}
+                {(product.pim as { taxonomyAiStatus?: string } | null)?.taxonomyAiStatus ??
+                  'manual'}
+              </div>
+              <div>Taxonomy ID: {product.pim?.taxonomyId ?? '—'}</div>
+              <div>
+                Confidence:{' '}
+                {(product.pim as { taxonomyAiConfidence?: number | string } | null)
+                  ?.taxonomyAiConfidence ?? '—'}
+              </div>
+              {product.pim?.masterId ? (
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() =>
+                      void api.postApi(
+                        `/pim/categories/assignments/${product.pim?.masterId}/approve`,
+                        {}
+                      )
+                    }
+                  >
+                    Aprobă
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() =>
+                      void api.postApi(
+                        `/pim/categories/assignments/${product.pim?.masterId}/reject`,
+                        {}
+                      )
+                    }
+                  >
+                    Respinge
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          </details>
+
+          <details className="rounded-md border border-border dark:border-slate-700 p-3 transition-colors hover:bg-muted/5 dark:hover:bg-slate-800/50">
+            <summary className="cursor-pointer text-sm font-semibold dark:text-slate-100">
+              Descriere generată
+            </summary>
+            <div className="mt-2 space-y-2 text-xs text-muted dark:text-slate-400">
+              <div className="whitespace-pre-wrap text-sm text-foreground dark:text-slate-200">
+                {product.pim?.descriptionMaster ?? 'Nu există descriere generată.'}
+              </div>
+              <div>
+                Generată la:{' '}
+                {(product.pim as { generatedAt?: string } | null)?.generatedAt ??
+                  (product.pim as { descriptionGeneratedAt?: string } | null)
+                    ?.descriptionGeneratedAt ??
+                  '—'}
+              </div>
+              {product.pim?.masterId ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() =>
+                    void api.postApi(`/pim/description-generator/run/${product.pim?.masterId}`, {})
+                  }
+                >
+                  Generează descriere
+                </Button>
+              ) : null}
+            </div>
+          </details>
+
+          <details className="rounded-md border border-border dark:border-slate-700 p-3 transition-colors hover:bg-muted/5 dark:hover:bg-slate-800/50">
+            <summary className="cursor-pointer text-sm font-semibold dark:text-slate-100">
+              Metafields sincronizate
+            </summary>
+            <div className="mt-2 space-y-2 text-xs text-muted dark:text-slate-400">
+              {metafieldLogs.length === 0 ? (
+                <div>Nu există push log încă.</div>
+              ) : (
+                metafieldLogs.map((row) => (
+                  <div
+                    key={row.id}
+                    className="rounded border border-slate-200 px-2 py-1 dark:border-slate-700"
+                  >
+                    {row.status} · {row.pushed_at} · {row.metafields_count ?? 0} metafields
+                    {row.error_message ? ` · ${row.error_message}` : ''}
+                  </div>
+                ))
+              )}
+              {product.pim?.masterId ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() =>
+                    void api.postApi(`/pim/metafield-push/run/${product.pim?.masterId}`, {})
+                  }
+                >
+                  Forțează re-push metafields
+                </Button>
+              ) : null}
             </div>
           </details>
         </div>

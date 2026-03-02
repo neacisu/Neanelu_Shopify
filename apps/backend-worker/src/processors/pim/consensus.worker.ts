@@ -15,6 +15,9 @@ import {
   CONSENSUS_JOB_SINGLE,
   CONSENSUS_QUEUE_NAME,
 } from '../../queue/consensus-queue.js';
+import { enqueueCategoryClassifierJob } from '../../queue/category-classifier-queue.js';
+import { enqueueDescriptionGeneratorJob } from '../../queue/description-generator-queue.js';
+import { enqueueMetafieldPushJob } from '../../queue/metafield-push-queue.js';
 import { enqueueQualityWebhookJob } from '../../queue/quality-webhook-queue.js';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
 
@@ -135,7 +138,8 @@ async function processSingleConsensus(payload: ConsensusJobPayload, logger: Logg
   await withTenantContext(payload.shopId, async (client) => {
     const lockKey = `${payload.shopId}:${payload.productId}`;
     const lock = await client.query<{ locked: boolean }>(
-      `SELECT pg_try_advisory_lock(hashtext($1)) as locked`,
+      // Transaction-scoped advisory lock prevents leaked session locks across pooled connections.
+      `SELECT pg_try_advisory_xact_lock(hashtext($1)) as locked`,
       [lockKey]
     );
     if (!lock.rows[0]?.locked) {
@@ -235,6 +239,24 @@ async function processSingleConsensus(payload: ConsensusJobPayload, logger: Logg
         );
       }
 
+      await enqueueCategoryClassifierJob({
+        shopId: payload.shopId,
+        productId: payload.productId,
+        trigger: 'consensus',
+      });
+      await enqueueDescriptionGeneratorJob({
+        shopId: payload.shopId,
+        productId: payload.productId,
+        trigger: 'consensus',
+      });
+      if (promotionResult.newLevel === 'silver' || promotionResult.newLevel === 'golden') {
+        await enqueueMetafieldPushJob({
+          shopId: payload.shopId,
+          productId: payload.productId,
+          trigger: 'consensus',
+        });
+      }
+
       if (merged.skipped.length > 0) {
         logger.info(
           { productId: payload.productId, skipped: merged.skipped },
@@ -242,12 +264,7 @@ async function processSingleConsensus(payload: ConsensusJobPayload, logger: Logg
         );
       }
     } finally {
-      // Always release the session-level lock.
-      try {
-        await client.query(`SELECT pg_advisory_unlock(hashtext($1))`, [lockKey]);
-      } catch {
-        // ignore unlock failure
-      }
+      // Transaction-scoped locks are auto-released on COMMIT/ROLLBACK.
     }
   });
 }
