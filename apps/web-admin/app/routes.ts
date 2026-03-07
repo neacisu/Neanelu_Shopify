@@ -47,6 +47,9 @@ import SettingsQueues from './routes/settings.queues';
 import SettingsOpenAi from './routes/settings.openai';
 import SettingsSerper from './routes/settings.serper';
 import SettingsXai from './routes/settings.xai';
+import SettingsDeepSeek from './routes/settings.deepseek';
+import SettingsGemini from './routes/settings.gemini';
+import SettingsSelfHosted from './routes/settings.selfhosted';
 import SettingsScraper from './routes/settings.scraper';
 
 export const routes: RouteObject[] = [
@@ -271,6 +274,24 @@ export const routes: RouteObject[] = [
             path: 'xai',
             handle: { title: 'Settings - xAI Grok' },
             element: createElement(SettingsXai),
+          },
+          {
+            id: 'settings-deepseek',
+            path: 'deepseek',
+            handle: { title: 'Settings - DeepSeek' },
+            element: createElement(SettingsDeepSeek),
+          },
+          {
+            id: 'settings-gemini',
+            path: 'gemini',
+            handle: { title: 'Settings - Google Gemini' },
+            element: createElement(SettingsGemini),
+          },
+          {
+            id: 'settings-selfhosted',
+            path: 'selfhosted',
+            handle: { title: 'Settings - Self-hosted LLM' },
+            element: createElement(SettingsSelfHosted),
           },
           {
             id: 'settings-scraper',

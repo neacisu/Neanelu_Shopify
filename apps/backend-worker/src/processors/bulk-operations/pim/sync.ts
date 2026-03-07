@@ -1,9 +1,9 @@
-import { createEmbeddingsProvider, sha256Hex } from '@app/ai-engine';
+import { sha256Hex } from '@app/ai-engine';
 import { loadEnv } from '@app/config';
 import { withTenantContext } from '@app/database';
 import { OTEL_ATTR, type Logger } from '@app/logger';
 import { BudgetExceededError, enforceBudget } from '@app/pim';
-import { getShopOpenAiConfig } from '../../../runtime/openai-config.js';
+import { resolveEmbeddingsProvider } from '../../../services/ai-provider-routing.js';
 
 import { enqueueConsensusJob } from '../../../queue/consensus-queue.js';
 import { createSuspiciousDedupeCluster } from '../deduplication.js';
@@ -72,21 +72,10 @@ export async function runPimSyncFromBulkRun(params: {
     return;
   }
 
-  const openAiConfig = await getShopOpenAiConfig({
+  const provider = await resolveEmbeddingsProvider({
     shopId: params.shopId,
     env,
     logger: params.logger,
-  });
-  if (!openAiConfig.enabled || !openAiConfig.openAiApiKey) {
-    params.logger.info({ [OTEL_ATTR.SHOP_ID]: params.shopId }, 'OpenAI disabled for PIM sync');
-    return;
-  }
-
-  const provider = createEmbeddingsProvider({
-    openAiApiKey: openAiConfig.openAiApiKey,
-    ...(openAiConfig.openAiBaseUrl ? { openAiBaseUrl: openAiConfig.openAiBaseUrl } : {}),
-    openAiEmbeddingsModel: openAiConfig.openAiEmbeddingsModel,
-    openAiTimeoutMs: env.openAiTimeoutMs,
   });
 
   const highThreshold = env.bulkDedupeHighThreshold;
@@ -280,6 +269,7 @@ export async function runPimSyncFromBulkRun(params: {
               queryEmbedding: emb,
               similarityThreshold: suspiciousThreshold,
               maxResults,
+              modelVersion: provider.model.name,
             });
 
             const decision = decidePimTarget({
@@ -598,6 +588,7 @@ async function findSimilarProducts(params: {
   queryEmbedding: readonly number[];
   similarityThreshold: number;
   maxResults: number;
+  modelVersion?: string;
 }): Promise<readonly SimilarProductRow[]> {
   const vec = toPgVectorLiteral(params.queryEmbedding);
   const res = await params.client.query<SimilarProductRow>(
@@ -606,10 +597,10 @@ async function findSimilarProducts(params: {
        f.similarity,
        pm.canonical_title as title,
        pm.brand
-     FROM find_similar_products($1::vector(2000), $2::float, $3::int) f
+    FROM find_similar_products($1::vector(2000), $2::float, $3::int, $4::varchar) f
      LEFT JOIN prod_master pm
        ON pm.id = f.product_id`,
-    [vec, params.similarityThreshold, params.maxResults]
+    [vec, params.similarityThreshold, params.maxResults, params.modelVersion ?? null]
   );
   return res.rows;
 }

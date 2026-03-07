@@ -105,6 +105,46 @@ const tabs = [
   {
     label: (
       <span className="inline-flex items-center gap-1">
+        DeepSeek
+        <InfoTooltip title="Setări DeepSeek" side="bottom" portalToBody>
+          Configurarea modelului DeepSeek pentru AI Auditor și extracția structurată de date din
+          pagini web. DeepSeek oferă modele foarte economice cu performanță competitivă. Sfat:
+          DeepSeek V3.2 este cu până la 95% mai ieftin decât GPT-4o.
+        </InfoTooltip>
+      </span>
+    ),
+    value: 'deepseek',
+  },
+  {
+    label: (
+      <span className="inline-flex items-center gap-1">
+        Google Gemini
+        <InfoTooltip title="Setări Google Gemini" side="bottom" portalToBody>
+          Configurarea modelului Gemini pentru AI Auditor, traducere, clasificare și generare de
+          text. Gemini oferă modele multi-modale eficiente. De exemplu, Gemini 2.5 Flash oferă cel
+          mai bun raport calitate/preț. Sfat: temperatura 0.1 oferă cea mai bună consistență.
+        </InfoTooltip>
+      </span>
+    ),
+    value: 'gemini',
+  },
+  {
+    label: (
+      <span className="inline-flex items-center gap-1">
+        Self-hosted
+        <InfoTooltip title="Setări Self-hosted" side="bottom" portalToBody>
+          Configurarea endpointurilor vLLM/OpenAI-compatible din infrastructura internă. Acest tab
+          gestionează endpointurile auditate live, model IDs exacte și starea conexiunii pentru
+          rutarea locală a taskurilor AI. Sfat: endpointurile trebuie să folosească IP-uri RFC1918,
+          nu hosturi publice.
+        </InfoTooltip>
+      </span>
+    ),
+    value: 'selfhosted',
+  },
+  {
+    label: (
+      <span className="inline-flex items-center gap-1">
         Scraper
         <InfoTooltip title="Setări Scraper" side="bottom" portalToBody>
           Configurarea scraper-ului Playwright pentru extragerea datelor din pagini web JS-heavy.

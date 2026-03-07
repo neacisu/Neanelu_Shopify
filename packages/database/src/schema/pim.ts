@@ -63,6 +63,7 @@ export const prodTaxonomy = pgTable(
 
     isActive: boolean('is_active').default(true),
     sortOrder: integer('sort_order').default(0),
+    modelVersion: varchar('model_version', { length: 80 }),
 
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),

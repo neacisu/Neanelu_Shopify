@@ -5,8 +5,8 @@ import {
   enqueueAiBatchCleanupJob,
   enqueueAiBatchOrchestratorJob,
 } from '@app/queue-manager';
-import { createEmbeddingsProvider } from '@app/ai-engine';
 import { getShopOpenAiConfig } from '../../runtime/openai-config.js';
+import { resolveEmbeddingsProvider } from '../../services/ai-provider-routing.js';
 
 import { listShops } from './batch.js';
 import { refreshAiObservabilityMetrics } from './otel/observable-callbacks.js';
@@ -31,12 +31,7 @@ export async function runAiBatchScheduleTick(logger: Logger): Promise<void> {
       continue;
     }
 
-    const provider = createEmbeddingsProvider({
-      openAiApiKey: openAiConfig.openAiApiKey,
-      ...(openAiConfig.openAiBaseUrl ? { openAiBaseUrl: openAiConfig.openAiBaseUrl } : {}),
-      openAiEmbeddingsModel: openAiConfig.openAiEmbeddingsModel,
-      openAiTimeoutMs: env.openAiTimeoutMs,
-    });
+    const provider = await resolveEmbeddingsProvider({ shopId, env, logger });
 
     await withAiSpan(
       AI_SPAN_NAMES.ENQUEUE,

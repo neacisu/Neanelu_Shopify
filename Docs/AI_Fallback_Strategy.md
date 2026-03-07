@@ -1,263 +1,106 @@
 # AI Fallback Strategy - NEANELU Shopify Manager
 
-> **Versiune:** 1.0 | **Data:** 2025-12-26
+> **Versiune:** 2.0 | **Data:** 2026-03-06
 
 ---
 
-## Overview
+## Principii
 
-Această documentație descrie strategia de fallback pentru cazurile când
-OpenAI API nu este disponibil sau returnează erori. Obiectivul este
-**graceful degradation** - aplicația trebuie să rămână funcțională
-chiar și fără componenta AI.
+- Furnizor primar pentru AI este **selfhosted** (Qwen2.5-14B, QwQ-32B, Qwen3-Embedding-8B).
+- Fallback automat pe frontier este în 2 trepte: **xAI** (Tier 1) apoi **OpenAI** (Tier 2).
+- Toate rutele AI folosesc retry cu budget, circuit breaker, observabilitate și guardrails.
+- Nu se amestecă credențiale între provideri.
 
 ---
 
-## Provider Principal: OpenAI
+## Routing Oficial
 
-### Configurație Curentă
+| Tip task | Provider primar | Fallback tier 1 | Fallback tier 2 |
+| --- | --- | --- | --- |
+| `classification` | `selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ` | `xai:grok-4-1-fast-non-reasoning` | `openai:gpt-4o-mini` |
+| `translation` | `selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ` | `xai:grok-4-1-fast-non-reasoning` | `openai:gpt-4o-mini` |
+| `extraction` | `selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ` | `xai:grok-4-1-fast-non-reasoning` | `openai:gpt-4o-mini` |
+| `audit` | `selfhosted:Qwen/QwQ-32B-AWQ` | `xai:grok-4-1-fast-non-reasoning` | `openai:gpt-4o-mini` |
+| `embedding` | `selfhosted:qwen3-embedding-8b-q5km` | `openai:text-embedding-3-large` | `noop` (ultim resort) |
 
-| Setting             | Value                    |
-| ------------------- | ------------------------ |
-| Model Embeddings    | `text-embedding-3-small` |
-| Dimensiuni Vector   | 1536                     |
-| Model Chat (future) | `gpt-4o-mini`            |
-| Batch API           | Enabled                  |
-| Rate Limit          | 10,000 RPM               |
+---
 
-### Monitorizare Health
+## Embeddings
 
-```typescript
-// Check OpenAI health periodically
-async function checkOpenAIHealth(): Promise<boolean> {
-  try {
-    const response = await openai.models.list();
-    return response.data.length > 0;
-  } catch (error) {
-    return false;
-  }
-}
+- Dimensiune vector operațională: **2000**.
+- Model selfhosted embedding: `qwen3-embedding-8b-q5km` (MRL truncation 4096 -> 2000).
+- În perioade de tranziție, query-urile trebuie filtrate pe `model_version` pentru a evita comparații cross-model.
+
+---
+
+## Circuit Breaker
+
+Configurare per endpoint selfhosted:
+
+- `failureThreshold`: 5
+- `successThreshold`: 2
+- `openTimeoutMs`: 60000
+- stări: `CLOSED` -> `OPEN` -> `HALF_OPEN`
+
+Reguli:
+
+- `OPEN` = fail-fast imediat, fără timeout lung pe request.
+- După timeout, se intră în `HALF_OPEN`.
+- 2 succese consecutive în `HALF_OPEN` => `CLOSED`.
+- 1 eșec în `HALF_OPEN` => `OPEN`.
+
+---
+
+## Degradation Levels (L0-L3)
+
+- **L0**: Selfhosted healthy, toate fluxurile AI active normal.
+- **L1**: Selfhosted degradat (latență/queue), activare throttling și batch pentru workload-uri necritice.
+- **L2**: Selfhosted indisponibil, fallback frontier activ (xAI/OpenAI).
+- **L3**: Frontier indisponibil, aplicația rămâne funcțională cu fallback non-AI (ex. full-text search).
+
+Metrica operațională asociată: `ai_degradation_level` (0..3).
+
+---
+
+## Observabilitate Minimă Obligatorie
+
+- `ai_provider_routing_total`
+- `selfhosted_fallback_to_frontier_total`
+- `selfhosted_embedding_latency_seconds`
+- `selfhosted_circuit_breaker_state`
+- `vllm_time_to_first_token_seconds`
+- `vllm_num_requests_waiting`
+- `vllm_gpu_cache_usage_perc`
+- `guardrails_scan_total`
+- `guardrails_block_total`
+- `guardrails_service_health`
+
+---
+
+## Rollout și Rollback
+
+Rollout gradual pentru `selfhosted_llm_enabled`:
+
+1. 10% trafic + monitorizare 24h
+2. 50% trafic + monitorizare 48h
+3. 100% trafic
+
+Rollback rapid:
+
+```sql
+UPDATE feature_flags
+SET rollout_percentage = 0, updated_at = now()
+WHERE flag_key = 'selfhosted_llm_enabled';
 ```
 
 ---
 
-## Failure Scenarios
-
-### 1. Rate Limiting (429)
-
-**Cauză:** Prea multe requests într-un interval scurt.
-
-**Comportament:**
-
-- Exponential backoff cu jitter
-- Max 5 retry-uri
-- Alert după 3 retry-uri consecutive
-
-**Fallback:**
-
-- Queue jobs for later
-- Process in batches with delays
-
-```typescript
-const backoff = Math.min(1000 * 2 ** attempt, 60000) + Math.random() * 1000;
-await sleep(backoff);
-```
-
----
-
-### 2. Quota Exceeded (402)
-
-**Cauză:** Limita de billing depășită.
-
-**Comportament:**
-
-- Nu se mai fac requests la OpenAI
-- Alert CRITICAL către admin
-- Fallback to cached results
-
-**Fallback:**
-
-- Use existing embeddings only
-- Disable new embedding generation
-- Full-text search instead of semantic search
-
----
-
-### 3. API Down (500/503)
-
-**Cauză:** OpenAI service outage.
-
-**Comportament:**
-
-- Circuit breaker activation after 3 failures
-- Retry with increasing delays
-- Alert after 5 minutes of downtime
-
-**Fallback:**
-
-- Use cached embeddings
-- Basic keyword search
-- Queue embedding jobs for later
-
----
-
-### 4. Network Timeout
-
-**Cauză:** Network issues or high latency.
-
-**Comportament:**
-
-- 30s timeout per request
-- Retry with different connection
-
-**Fallback:**
-
-- Queue for later processing
-
----
-
-## Degradation Levels
-
-### Level 0: Full Functionality ✅
-
-- OpenAI fully operational
-- Real-time embedding generation
-- Semantic search active
-- All AI features enabled
-
-### Level 1: Delayed Processing ⚠️
-
-- OpenAI responding slowly
-- Embeddings generated in batch (delayed)
-- Semantic search from cache only
-- New products visible without AI enrichment
-
-### Level 2: Cache-Only Mode 🔶
-
-- OpenAI unavailable
-- No new embeddings generated
-- Semantic search only for indexed products
-- Full-text search fallback active
-
-### Level 3: AI Disabled 🔴
-
-- Complete AI feature disable
-- Full-text search only (PostgreSQL tsvector)
-- Products visible without semantic features
-- Manual enrichment possible
-
----
-
-## Fallback Components
-
-### 1. Semantic Search → Full-Text Search
-
-**Normal Mode (AI):**
-
-```typescript
-SELECT * FROM products 
-WHERE embedding <=> $1 < 0.3
-ORDER BY embedding <=> $1
-LIMIT 20;
-```
-
-**Fallback Mode (FTS):**
-
-```typescript
-SELECT * FROM products
-WHERE search_vector @@ plainto_tsquery('english', $query)
-ORDER BY ts_rank(search_vector, plainto_tsquery('english', $query)) DESC
-LIMIT 20;
-```
-
-### 2. Product Enrichment → Raw Data
-
-**Normal Mode:**
-
-- AI-generated summaries
-- Auto-extracted keywords
-- Semantic categories
-
-**Fallback Mode:**
-
-- Raw Shopify descriptions
-- Manual tags only
-- No auto-categorization
-
-### 3. Batch Processing → Deferred Queue
-
-**Normal Mode:**
-
-- Immediate embedding on product create/update
-- 50 products per batch
-
-**Fallback Mode:**
-
-- Queue products for later processing
-- Alert when queue > 1000 items
-- Process when OpenAI recovers
-
----
-
-## Circuit Breaker Configuration
-
-```typescript
-const circuitBreaker = {
-  failureThreshold: 5,      // Failures before opening
-  successThreshold: 2,       // Successes to close
-  timeout: 60000,            // Time in open state (ms)
-  halfOpenRequests: 3        // Test requests in half-open
-};
-
-// States:
-// CLOSED: Normal operation
-// OPEN: All requests fail fast
-// HALF_OPEN: Testing recovery
-```
-
----
-
-## Alternative Providers (Future)
-
-### Tier 2: Azure OpenAI
-
-- Same models, different endpoint
-- Requires separate deployment
-- Configuration ready, not active
-
-### Tier 3: Local Models (Future Consideration)
-
-- Ollama with open-source models
-- Higher latency, lower cost
-- Privacy benefits
-- Not production-ready
-
----
-
-## Monitoring & Alerts
-
-### Metrics
-
-| Metric                       | Alert Threshold  | Severity |
-| ---------------------------- | ---------------- | -------- |
-| `openai_request_success_rate`| < 95% for 5min   | Warning  |
-| `openai_request_success_rate`| < 80% for 5min   | Critical |
-| `embedding_queue_size`       | > 1000           | Warning  |
-| `embedding_queue_size`       | > 5000           | Critical |
-| `circuit_breaker_state`      | OPEN             | Critical |
-
-### Dashboards
-
-- OpenAI API Response Times
-- Embedding Generation Rate
-- Circuit Breaker State Timeline
-- Fallback Mode Active Duration
-
----
-
-## Recovery Procedure
-
-### Automatic Recovery
+## Guardrails
+
+- API intern: `http://10.0.1.10:49004`
+- Moduri: `disabled`, `warn-only`, `enforce`
+- Fail-open obligatoriu când serviciul guardrails este indisponibil
+- Token injectat din OpenBao (nu stocat hardcoded în cod)
 
 1. Circuit breaker detects successful responses
 2. Moves to HALF_OPEN state

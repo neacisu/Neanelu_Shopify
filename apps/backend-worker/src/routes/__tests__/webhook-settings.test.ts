@@ -41,6 +41,12 @@ void mock.module(tokenLifecyclePath, {
 
 void mock.module('@app/database', {
   namedExports: {
+    createManagedRedis: () => ({
+      on: () => undefined,
+      get: redisGetMock,
+      set: redisSetMock,
+      disconnect: () => undefined,
+    }),
     pool: {
       query: () => Promise.resolve({ rows: [] }),
       connect: () =>
@@ -80,20 +86,6 @@ void mock.module('@app/database', {
 
 const redisGetMock = mock.fn(() => Promise.resolve('received:12'));
 const redisSetMock = mock.fn(() => Promise.resolve('OK'));
-const redisPublishMock = mock.fn(() => Promise.resolve(1));
-const redisConnectMock = mock.fn(() => Promise.resolve());
-
-void mock.module('redis', {
-  namedExports: {
-    createClient: () => ({
-      on: () => undefined,
-      connect: redisConnectMock,
-      get: redisGetMock,
-      set: redisSetMock,
-      publish: redisPublishMock,
-    }),
-  },
-});
 
 void describe('webhook settings routes', () => {
   const originalFetch = globalThis.fetch;
@@ -107,7 +99,6 @@ void describe('webhook settings routes', () => {
     globalThis.fetch = originalFetch;
     redisGetMock.mock.resetCalls();
     redisSetMock.mock.resetCalls();
-    redisConnectMock.mock.resetCalls();
   });
 
   void it('returns webhook config list', async () => {

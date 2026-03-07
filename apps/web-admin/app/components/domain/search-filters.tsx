@@ -1,10 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 import type { ProductFiltersResponse } from '@app/types';
 
 import { InfoTooltip } from '../ui/info-tooltip';
 import { MultiSelect } from '../ui/MultiSelect';
-import { TreeView, type TreeNode } from '../ui/TreeView';
 import { Button } from '../ui/button';
 
 type FilterState = Readonly<{
@@ -13,6 +12,7 @@ type FilterState = Readonly<{
   priceMin: number | null;
   priceMax: number | null;
   categoryId: string | null;
+  collectionIds: string[];
 }>;
 
 type SearchFiltersProps = Readonly<{
@@ -25,15 +25,6 @@ type SearchFiltersProps = Readonly<{
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
-}
-
-function toTree(nodes: ProductFiltersResponse['categories']): TreeNode[] {
-  return nodes.map((node) => {
-    const children = node.children?.length ? toTree(node.children) : undefined;
-    return children
-      ? { id: node.id, label: node.name, children }
-      : { id: node.id, label: node.name };
-  });
 }
 
 export function SearchFilters({
@@ -53,7 +44,23 @@ export function SearchFilters({
     [options.productTypes]
   );
 
-  const categoryTree = useMemo(() => toTree(options.categories), [options.categories]);
+  const [collectionSearch, setCollectionSearch] = useState('');
+
+  const collectionOptions = useMemo(() => {
+    const q = collectionSearch.toLowerCase().trim();
+    const filtered = q
+      ? (options.collections ?? []).filter((c) => c.title.toLowerCase().includes(q))
+      : (options.collections ?? []);
+    return filtered.slice(0, 50);
+  }, [options.collections, collectionSearch]);
+
+  const selectedCollectionTitles = useMemo(() => {
+    if (!filters.collectionIds.length) return [];
+    const all = options.collections ?? [];
+    return filters.collectionIds
+      .map((id) => all.find((c) => c.id === id)?.title)
+      .filter(Boolean) as string[];
+  }, [filters.collectionIds, options.collections]);
 
   const minRange = options.priceRange.min ?? 0;
   const maxRange = options.priceRange.max ?? 0;
@@ -69,6 +76,7 @@ export function SearchFilters({
     productTypes: filters.productTypes.length,
     price: filters.priceMin !== null || filters.priceMax !== null ? 1 : 0,
     category: filters.categoryId ? 1 : 0,
+    collection: filters.collectionIds.length,
   };
 
   return (
@@ -193,32 +201,82 @@ export function SearchFilters({
 
       <div className="space-y-2">
         <div className="flex items-center gap-1.5 text-xs font-medium text-muted">
-          <span>Categorie {counts.category ? '(1)' : ''}</span>
-          <InfoTooltip title="Categorie">
-            Categoriile provin din taxonomia PIM și organizează produsele ierarhic. Sunt utile
-            pentru a filtra pe o ramură specifică (ex: „Electronice &gt; Telefoane"). De exemplu,
-            selectează „Accesorii" din arbore pentru a restrânge la acea categorie. Sfat: click pe
-            ramura dorită, apoi „Curăță categoria" dacă vrei să revii.
+          <span>Colecții {counts.collection ? `(${counts.collection})` : ''}</span>
+          <InfoTooltip title="Colecții Shopify">
+            Filtrează rezultatele la produsele din una sau mai multe colecții Shopify. Poți selecta
+            mai multe colecții simultan — rezultatele vor include produse din oricare dintre ele.
           </InfoTooltip>
         </div>
-        <div className="rounded-md border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-800">
-          <TreeView
-            nodes={categoryTree}
-            selectedId={filters.categoryId ?? null}
-            onSelect={(id) => onChange({ ...filters, categoryId: id })}
-            ariaLabel="Arbore categorii"
+        <div className="rounded-md border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+          <input
+            type="text"
+            value={collectionSearch}
+            onChange={(e) => setCollectionSearch(e.target.value)}
+            placeholder="Caută colecții..."
+            className="w-full border-b border-slate-200 bg-transparent px-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none dark:border-slate-700 dark:text-slate-200 dark:placeholder:text-slate-500"
           />
+          <div className="max-h-48 overflow-y-auto p-1">
+            {collectionOptions.length === 0 ? (
+              <p className="px-2 py-3 text-center text-xs text-slate-400 dark:text-slate-500">
+                Nicio colecție găsită
+              </p>
+            ) : (
+              collectionOptions.map((c) => {
+                const checked = filters.collectionIds.includes(c.id);
+                return (
+                  <label
+                    key={c.id}
+                    className={`flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors ${
+                      checked
+                        ? 'bg-blue-50 font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                        : 'text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700/50'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={Boolean(loading)}
+                      onChange={() => {
+                        const next = checked
+                          ? filters.collectionIds.filter((id) => id !== c.id)
+                          : [...filters.collectionIds, c.id];
+                        onChange({ ...filters, collectionIds: next });
+                      }}
+                      className="size-3.5 shrink-0 rounded border-slate-300 text-blue-600 accent-blue-600 focus:ring-blue-500/40 dark:border-slate-600 dark:accent-blue-400"
+                    />
+                    <span className="min-w-0 truncate">{c.title}</span>
+                    <span className="ml-auto shrink-0 text-xs text-slate-400 dark:text-slate-500">
+                      {c.productsCount}
+                    </span>
+                  </label>
+                );
+              })
+            )}
+          </div>
         </div>
-        {filters.categoryId ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            onClick={() => onChange({ ...filters, categoryId: null })}
-            disabled={loading}
-          >
-            Curăță categoria
-          </Button>
+        {selectedCollectionTitles.length > 0 ? (
+          <div className="flex items-start gap-2">
+            <div className="flex min-w-0 flex-wrap gap-1">
+              {selectedCollectionTitles.map((title) => (
+                <span
+                  key={title}
+                  className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                >
+                  {title}
+                </span>
+              ))}
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="shrink-0"
+              onClick={() => onChange({ ...filters, collectionIds: [] })}
+              disabled={loading}
+            >
+              Curăță
+            </Button>
+          </div>
         ) : null}
       </div>
     </div>

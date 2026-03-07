@@ -1,4 +1,3 @@
-import { createEmbeddingsProvider } from '@app/ai-engine';
 import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
 import { withTenantContext } from '@app/database';
@@ -7,6 +6,11 @@ import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { SessionConfig } from '../auth/session.js';
 import { requireSession } from '../auth/session.js';
 import { getShopOpenAiConfig } from '../runtime/openai-config.js';
+import {
+  resolveChatTaskCredentials,
+  resolveEmbeddingsProvider,
+} from '../services/ai-provider-routing.js';
+import { scanInput, scanOutput } from '../services/guardrails.js';
 import {
   enqueueCollectionsSyncJob,
   PIM_COLLECTIONS_SYNC_QUEUE_NAME,
@@ -25,6 +29,160 @@ interface RequestWithSession {
   session?: {
     shopId: string;
   };
+}
+
+interface TaxonomyClassification {
+  taxonomyId: string;
+  taxonomyName: string;
+  confidence: number;
+  reasoning: string;
+  translatedQuery: string;
+  detectedLanguage: string;
+}
+
+async function classifyWithLLM(params: {
+  shopId: string;
+  env: AppEnv;
+  collectionTitle: string;
+  collectionTitleEn: string | null;
+  collectionDescription: string | null;
+  candidates: readonly { id: string; name: string; similarity: number }[];
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+  timeoutMs?: number;
+  logger: Logger;
+}): Promise<TaxonomyClassification | null> {
+  if (params.candidates.length === 0) return null;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), params.timeoutMs ?? 20_000);
+  const baseRaw = (params.baseUrl ?? 'https://api.openai.com').replace(/\/$/, '');
+  const base = baseRaw.endsWith('/v1') ? baseRaw : `${baseRaw}/v1`;
+
+  const candidateList = params.candidates.map((c, i) => `${i + 1}. [${c.id}] ${c.name}`).join('\n');
+
+  const titlePart = params.collectionTitleEn
+    ? `"${params.collectionTitle}" (English: "${params.collectionTitleEn}")`
+    : `"${params.collectionTitle}"`;
+  const collectionText = params.collectionDescription
+    ? `${titlePart} — ${params.collectionDescription}`
+    : titlePart;
+  const userPrompt = `Collection: ${collectionText}\n\nCandidate categories:\n${candidateList}`;
+  const inputScan = await scanInput({
+    shopId: params.shopId,
+    text: userPrompt,
+    env: params.env,
+    logger: params.logger,
+  });
+  if (!inputScan.isValid) {
+    params.logger.warn(
+      { shopId: params.shopId, reason: inputScan.reason, scanners: inputScan.detectedScanners },
+      'guardrails_blocked_taxonomy_classification_input'
+    );
+    return null;
+  }
+
+  try {
+    const res = await fetch(`${base}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        ...(params.apiKey ? { authorization: `Bearer ${params.apiKey}` } : {}),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: params.model,
+        temperature: 0,
+        max_tokens: 300,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content: `You are an expert product taxonomy classifier for Shopify stores. Your task:
+
+1. The user gives you a product collection name (possibly in a non-English language like Romanian, French, German, etc.) and a numbered list of candidate Shopify taxonomy categories (in English).
+2. You must identify which candidate BEST matches the collection's product domain.
+3. Return a JSON object with:
+   - "selectedId": the [id] of the best matching candidate (exact string from brackets)
+   - "selectedName": the name of the selected candidate
+   - "confidence": a float 0.0–1.0 representing how confident you are (0.9+ = very confident, 0.7–0.89 = confident, 0.5–0.69 = uncertain, <0.5 = poor match)
+   - "reasoning": one sentence explaining WHY this category matches (in English)
+   - "translatedQuery": the English translation of the collection name (for logging)
+   - "language": ISO 639-1 code of the detected source language (e.g. "ro", "en")
+
+Rules:
+- Match based on PRODUCT DOMAIN, not literal word translation. "Camere supraveghere" = surveillance cameras, not just "cameras".
+- If none of the candidates is a good match, set confidence below 0.3 and pick the least-bad option.
+- Be strict: only give confidence ≥ 0.8 if the match is clearly correct.`,
+          },
+          {
+            role: 'user',
+            content: inputScan.sanitizedText,
+          },
+        ],
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      params.logger.warn({ status: res.status, body }, 'Taxonomy classification API error');
+      return null;
+    }
+
+    const json = (await res.json()) as {
+      choices?: { message?: { content?: string } }[];
+    };
+    const contentRaw = json.choices?.[0]?.message?.content ?? '';
+    const outputScan = await scanOutput({
+      shopId: params.shopId,
+      prompt: inputScan.sanitizedText,
+      output: contentRaw,
+      env: params.env,
+      logger: params.logger,
+    });
+    if (!outputScan.isValid) {
+      params.logger.warn(
+        { shopId: params.shopId, reason: outputScan.reason, scanners: outputScan.detectedScanners },
+        'guardrails_blocked_taxonomy_classification_output'
+      );
+      return null;
+    }
+    const content = outputScan.sanitizedText;
+    const parsed = JSON.parse(content) as {
+      selectedId?: string;
+      selectedName?: string;
+      confidence?: number;
+      reasoning?: string;
+      translatedQuery?: string;
+      language?: string;
+    };
+
+    if (!parsed.selectedId || typeof parsed.confidence !== 'number') {
+      params.logger.warn({ parsed }, 'Invalid LLM classification response');
+      return null;
+    }
+
+    const matched = params.candidates.find((c) => c.id === parsed.selectedId);
+    if (!matched) {
+      params.logger.warn({ selectedId: parsed.selectedId }, 'LLM selected an ID not in candidates');
+      return null;
+    }
+
+    return {
+      taxonomyId: matched.id,
+      taxonomyName: parsed.selectedName ?? matched.name,
+      confidence: Math.max(0, Math.min(1, parsed.confidence)),
+      reasoning: parsed.reasoning ?? '',
+      translatedQuery: parsed.translatedQuery ?? params.collectionTitle,
+      detectedLanguage: (parsed.language ?? 'unknown').toLowerCase(),
+    };
+  } catch (err) {
+    params.logger.warn({ err }, 'Taxonomy classification LLM call failed');
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function nowIso(): string {
@@ -289,6 +447,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           manual: number;
           smart: number;
           with_taxonomy: number;
+          translated: number;
           total_products: number;
           last_synced_at: string | null;
         }>(
@@ -299,6 +458,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                     SELECT 1 FROM pim_taxonomy_collection_map m
                     WHERE m.collection_id = sc.id AND m.shop_id = sc.shop_id
                   ))::int AS with_taxonomy,
+                  COUNT(*) FILTER (WHERE title_en IS NOT NULL AND title_en <> '')::int AS translated,
                   COALESCE(SUM(products_count), 0)::int AS total_products,
                   MAX(synced_at)::text AS last_synced_at
            FROM shopify_collections sc
@@ -315,6 +475,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
             manual: 0,
             smart: 0,
             withTaxonomy: 0,
+            translated: 0,
             totalProducts: 0,
             lastSyncedAt: null,
           })
@@ -327,6 +488,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           manual: statsRow.manual,
           smart: statsRow.smart,
           withTaxonomy: statsRow.with_taxonomy,
+          translated: statsRow.translated,
           totalProducts: statsRow.total_products,
           lastSyncedAt: statsRow.last_synced_at,
         })
@@ -362,22 +524,19 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing or invalid collectionIds'));
       }
 
-      const aiConfig = await getShopOpenAiConfig({
+      const provider = await resolveEmbeddingsProvider({
         shopId: session.shopId,
         env: options.env,
         logger: options.logger,
       });
-      if (!aiConfig.enabled || !aiConfig.openAiApiKey) {
-        return reply
-          .status(400)
-          .send(
-            errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Credențialele AI nu sunt configurate')
-          );
-      }
-
       const hasEmbeddings = await withTenantContext(session.shopId, async (client) => {
         const r = await client.query<{ count: string }>(
-          `SELECT COUNT(*)::text AS count FROM prod_taxonomy WHERE is_active = true AND embedding IS NOT NULL`
+          `SELECT COUNT(*)::text AS count
+             FROM prod_taxonomy
+            WHERE is_active = true
+              AND embedding IS NOT NULL
+              AND (model_version IS NULL OR model_version = $1)`,
+          [provider.model.name]
         );
         return parseInt(r.rows[0]?.count ?? '0', 10);
       });
@@ -389,33 +548,36 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
               request.id,
               400,
               'BAD_REQUEST',
-              'Taxonomia nu are embedding-uri. Rulați seed-taxonomy-embeddings.'
+              `Taxonomia nu are embedding-uri pentru modelul ${provider.model.name}.`
             )
           );
       }
 
-      const provider = createEmbeddingsProvider({
-        openAiApiKey: aiConfig.openAiApiKey,
-        ...(aiConfig.openAiBaseUrl ? { openAiBaseUrl: aiConfig.openAiBaseUrl } : {}),
-        openAiEmbeddingsModel: aiConfig.openAiEmbeddingsModel,
-        openAiTimeoutMs: options.env.openAiTimeoutMs,
-      });
-
-      const CONFIDENCE_THRESHOLD = 0.45;
+      const CONFIDENCE_THRESHOLD = 0.65;
+      const VECTOR_CANDIDATES = 40;
       interface ResultItem {
         collectionId: string;
         taxonomyId: string | null;
         taxonomyName: string | null;
         confidence: number | null;
         status: 'assigned' | 'low_confidence' | 'error';
+        translatedText?: string | undefined;
+        detectedLanguage?: string | undefined;
+        reasoning?: string | undefined;
+        candidates?: { name: string; similarity: number }[] | undefined;
       }
       const results: ResultItem[] = [];
 
       for (const collectionId of collectionIds) {
         try {
           const collectionRow = await withTenantContext(session.shopId, async (client) => {
-            const r = await client.query<{ title: string; description: string | null }>(
-              `SELECT title, description FROM shopify_collections WHERE shop_id = $1 AND id = $2 LIMIT 1`,
+            const r = await client.query<{
+              title: string;
+              description: string | null;
+              titleEn: string | null;
+            }>(
+              `SELECT title, description, title_en AS "titleEn"
+               FROM shopify_collections WHERE shop_id = $1 AND id = $2 LIMIT 1`,
               [session.shopId, collectionId]
             );
             return r.rows[0] ?? null;
@@ -431,11 +593,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
             continue;
           }
 
-          const text = [collectionRow.title, collectionRow.description ?? '']
-            .filter(Boolean)
-            .join(' ')
-            .trim();
-          if (!text) {
+          if (!collectionRow.title) {
             results.push({
               collectionId,
               taxonomyId: null,
@@ -446,7 +604,17 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
             continue;
           }
 
-          const [embedding] = await provider.embedTexts([text]);
+          const embeddingText = collectionRow.titleEn
+            ? [collectionRow.titleEn, collectionRow.description ?? '']
+                .filter(Boolean)
+                .join(' — ')
+                .trim()
+            : [collectionRow.title, collectionRow.description ?? '']
+                .filter(Boolean)
+                .join(' — ')
+                .trim();
+
+          const [embedding] = await provider.embedTexts([embeddingText]);
           if (!embedding || embedding.length === 0) {
             results.push({
               collectionId,
@@ -458,41 +626,111 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
             continue;
           }
 
-          const candidates = await withTenantContext(session.shopId, async (client) => {
+          const vectorCandidates = await withTenantContext(session.shopId, async (client) => {
             const vec = toPgVectorLiteral(embedding);
             const res = await client.query<{ id: string; name: string; similarity: number }>(
               `SELECT id, name,
                       (1 - (embedding <=> $1::vector(2000)))::float AS similarity
                FROM prod_taxonomy
-               WHERE is_active = true AND embedding IS NOT NULL
+               WHERE is_active = true
+                 AND embedding IS NOT NULL
+                 AND (model_version IS NULL OR model_version = $3)
                ORDER BY embedding <=> $1::vector(2000)
-               LIMIT 5`,
-              [vec]
+               LIMIT $2`,
+              [vec, VECTOR_CANDIDATES, provider.model.name]
             );
             return res.rows;
           });
 
-          const top = candidates[0];
+          if (vectorCandidates.length === 0) {
+            results.push({
+              collectionId,
+              taxonomyId: null,
+              taxonomyName: null,
+              confidence: null,
+              status: 'error',
+            });
+            continue;
+          }
+
+          const classificationCreds = await resolveChatTaskCredentials({
+            shopId: session.shopId,
+            taskType: 'classification',
+            env: options.env,
+            logger: options.logger,
+          });
+          if (!classificationCreds) {
+            results.push({
+              collectionId,
+              taxonomyId: null,
+              taxonomyName: null,
+              confidence: null,
+              status: 'error',
+            });
+            continue;
+          }
+
+          const resolvedBaseUrl = classificationCreds.baseUrl;
+          const classification = await classifyWithLLM({
+            shopId: session.shopId,
+            env: options.env,
+            collectionTitle: collectionRow.title,
+            collectionTitleEn: collectionRow.titleEn,
+            collectionDescription: collectionRow.description,
+            candidates: vectorCandidates,
+            ...(classificationCreds.apiKey ? { apiKey: classificationCreds.apiKey } : {}),
+            ...(resolvedBaseUrl != null ? { baseUrl: resolvedBaseUrl } : {}),
+            model: classificationCreds.model,
+            timeoutMs: options.env.openAiTimeoutMs,
+            logger: options.logger,
+          });
+
+          const topCandidates = vectorCandidates.slice(0, 5).map((c) => ({
+            name: c.name,
+            similarity: Math.round(c.similarity * 1000) / 1000,
+          }));
+
+          if (!classification) {
+            const fallback = vectorCandidates[0];
+            results.push({
+              collectionId,
+              taxonomyId: fallback?.id ?? null,
+              taxonomyName: fallback?.name ?? null,
+              confidence: fallback?.similarity ?? null,
+              status: 'low_confidence',
+              candidates: topCandidates,
+            });
+            continue;
+          }
+
           options.logger.info(
             {
               collectionId,
               collectionTitle: collectionRow.title,
-              topMatch: top ? { id: top.id, name: top.name, similarity: top.similarity } : null,
-              top5: candidates.map((c) => ({
-                name: c.name,
-                sim: Math.round(c.similarity * 1000) / 1000,
-              })),
+              classification: {
+                taxonomyName: classification.taxonomyName,
+                confidence: classification.confidence,
+                reasoning: classification.reasoning,
+                translatedQuery: classification.translatedQuery,
+                detectedLanguage: classification.detectedLanguage,
+              },
+              vectorTop5: topCandidates,
               threshold: CONFIDENCE_THRESHOLD,
             },
-            'AI taxonomy assignment: similarity results'
+            'AI taxonomy assignment: LLM classification result'
           );
-          if (!top || top.similarity < CONFIDENCE_THRESHOLD) {
+
+          if (classification.confidence < CONFIDENCE_THRESHOLD) {
             results.push({
               collectionId,
-              taxonomyId: top?.id ?? null,
-              taxonomyName: top?.name ?? null,
-              confidence: top?.similarity ?? null,
+              taxonomyId: classification.taxonomyId,
+              taxonomyName: classification.taxonomyName,
+              confidence: classification.confidence,
               status: 'low_confidence',
+              translatedText: classification.translatedQuery,
+              detectedLanguage: classification.detectedLanguage,
+              reasoning: classification.reasoning,
+              candidates: topCandidates,
             });
             continue;
           }
@@ -541,7 +779,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                  (shop_id, taxonomy_id, collection_id, is_primary, created_at)
                VALUES ($1, $2, $3, true, now())
                ON CONFLICT (shop_id, taxonomy_id, collection_id) DO UPDATE SET is_primary = EXCLUDED.is_primary`,
-              [session.shopId, top.id, collectionId]
+              [session.shopId, classification.taxonomyId, collectionId]
             );
           });
 
@@ -553,10 +791,14 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
 
           results.push({
             collectionId,
-            taxonomyId: top.id,
-            taxonomyName: top.name,
-            confidence: top.similarity,
+            taxonomyId: classification.taxonomyId,
+            taxonomyName: classification.taxonomyName,
+            confidence: classification.confidence,
             status: 'assigned',
+            translatedText: classification.translatedQuery,
+            detectedLanguage: classification.detectedLanguage,
+            reasoning: classification.reasoning,
+            candidates: topCandidates,
           });
         } catch {
           results.push({
@@ -607,6 +849,186 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
 
       return reply.send(
         successEnvelope(request.id, { queued: true, jobCount: collectionIds.length })
+      );
+    }
+  );
+
+  server.post(
+    '/collections/bulk/translate',
+    {
+      preHandler: [requireAdminSession],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+
+      const body = (request.body ?? {}) as { collectionIds?: unknown };
+      const scopeIds = Array.isArray(body.collectionIds)
+        ? body.collectionIds.filter(
+            (id): id is string => typeof id === 'string' && id.trim().length > 0
+          )
+        : null;
+
+      const untranslated = await withTenantContext(session.shopId, async (client) => {
+        if (scopeIds && scopeIds.length > 0) {
+          const r = await client.query<{ id: string; title: string }>(
+            `SELECT id, title FROM shopify_collections
+             WHERE shop_id = $1 AND id = ANY($2::uuid[]) AND (title_en IS NULL OR title_en = '')
+             ORDER BY title ASC`,
+            [session.shopId, scopeIds]
+          );
+          return r.rows;
+        }
+        const r = await client.query<{ id: string; title: string }>(
+          `SELECT id, title FROM shopify_collections
+           WHERE shop_id = $1 AND (title_en IS NULL OR title_en = '')
+           ORDER BY title ASC`,
+          [session.shopId]
+        );
+        return r.rows;
+      });
+
+      if (untranslated.length === 0) {
+        return reply.send(
+          successEnvelope(request.id, {
+            translated: 0,
+            total: 0,
+            message: 'Toate colecțiile sunt deja traduse',
+          })
+        );
+      }
+
+      const BATCH_SIZE = 25;
+      let translated = 0;
+
+      const translateCreds = await resolveChatTaskCredentials({
+        shopId: session.shopId,
+        taskType: 'translation',
+        env: options.env,
+        logger: options.logger,
+      });
+      if (!translateCreds) {
+        return reply
+          .status(400)
+          .send(
+            errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Credențialele AI nu sunt configurate')
+          );
+      }
+      const translateApiKey = translateCreds.apiKey;
+      const translateBaseRaw = translateCreds.baseUrl.replace(/\/$/, '');
+      const translateBase = translateBaseRaw.endsWith('/v1')
+        ? translateBaseRaw
+        : `${translateBaseRaw}/v1`;
+      const translateModel = translateCreds.model;
+
+      for (let i = 0; i < untranslated.length; i += BATCH_SIZE) {
+        const batch = untranslated.slice(i, i + BATCH_SIZE);
+        const numberedList = batch.map((c, idx) => `${idx + 1}. ${c.title}`).join('\n');
+        const inputScan = await scanInput({
+          shopId: session.shopId,
+          text: numberedList,
+          env: options.env,
+          logger: options.logger,
+        });
+        if (!inputScan.isValid) {
+          options.logger.warn(
+            { shopId: session.shopId, batchStart: i, reason: inputScan.reason },
+            'guardrails_blocked_bulk_translate_input'
+          );
+          continue;
+        }
+
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 30_000);
+
+          const res = await fetch(`${translateBase}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              ...(translateApiKey ? { authorization: `Bearer ${translateApiKey}` } : {}),
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: translateModel,
+              temperature: 0,
+              max_tokens: 2000,
+              response_format: { type: 'json_object' },
+              messages: [
+                {
+                  role: 'system',
+                  content: `You translate product collection names to English for Shopify taxonomy matching. Input: a numbered list of collection names (may be in any language). Output: a JSON object with key "translations" containing an array of objects, each with "index" (1-based) and "en" (English translation). Translate the product category meaning, not marketing text. Keep it concise. If already in English, return unchanged.`,
+                },
+                { role: 'user', content: inputScan.sanitizedText },
+              ],
+            }),
+            signal: controller.signal,
+          });
+
+          clearTimeout(timeout);
+
+          if (!res.ok) {
+            options.logger.warn({ status: res.status }, 'Bulk translate batch failed');
+            continue;
+          }
+
+          const json = (await res.json()) as {
+            choices?: { message?: { content?: string } }[];
+          };
+          const contentRaw = json.choices?.[0]?.message?.content ?? '';
+          const outputScan = await scanOutput({
+            shopId: session.shopId,
+            prompt: inputScan.sanitizedText,
+            output: contentRaw,
+            env: options.env,
+            logger: options.logger,
+          });
+          if (!outputScan.isValid) {
+            options.logger.warn(
+              { shopId: session.shopId, batchStart: i, reason: outputScan.reason },
+              'guardrails_blocked_bulk_translate_output'
+            );
+            continue;
+          }
+          const content = outputScan.sanitizedText;
+          const parsed = JSON.parse(content) as {
+            translations?: { index?: number; en?: string }[];
+          };
+
+          const translations = parsed.translations ?? [];
+
+          await withTenantContext(session.shopId, async (client) => {
+            for (const t of translations) {
+              if (typeof t.index !== 'number' || !t.en) continue;
+              const item = batch[t.index - 1];
+              if (!item) continue;
+              await client.query(
+                `UPDATE shopify_collections SET title_en = $1, updated_at = now()
+                 WHERE id = $2 AND shop_id = $3`,
+                [t.en.trim(), item.id, session.shopId]
+              );
+              translated++;
+            }
+          });
+
+          options.logger.info(
+            { batchStart: i, batchSize: batch.length, translated: translations.length },
+            'Bulk translate batch completed'
+          );
+        } catch (err) {
+          options.logger.warn({ err, batchStart: i }, 'Bulk translate batch error');
+        }
+      }
+
+      return reply.send(
+        successEnvelope(request.id, {
+          translated,
+          total: untranslated.length,
+          message: `${translated} din ${untranslated.length} colecții traduse`,
+        })
       );
     }
   );

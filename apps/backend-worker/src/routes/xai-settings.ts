@@ -126,7 +126,7 @@ function toApiResponse(
     hasApiKey: row?.hasApiKey ?? false,
     baseUrl: row?.xaiBaseUrl ?? DEFAULT_BASE_URL,
     model: row?.xaiModel ?? DEFAULT_MODEL,
-    availableModels: [DEFAULT_MODEL, 'grok-4-1-fast', 'grok-3'],
+    availableModels: [DEFAULT_MODEL, 'grok-4-1-fast', 'grok-4', 'grok-3', 'grok-3-mini'],
     temperature: toNumber(row?.xaiTemperature) ?? DEFAULT_TEMPERATURE,
     maxTokensPerRequest: row?.xaiMaxTokensPerRequest ?? DEFAULT_MAX_TOKENS,
     rateLimitPerMinute: row?.xaiRateLimitPerMinute ?? DEFAULT_RATE_LIMIT,

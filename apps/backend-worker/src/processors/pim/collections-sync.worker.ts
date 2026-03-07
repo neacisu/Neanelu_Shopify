@@ -198,7 +198,8 @@ async function syncCollections(payload: CollectionsSyncPayload, logger: Logger):
                template_suffix = EXCLUDED.template_suffix,
                published_at = EXCLUDED.published_at,
                synced_at = now(),
-               updated_at = now()`,
+               updated_at = now(),
+               title_en = CASE WHEN shopify_collections.title <> EXCLUDED.title THEN NULL ELSE shopify_collections.title_en END`,
             [
               payload.shopId,
               node.id,

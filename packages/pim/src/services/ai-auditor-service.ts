@@ -1,8 +1,12 @@
 import { AIAuditResponseSchema } from '../schemas/ai-audit.js';
-import { acquireXaiRateLimit } from './xai-rate-limiter.js';
-import { trackXaiCost } from './xai-cost-tracker.js';
+import { acquireProviderRateLimit } from './rate-limiter.js';
+import { trackCost } from './cost-tracker.js';
 import { enforceBudget } from './budget-guard.js';
-import type { XAICredentials } from './xai-credentials.js';
+import {
+  buildChatCompletionsUrl,
+  estimateChatCost,
+  type ChatModelCredentials,
+} from './llm-credentials.js';
 
 export type AIAuditDecision = 'approve' | 'reject' | 'escalate_to_human';
 
@@ -19,7 +23,7 @@ export type AIAuditResult = Readonly<{
 
 export type AIAuditParams = Readonly<{
   shopId: string;
-  credentials: XAICredentials;
+  credentials: ChatModelCredentials;
   localProduct: {
     title: string;
     brand?: string | null;
@@ -40,9 +44,10 @@ export type AIAuditParams = Readonly<{
 
 export class AIAuditorService {
   async auditMatch(params: AIAuditParams): Promise<AIAuditResult> {
-    await enforceBudget({ provider: 'xai', shopId: params.shopId });
+    await enforceBudget({ provider: params.credentials.provider, shopId: params.shopId });
 
-    await acquireXaiRateLimit({
+    await acquireProviderRateLimit({
+      provider: params.credentials.provider,
       shopId: params.shopId,
       rateLimitPerMinute: params.credentials.rateLimitPerMinute,
     });
@@ -54,10 +59,12 @@ export class AIAuditorService {
     let tokensOutput = 0;
 
     try {
-      const response = await fetch(`${params.credentials.baseUrl}/chat/completions`, {
+      const response = await fetch(buildChatCompletionsUrl(params.credentials.baseUrl), {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${params.credentials.apiKey}`,
+          ...(params.credentials.apiKey
+            ? { Authorization: `Bearer ${params.credentials.apiKey}` }
+            : {}),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -83,22 +90,31 @@ export class AIAuditorService {
       tokensInput = data.usage?.prompt_tokens ?? 0;
       tokensOutput = data.usage?.completion_tokens ?? 0;
 
-      await trackXaiCost({
-        shopId: params.shopId,
+      await trackCost({
+        provider: params.credentials.provider,
+        operation: 'audit',
         endpoint: 'ai-audit',
+        shopId: params.shopId,
         tokensInput,
         tokensOutput,
+        estimatedCost: estimateChatCost({
+          provider: params.credentials.provider,
+          tokensInput,
+          tokensOutput,
+        }),
         httpStatus,
         responseTimeMs: Date.now() - startTime,
       });
 
       if (!response.ok) {
-        throw new Error(`xAI audit failed: ${response.status} ${response.statusText}`);
+        throw new Error(
+          `${params.credentials.provider} audit failed: ${response.status} ${response.statusText}`
+        );
       }
 
       const content = data.choices?.[0]?.message?.content;
       if (!content) {
-        throw new Error('xAI audit response missing content');
+        throw new Error(`${params.credentials.provider} audit response missing content`);
       }
 
       const parsed = AIAuditResponseSchema.parse(JSON.parse(content));
@@ -115,11 +131,18 @@ export class AIAuditorService {
         modelUsed: params.credentials.model,
       };
     } catch (error) {
-      await trackXaiCost({
-        shopId: params.shopId,
+      await trackCost({
+        provider: params.credentials.provider,
+        operation: 'audit',
         endpoint: 'ai-audit',
+        shopId: params.shopId,
         tokensInput,
         tokensOutput,
+        estimatedCost: estimateChatCost({
+          provider: params.credentials.provider,
+          tokensInput,
+          tokensOutput,
+        }),
         httpStatus,
         responseTimeMs: Date.now() - startTime,
         errorMessage: error instanceof Error ? error.message : 'Unknown audit error',

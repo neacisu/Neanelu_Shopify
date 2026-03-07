@@ -35,10 +35,17 @@ export interface CategoryNode {
   children?: CategoryNode[];
 }
 
+export interface CollectionOption {
+  id: string;
+  title: string;
+  productsCount: number;
+}
+
 export interface ProductFiltersResponse {
   vendors: string[];
   productTypes: string[];
   priceRange: { min: number | null; max: number | null };
   categories: CategoryNode[];
+  collections: CollectionOption[];
   enrichmentStatus: string[];
 }

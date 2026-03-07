@@ -14,6 +14,7 @@ import {
   uniqueIndex,
   customType,
   numeric,
+  jsonb,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { shops } from './shops.ts';
@@ -99,6 +100,69 @@ export const shopAiCredentials = pgTable(
     xaiLastCheckedAt: timestamp('xai_last_checked_at', { withTimezone: true }),
     xaiLastError: text('xai_last_error'),
     xaiLastSuccessAt: timestamp('xai_last_success_at', { withTimezone: true }),
+
+    geminiApiKeyCiphertext: bytea('gemini_api_key_ciphertext'),
+    geminiApiKeyIv: bytea('gemini_api_key_iv'),
+    geminiApiKeyTag: bytea('gemini_api_key_tag'),
+    geminiKeyVersion: integer('gemini_key_version').notNull().default(1),
+    geminiEnabled: boolean('gemini_enabled').notNull().default(false),
+    geminiModel: text('gemini_model'),
+    geminiAvailableModels: text('gemini_available_models').array(),
+    geminiTemperature: numeric('gemini_temperature', { precision: 3, scale: 2 }).default('0.10'),
+    geminiMaxTokensPerRequest: integer('gemini_max_tokens_per_request').default(4000),
+    geminiRateLimitPerMinute: integer('gemini_rate_limit_per_minute').default(60),
+    geminiDailyBudget: integer('gemini_daily_budget').default(1000),
+    geminiBudgetAlertThreshold: numeric('gemini_budget_alert_threshold', {
+      precision: 3,
+      scale: 2,
+    }).default('0.80'),
+    geminiConnectionStatus: text('gemini_connection_status').default('unknown'),
+    geminiLastCheckedAt: timestamp('gemini_last_checked_at', { withTimezone: true }),
+    geminiLastError: text('gemini_last_error'),
+    geminiLastSuccessAt: timestamp('gemini_last_success_at', { withTimezone: true }),
+
+    deepseekApiKeyCiphertext: bytea('deepseek_api_key_ciphertext'),
+    deepseekApiKeyIv: bytea('deepseek_api_key_iv'),
+    deepseekApiKeyTag: bytea('deepseek_api_key_tag'),
+    deepseekKeyVersion: integer('deepseek_key_version').notNull().default(1),
+    deepseekEnabled: boolean('deepseek_enabled').notNull().default(false),
+    deepseekBaseUrl: text('deepseek_base_url'),
+    deepseekModel: text('deepseek_model'),
+    deepseekAvailableModels: text('deepseek_available_models').array(),
+    deepseekTemperature: numeric('deepseek_temperature', { precision: 3, scale: 2 }).default(
+      '0.10'
+    ),
+    deepseekMaxTokensPerRequest: integer('deepseek_max_tokens_per_request').default(4000),
+    deepseekRateLimitPerMinute: integer('deepseek_rate_limit_per_minute').default(60),
+    deepseekDailyBudget: integer('deepseek_daily_budget').default(1000),
+    deepseekBudgetAlertThreshold: numeric('deepseek_budget_alert_threshold', {
+      precision: 3,
+      scale: 2,
+    }).default('0.80'),
+    deepseekConnectionStatus: text('deepseek_connection_status').default('unknown'),
+    deepseekLastCheckedAt: timestamp('deepseek_last_checked_at', { withTimezone: true }),
+    deepseekLastError: text('deepseek_last_error'),
+    deepseekLastSuccessAt: timestamp('deepseek_last_success_at', { withTimezone: true }),
+
+    selfhostedBearerTokenCiphertext: bytea('selfhosted_bearer_token_ciphertext'),
+    selfhostedBearerTokenIv: bytea('selfhosted_bearer_token_iv'),
+    selfhostedBearerTokenTag: bytea('selfhosted_bearer_token_tag'),
+    selfhostedKeyVersion: integer('selfhosted_key_version').notNull().default(1),
+    selfhostedEnabled: boolean('selfhosted_enabled').notNull().default(false),
+    selfhostedEndpoints: jsonb('selfhosted_endpoints').$type<unknown[]>().notNull().default([]),
+    selfhostedConnectionStatus: text('selfhosted_connection_status').default('unknown'),
+    selfhostedLastCheckedAt: timestamp('selfhosted_last_checked_at', { withTimezone: true }),
+    selfhostedLastError: text('selfhosted_last_error'),
+    selfhostedLastSuccessAt: timestamp('selfhosted_last_success_at', { withTimezone: true }),
+    selfhostedGpuMetrics: jsonb('selfhosted_gpu_metrics').$type<Record<string, unknown> | null>(),
+
+    modelTranslation: text('model_translation').default('selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ'),
+    modelClassification: text('model_classification').default(
+      'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ'
+    ),
+    modelEmbedding: text('model_embedding').default('selfhosted:qwen3-embedding-8b-q5km'),
+    modelExtraction: text('model_extraction').default('selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ'),
+    modelAudit: text('model_audit').default('selfhosted:Qwen/QwQ-32B-AWQ'),
 
     scraperEnabled: boolean('scraper_enabled').notNull().default(false),
     scraperRateLimitPerDomain: integer('scraper_rate_limit_per_domain').default(1),

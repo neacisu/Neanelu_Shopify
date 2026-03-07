@@ -4,9 +4,12 @@ export const COST_CONSTANTS = {
   serper: { costPerRequest: 0.001 },
   xai: { costPer1MInput: 0.2, costPer1MOutput: 0.5 },
   openai: { costPer1MTokens: 0.02 },
+  gemini: { costPer1MTokens: 0 },
+  deepseek: { costPer1MTokens: 0 },
+  selfhosted: { costPer1MTokens: 0 },
 } as const;
 
-export type ApiProvider = 'serper' | 'xai' | 'openai';
+export type ApiProvider = 'serper' | 'xai' | 'openai' | 'gemini' | 'deepseek' | 'selfhosted';
 export type CostOperation = 'search' | 'audit' | 'extraction' | 'embedding' | 'other';
 
 export type TrackCostParams = Readonly<{
@@ -252,34 +255,114 @@ export async function checkBudget(
       [shopId]
     );
 
-    const costLimit = Number(budgetRes.rows[0]?.openai_daily_budget ?? 10);
-    const itemsLimit = Number(budgetRes.rows[0]?.openai_items_daily_budget ?? 100000);
-    const alertThreshold = Number(budgetRes.rows[0]?.openai_budget_alert_threshold ?? 0.8);
-    const usedCost = Number(usageRes.rows[0]?.used_cost ?? 0);
-    const usedItems = Number(usageRes.rows[0]?.used_items ?? 0);
-    const costRatio = costLimit > 0 ? usedCost / costLimit : 1;
-    const itemsRatio = itemsLimit > 0 ? usedItems / itemsLimit : 1;
-    const ratio = Math.max(costRatio, itemsRatio);
+    if (provider === 'openai') {
+      const costLimit = Number(budgetRes.rows[0]?.openai_daily_budget ?? 10);
+      const itemsLimit = Number(budgetRes.rows[0]?.openai_items_daily_budget ?? 100000);
+      const alertThreshold = Number(budgetRes.rows[0]?.openai_budget_alert_threshold ?? 0.8);
+      const usedCost = Number(usageRes.rows[0]?.used_cost ?? 0);
+      const usedItems = Number(usageRes.rows[0]?.used_items ?? 0);
+      const costRatio = costLimit > 0 ? usedCost / costLimit : 1;
+      const itemsRatio = itemsLimit > 0 ? usedItems / itemsLimit : 1;
+      const ratio = Math.max(costRatio, itemsRatio);
+
+      return {
+        provider,
+        primary: {
+          unit: 'dollars',
+          used: usedCost,
+          limit: costLimit,
+          remaining: Math.max(0, costLimit - usedCost),
+          ratio: costRatio,
+        },
+        secondary: {
+          unit: 'items',
+          used: usedItems,
+          limit: itemsLimit,
+          remaining: Math.max(0, itemsLimit - usedItems),
+          ratio: itemsRatio,
+        },
+        alertThreshold,
+        exceeded: usedCost >= costLimit || usedItems >= itemsLimit,
+        alertTriggered: ratio >= alertThreshold,
+      };
+    }
+
+    if (provider === 'gemini' || provider === 'deepseek') {
+      const configColumn = provider === 'gemini' ? 'gemini' : 'deepseek';
+      const budgetResProvider = await client.query<{
+        daily_budget: number | null;
+        budget_alert_threshold: string | null;
+      }>(
+        `SELECT ${configColumn}_daily_budget AS daily_budget,
+                ${configColumn}_budget_alert_threshold AS budget_alert_threshold
+           FROM shop_ai_credentials
+          WHERE shop_id = $1`,
+        [shopId]
+      );
+      const usageResProvider = await client.query<{ used: string }>(
+        `SELECT COALESCE(SUM(estimated_cost), 0) as used
+           FROM api_usage_log
+          WHERE api_provider = $1
+            AND shop_id = $2
+            AND created_at >= date_trunc('day', now())
+            AND created_at < date_trunc('day', now()) + interval '1 day'`,
+        [provider, shopId]
+      );
+
+      const limit = Number(budgetResProvider.rows[0]?.daily_budget ?? 1000);
+      const alertThreshold = Number(budgetResProvider.rows[0]?.budget_alert_threshold ?? 0.8);
+      const used = Number(usageResProvider.rows[0]?.used ?? 0);
+      const ratio = limit > 0 ? used / limit : 1;
+
+      return {
+        provider,
+        primary: {
+          unit: 'dollars',
+          used,
+          limit,
+          remaining: Math.max(0, limit - used),
+          ratio,
+        },
+        alertThreshold,
+        exceeded: used >= limit,
+        alertTriggered: ratio >= alertThreshold,
+      };
+    }
+
+    const usageResSelfHosted = await client.query<{ used_cost: string; used_items: string }>(
+      `SELECT
+          COALESCE(SUM(estimated_cost), 0) as used_cost,
+          COALESCE(SUM(request_count), 0) as used_items
+         FROM api_usage_log
+        WHERE api_provider = 'selfhosted'
+          AND shop_id = $1
+          AND created_at >= date_trunc('day', now())
+          AND created_at < date_trunc('day', now()) + interval '1 day'`,
+      [shopId]
+    );
+
+    const usedCost = Number(usageResSelfHosted.rows[0]?.used_cost ?? 0);
+    const usedItems = Number(usageResSelfHosted.rows[0]?.used_items ?? 0);
 
     return {
       provider,
       primary: {
         unit: 'dollars',
         used: usedCost,
-        limit: costLimit,
-        remaining: Math.max(0, costLimit - usedCost),
-        ratio: costRatio,
+        limit: Number.MAX_SAFE_INTEGER,
+        remaining: Number.MAX_SAFE_INTEGER,
+        ratio: 0,
       },
       secondary: {
         unit: 'items',
         used: usedItems,
-        limit: itemsLimit,
-        remaining: Math.max(0, itemsLimit - usedItems),
-        ratio: itemsRatio,
+        limit: Number.MAX_SAFE_INTEGER,
+        remaining: Number.MAX_SAFE_INTEGER,
+        ratio: 0,
       },
-      alertThreshold,
-      exceeded: usedCost >= costLimit || usedItems >= itemsLimit,
-      alertTriggered: ratio >= alertThreshold,
+      alertThreshold: 1,
+      exceeded: false,
+      alertTriggered: false,
     };
   } finally {
     try {
@@ -296,7 +379,14 @@ export async function checkBudget(
 }
 
 export async function checkAllBudgets(shopId: string): Promise<UnifiedBudgetStatus[]> {
-  const providers: readonly ApiProvider[] = ['serper', 'xai', 'openai'];
+  const providers: readonly ApiProvider[] = [
+    'serper',
+    'xai',
+    'openai',
+    'gemini',
+    'deepseek',
+    'selfhosted',
+  ];
   return Promise.all(providers.map((provider) => checkBudget(provider, shopId)));
 }
 
@@ -326,5 +416,8 @@ export async function getMaxBudgetRatios(): Promise<
     { provider: 'serper', maxRatio: Number(row?.serper_max ?? 0) },
     { provider: 'xai', maxRatio: Number(row?.xai_max ?? 0) },
     { provider: 'openai', maxRatio: Math.max(openAiCostRatio, openAiItemsRatio) },
+    { provider: 'gemini', maxRatio: 0 },
+    { provider: 'deepseek', maxRatio: 0 },
+    { provider: 'selfhosted', maxRatio: 0 },
   ];
 }

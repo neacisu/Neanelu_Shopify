@@ -257,6 +257,7 @@ export async function startCredentialWatcher(): Promise<void> {
   }
 
   log('info', 'Starting credential file watcher', { path: SECRETS_PATH, pollMs: POLL_INTERVAL_MS });
+  await handleChange();
   watchFile(SECRETS_PATH, { interval: POLL_INTERVAL_MS }, (curr) => {
     if (curr.mtimeMs <= lastMtimeMs) return;
     lastMtimeMs = curr.mtimeMs;

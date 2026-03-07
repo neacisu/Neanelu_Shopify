@@ -4,16 +4,18 @@ import { join } from 'node:path';
 
 import { loadEnv } from '@app/config';
 import { withTenantContext } from '@app/database';
-import { OpenAiBatchManager, createEmbeddingsProvider } from '@app/ai-engine';
+import { OpenAiBatchManager } from '@app/ai-engine';
 import type { Logger } from '@app/logger';
 import { enqueueAiBatchBackfillJob, enqueueAiBatchPollerJob } from '@app/queue-manager';
 import type { AiBatchBackfillJobPayload } from '@app/types';
 import { BudgetExceededError, enforceBudget } from '@app/pim';
 import { getShopOpenAiConfig } from '../../runtime/openai-config.js';
+import { resolveEmbeddingsProvider } from '../../services/ai-provider-routing.js';
 
 import {
   buildBatchJsonlLines,
   computeEmbeddingCandidates,
+  runSelfhostedEmbeddingSync,
   type CandidateSummary,
   type ExistingEmbeddingRow,
   type ShopifyEmbeddingSourceRow,
@@ -136,22 +138,50 @@ export async function runAiBatchBackfill(params: {
         return;
       }
 
-      const provider = createEmbeddingsProvider({
-        openAiApiKey: openAiConfig.openAiApiKey,
-        ...(openAiConfig.openAiBaseUrl ? { openAiBaseUrl: openAiConfig.openAiBaseUrl } : {}),
-        openAiEmbeddingsModel: openAiConfig.openAiEmbeddingsModel,
-        openAiTimeoutMs: env.openAiTimeoutMs,
+      const provider = await resolveEmbeddingsProvider({
+        shopId: payload.shopId,
+        env,
+        logger,
       });
       const dimensions = env.openAiEmbeddingDimensions ?? provider.model.dimensions;
 
       const chunkSize = payload.chunkSize ?? env.openAiBatchMaxItems;
-      try {
-        await enforceBudget({ provider: 'openai', shopId: payload.shopId });
-      } catch (error) {
-        if (error instanceof BudgetExceededError) {
+      const budget =
+        provider.kind === 'openai'
+          ? await getDailyEmbeddingBudget({
+              shopId: payload.shopId,
+              dailyLimit: env.openAiEmbeddingDailyBudget,
+            })
+          : { remaining: chunkSize, used: 0, limit: chunkSize };
+
+      if (provider.kind === 'openai') {
+        try {
+          await enforceBudget({ provider: 'openai', shopId: payload.shopId });
+        } catch (error) {
+          if (error instanceof BudgetExceededError) {
+            logger.warn(
+              { shopId: payload.shopId, error: error.message },
+              'OpenAI budget exceeded; delaying backfill until next day'
+            );
+            await withAiSpan(AI_SPAN_NAMES.ENQUEUE, { 'ai.shop_id': payload.shopId }, async () =>
+              enqueueAiBatchBackfillJob(
+                {
+                  ...payload,
+                  requestedAt: Date.now(),
+                },
+                { delayMs: msUntilNextDay(new Date()) }
+              )
+            );
+            return;
+          }
+          throw error;
+        }
+
+        if (budget.remaining <= 0) {
+          const delayMs = msUntilNextDay(now);
           logger.warn(
-            { shopId: payload.shopId, error: error.message },
-            'OpenAI budget exceeded; delaying backfill until next day'
+            { shopId: payload.shopId, used: budget.used, limit: budget.limit },
+            'Daily embedding budget exhausted; delaying backfill'
           );
           await withAiSpan(AI_SPAN_NAMES.ENQUEUE, { 'ai.shop_id': payload.shopId }, async () =>
             enqueueAiBatchBackfillJob(
@@ -159,34 +189,11 @@ export async function runAiBatchBackfill(params: {
                 ...payload,
                 requestedAt: Date.now(),
               },
-              { delayMs: msUntilNextDay(new Date()) }
+              { delayMs }
             )
           );
           return;
         }
-        throw error;
-      }
-      const budget = await getDailyEmbeddingBudget({
-        shopId: payload.shopId,
-        dailyLimit: env.openAiEmbeddingDailyBudget,
-      });
-
-      if (budget.remaining <= 0) {
-        const delayMs = msUntilNextDay(now);
-        logger.warn(
-          { shopId: payload.shopId, used: budget.used, limit: budget.limit },
-          'Daily embedding budget exhausted; delaying backfill'
-        );
-        await withAiSpan(AI_SPAN_NAMES.ENQUEUE, { 'ai.shop_id': payload.shopId }, async () =>
-          enqueueAiBatchBackfillJob(
-            {
-              ...payload,
-              requestedAt: Date.now(),
-            },
-            { delayMs }
-          )
-        );
-        return;
       }
 
       const throttle = await checkBackfillThrottle({
@@ -335,6 +342,47 @@ export async function runAiBatchBackfill(params: {
         0,
         Math.min(chunkSize, budget.remaining)
       );
+      if (provider.kind === 'selfhosted') {
+        const syncResult = await runSelfhostedEmbeddingSync({
+          shopId: payload.shopId,
+          embeddingType: 'combined',
+          model: provider.model.name,
+          dimensions,
+          candidates,
+          provider,
+          logger,
+        });
+        await withTenantContext(payload.shopId, async (client) => {
+          await client.query(
+            `UPDATE embedding_backfill_runs
+               SET status = 'running',
+                   last_product_id = $1,
+                   processed_products = processed_products + $2,
+                   updated_at = now()
+             WHERE id = $3`,
+            [lastProductId, candidates.length, run.id]
+          );
+        });
+        await withAiSpan(AI_SPAN_NAMES.ENQUEUE, { 'ai.shop_id': payload.shopId }, async () =>
+          enqueueAiBatchBackfillJob(
+            lastProductId
+              ? { ...payload, offsetProductId: lastProductId, requestedAt: Date.now() }
+              : { ...payload, requestedAt: Date.now() }
+          )
+        );
+        logger.info(
+          {
+            shopId: payload.shopId,
+            completedItems: syncResult.completedItems,
+            failedItems: syncResult.failedItems,
+            totalItems: candidates.length,
+            model: provider.model.name,
+          },
+          'Backfill processed synchronously via selfhosted embeddings'
+        );
+        return;
+      }
+
       const lines = buildBatchJsonlLines({
         candidates,
         embeddingType: 'combined',

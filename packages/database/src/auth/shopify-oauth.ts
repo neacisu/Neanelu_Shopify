@@ -149,5 +149,63 @@ export async function upsertOfflineShopCredentials(params: {
     ]
   );
 
+  const defaultSelfhostedEndpoints = [
+    {
+      id: 'selfhosted-chat-fast',
+      label: 'Qwen 14B Self-hosted',
+      baseUrl: 'http://10.0.1.10:49002/v1',
+      modelId: 'Qwen/Qwen2.5-14B-Instruct-AWQ',
+      type: 'chat',
+      enabled: true,
+      maxConcurrentRequests: 8,
+      timeoutMs: 30000,
+    },
+    {
+      id: 'selfhosted-chat-reasoning',
+      label: 'QwQ 32B Self-hosted',
+      baseUrl: 'http://10.0.1.10:49001/v1',
+      modelId: 'Qwen/QwQ-32B-AWQ',
+      type: 'chat',
+      enabled: true,
+      maxConcurrentRequests: 4,
+      timeoutMs: 45000,
+    },
+    {
+      id: 'selfhosted-embedding',
+      label: 'Qwen3 Embedding Self-hosted',
+      baseUrl: 'http://10.0.1.10:49003/v1',
+      modelId: 'qwen3-embedding-8b-q5km',
+      type: 'embedding',
+      enabled: true,
+      maxConcurrentRequests: 16,
+      timeoutMs: 30000,
+    },
+  ] as const;
+
+  await client.query(
+    `INSERT INTO shop_ai_credentials (
+       shop_id,
+       selfhosted_enabled,
+       selfhosted_endpoints,
+       model_translation,
+       model_classification,
+       model_embedding,
+       model_extraction,
+       model_audit
+     )
+     VALUES (
+       $1,
+       true,
+       $2::jsonb,
+       'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
+       'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
+       'selfhosted:qwen3-embedding-8b-q5km',
+       'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
+       'selfhosted:Qwen/QwQ-32B-AWQ'
+     )
+     ON CONFLICT (shop_id) DO NOTHING`,
+    [shopId, JSON.stringify(defaultSelfhostedEndpoints)]
+  );
+
   return { shopId };
 }

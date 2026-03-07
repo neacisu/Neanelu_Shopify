@@ -1,0 +1,34 @@
+auth:
+  type: http_bearer
+  token: '__INJECT_FROM_OPENBAO__'
+
+input_scanners:
+  - type: PromptInjection
+    params:
+      threshold: 0.9
+  - type: BanTopics
+    params:
+      topics: [violence, illegal_activities, self-harm]
+      threshold: 0.75
+  - type: Toxicity
+    params:
+      threshold: 0.8
+  - type: Anonymize
+    params:
+      entity_types: [EMAIL_ADDRESS, PHONE_NUMBER, CREDIT_CARD, IBAN_CODE, IP_ADDRESS, PERSON]
+      use_faker: true
+      threshold: 0.85
+
+output_scanners:
+  - type: Sensitive
+    params:
+      redact: true
+      entity_types: [EMAIL_ADDRESS, PHONE_NUMBER, CREDIT_CARD]
+      threshold: 0.85
+  - type: Toxicity
+    params:
+      threshold: 0.8
+  - type: Relevance
+    params:
+      threshold: 0.3
+  - type: Deanonymize

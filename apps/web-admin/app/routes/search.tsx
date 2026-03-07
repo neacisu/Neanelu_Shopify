@@ -42,6 +42,7 @@ type FilterState = Readonly<{
   priceMin: number | null;
   priceMax: number | null;
   categoryId: string | null;
+  collectionIds: string[];
 }>;
 
 const emptyFilters: FilterState = {
@@ -50,6 +51,7 @@ const emptyFilters: FilterState = {
   priceMin: null,
   priceMax: null,
   categoryId: null,
+  collectionIds: [],
 };
 
 const emptyFilterOptions: ProductFiltersResponse = {
@@ -57,6 +59,7 @@ const emptyFilterOptions: ProductFiltersResponse = {
   productTypes: [],
   priceRange: { min: null, max: null },
   categories: [],
+  collections: [],
   enrichmentStatus: [],
 };
 
@@ -80,6 +83,7 @@ export default function SearchPage() {
     priceMin: searchParams.get('priceMin') ? parseNumber(searchParams.get('priceMin'), 0) : null,
     priceMax: searchParams.get('priceMax') ? parseNumber(searchParams.get('priceMax'), 0) : null,
     categoryId: searchParams.get('categoryId'),
+    collectionIds: searchParams.get('collectionIds')?.split(',').filter(Boolean) ?? [],
   }));
 
   const [filtersOptions, setFiltersOptions] = useState<ProductFiltersResponse>(emptyFilterOptions);
@@ -125,6 +129,7 @@ export default function SearchPage() {
     if (filters.priceMin !== null) next.set('priceMin', String(filters.priceMin));
     if (filters.priceMax !== null) next.set('priceMax', String(filters.priceMax));
     if (filters.categoryId) next.set('categoryId', filters.categoryId);
+    if (filters.collectionIds.length) next.set('collectionIds', filters.collectionIds.join(','));
     const nextString = next.toString();
     const currentString = searchParams.toString();
     if (nextString !== currentString) {
@@ -164,6 +169,8 @@ export default function SearchPage() {
       if (filters.priceMin !== null) params.set('priceMin', String(filters.priceMin));
       if (filters.priceMax !== null) params.set('priceMax', String(filters.priceMax));
       if (filters.categoryId) params.set('categoryId', filters.categoryId);
+      if (filters.collectionIds.length)
+        params.set('collectionIds', filters.collectionIds.join(','));
 
       setLoading(true);
       setError(null);
@@ -489,6 +496,7 @@ export default function SearchPage() {
             priceMin: filters.priceMin,
             priceMax: filters.priceMax,
             categoryId: filters.categoryId,
+            collectionIds: filters.collectionIds,
           };
 
           const response = await api.postApi<

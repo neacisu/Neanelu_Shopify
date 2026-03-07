@@ -3,7 +3,8 @@ import { withTenantContext } from '@app/database';
 import type { Logger } from '@app/logger';
 import { configFromEnv, createWorker, withJobTelemetryContext } from '@app/queue-manager';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
-import { loadXAICredentials } from '../../services/xai-credentials.js';
+import { resolveChatTaskCredentials } from '../../services/ai-provider-routing.js';
+import { scanInput, scanOutput } from '../../services/guardrails.js';
 import {
   PIM_DESCRIPTION_GENERATOR_JOB,
   PIM_DESCRIPTION_GENERATOR_QUEUE_NAME,
@@ -30,14 +31,6 @@ type TemplateContext = Readonly<{
   required_sections: string[] | null;
   tone: string | null;
   prompt_template: string;
-}>;
-
-type XaiCredentials = Readonly<{
-  apiKey: string;
-  baseUrl: string;
-  model: string;
-  temperature: number;
-  maxTokensPerRequest: number;
 }>;
 
 type XaiResponse = Readonly<{
@@ -96,11 +89,13 @@ async function processDescriptionGeneration(
   logger: Logger
 ): Promise<void> {
   const env = loadEnv();
-  const credentials = (await loadXAICredentials({
+  const credentials = await resolveChatTaskCredentials({
     shopId: payload.shopId,
-    encryptionKeyHex: env.encryptionKeyHex,
-  })) as XaiCredentials | null;
-  if (!credentials?.apiKey) {
+    taskType: 'extraction',
+    env,
+    logger,
+  });
+  if (!credentials) {
     return;
   }
 
@@ -152,11 +147,23 @@ async function processDescriptionGeneration(
     requiredSections: (template.required_sections ?? []).join(', '),
     tone: template.tone ?? 'professional',
   });
+  const inputScan = await scanInput({
+    shopId: payload.shopId,
+    text: prompt,
+    env,
+    logger,
+  });
+  if (!inputScan.isValid) return;
 
-  const response = await fetch(`${credentials.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+  const normalizedBase = credentials.baseUrl.replace(/\/$/, '');
+  const completionsUrl = normalizedBase.endsWith('/v1')
+    ? `${normalizedBase}/chat/completions`
+    : `${normalizedBase}/v1/chat/completions`;
+
+  const response = await fetch(completionsUrl, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${credentials.apiKey}`,
+      ...(credentials.apiKey ? { Authorization: `Bearer ${credentials.apiKey}` } : {}),
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -169,17 +176,29 @@ async function processDescriptionGeneration(
           content:
             'Generezi descrieri de produs profesioniste. Nu inventezi specificatii lipsa si folosesti doar datele furnizate.',
         },
-        { role: 'user', content: prompt },
+        { role: 'user', content: inputScan.sanitizedText },
       ],
     }),
   });
   if (!response.ok) {
-    logger.warn({ productId: payload.productId }, 'xAI description generation failed');
+    logger.warn(
+      { productId: payload.productId, provider: credentials.provider },
+      'LLM description generation failed'
+    );
     return;
   }
 
   const body = (await response.json()) as XaiResponse;
-  const generatedRaw = body.choices?.[0]?.message?.content?.trim() ?? '';
+  const generatedRawUntrusted = body.choices?.[0]?.message?.content?.trim() ?? '';
+  const outputScan = await scanOutput({
+    shopId: payload.shopId,
+    prompt: inputScan.sanitizedText,
+    output: generatedRawUntrusted,
+    env,
+    logger,
+  });
+  if (!outputScan.isValid) return;
+  const generatedRaw = outputScan.sanitizedText.trim();
   if (!generatedRaw) {
     return;
   }
@@ -198,7 +217,7 @@ async function processDescriptionGeneration(
          generated_at,
          updated_at
        )
-       VALUES ($1, $2, $3, $4, $5, 'xai_description_generator', now(), now())
+       VALUES ($1, $2, $3, $4, $5, 'llm_description_generator', now(), now())
        ON CONFLICT (product_id) DO UPDATE SET
          description_master = EXCLUDED.description_master,
          locale = EXCLUDED.locale,

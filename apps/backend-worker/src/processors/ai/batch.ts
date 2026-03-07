@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { loadEnv } from '@app/config';
 import { pool, withTenantContext } from '@app/database';
-import { OpenAiBatchManager, createEmbeddingsProvider, sha256Hex } from '@app/ai-engine';
+import { OpenAiBatchManager, sha256Hex } from '@app/ai-engine';
 import type { Logger } from '@app/logger';
 import { enqueueAiBatchPollerJob } from '@app/queue-manager';
 import { BudgetExceededError, enforceBudget } from '@app/pim';
@@ -15,6 +15,7 @@ import type {
   AiEmbeddingType,
 } from '@app/types';
 import { getShopOpenAiConfig } from '../../runtime/openai-config.js';
+import { resolveEmbeddingsProvider } from '../../services/ai-provider-routing.js';
 
 import { normalizeText, toPgVectorLiteral } from '../bulk-operations/pim/vector.js';
 import { classifyEmbeddingError } from './error-classifier.js';
@@ -388,6 +389,84 @@ async function writeJsonlTempFile(params: {
   return filePath;
 }
 
+export async function runSelfhostedEmbeddingSync(params: {
+  shopId: string;
+  embeddingType: string;
+  model: string;
+  dimensions: number;
+  candidates: readonly EmbeddingCandidate[];
+  provider: Awaited<ReturnType<typeof resolveEmbeddingsProvider>>;
+  logger: Logger;
+}): Promise<{ completedItems: number; failedItems: number }> {
+  const CHUNK_SIZE = 10;
+  let completedItems = 0;
+  let failedItems = 0;
+  await withTenantContext(params.shopId, async (client) => {
+    for (let i = 0; i < params.candidates.length; i += CHUNK_SIZE) {
+      const chunk = params.candidates.slice(i, i + CHUNK_SIZE);
+      const texts = chunk.map((candidate) => candidate.content);
+      try {
+        const embeddings = await params.provider.embedTexts(texts);
+        for (let j = 0; j < chunk.length; j += 1) {
+          const candidate = chunk[j];
+          const embedding = embeddings[j];
+          if (!candidate || embedding?.length !== params.dimensions) {
+            failedItems += 1;
+            continue;
+          }
+          const vec = toPgVectorLiteral(embedding);
+          await client.query(
+            `INSERT INTO shop_product_embeddings (
+               shop_id,
+               product_id,
+               embedding_type,
+               embedding,
+               content_hash,
+               model_version,
+               dimensions,
+               quality_level,
+               source,
+               lang,
+               status,
+               error_message,
+               generated_at,
+               created_at,
+               updated_at
+             )
+             VALUES ($1, $2, $3, $4::vector(2000), $5, $6, $7, 'bronze', 'shopify', 'ro', 'ready', NULL, now(), now(), now())
+             ON CONFLICT (shop_id, product_id, content_hash, embedding_type, model_version)
+             DO UPDATE SET
+               embedding = EXCLUDED.embedding,
+               content_hash = EXCLUDED.content_hash,
+               dimensions = EXCLUDED.dimensions,
+               quality_level = EXCLUDED.quality_level,
+               source = EXCLUDED.source,
+               lang = EXCLUDED.lang,
+               status = 'ready',
+               error_message = NULL,
+               generated_at = now(),
+               updated_at = now()`,
+            [
+              params.shopId,
+              candidate.productId,
+              params.embeddingType,
+              vec,
+              candidate.contentHash,
+              params.model,
+              params.dimensions,
+            ]
+          );
+          completedItems += 1;
+        }
+      } catch (error) {
+        params.logger.warn({ shopId: params.shopId, error }, 'selfhosted_batch_chunk_failed');
+        failedItems += chunk.length;
+      }
+    }
+  });
+  return { completedItems, failedItems };
+}
+
 export async function runAiBatchOrchestrator(params: {
   payload: AiBatchOrchestratorJobPayload;
   logger: Logger;
@@ -398,34 +477,10 @@ export async function runAiBatchOrchestrator(params: {
     { 'ai.shop_id': payload.shopId, 'ai.embedding_type': payload.embeddingType },
     async () => {
       const env = loadEnv();
-      try {
-        await enforceBudget({ provider: 'openai', shopId: payload.shopId });
-      } catch (error) {
-        if (error instanceof BudgetExceededError) {
-          logger.warn(
-            { shopId: payload.shopId, error: error.message },
-            'OpenAI budget exceeded; skipping ai batch orchestrator run'
-          );
-          return;
-        }
-        throw error;
-      }
-
-      const openAiConfig = await getShopOpenAiConfig({
+      const provider = await resolveEmbeddingsProvider({
         shopId: payload.shopId,
         env,
         logger,
-      });
-      if (!openAiConfig.enabled || !openAiConfig.openAiApiKey) {
-        logger.warn({ shopId: payload.shopId }, 'OpenAI disabled; skipping batch orchestrator');
-        return;
-      }
-
-      const provider = createEmbeddingsProvider({
-        openAiApiKey: openAiConfig.openAiApiKey,
-        ...(openAiConfig.openAiBaseUrl ? { openAiBaseUrl: openAiConfig.openAiBaseUrl } : {}),
-        openAiEmbeddingsModel: openAiConfig.openAiEmbeddingsModel,
-        openAiTimeoutMs: env.openAiTimeoutMs,
       });
 
       const model = payload.model ?? provider.model.name;
@@ -603,6 +658,54 @@ export async function runAiBatchOrchestrator(params: {
       }
 
       const candidates = selection.candidates.slice(0, maxItems);
+      if (provider.kind === 'selfhosted') {
+        const syncResult = await runSelfhostedEmbeddingSync({
+          shopId: payload.shopId,
+          embeddingType: payload.embeddingType,
+          model,
+          dimensions,
+          candidates,
+          provider,
+          logger,
+        });
+        recordAiItemsProcessed(syncResult.completedItems);
+        logger.info(
+          {
+            shopId: payload.shopId,
+            embeddingType: payload.embeddingType,
+            totalItems: candidates.length,
+            completedItems: syncResult.completedItems,
+            failedItems: syncResult.failedItems,
+            model,
+          },
+          'Selfhosted embeddings processed synchronously in batch orchestrator'
+        );
+        return;
+      }
+
+      try {
+        await enforceBudget({ provider: 'openai', shopId: payload.shopId });
+      } catch (error) {
+        if (error instanceof BudgetExceededError) {
+          logger.warn(
+            { shopId: payload.shopId, error: error.message },
+            'OpenAI budget exceeded; skipping ai batch orchestrator run'
+          );
+          return;
+        }
+        throw error;
+      }
+
+      const openAiConfig = await getShopOpenAiConfig({
+        shopId: payload.shopId,
+        env,
+        logger,
+      });
+      if (!openAiConfig.enabled || !openAiConfig.openAiApiKey) {
+        logger.warn({ shopId: payload.shopId }, 'OpenAI disabled; skipping batch orchestrator');
+        return;
+      }
+
       const lines = buildBatchJsonlLines({
         candidates,
         embeddingType: payload.embeddingType,

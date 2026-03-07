@@ -143,6 +143,223 @@ export interface XaiHealthResponse {
   model?: string;
 }
 
+export type AiConnectionStatus =
+  | 'unknown'
+  | 'connected'
+  | 'error'
+  | 'disabled'
+  | 'missing_key'
+  | 'pending';
+
+export type AiProvider = 'openai' | 'xai' | 'gemini' | 'deepseek' | 'selfhosted';
+
+export type AiTaskType = 'translation' | 'classification' | 'embedding' | 'extraction' | 'audit';
+
+export interface ModelRouting {
+  translation: string;
+  classification: string;
+  embedding: string;
+  extraction: string;
+  audit: string;
+}
+
+export interface GeminiSettingsResponse {
+  enabled: boolean;
+  hasApiKey: boolean;
+  model: string | null;
+  availableModels: string[];
+  temperature: number;
+  maxTokensPerRequest: number;
+  rateLimitPerMinute: number;
+  dailyBudget: number;
+  budgetAlertThreshold: number;
+  connectionStatus: AiConnectionStatus;
+  lastCheckedAt: string | null;
+  lastSuccessAt: string | null;
+  lastError: string | null;
+  todayUsage: {
+    requests: number;
+    inputTokens: number;
+    outputTokens: number;
+    estimatedCost: number;
+    percentUsed: number;
+  };
+}
+
+export interface GeminiSettingsUpdateRequest {
+  enabled?: boolean;
+  apiKey?: string | null;
+  model?: string | null;
+  temperature?: number;
+  maxTokensPerRequest?: number;
+  rateLimitPerMinute?: number;
+  dailyBudget?: number;
+  budgetAlertThreshold?: number;
+}
+
+export interface GeminiHealthResponse {
+  status: 'ok' | 'disabled' | 'missing_key' | 'error';
+  message?: string;
+  checkedAt: string;
+  latencyMs?: number;
+  httpStatus?: number;
+  model?: string;
+  availableModels?: string[];
+}
+
+export interface DeepSeekSettingsResponse {
+  enabled: boolean;
+  hasApiKey: boolean;
+  baseUrl: string | null;
+  model: string | null;
+  availableModels: string[];
+  temperature: number;
+  maxTokensPerRequest: number;
+  rateLimitPerMinute: number;
+  dailyBudget: number;
+  budgetAlertThreshold: number;
+  connectionStatus: AiConnectionStatus;
+  lastCheckedAt: string | null;
+  lastSuccessAt: string | null;
+  lastError: string | null;
+  todayUsage: {
+    requests: number;
+    inputTokens: number;
+    outputTokens: number;
+    estimatedCost: number;
+    percentUsed: number;
+  };
+}
+
+export interface DeepSeekSettingsUpdateRequest {
+  enabled?: boolean;
+  apiKey?: string | null;
+  baseUrl?: string | null;
+  model?: string | null;
+  temperature?: number;
+  maxTokensPerRequest?: number;
+  rateLimitPerMinute?: number;
+  dailyBudget?: number;
+  budgetAlertThreshold?: number;
+}
+
+export interface DeepSeekHealthResponse {
+  status: 'ok' | 'disabled' | 'missing_key' | 'error';
+  message?: string;
+  checkedAt: string;
+  latencyMs?: number;
+  httpStatus?: number;
+  baseUrl?: string;
+  model?: string;
+  availableModels?: string[];
+}
+
+export interface SelfHostedEndpoint {
+  id: string;
+  label: string;
+  baseUrl: string;
+  modelId: string;
+  type: 'chat' | 'embedding' | 'both';
+  enabled: boolean;
+  maxConcurrentRequests: number;
+  timeoutMs: number;
+}
+
+export interface GpuMetrics {
+  gpuName: string | null;
+  vramUsedGiB: number | null;
+  vramTotalGiB: number | null;
+  gpuUtilizationPercent: number | null;
+  temperatureCelsius: number | null;
+  collectedAt: string;
+}
+
+export interface SelfHostedSettingsResponse {
+  enabled: boolean;
+  hasBearerToken: boolean;
+  endpoints: SelfHostedEndpoint[];
+  connectionStatus: AiConnectionStatus | 'unreachable';
+  lastCheckedAt: string | null;
+  lastSuccessAt: string | null;
+  lastError: string | null;
+  gpuMetrics: GpuMetrics | null;
+  endpointStatuses: Record<
+    string,
+    {
+      status: 'connected' | 'error' | 'unreachable';
+      latencyMs: number | null;
+      lastError: string | null;
+      modelsLoaded: string[];
+    }
+  >;
+  todayUsage: {
+    requests: number;
+    tokensInput: number;
+    tokensOutput: number;
+    estimatedCost: number;
+  };
+}
+
+export interface SelfHostedSettingsUpdateRequest {
+  enabled?: boolean;
+  bearerToken?: string | null;
+  endpoints?: SelfHostedEndpoint[];
+}
+
+export interface SelfHostedHealthResponse {
+  status: 'ok' | 'partial' | 'error' | 'disabled' | 'unreachable';
+  checkedAt: string;
+  endpoints: Record<
+    string,
+    {
+      status: 'ok' | 'error' | 'unreachable';
+      latencyMs: number | null;
+      message: string;
+      modelsLoaded: string[];
+    }
+  >;
+  gpuMetrics: GpuMetrics | null;
+}
+
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+export interface ChatCompletionParams {
+  model: string;
+  messages: ChatMessage[];
+  temperature?: number;
+  maxTokens?: number;
+  responseFormat?: { type: 'json_object' | 'text' };
+  timeoutMs?: number;
+}
+
+export interface ChatCompletionResult {
+  content: string;
+  tokensInput: number;
+  tokensOutput: number;
+  latencyMs: number;
+  model: string;
+  provider: AiProvider;
+}
+
+export interface ModelRoutingResponse {
+  translation: string;
+  classification: string;
+  embedding: string;
+  extraction: string;
+  audit: string;
+}
+
+export interface ModelRoutingUpdateRequest {
+  translation?: string;
+  classification?: string;
+  embedding?: string;
+  extraction?: string;
+  audit?: string;
+}
+
 export interface ExtractedProduct {
   title: string;
   brand?: string;

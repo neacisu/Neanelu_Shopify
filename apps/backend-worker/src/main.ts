@@ -33,6 +33,7 @@ import { startOpenAiHealthWorker } from './processors/ai/health.worker.js';
 import { startEnrichmentWorker } from './processors/enrichment/worker.js';
 import { startSerperHealthWorker } from './processors/serper/health.worker.js';
 import { startXaiHealthWorker } from './processors/xai/health.worker.js';
+import { startSelfHostedHealthWorker } from './processors/selfhosted/health.worker.js';
 import { startSimilaritySearchWorker } from './processors/similarity/search-and-match.worker.js';
 import { startAIAuditWorker } from './processors/similarity/ai-audit.worker.js';
 import { startExtractionWorker } from './processors/pim/extraction.worker.js';
@@ -224,6 +225,7 @@ let openAiHealthWorker: Awaited<ReturnType<typeof startOpenAiHealthWorker>> | nu
 let enrichmentWorker: Awaited<ReturnType<typeof startEnrichmentWorker>> | null = null;
 let serperHealthWorker: Awaited<ReturnType<typeof startSerperHealthWorker>> | null = null;
 let xaiHealthWorker: Awaited<ReturnType<typeof startXaiHealthWorker>> | null = null;
+let selfHostedHealthWorker: Awaited<ReturnType<typeof startSelfHostedHealthWorker>> | null = null;
 let similaritySearchWorker: Awaited<ReturnType<typeof startSimilaritySearchWorker>> | null = null;
 let similarityAIAuditWorker: Awaited<ReturnType<typeof startAIAuditWorker>> | null = null;
 let extractionWorker: Awaited<ReturnType<typeof startExtractionWorker>> | null = null;
@@ -336,6 +338,9 @@ async function recreateRedisDependentWorkers(newRedisUrl: string): Promise<void>
   if (xaiHealthWorker) await xaiHealthWorker.close();
   xaiHealthWorker = startXaiHealthWorker(logger);
 
+  if (selfHostedHealthWorker) await selfHostedHealthWorker.close();
+  selfHostedHealthWorker = startSelfHostedHealthWorker(logger);
+
   if (enrichmentWorker) await enrichmentWorker.close();
   enrichmentWorker = startEnrichmentWorker(logger);
   setEnrichmentWorkerHandle(enrichmentWorker);
@@ -397,6 +402,10 @@ async function recreateRedisDependentWorkers(newRedisUrl: string): Promise<void>
 }
 
 try {
+  await startCredentialWatcher();
+  registerWorkerRecreator('backend-worker-runtime', recreateRedisDependentWorkers);
+  logger.info({}, 'credential watcher started');
+
   await server.listen({ port: env.port, host: '0.0.0.0' });
   logger.info({ port: env.port }, 'server listening');
 
@@ -520,6 +529,14 @@ try {
   emitQueueStreamEvent({
     type: 'worker.online',
     workerId: 'xai-health-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  selfHostedHealthWorker = startSelfHostedHealthWorker(logger);
+  logger.info({}, 'selfhosted health worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'selfhosted-health-worker',
     timestamp: new Date().toISOString(),
   });
 
@@ -673,10 +690,6 @@ try {
 
   queueConfigListener = await startQueueConfigListener(env, logger, buildQueueConfigRegistry());
   logger.info({}, 'queue config listener started');
-
-  await startCredentialWatcher();
-  registerWorkerRecreator('backend-worker-runtime', recreateRedisDependentWorkers);
-  logger.info({}, 'credential watcher started');
 } catch (error) {
   logger.fatal({ error }, 'server failed to start');
   process.exitCode = 1;
@@ -988,6 +1001,17 @@ const shutdown = async (signal: string): Promise<void> => {
       emitQueueStreamEvent({
         type: 'worker.offline',
         workerId: 'xai-health-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (selfHostedHealthWorker) {
+      await selfHostedHealthWorker.close();
+      selfHostedHealthWorker = null;
+      logger.info({ signal }, 'selfhosted health worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'selfhosted-health-worker',
         timestamp: new Date().toISOString(),
       });
     }

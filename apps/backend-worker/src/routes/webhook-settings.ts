@@ -1,14 +1,14 @@
 import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
-import { withTenantContext } from '@app/database';
+import { createManagedRedis, withTenantContext } from '@app/database';
 import type { FastifyInstance, FastifyPluginCallback } from 'fastify';
+import type { Redis } from 'ioredis';
 import type { SessionConfig } from '../auth/session.js';
 import { requireSession } from '../auth/session.js';
 import { requireAdmin } from '../auth/require-admin.js';
 import { withTokenRetry } from '../auth/token-lifecycle.js';
 import { REQUIRED_TOPICS, registerWebhooks } from '../shopify/webhooks/register.js';
 import { createHmac, randomUUID } from 'node:crypto';
-import { createClient } from 'redis';
 
 type WebhookSettingsPluginOptions = Readonly<{
   env: AppEnv;
@@ -97,22 +97,8 @@ function buildWebhookConfigResponse(rows: WebhookRow[], env: AppEnv): WebhookCon
   };
 }
 
-type RedisClient = ReturnType<typeof createClient>;
-
-let redisClient: RedisClient | null = null;
-
-async function getRedisClient(redisUrl: string): Promise<RedisClient> {
-  if (redisClient) return redisClient;
-  const client = createClient({ url: redisUrl });
-  // Prevent Node.js from crashing on connection errors.
-  client.on('error', () => undefined);
-  await client.connect();
-  redisClient = client;
-  return client;
-}
-
 async function waitForTestResult(
-  client: RedisClient,
+  client: Redis,
   redisPrefix: string,
   testId: string,
   timeoutMs = 5000
@@ -268,9 +254,9 @@ export const webhookSettingsRoutes: FastifyPluginCallback<WebhookSettingsPluginO
           .update(rawBody)
           .digest('base64');
 
-        const redis = await getRedisClient(env.redisUrl);
         const prefix = env.redisPrefix.endsWith(':') ? env.redisPrefix : `${env.redisPrefix}:`;
-        await redis.set(`${prefix}webhook_test:${testId}`, 'pending', { EX: 10 });
+        const redis = createManagedRedis('webhook-settings-test');
+        await redis.set(`${prefix}webhook_test:${testId}`, 'pending', 'EX', 10);
 
         const url = `${env.appHost.origin}/webhooks/${topic}`;
         const response = await fetch(url, {

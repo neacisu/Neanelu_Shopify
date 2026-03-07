@@ -57,7 +57,29 @@ void mock.module('@app/database', {
     setHnswEfSearch: () => Promise.resolve(),
     withTenantContext: async (_shopId: string, fn: (client: unknown) => Promise<unknown>) => {
       return await fn({
-        query: () => Promise.resolve({ rows: [{ ok: 1 }], rowCount: 1 }),
+        query: (sql: string) => {
+          if (sql.includes('FROM shop_product_embeddings')) {
+            return Promise.resolve({ rows: [{ count: 1 }], rowCount: 1 });
+          }
+          if (sql.includes('ts_rank_cd') || sql.includes('websearch_to_tsquery')) {
+            return Promise.resolve({
+              rows: [
+                {
+                  productId: 'prod-1',
+                  title: 'Test Product',
+                  similarity: 0.82,
+                  featuredImageUrl: null,
+                  vendor: 'Vendor',
+                  productType: 'Case',
+                  priceRange: null,
+                  totalCount: 1,
+                },
+              ],
+              rowCount: 1,
+            });
+          }
+          return Promise.resolve({ rows: [], rowCount: 0 });
+        },
       });
     },
   },
@@ -77,6 +99,12 @@ void mock.module('@app/ai-engine', {
       embedTexts: () => Promise.resolve([[0.1, 0.2, 0.3]]),
       model: { name: 'text-embedding-3-large', dimensions: 3 },
       kind: 'openai',
+    }),
+    createSelfhostedEmbeddingsProvider: () => ({
+      isAvailable: () => true,
+      embedTexts: () => Promise.resolve([[0.1, 0.2, 0.3]]),
+      model: { name: 'qwen3-embedding-8b-q5km', dimensions: 3 },
+      kind: 'selfhosted',
     }),
     gateOpenAiEmbeddingRequest: () =>
       Promise.resolve({
@@ -143,6 +171,19 @@ void mock.module(openAiConfigPath, {
   },
 });
 
+const aiRoutingPath = new URL('../../../services/ai-provider-routing.js', import.meta.url).href;
+void mock.module(aiRoutingPath, {
+  namedExports: {
+    resolveEmbeddingsProvider: () =>
+      Promise.resolve({
+        kind: 'selfhosted',
+        isAvailable: () => true,
+        embedTexts: () => Promise.resolve([[0.1, 0.2, 0.3]]),
+        model: { name: 'qwen3-embedding-8b-q5km', dimensions: 2000 },
+      }),
+  },
+});
+
 const { searchRoutes } = await import('../../../routes/search.js');
 
 const env = {
@@ -177,6 +218,7 @@ const env = {
   bulkStagingReindex: false,
   openAiApiKey: 'test',
   openAiBaseUrl: 'https://api.openai.com',
+  guardrailsMode: 'warn-only',
   openAiEmbeddingsModel: 'text-embedding-3-large',
   openAiTimeoutMs: 1000,
   openAiBatchMaxItems: 1000,
@@ -252,7 +294,7 @@ void describe('search route integration', () => {
         url: '/api/products/search?q=iphone+case',
       });
 
-      assert.equal(response.statusCode, 200);
+      assert.equal(response.statusCode, 200, response.body);
       const parsed: unknown = JSON.parse(response.body);
       assert.ok(parsed && typeof parsed === 'object');
       const body = parsed as { data?: { results?: unknown[]; cached?: boolean } };

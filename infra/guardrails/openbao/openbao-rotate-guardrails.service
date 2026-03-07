@@ -1,0 +1,9 @@
+[Unit]
+Description=Rotate guardrails auth token via OpenBao AppRole
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/openbao/rotate-guardrails-token.sh
+StandardOutput=journal
+StandardError=journal

@@ -1,8 +1,7 @@
-import { createEmbeddingsProvider } from '@app/ai-engine';
 import { loadEnv } from '@app/config';
 import { withTenantContext } from '@app/database';
 import { createLogger } from '@app/logger';
-import { getShopOpenAiConfig } from '../runtime/openai-config.js';
+import { resolveEmbeddingsProvider } from '../services/ai-provider-routing.js';
 
 type TaxonomyRow = Readonly<{
   id: string;
@@ -47,17 +46,7 @@ async function main(): Promise<void> {
   });
   const { shopId } = parseArgs();
 
-  const openAi = await getShopOpenAiConfig({ shopId, env, logger });
-  if (!openAi.enabled || !openAi.openAiApiKey) {
-    throw new Error('OpenAI is not configured for provided shop');
-  }
-
-  const provider = createEmbeddingsProvider({
-    openAiApiKey: openAi.openAiApiKey,
-    ...(openAi.openAiBaseUrl ? { openAiBaseUrl: openAi.openAiBaseUrl } : {}),
-    openAiEmbeddingsModel: openAi.openAiEmbeddingsModel,
-    openAiTimeoutMs: env.openAiTimeoutMs,
-  });
+  const provider = await resolveEmbeddingsProvider({ shopId, env, logger });
   if (!provider.isAvailable()) {
     throw new Error('Embeddings provider not available');
   }
@@ -89,10 +78,14 @@ async function main(): Promise<void> {
       for (let i = 0; i < rows.length; i += 1) {
         const embedding = embeddings[i];
         if (!embedding || embedding.length === 0) continue;
-        await client.query(`UPDATE prod_taxonomy SET embedding = $1::vector(2000) WHERE id = $2`, [
-          `[${embedding.join(',')}]`,
-          rows[i]?.id,
-        ]);
+        await client.query(
+          `UPDATE prod_taxonomy
+              SET embedding = $1::vector(2000),
+                  model_version = $3,
+                  updated_at = now()
+            WHERE id = $2`,
+          [`[${embedding.join(',')}]`, rows[i]?.id, provider.model.name]
+        );
       }
     });
 

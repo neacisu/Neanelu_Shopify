@@ -20,30 +20,19 @@ void mock.module(requireAdminPath, {
 });
 
 const queryMock = mock.fn(() => Promise.resolve({ rows: [] }));
+const redisPublishMock = mock.fn(() => Promise.resolve(1));
 void mock.module('@app/database', {
   namedExports: {
     createManagedRedis: () => ({
       on: () => undefined,
       get: () => Promise.resolve(null),
-      setex: () => Promise.resolve('OK'),
-      quit: () => Promise.resolve('OK'),
+      set: () => Promise.resolve('OK'),
+      publish: redisPublishMock,
       disconnect: () => undefined,
     }),
     pool: {
       query: queryMock,
     },
-  },
-});
-
-const redisPublishMock = mock.fn(() => Promise.resolve(1));
-const redisConnectMock = mock.fn(() => Promise.resolve());
-void mock.module('redis', {
-  namedExports: {
-    createClient: () => ({
-      on: () => undefined,
-      connect: redisConnectMock,
-      publish: redisPublishMock,
-    }),
   },
 });
 

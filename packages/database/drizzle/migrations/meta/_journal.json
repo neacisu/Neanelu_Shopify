@@ -603,6 +603,125 @@
       "when": 1772052600000,
       "tag": "0085_products_search_fts_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1772139000000,
+      "tag": "0086_seed_pim_feature_flags",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1772142600000,
+      "tag": "0087_enable_bulk_consensus_flag",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1772146200000,
+      "tag": "0088_pim_sync_checkpoints",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1772149800000,
+      "tag": "0089_prod_taxonomy_embeddings",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1772153400000,
+      "tag": "0090_pim_metafield_mappings",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1772157000000,
+      "tag": "0091_pim_description_templates",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1772160600000,
+      "tag": "0092_collections_taxonomy_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1772164200000,
+      "tag": "0093_seed_taxonomy_metafield_schemas",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1772611200000,
+      "tag": "0094_collections_title_en",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1772697600000,
+      "tag": "0095_gemini_deepseek_providers",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1772784000000,
+      "tag": "0096_selfhosted_provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1772787600000,
+      "tag": "0097_selfhosted_feature_flag",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1772803200000,
+      "tag": "0098_selfhosted_primary_defaults",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1772889600000,
+      "tag": "0099_guardrails_feature_flag",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1772893200000,
+      "tag": "0100_taxonomy_model_version",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1772896800000,
+      "tag": "0101_shop_similarity_model_filter",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1772900400000,
+      "tag": "0102_global_similarity_model_filter",
+      "breakpoints": true
     }
   ]
 }

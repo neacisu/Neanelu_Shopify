@@ -10,6 +10,7 @@ import { enqueueAiBatchPollerJob } from '@app/queue-manager';
 import { BudgetExceededError, enforceBudget } from '@app/pim';
 
 import { getShopOpenAiConfig } from '../../runtime/openai-config.js';
+import { resolveEmbeddingsProvider } from '../../services/ai-provider-routing.js';
 import { toPgVectorLiteral } from '../bulk-operations/pim/vector.js';
 import { parseBatchOutputLines, parseBatchErrorLines } from './batch.js';
 
@@ -32,6 +33,7 @@ export type TaxonomyBatchOrchestratorResult = Readonly<{
 const TAXONOMY_BATCH_TYPE = 'taxonomy' as const;
 const TAXONOMY_CUSTOM_ID_PREFIX = 'tax:';
 const OPENAI_ENDPOINT_EMBEDDINGS = '/v1/embeddings';
+const OPENAI_EMBEDDING_MODEL = 'text-embedding-3-large';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -84,26 +86,9 @@ export async function runTaxonomyBatchOrchestrator(params: {
   const { shopId, logger } = params;
   const env = loadEnv();
 
-  try {
-    await enforceBudget({ provider: 'openai', shopId });
-  } catch (error) {
-    if (error instanceof BudgetExceededError) {
-      logger.warn(
-        { shopId, error: error.message },
-        'OpenAI budget exceeded; skipping taxonomy batch orchestrator'
-      );
-      return { alreadyRunning: false, embeddingBatchId: null, totalItems: 0 };
-    }
-    throw error;
-  }
-
-  const openAiConfig = await getShopOpenAiConfig({ shopId, env, logger });
-  if (!openAiConfig.enabled || !openAiConfig.openAiApiKey) {
-    throw new Error('OpenAI is not configured for this shop');
-  }
-
-  const model = openAiConfig.openAiEmbeddingsModel;
-  const dimensions = env.openAiEmbeddingDimensions ?? 2000;
+  const embeddingProvider = await resolveEmbeddingsProvider({ shopId, env, logger });
+  const model = embeddingProvider.model.name;
+  const dimensions = embeddingProvider.model.dimensions;
 
   const existingBatch = await withTenantContext(shopId, async (client) => {
     const res = await client.query<{
@@ -160,6 +145,61 @@ export async function runTaxonomyBatchOrchestrator(params: {
   if (rows.length === 0) {
     logger.info({ shopId }, 'All taxonomy entries already have embeddings');
     return { alreadyRunning: false, embeddingBatchId: null, totalItems: 0 };
+  }
+
+  if (embeddingProvider.kind === 'selfhosted') {
+    const CHUNK_SIZE = 20;
+    let processed = 0;
+    await withTenantContext(shopId, async (client) => {
+      for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+        const chunk = rows.slice(i, i + CHUNK_SIZE);
+        const texts = chunk.map((row) => buildTaxonomyText(row));
+        const embeddings = await embeddingProvider.embedTexts(texts);
+        for (let j = 0; j < chunk.length; j += 1) {
+          const row = chunk[j];
+          const embedding = embeddings[j];
+          if (!row || !embedding) continue;
+          const vec = toPgVectorLiteral(embedding);
+          await client.query(
+            `UPDATE prod_taxonomy
+                SET embedding = $1::vector(2000),
+                    model_version = $3,
+                    updated_at = now()
+              WHERE id = $2`,
+            [vec, row.id, embeddingProvider.model.name]
+          );
+          processed += 1;
+        }
+      }
+    });
+    logger.info(
+      {
+        shopId,
+        totalItems: rows.length,
+        completedItems: processed,
+        model: embeddingProvider.model.name,
+      },
+      'Taxonomy embeddings generated synchronously via selfhosted provider'
+    );
+    return { alreadyRunning: false, embeddingBatchId: null, totalItems: rows.length };
+  }
+
+  try {
+    await enforceBudget({ provider: 'openai', shopId });
+  } catch (error) {
+    if (error instanceof BudgetExceededError) {
+      logger.warn(
+        { shopId, error: error.message },
+        'OpenAI budget exceeded; skipping taxonomy batch orchestrator'
+      );
+      return { alreadyRunning: false, embeddingBatchId: null, totalItems: 0 };
+    }
+    throw error;
+  }
+
+  const openAiConfig = await getShopOpenAiConfig({ shopId, env, logger });
+  if (!openAiConfig.enabled || !openAiConfig.openAiApiKey) {
+    throw new Error('OpenAI is not configured for this shop');
   }
 
   const lines = rows.map((row) => {
@@ -322,9 +362,10 @@ export async function processTaxonomyBatchResults(params: {
         await client.query(
           `UPDATE prod_taxonomy
               SET embedding = $1::vector(2000),
+                  model_version = $3,
                   updated_at = now()
             WHERE id = $2`,
-          [vec, taxonomyId]
+          [vec, taxonomyId, OPENAI_EMBEDDING_MODEL]
         );
         completedItems += 1;
         tokensUsed += record.tokensUsed;

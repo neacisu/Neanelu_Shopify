@@ -6,9 +6,6 @@ const DEFAULT_MODEL = 'grok-4-1-fast-non-reasoning';
 const DEFAULT_TEMPERATURE = 0.1;
 const DEFAULT_MAX_TOKENS = 2000;
 const DEFAULT_RATE_LIMIT = 60;
-const DEFAULT_DAILY_BUDGET = 1000;
-const DEFAULT_ALERT_THRESHOLD = 0.8;
-
 function buildEncryptionKey(encryptionKeyHex: string): Buffer {
   const key = Buffer.from(encryptionKeyHex, 'hex');
   if (key.length !== 32) {
@@ -74,13 +71,12 @@ export async function loadXAICredentials(params: {
   ).toString('utf-8');
 
   return {
+    provider: 'xai',
     apiKey,
     baseUrl: row.xai_base_url ?? DEFAULT_BASE_URL,
     model: row.xai_model ?? DEFAULT_MODEL,
     temperature: toNumber(row.xai_temperature) ?? DEFAULT_TEMPERATURE,
     maxTokensPerRequest: row.xai_max_tokens_per_request ?? DEFAULT_MAX_TOKENS,
     rateLimitPerMinute: row.xai_rate_limit_per_minute ?? DEFAULT_RATE_LIMIT,
-    dailyBudget: row.xai_daily_budget ?? DEFAULT_DAILY_BUDGET,
-    budgetAlertThreshold: toNumber(row.xai_budget_alert_threshold) ?? DEFAULT_ALERT_THRESHOLD,
   };
 }

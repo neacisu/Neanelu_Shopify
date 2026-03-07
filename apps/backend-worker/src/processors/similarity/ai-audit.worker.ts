@@ -3,7 +3,8 @@ import { loadEnv } from '@app/config';
 import { configFromEnv, createWorker, withJobTelemetryContext } from '@app/queue-manager';
 import { withTenantContext } from '@app/database';
 import { AIAuditorService } from '@app/pim';
-import { loadXAICredentials } from '../../services/xai-credentials.js';
+import { resolveChatTaskCredentials } from '../../services/ai-provider-routing.js';
+import { scanInput, scanOutput } from '../../services/guardrails.js';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
 import { enqueueExtractionJob } from '../../queue/similarity-queues.js';
 
@@ -11,22 +12,6 @@ const warnLogger = (logger: Logger) =>
   logger as Logger & {
     warn: (data: Record<string, unknown>, message: string) => void;
   };
-
-type XaiCredentials = Readonly<{
-  apiKey: string;
-  baseUrl: string;
-  model: string;
-  temperature: number;
-  maxTokensPerRequest: number;
-  rateLimitPerMinute: number;
-  dailyBudget: number;
-  budgetAlertThreshold: number;
-}>;
-
-const loadXAICredentialsSafe = loadXAICredentials as (params: {
-  shopId: string;
-  encryptionKeyHex: string;
-}) => Promise<XaiCredentials | null>;
 
 const enqueueExtractionJobSafe = enqueueExtractionJob as (params: {
   shopId: string;
@@ -74,14 +59,16 @@ export function startAIAuditWorker(logger: Logger): AIAuditWorkerHandle {
               throw new Error('invalid_ai_audit_payload');
             }
 
-            const credentials = await loadXAICredentialsSafe({
+            const credentials = await resolveChatTaskCredentials({
               shopId: payload.shopId,
-              encryptionKeyHex: env.encryptionKeyHex,
+              taskType: 'audit',
+              env,
+              logger,
             });
             if (!credentials) {
               warnLogger(logger).warn(
                 { shopId: payload.shopId },
-                'xAI credentials missing for AI audit'
+                'No routed AI credentials available for AI audit'
               );
               return;
             }
@@ -136,6 +123,37 @@ export function startAIAuditWorker(logger: Logger): AIAuditWorkerHandle {
               return;
             }
 
+            const auditInputPayload = {
+              localProduct: {
+                title: data.title,
+                brand: data.brand,
+                gtin: data.gtin,
+                mpn: data.mpn,
+              },
+              match: {
+                similarityScore: Number(data.similarity_score),
+                sourceUrl: data.source_url,
+                sourceTitle: data.source_title,
+                sourceBrand: data.source_brand,
+                sourceGtin: data.source_gtin,
+                sourcePrice: data.source_price,
+                sourceCurrency: data.source_currency,
+              },
+            };
+            const inputScan = await scanInput({
+              shopId: payload.shopId,
+              text: JSON.stringify(auditInputPayload),
+              env,
+              logger,
+            });
+            if (!inputScan.isValid) {
+              warnLogger(logger).warn(
+                { shopId: payload.shopId, matchId: payload.matchId, reason: inputScan.reason },
+                'guardrails_blocked_ai_audit_input'
+              );
+              return;
+            }
+
             const auditor = new AIAuditorService();
             const auditResult = await auditor.auditMatch({
               shopId: payload.shopId,
@@ -156,6 +174,20 @@ export function startAIAuditWorker(logger: Logger): AIAuditWorkerHandle {
                 sourceCurrency: data.source_currency,
               },
             });
+            const outputScan = await scanOutput({
+              shopId: payload.shopId,
+              prompt: inputScan.sanitizedText,
+              output: JSON.stringify(auditResult),
+              env,
+              logger,
+            });
+            if (!outputScan.isValid) {
+              warnLogger(logger).warn(
+                { shopId: payload.shopId, matchId: payload.matchId, reason: outputScan.reason },
+                'guardrails_blocked_ai_audit_output'
+              );
+              return;
+            }
 
             const nowIso = new Date().toISOString();
             const matchDetails: Record<string, unknown> = {

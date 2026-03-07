@@ -92,7 +92,13 @@ function availableModels(
     selected,
     env.openAiEmbeddingsModel,
     'text-embedding-3-small',
-    'text-embedding-3-large',
+    'gpt-4o',
+    'gpt-4.1',
+    'gpt-4.1-mini',
+    'gpt-4.1-nano',
+    'o3',
+    'o3-mini',
+    'o4-mini',
   ];
   const filtered = list.filter(
     (value): value is string => typeof value === 'string' && value.trim().length > 0
@@ -463,6 +469,162 @@ export const aiSettingsRoutes: FastifyPluginCallback<AiSettingsPluginOptions> = 
           .status(500)
           .send(
             errorEnvelope(request.id, 500, 'INTERNAL_SERVER_ERROR', 'Failed to update settings')
+          );
+      }
+    }
+  );
+
+  server.get(
+    '/settings/ai/model-routing',
+    { preHandler: requireSession(sessionConfig) },
+    async (request, reply) => {
+      const session = getSessionFromRequest(request, sessionConfig);
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Missing session'));
+      }
+
+      try {
+        const row = await withTenantContext(session.shopId, async (client) => {
+          const result = await client.query<{
+            modelTranslation: string | null;
+            modelClassification: string | null;
+            modelEmbedding: string | null;
+            modelExtraction: string | null;
+            modelAudit: string | null;
+          }>(
+            `SELECT
+              model_translation AS "modelTranslation",
+              model_classification AS "modelClassification",
+              model_embedding AS "modelEmbedding",
+              model_extraction AS "modelExtraction",
+              model_audit AS "modelAudit"
+            FROM shop_ai_credentials
+            WHERE shop_id = $1`,
+            [session.shopId]
+          );
+          return result.rows[0];
+        });
+
+        return reply.send(
+          successEnvelope(request.id, {
+            translation: row?.modelTranslation ?? 'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
+            classification: row?.modelClassification ?? 'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
+            embedding: row?.modelEmbedding ?? 'selfhosted:qwen3-embedding-8b-q5km',
+            extraction: row?.modelExtraction ?? 'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
+            audit: row?.modelAudit ?? 'selfhosted:Qwen/QwQ-32B-AWQ',
+          })
+        );
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to load model routing');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(request.id, 500, 'INTERNAL_SERVER_ERROR', 'Failed to load model routing')
+          );
+      }
+    }
+  );
+
+  server.put(
+    '/settings/ai/model-routing',
+    { preHandler: requireSession(sessionConfig) },
+    async (request, reply) => {
+      const session = getSessionFromRequest(request, sessionConfig);
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Missing session'));
+      }
+
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const VALID_TASKS = [
+        'translation',
+        'classification',
+        'embedding',
+        'extraction',
+        'audit',
+      ] as const;
+      const VALID_PROVIDERS = ['openai', 'xai', 'gemini', 'deepseek', 'selfhosted'];
+      const COLUMN_MAP: Record<string, string> = {
+        translation: 'model_translation',
+        classification: 'model_classification',
+        embedding: 'model_embedding',
+        extraction: 'model_extraction',
+        audit: 'model_audit',
+      };
+
+      try {
+        await withTenantContext(session.shopId, async (client) => {
+          await client.query(
+            `INSERT INTO shop_ai_credentials (shop_id) VALUES ($1) ON CONFLICT (shop_id) DO NOTHING`,
+            [session.shopId]
+          );
+
+          const updates: string[] = [];
+          const values: string[] = [session.shopId];
+          let idx = 2;
+
+          for (const task of VALID_TASKS) {
+            const val = body[task];
+            if (typeof val !== 'string') continue;
+            const parts = val.split(':');
+            const provider = parts[0];
+            if (!provider || parts.length < 2 || !VALID_PROVIDERS.includes(provider)) continue;
+            updates.push(`${COLUMN_MAP[task]} = $${idx++}`);
+            values.push(val);
+          }
+
+          if (updates.length > 0) {
+            await client.query(
+              `UPDATE shop_ai_credentials SET ${updates.join(', ')}, updated_at = now() WHERE shop_id = $1`,
+              values
+            );
+          }
+        });
+
+        const row = await withTenantContext(session.shopId, async (client) => {
+          const result = await client.query<{
+            modelTranslation: string | null;
+            modelClassification: string | null;
+            modelEmbedding: string | null;
+            modelExtraction: string | null;
+            modelAudit: string | null;
+          }>(
+            `SELECT
+              model_translation AS "modelTranslation",
+              model_classification AS "modelClassification",
+              model_embedding AS "modelEmbedding",
+              model_extraction AS "modelExtraction",
+              model_audit AS "modelAudit"
+            FROM shop_ai_credentials
+            WHERE shop_id = $1`,
+            [session.shopId]
+          );
+          return result.rows[0];
+        });
+
+        return reply.send(
+          successEnvelope(request.id, {
+            translation: row?.modelTranslation ?? 'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
+            classification: row?.modelClassification ?? 'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
+            embedding: row?.modelEmbedding ?? 'selfhosted:qwen3-embedding-8b-q5km',
+            extraction: row?.modelExtraction ?? 'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
+            audit: row?.modelAudit ?? 'selfhosted:Qwen/QwQ-32B-AWQ',
+          })
+        );
+      } catch (error) {
+        logger.error({ requestId: request.id, error }, 'Failed to update model routing');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(
+              request.id,
+              500,
+              'INTERNAL_SERVER_ERROR',
+              'Failed to update model routing'
+            )
           );
       }
     }

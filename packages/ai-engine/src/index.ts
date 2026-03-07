@@ -1,12 +1,15 @@
 import { createHash } from 'node:crypto';
 
+export * from './llm-client.js';
+export * from './provider-resolver.js';
+
 export type EmbeddingModel = Readonly<{
   name: string;
   dimensions: number;
 }>;
 
 export interface EmbeddingsProvider {
-  readonly kind: 'openai' | 'noop';
+  readonly kind: 'openai' | 'selfhosted' | 'noop';
   readonly model: EmbeddingModel;
   isAvailable(): boolean;
   embedTexts(texts: readonly string[]): Promise<readonly (readonly number[])[]>;
@@ -115,6 +118,88 @@ class OpenAiEmbeddingsProvider implements EmbeddingsProvider {
   }
 }
 
+class SelfhostedEmbeddingsProvider implements EmbeddingsProvider {
+  public readonly kind = 'selfhosted' as const;
+  public readonly model: EmbeddingModel;
+
+  private readonly baseUrl: string;
+  private readonly bearerToken: string | null;
+  private readonly timeoutMs: number;
+  private readonly reNormalizeToUnitVector: boolean;
+
+  public constructor(params: {
+    baseUrl: string;
+    bearerToken?: string | null;
+    model: EmbeddingModel;
+    timeoutMs?: number;
+    reNormalizeToUnitVector?: boolean;
+  }) {
+    this.baseUrl = params.baseUrl.replace(/\/$/, '');
+    this.bearerToken = params.bearerToken?.trim() ? params.bearerToken.trim() : null;
+    this.model = params.model;
+    this.timeoutMs = Math.max(1_000, Math.trunc(params.timeoutMs ?? 30_000));
+    this.reNormalizeToUnitVector = params.reNormalizeToUnitVector === true;
+  }
+
+  public isAvailable(): boolean {
+    return Boolean(this.baseUrl);
+  }
+
+  public async embedTexts(texts: readonly string[]): Promise<readonly (readonly number[])[]> {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    try {
+      const headers: Record<string, string> = { 'content-type': 'application/json' };
+      if (this.bearerToken) {
+        headers['authorization'] = `Bearer ${this.bearerToken}`;
+      }
+
+      const res = await fetch(`${this.baseUrl}/v1/embeddings`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model: this.model.name,
+          input: texts,
+          dimensions: this.model.dimensions,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(
+          `SELFHOSTED_EMBEDDING_FAILED: ${res.status} ${res.statusText}${body ? ` - ${body}` : ''}`
+        );
+      }
+
+      const json = (await res.json()) as {
+        data?: { embedding?: number[] }[];
+      };
+      const data = json.data ?? [];
+      const embeddings = data.map((d) => d.embedding ?? []);
+      assertEmbeddingDimensions(embeddings, this.model.dimensions);
+
+      if (!this.reNormalizeToUnitVector) {
+        return embeddings;
+      }
+
+      return embeddings.map((embedding) => {
+        const norm = Math.sqrt(embedding.reduce((sum, value) => sum + value * value, 0));
+        if (!Number.isFinite(norm) || norm <= 0) {
+          return embedding;
+        }
+        if (Math.abs(norm - 1.0) <= 0.001) {
+          return embedding;
+        }
+        return embedding.map((value) => value / norm);
+      });
+    } finally {
+      clearTimeout(t);
+    }
+  }
+}
+
 /**
  * Default embedding model name
  * PR-047: Upgraded from text-embedding-3-small to text-embedding-3-large
@@ -161,5 +246,36 @@ export function createEmbeddingsProvider(params: {
   });
 }
 
+export function createSelfhostedEmbeddingsProvider(params: {
+  baseUrl: string;
+  bearerToken?: string | null;
+  modelName?: string;
+  dimensions?: number;
+  timeoutMs?: number;
+  reNormalizeToUnitVector?: boolean;
+}): EmbeddingsProvider {
+  const baseUrl = params.baseUrl.trim();
+  const modelNameTrimmed = params.modelName?.trim();
+  const modelName =
+    modelNameTrimmed && modelNameTrimmed.length > 0 ? modelNameTrimmed : 'qwen3-embedding-8b-q5km';
+  const dimensions =
+    Number.isInteger(params.dimensions) && (params.dimensions ?? 0) > 0
+      ? params.dimensions!
+      : DEFAULT_EMBEDDING_DIMENSIONS;
+
+  const model: EmbeddingModel = { name: modelName, dimensions };
+  if (!baseUrl) return new NoopEmbeddingsProvider(model);
+
+  return new SelfhostedEmbeddingsProvider({
+    baseUrl,
+    ...(params.bearerToken ? { bearerToken: params.bearerToken } : {}),
+    model,
+    ...(typeof params.timeoutMs === 'number' ? { timeoutMs: params.timeoutMs } : {}),
+    ...(params.reNormalizeToUnitVector === true ? { reNormalizeToUnitVector: true } : {}),
+  });
+}
+
 export * from './openai/batch-manager.js';
 export * from './openai/rate-limiter.js';
+export * from './llm-client.js';
+export * from './provider-resolver.js';

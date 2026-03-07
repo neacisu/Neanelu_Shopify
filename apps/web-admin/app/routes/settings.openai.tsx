@@ -1,10 +1,84 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 
-import type { AiHealthResponse, AiSettingsResponse, AiSettingsUpdateRequest } from '@app/types';
+import type {
+  AiHealthResponse,
+  AiSettingsResponse,
+  AiSettingsUpdateRequest,
+  ModelRoutingResponse,
+} from '@app/types';
 
 import { InfoTooltip } from '../components/ui/info-tooltip';
 import { SubmitButton } from '../components/forms/submit-button';
 import { useApiClient } from '../hooks/use-api';
+
+const BASE_MODELS: Record<string, { label: string; models: string[] }> = {
+  openai: {
+    label: 'OpenAI',
+    models: [
+      'gpt-4o',
+      'gpt-4o-mini',
+      'gpt-4.1',
+      'gpt-4.1-mini',
+      'gpt-4.1-nano',
+      'o3',
+      'o3-mini',
+      'o4-mini',
+      'text-embedding-3-small',
+      'text-embedding-3-large',
+    ],
+  },
+  xai: {
+    label: 'xAI Grok',
+    models: ['grok-4-1-fast-non-reasoning', 'grok-4-1-fast', 'grok-4', 'grok-3', 'grok-3-mini'],
+  },
+  gemini: {
+    label: 'Google Gemini',
+    models: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'],
+  },
+  deepseek: {
+    label: 'DeepSeek',
+    models: ['deepseek-chat', 'deepseek-reasoner'],
+  },
+  selfhosted: {
+    label: 'Self-hosted',
+    models: [],
+  },
+};
+
+const TASK_LABELS: Record<string, { label: string; description: string }> = {
+  translation: { label: 'Traducere', description: 'Traducerea colecțiilor și textelor (RO→EN)' },
+  classification: { label: 'Clasificare', description: 'Asignarea taxonomiei Shopify la colecții' },
+  embedding: {
+    label: 'Embedding-uri',
+    description: 'Generarea vectorilor pentru căutare semantică',
+  },
+  extraction: { label: 'Extracție', description: 'Extragerea datelor structurate din pagini web' },
+  audit: { label: 'Audit AI', description: 'Validarea și auditul calității datelor' },
+};
+
+function buildModelOptions(params: {
+  task: keyof ModelRoutingResponse;
+  selfHostedModels: string[];
+}): { value: string; label: string }[] {
+  const options: { value: string; label: string }[] = [];
+  const models: Record<string, { label: string; models: string[] }> = {
+    ...BASE_MODELS,
+    selfhosted: {
+      label: 'Self-hosted',
+      models: params.selfHostedModels,
+    },
+  };
+
+  for (const [provider, config] of Object.entries(models)) {
+    for (const model of config.models) {
+      const isEmbeddingModel = model.includes('embedding');
+      if (params.task === 'embedding' && !isEmbeddingModel) continue;
+      if (params.task !== 'embedding' && isEmbeddingModel) continue;
+      options.push({ value: `${provider}:${model}`, label: `${config.label} — ${model}` });
+    }
+  }
+  return options;
+}
 
 type OpenAiConnectionStatus =
   | 'unknown'
@@ -262,6 +336,106 @@ export default function SettingsOpenAi() {
       setAiSaving(false);
     }
   };
+
+  const [routing, setRouting] = useState<ModelRoutingResponse>({
+    translation: 'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
+    classification: 'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
+    embedding: 'selfhosted:qwen3-embedding-8b-q5km',
+    extraction: 'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
+    audit: 'selfhosted:Qwen/QwQ-32B-AWQ',
+  });
+  const [routingLoading, setRoutingLoading] = useState(true);
+  const [routingSaving, setRoutingSaving] = useState(false);
+  const [routingSuccess, setRoutingSuccess] = useState(false);
+  const [routingError, setRoutingError] = useState<string | null>(null);
+  const [selfHostedModels, setSelfHostedModels] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadRouting = async () => {
+      setRoutingLoading(true);
+      try {
+        const data = await api.getApi<ModelRoutingResponse>('/settings/ai/model-routing');
+        if (!cancelled) setRouting(data);
+      } catch {
+        /* ignore */
+      } finally {
+        if (!cancelled) setRoutingLoading(false);
+      }
+    };
+    void loadRouting();
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadSelfHostedModels = async () => {
+      try {
+        const data = await api.getApi<{
+          endpoints: { enabled: boolean; modelId: string; type: 'chat' | 'embedding' | 'both' }[];
+        }>('/settings/selfhosted');
+        if (cancelled) return;
+        const models = (data.endpoints ?? [])
+          .filter(
+            (endpoint) =>
+              endpoint.enabled &&
+              (endpoint.type === 'chat' ||
+                endpoint.type === 'embedding' ||
+                endpoint.type === 'both')
+          )
+          .map((endpoint) => endpoint.modelId)
+          .filter((value, index, list) => value.length > 0 && list.indexOf(value) === index);
+        setSelfHostedModels(models);
+      } catch {
+        if (!cancelled) setSelfHostedModels([]);
+      }
+    };
+
+    void loadSelfHostedModels();
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
+
+  useEffect(() => {
+    if (!routingSuccess) return;
+    const timer = setTimeout(() => setRoutingSuccess(false), 2000);
+    return () => clearTimeout(timer);
+  }, [routingSuccess]);
+
+  const saveRouting = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      setRoutingSaving(true);
+      setRoutingError(null);
+      try {
+        const data = await api.putApi<ModelRoutingResponse, Record<string, unknown>>(
+          '/settings/ai/model-routing',
+          routing as unknown as Record<string, unknown>
+        );
+        setRouting(data);
+        setRoutingSuccess(true);
+      } catch (error) {
+        setRoutingError(error instanceof Error ? error.message : 'Salvare eșuată');
+      } finally {
+        setRoutingSaving(false);
+      }
+    },
+    [api, routing]
+  );
+
+  const modelOptionsByTask = useMemo(
+    () => ({
+      translation: buildModelOptions({ task: 'translation', selfHostedModels }),
+      classification: buildModelOptions({ task: 'classification', selfHostedModels }),
+      embedding: buildModelOptions({ task: 'embedding', selfHostedModels }),
+      extraction: buildModelOptions({ task: 'extraction', selfHostedModels }),
+      audit: buildModelOptions({ task: 'audit', selfHostedModels }),
+    }),
+    [selfHostedModels]
+  );
 
   return (
     <div className="space-y-4">
@@ -527,6 +701,84 @@ export default function SettingsOpenAi() {
           </div>
         ) : null}
       </form>
+
+      <div className="mt-8 border-t border-muted/20 pt-6 dark:border-slate-700">
+        <h3 className="mb-1 text-lg font-semibold text-body dark:text-slate-100 inline-flex items-center gap-2">
+          Rutare modele per task
+          <InfoTooltip title="Rutare modele AI" side="bottom" portalToBody>
+            Alege ce model și furnizor AI folosește fiecare operație. Poți optimiza costurile
+            folosind modele economice pentru task-uri simple (traducere) și modele premium pentru
+            task-uri complexe (clasificare). Fiecare furnizor trebuie să aibă cheia API configurată
+            în tab-ul său. Sfat: gpt-4o-mini e ideal pentru traduceri; text-embedding-3-large e cel
+            mai precis pentru embedding-uri.
+          </InfoTooltip>
+        </h3>
+        <p className="mb-4 text-sm text-muted dark:text-slate-400">
+          Selectează furnizorul și modelul AI pentru fiecare tip de operație.
+        </p>
+
+        {routingLoading ? (
+          <div className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+            Se încarcă configurația modelelor...
+          </div>
+        ) : (
+          <form onSubmit={(event) => void saveRouting(event)} className="space-y-4">
+            {routingError ? (
+              <div className="rounded-md border border-error/30 bg-error/10 p-4 text-error shadow-sm dark:border-red-700/50 dark:bg-red-900/20">
+                {routingError}
+              </div>
+            ) : null}
+
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {Object.entries(TASK_LABELS).map(([task, { label, description }]) => (
+                <label key={task} className="space-y-1 text-sm">
+                  <span className="font-medium text-body dark:text-slate-200 inline-flex items-center gap-1">
+                    {label}
+                    <InfoTooltip title={label} side="bottom" portalToBody>
+                      {description}
+                    </InfoTooltip>
+                  </span>
+                  <select
+                    value={routing[task as keyof ModelRoutingResponse] ?? ''}
+                    onChange={(event) =>
+                      setRouting((prev) => ({ ...prev, [task]: event.target.value }))
+                    }
+                    className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-sm transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
+                  >
+                    {(modelOptionsByTask[task as keyof ModelRoutingResponse] ?? []).map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-3">
+              <SubmitButton
+                state={
+                  routingSaving
+                    ? 'loading'
+                    : routingSuccess
+                      ? 'success'
+                      : routingError
+                        ? 'error'
+                        : 'idle'
+                }
+              >
+                Salvează rutarea modelelor
+              </SubmitButton>
+            </div>
+
+            {routingSuccess ? (
+              <div className="rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success shadow-sm dark:border-emerald-700/50 dark:bg-emerald-900/20">
+                Rutarea modelelor a fost salvată.
+              </div>
+            ) : null}
+          </form>
+        )}
+      </div>
     </div>
   );
 }

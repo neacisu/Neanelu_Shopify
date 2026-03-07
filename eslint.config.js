@@ -27,6 +27,7 @@ export default tseslint.config(
       'Research Produse/**',
       'Research Categorii/**',
       'Research Metafileds/**',
+      'scripts/vscode/**',
       'pnpm-lock.yaml',
     ],
   },
@@ -129,8 +130,11 @@ export default tseslint.config(
   // SCRIPTS (JS) - no type checking
   // ============================================
   {
-    files: ['scripts/**/*.js', 'packages/**/scripts/**/*.js'],
+    files: ['scripts/**/*.{js,mjs,cjs}', 'packages/**/scripts/**/*.{js,mjs,cjs}'],
     ...tseslint.configs.disableTypeChecked,
+    rules: {
+      '@typescript-eslint/consistent-generic-constructors': 'off',
+    },
     languageOptions: {
       globals: {
         // Node globals used in workspace scripts

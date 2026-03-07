@@ -15,6 +15,7 @@ void mock.module(sessionPath, {
 
 void mock.module('@app/database', {
   namedExports: {
+    decryptAesGcm: () => Buffer.from('test-openai-key', 'utf8'),
     createSecondaryPool: () => ({
       pool: {
         query: () => Promise.resolve({ rows: [] }),
@@ -201,6 +202,8 @@ void mock.module('@app/queue-manager', {
       add: () => Promise.resolve({ id: 'test-job' }),
       close: () => Promise.resolve(),
     }),
+    checkAndConsumeCost: () =>
+      Promise.resolve({ allowed: true, delayMs: 0, tokensRemaining: 100, tokensNow: 100 }),
     enqueueBulkOrchestratorJob: () => Promise.resolve(),
     enqueueEnrichmentJob: enrichmentEnqueueMock,
   },
@@ -460,8 +463,18 @@ void describe('products routes', () => {
 
   void it('lists collections', async () => {
     const { productsRoutes } = await import('../products.js');
+    const { collectionsRoutes } = await import('../collections.js');
     const app = Fastify();
     await app.register(productsRoutes as unknown as Parameters<typeof app.register>[0], {
+      env: {
+        encryptionKeyHex: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        appHost: new URL('https://example.com'),
+        redisUrl: 'redis://localhost:6379',
+      },
+      logger: console,
+      sessionConfig: { secret: 'test', cookieName: 'neanelu_session', maxAge: 10 },
+    });
+    await app.register(collectionsRoutes as unknown as Parameters<typeof app.register>[0], {
       env: {
         encryptionKeyHex: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         appHost: new URL('https://example.com'),

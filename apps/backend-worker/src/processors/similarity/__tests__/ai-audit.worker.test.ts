@@ -49,6 +49,8 @@ void mock.module('@app/config', {
 void mock.module('@app/queue-manager', {
   namedExports: {
     configFromEnv: () => ({}),
+    checkAndConsumeCost: () =>
+      Promise.resolve({ allowed: true, delayMs: 0, tokensRemaining: 100, tokensNow: 100 }),
     withJobTelemetryContext: async (_job: unknown, fn: () => Promise<unknown>) => await fn(),
     createWorker: (
       _ctx: unknown,
@@ -124,6 +126,19 @@ void mock.module('@app/pim', {
         });
       }
     },
+  },
+});
+
+const aiRoutingPath = new URL('../../../services/ai-provider-routing.js', import.meta.url).href;
+void mock.module(aiRoutingPath, {
+  namedExports: {
+    resolveChatTaskCredentials: () =>
+      Promise.resolve({
+        provider: 'selfhosted',
+        apiKey: 'token',
+        baseUrl: 'http://10.0.1.10:49001/v1',
+        model: 'Qwen/QwQ-32B-AWQ',
+      }),
   },
 });
 

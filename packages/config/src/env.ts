@@ -130,6 +130,12 @@ export type AppEnv = Readonly<{
   openAiHealthCheckIntervalSeconds: number;
   /** xAI health check interval (seconds) */
   xaiHealthCheckIntervalSeconds: number;
+  /** Guardrails API base URL */
+  guardrailsApiUrl?: string;
+  /** Guardrails API bearer token */
+  guardrailsAuthToken?: string;
+  /** Guardrails runtime mode */
+  guardrailsMode: 'disabled' | 'warn-only' | 'enforce';
   /** Enable Playwright scraper fallback */
   scraperEnabled: boolean;
   /** Domain-level scraper rate limit (req/sec) */
@@ -214,6 +220,14 @@ function parseLogLevel(value: string | undefined): AppEnv['logLevel'] {
     return normalized;
   }
   throw new Error(`Invalid LOG_LEVEL: ${normalized}`);
+}
+
+function parseGuardrailsMode(value: string | undefined): AppEnv['guardrailsMode'] {
+  const normalized = (value ?? 'warn-only').trim().toLowerCase();
+  if (normalized === 'disabled' || normalized === 'warn-only' || normalized === 'enforce') {
+    return normalized;
+  }
+  throw new Error(`Invalid GUARDRAILS_MODE: ${normalized}`);
 }
 
 function parsePort(value: string | undefined): number {
@@ -568,6 +582,9 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     'XAI_HEALTH_CHECK_INTERVAL_SECONDS',
     3600
   );
+  const guardrailsApiUrl = optionalString(env, 'GUARDRAILS_API_URL');
+  const guardrailsAuthToken = optionalString(env, 'GUARDRAILS_AUTH_TOKEN');
+  const guardrailsMode = parseGuardrailsMode(env['GUARDRAILS_MODE']);
   const scraperEnabled = parseBooleanWithDefault(env, 'SCRAPER_ENABLED', false);
   const scraperRateLimitPerDomain = parsePositiveIntWithDefault(
     env,
@@ -714,6 +731,9 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     serperHealthCheckIntervalSeconds,
     openAiHealthCheckIntervalSeconds,
     xaiHealthCheckIntervalSeconds,
+    ...(guardrailsApiUrl ? { guardrailsApiUrl } : {}),
+    ...(guardrailsAuthToken ? { guardrailsAuthToken } : {}),
+    guardrailsMode,
     scraperEnabled,
     scraperRateLimitPerDomain,
     scraperTimeoutMs,

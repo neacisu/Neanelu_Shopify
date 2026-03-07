@@ -1,13 +1,12 @@
 import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
-import { pool } from '@app/database';
+import { createManagedRedis, pool } from '@app/database';
 import { defaultQueuePolicy, QUEUE_NAMES } from '@app/queue-manager';
 import { QueueConfigSchema } from '@app/validation';
 import type { FastifyInstance, FastifyPluginCallback } from 'fastify';
 import type { SessionConfig } from '../auth/session.js';
 import { requireSession } from '../auth/session.js';
 import { requireAdmin } from '../auth/require-admin.js';
-import { createClient } from 'redis';
 
 type QueueSettingsPluginOptions = Readonly<{
   env: AppEnv;
@@ -87,20 +86,6 @@ const DEFAULT_DLQ_RETENTION_DAYS = (() => {
   }
   return 7;
 })();
-
-type RedisClient = ReturnType<typeof createClient>;
-
-let redisClient: RedisClient | null = null;
-
-async function getRedisClient(redisUrl: string): Promise<RedisClient> {
-  if (redisClient) return redisClient;
-  const client = createClient({ url: redisUrl });
-  // Prevent Node.js from crashing on connection errors.
-  client.on('error', () => undefined);
-  await client.connect();
-  redisClient = client;
-  return client;
-}
 
 function normalizeQueueName(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -219,7 +204,7 @@ export const queueSettingsRoutes: FastifyPluginCallback<QueueSettingsPluginOptio
           [`queue_config:${name}`, JSON.stringify(payload), `Queue config override for ${name}`]
         );
 
-        const redis = await getRedisClient(env.redisUrl);
+        const redis = createManagedRedis('queue-settings-publisher');
         // Keep pub/sub notifications isolated per environment (matches ACL).
         const channel = `${env.bullmqPrefix}queue_config_changed`;
         await redis.publish(

@@ -1,10 +1,14 @@
 import { ExtractedProductSchema, type ExtractedProduct } from '../schemas/product-extraction.js';
 import { normalizeGTIN, validateGTINChecksum } from '../utils/gtin-validator.js';
 import type { HTMLContentProvider } from './html-content-provider.js';
-import type { XAICredentials } from './xai-credentials.js';
-import { acquireXaiRateLimit } from './xai-rate-limiter.js';
-import { trackXaiCost } from './xai-cost-tracker.js';
+import { acquireProviderRateLimit } from './rate-limiter.js';
+import { trackCost } from './cost-tracker.js';
 import { enforceBudget } from './budget-guard.js';
+import {
+  buildChatCompletionsUrl,
+  estimateChatCost,
+  type ChatModelCredentials,
+} from './llm-credentials.js';
 
 export const XAI_EXTRACTOR_AGENT_VERSION = 'xai-extractor-v1.0';
 export const XAI_CONFIDENCE_THRESHOLD = 0.8;
@@ -13,7 +17,7 @@ export type ExtractionParams = Readonly<{
   html: string;
   sourceUrl: string;
   shopId: string;
-  credentials: XAICredentials;
+  credentials: ChatModelCredentials;
   matchId?: string;
   productId?: string;
 }>;
@@ -35,17 +39,19 @@ export class XaiExtractorService {
   async extractProductFromHTML(params: ExtractionParams): Promise<ExtractionResult> {
     const { html, sourceUrl, shopId, credentials, matchId, productId } = params;
     try {
-      await enforceBudget({ provider: 'xai', shopId });
+      await enforceBudget({ provider: credentials.provider, shopId });
     } catch (error) {
       return {
         success: false,
         tokensUsed: { input: 0, output: 0 },
         latencyMs: 0,
-        error: error instanceof Error ? error.message : 'Daily xAI budget exceeded',
+        error:
+          error instanceof Error ? error.message : `Daily ${credentials.provider} budget exceeded`,
       };
     }
 
-    await acquireXaiRateLimit({
+    await acquireProviderRateLimit({
+      provider: credentials.provider,
       shopId,
       rateLimitPerMinute: credentials.rateLimitPerMinute,
     });
@@ -57,10 +63,10 @@ export class XaiExtractorService {
 
     try {
       const truncatedHtml = html.slice(0, 50000);
-      const response = await fetch(`${credentials.baseUrl}/chat/completions`, {
+      const response = await fetch(buildChatCompletionsUrl(credentials.baseUrl), {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${credentials.apiKey}`,
+          ...(credentials.apiKey ? { Authorization: `Bearer ${credentials.apiKey}` } : {}),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -102,12 +108,14 @@ export class XaiExtractorService {
       const latencyMs = Date.now() - startTime;
 
       if (!response.ok) {
-        throw new Error(`xAI extraction failed: ${response.status} ${response.statusText}`);
+        throw new Error(
+          `${credentials.provider} extraction failed: ${response.status} ${response.statusText}`
+        );
       }
 
       const content = data.choices?.[0]?.message?.content;
       if (!content) {
-        throw new Error('xAI response missing content');
+        throw new Error(`${credentials.provider} response missing content`);
       }
 
       const parsed = ExtractedProductSchema.parse(safeJsonParse(content));
@@ -126,15 +134,24 @@ export class XaiExtractorService {
         }
       }
 
-      await trackXaiCost({
-        shopId,
+      await trackCost({
+        provider: credentials.provider,
+        operation: 'extraction',
         endpoint: 'extract-product',
+        shopId,
         tokensInput,
         tokensOutput,
+        estimatedCost: estimateChatCost({
+          provider: credentials.provider,
+          tokensInput,
+          tokensOutput,
+        }),
         httpStatus,
         responseTimeMs: latencyMs,
         ...(productId ? { productId } : {}),
-        ...(matchId ? { matchId } : {}),
+        metadata: {
+          ...(matchId ? { matchId } : {}),
+        },
       });
 
       if (parsed.confidence.overall < XAI_CONFIDENCE_THRESHOLD) {
@@ -159,15 +176,24 @@ export class XaiExtractorService {
       const latencyMs = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : 'Unknown extraction error';
 
-      await trackXaiCost({
-        shopId,
+      await trackCost({
+        provider: credentials.provider,
+        operation: 'extraction',
         endpoint: 'extract-product',
+        shopId,
         tokensInput,
         tokensOutput,
+        estimatedCost: estimateChatCost({
+          provider: credentials.provider,
+          tokensInput,
+          tokensOutput,
+        }),
         httpStatus,
         responseTimeMs: latencyMs,
         ...(productId ? { productId } : {}),
-        ...(matchId ? { matchId } : {}),
+        metadata: {
+          ...(matchId ? { matchId } : {}),
+        },
         errorMessage,
       });
 
@@ -183,7 +209,7 @@ export class XaiExtractorService {
   async extractProductFromURL(params: {
     url: string;
     shopId: string;
-    credentials: XAICredentials;
+    credentials: ChatModelCredentials;
     contentProvider: HTMLContentProvider;
     matchId?: string;
     productId?: string;

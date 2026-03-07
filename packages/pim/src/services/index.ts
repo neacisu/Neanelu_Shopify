@@ -17,6 +17,8 @@ export * from './similarity-match-service.js';
 export * from './ai-auditor-service.js';
 export * from './html-content-provider.js';
 export * from './xai-credentials.js';
+export * from './llm-credentials.js';
+export * from './rate-limiter.js';
 export * from './xai-rate-limiter.js';
 export * from './xai-cost-tracker.js';
 export * from './cost-tracker.js';

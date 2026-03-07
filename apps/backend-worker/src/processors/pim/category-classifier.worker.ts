@@ -1,16 +1,18 @@
-import { createEmbeddingsProvider } from '@app/ai-engine';
-import { loadEnv } from '@app/config';
+import { loadEnv, type AppEnv } from '@app/config';
 import { withTenantContext } from '@app/database';
 import type { Logger } from '@app/logger';
 import { configFromEnv, createWorker, withJobTelemetryContext } from '@app/queue-manager';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
-import { getShopOpenAiConfig } from '../../runtime/openai-config.js';
 import {
   PIM_CATEGORY_CLASSIFIER_JOB,
   PIM_CATEGORY_CLASSIFIER_QUEUE_NAME,
 } from '../../queue/category-classifier-queue.js';
 import { enqueueCollectionMetafieldPushJob } from '../../queue/collection-metafield-push-queue.js';
-import { loadXAICredentials } from '../../services/xai-credentials.js';
+import {
+  resolveChatTaskCredentials,
+  resolveEmbeddingsProvider,
+} from '../../services/ai-provider-routing.js';
+import { scanInput, scanOutput } from '../../services/guardrails.js';
 import { normalizeText, toPgVectorLiteral } from '../bulk-operations/pim/vector.js';
 
 type CategoryClassifierPayload = Readonly<{
@@ -31,14 +33,6 @@ type ProductContext = Readonly<{
   canonical_title: string | null;
   brand: string | null;
   specs: Record<string, unknown> | null;
-}>;
-
-type XaiCredentials = Readonly<{
-  apiKey: string;
-  baseUrl: string;
-  model: string;
-  temperature: number;
-  maxTokensPerRequest: number;
 }>;
 
 type XaiResponse = Readonly<{
@@ -100,14 +94,6 @@ async function processCategoryClassification(
   logger: Logger
 ): Promise<void> {
   const env = loadEnv();
-  const openAiConfig = await getShopOpenAiConfig({
-    shopId: payload.shopId,
-    env,
-    logger,
-  });
-  if (!openAiConfig.enabled || !openAiConfig.openAiApiKey) {
-    return;
-  }
 
   const product = await withTenantContext(payload.shopId, async (client) => {
     const res = await client.query<ProductContext>(
@@ -127,11 +113,10 @@ async function processCategoryClassification(
   });
   if (!product) return;
 
-  const provider = createEmbeddingsProvider({
-    openAiApiKey: openAiConfig.openAiApiKey,
-    ...(openAiConfig.openAiBaseUrl ? { openAiBaseUrl: openAiConfig.openAiBaseUrl } : {}),
-    openAiEmbeddingsModel: openAiConfig.openAiEmbeddingsModel,
-    openAiTimeoutMs: env.openAiTimeoutMs,
+  const provider = await resolveEmbeddingsProvider({
+    shopId: payload.shopId,
+    env,
+    logger,
   });
   if (!provider.isAvailable()) {
     return;
@@ -149,7 +134,7 @@ async function processCategoryClassification(
   const [embedding] = await provider.embedTexts([classificationText]);
   if (embedding && embedding.length > 0) {
     const candidates = await withTenantContext(payload.shopId, async (client) => {
-      return await findTaxonomyByEmbedding(client, embedding);
+      return await findTaxonomyByEmbedding(client, embedding, provider.model.name);
     });
     const top = candidates[0];
     if (top && top.similarity >= EMBEDDING_CONFIDENCE_THRESHOLD) {
@@ -157,11 +142,12 @@ async function processCategoryClassification(
       selectedMethod = 'embedding';
       selectedConfidence = Number(top.similarity.toFixed(2));
     } else {
-      const xaiResult = await classifyWithXaiFallback({
+      const xaiResult = await classifyWithLLMFallback({
         shopId: payload.shopId,
         classificationText,
         options: candidates.slice(0, 15),
-        encryptionKeyHex: env.encryptionKeyHex,
+        env,
+        logger,
       });
       if (xaiResult) {
         selectedTaxonomyId = xaiResult.taxonomyId;
@@ -249,7 +235,8 @@ async function findTaxonomyByEmbedding(
   client: {
     query: <T = unknown>(sql: string, values?: readonly unknown[]) => Promise<{ rows: T[] }>;
   },
-  embedding: readonly number[]
+  embedding: readonly number[],
+  modelVersion: string
 ): Promise<readonly TaxonomyCandidate[]> {
   const vec = toPgVectorLiteral(embedding);
   const res = await client.query<TaxonomyCandidate>(
@@ -260,25 +247,29 @@ async function findTaxonomyByEmbedding(
      FROM prod_taxonomy
      WHERE is_active = true
        AND embedding IS NOT NULL
+       AND (model_version IS NULL OR model_version = $2)
      ORDER BY embedding <=> $1::vector(2000)
      LIMIT 25`,
-    [vec]
+    [vec, modelVersion]
   );
   return res.rows;
 }
 
-async function classifyWithXaiFallback(params: {
+async function classifyWithLLMFallback(params: {
   shopId: string;
   classificationText: string;
   options: readonly TaxonomyCandidate[];
-  encryptionKeyHex: string;
+  env: AppEnv;
+  logger: Logger;
 }): Promise<{ taxonomyId: string; confidence: number } | null> {
   if (params.options.length === 0) return null;
-  const creds = (await loadXAICredentials({
+  const creds = await resolveChatTaskCredentials({
     shopId: params.shopId,
-    encryptionKeyHex: params.encryptionKeyHex,
-  })) as XaiCredentials | null;
-  if (!creds?.apiKey) return null;
+    taskType: 'classification',
+    env: params.env,
+    logger: params.logger,
+  });
+  if (!creds) return null;
 
   const optionsBlock = params.options.map((o) => `- ${o.id} | ${o.name} | ${o.slug}`).join('\n');
   const prompt = [
@@ -290,11 +281,23 @@ async function classifyWithXaiFallback(params: {
     'Optiuni:',
     optionsBlock,
   ].join('\n');
+  const inputScan = await scanInput({
+    shopId: params.shopId,
+    text: prompt,
+    env: params.env,
+    logger: params.logger,
+  });
+  if (!inputScan.isValid) return null;
 
-  const response = await fetch(`${creds.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+  const normalizedBase = creds.baseUrl.replace(/\/$/, '');
+  const completionsUrl = normalizedBase.endsWith('/v1')
+    ? `${normalizedBase}/chat/completions`
+    : `${normalizedBase}/v1/chat/completions`;
+
+  const response = await fetch(completionsUrl, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${creds.apiKey}`,
+      ...(creds.apiKey ? { Authorization: `Bearer ${creds.apiKey}` } : {}),
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -308,7 +311,7 @@ async function classifyWithXaiFallback(params: {
         },
         {
           role: 'user',
-          content: prompt,
+          content: inputScan.sanitizedText,
         },
       ],
     }),
@@ -316,7 +319,15 @@ async function classifyWithXaiFallback(params: {
   if (!response.ok) return null;
 
   const payload = (await response.json()) as XaiResponse;
-  const raw = payload.choices?.[0]?.message?.content?.trim() ?? '';
+  const outputRaw = payload.choices?.[0]?.message?.content?.trim() ?? '';
+  const outputScan = await scanOutput({
+    shopId: params.shopId,
+    prompt: inputScan.sanitizedText,
+    output: outputRaw,
+    env: params.env,
+    logger: params.logger,
+  });
+  const raw = outputScan.sanitizedText.trim();
   if (!raw) return null;
 
   const extracted = extractJsonObject(raw);

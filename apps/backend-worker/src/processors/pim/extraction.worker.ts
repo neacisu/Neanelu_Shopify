@@ -9,12 +9,14 @@ import { pool, withTenantContext } from '@app/database';
 import {
   createExtractionSession,
   updateSpecsExtracted,
+  type ChatModelCredentials,
   XaiExtractorService,
   SimpleHTMLFetcher,
 } from '@app/pim';
 import { scrapeProductPage, extractJsonLd } from '@app/scraper';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
-import { loadXAICredentials } from '../../services/xai-credentials.js';
+import { resolveChatTaskCredentials } from '../../services/ai-provider-routing.js';
+import { scanInput, scanOutput } from '../../services/guardrails.js';
 import { enqueueConsensusJob } from '../../queue/consensus-queue.js';
 import {
   decrementScraperBrowserActivePages,
@@ -35,17 +37,6 @@ const warnLogger = (logger: Logger) =>
     warn: (data: Record<string, unknown>, message: string) => void;
   };
 
-interface XaiCredentials {
-  apiKey: string;
-  baseUrl: string;
-  model: string;
-  temperature: number;
-  maxTokensPerRequest: number;
-  rateLimitPerMinute: number;
-  dailyBudget: number;
-  budgetAlertThreshold: number;
-}
-
 interface ExtractionResult {
   success: boolean;
   data?: Record<string, unknown> & {
@@ -61,7 +52,7 @@ interface Extractor {
     html: string;
     sourceUrl: string;
     shopId: string;
-    credentials: XaiCredentials;
+    credentials: ChatModelCredentials;
     matchId?: string;
     productId?: string;
   }) => Promise<ExtractionResult>;
@@ -92,11 +83,6 @@ interface Fetcher {
 
 type SimpleHTMLFetcherConstructor = new () => Fetcher;
 
-type LoadXAICredentialsFn = (params: {
-  shopId: string;
-  encryptionKeyHex: string;
-}) => Promise<XaiCredentials | null>;
-
 type CreateExtractionSessionFn = (params: NewExtractionSession) => Promise<{ id: string }>;
 
 type UpdateSpecsExtractedFn = (params: {
@@ -105,7 +91,6 @@ type UpdateSpecsExtractedFn = (params: {
   extractionSessionId: string;
 }) => Promise<void>;
 
-const loadXAICredentialsSafe = loadXAICredentials as LoadXAICredentialsFn;
 const createExtractionSessionSafe = createExtractionSession as CreateExtractionSessionFn;
 const updateSpecsExtractedSafe = updateSpecsExtracted as UpdateSpecsExtractedFn;
 const SimpleHTMLFetcherSafe = SimpleHTMLFetcher as unknown as SimpleHTMLFetcherConstructor;
@@ -548,21 +533,36 @@ export function startExtractionWorker(logger: Logger): ExtractionWorkerHandle {
               return;
             }
 
-            const credentials = await loadXAICredentialsSafe({
+            const credentials = await resolveChatTaskCredentials({
               shopId: payload.shopId,
-              encryptionKeyHex: env.encryptionKeyHex,
+              taskType: 'extraction',
+              env,
+              logger,
             });
             if (!credentials) {
               warnLogger(logger).warn(
                 { shopId: payload.shopId },
-                'xAI credentials missing for extraction'
+                'No routed AI credentials available for extraction'
               );
               return;
             }
 
             const extractor = new XaiExtractorServiceSafe();
+            const inputScan = await scanInput({
+              shopId: payload.shopId,
+              text: html,
+              env,
+              logger,
+            });
+            if (!inputScan.isValid) {
+              warnLogger(logger).warn(
+                { shopId: payload.shopId, matchId: payload.matchId, reason: inputScan.reason },
+                'guardrails_blocked_extraction_input'
+              );
+              return;
+            }
             const extraction = await extractor.extractProductFromHTML({
-              html,
+              html: inputScan.sanitizedText,
               sourceUrl: match.source_url,
               shopId: payload.shopId,
               credentials,
@@ -572,7 +572,22 @@ export function startExtractionWorker(logger: Logger): ExtractionWorkerHandle {
 
             const confidenceOverall = extraction.data?.confidence?.overall;
             const fieldsUncertain = extraction.data?.confidence?.fieldsUncertain;
-            const extractedSpecs = extraction.data ?? {};
+            const outputScan = await scanOutput({
+              shopId: payload.shopId,
+              prompt: inputScan.sanitizedText,
+              output: JSON.stringify(extraction.data ?? {}),
+              env,
+              logger,
+            });
+            let extractedSpecs: Record<string, unknown> = {};
+            if (outputScan.isValid) {
+              try {
+                const parsed = JSON.parse(outputScan.sanitizedText) as Record<string, unknown>;
+                extractedSpecs = parsed ?? {};
+              } catch {
+                extractedSpecs = {};
+              }
+            }
 
             const sessionPayload: NewExtractionSession = {
               harvestId,

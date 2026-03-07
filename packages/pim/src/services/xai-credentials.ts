@@ -1,10 +1,3 @@
-export type XAICredentials = Readonly<{
-  apiKey: string;
-  baseUrl: string;
-  model: string;
-  temperature: number;
-  maxTokensPerRequest: number;
-  rateLimitPerMinute: number;
-  dailyBudget: number;
-  budgetAlertThreshold: number;
-}>;
+import type { ChatModelCredentials } from './llm-credentials.js';
+
+export type XAICredentials = ChatModelCredentials;

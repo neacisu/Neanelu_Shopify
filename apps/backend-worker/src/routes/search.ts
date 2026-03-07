@@ -6,11 +6,7 @@ import type { PoolClient } from 'pg';
 import { randomUUID } from 'node:crypto';
 import { createRedisConnection } from '@app/queue-manager';
 import { withTenantContext } from '@app/database';
-import {
-  createEmbeddingsProvider,
-  EmbeddingsDisabledError,
-  gateOpenAiEmbeddingRequest,
-} from '@app/ai-engine';
+import { EmbeddingsDisabledError, gateOpenAiEmbeddingRequest } from '@app/ai-engine';
 import { checkBudget, trackCost } from '@app/pim';
 import type { ProductSearchResponse, ProductSearchResult } from '@app/types';
 import type { SessionConfig } from '../auth/session.js';
@@ -20,21 +16,25 @@ import {
   openaiEmbedRateLimitAllowed,
   openaiEmbedRateLimitDenied,
   openaiEmbedRateLimitDelaySeconds,
+  recordSelfhostedEmbeddingRequest,
+  recordSelfhostedRequest,
   vectorSearchCacheHitTotal,
   vectorSearchCacheMissTotal,
   vectorSearchLatencySeconds,
 } from '../otel/metrics.js';
 import { generateQueryEmbedding, searchSimilarProducts } from '../processors/ai/search.js';
-import { toPgVectorLiteral } from '../processors/bulk-operations/pim/vector.js';
 import { getCachedSearchResult, setCachedSearchResult } from '../processors/ai/cache.js';
 import { AI_SPAN_NAMES, withAiSpan } from '../processors/ai/otel/spans.js';
 import { getShopOpenAiConfig } from '../runtime/openai-config.js';
+import { resolveEmbeddingsProvider } from '../services/ai-provider-routing.js';
+import { scanInput } from '../services/guardrails.js';
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 const DEFAULT_THRESHOLD = 0.7;
 const MIN_THRESHOLD = 0.1;
 const MAX_THRESHOLD = 1;
+const RRF_K = 60;
 
 type TextSearchRow = Readonly<{
   productId: string;
@@ -69,6 +69,7 @@ async function fallbackTextSearch(params: {
   priceMin?: number | null;
   priceMax?: number | null;
   categoryId?: string | null;
+  collectionIds?: readonly string[] | null;
   excludeProductIds?: readonly string[] | null;
 }): Promise<{ rows: TextSearchRow[]; total: number }> {
   const q = params.queryText.trim();
@@ -85,6 +86,8 @@ async function fallbackTextSearch(params: {
     params.categoryId ?? null,
     params.excludeProductIds?.length ? params.excludeProductIds : null,
     params.limit,
+    q,
+    params.collectionIds?.length ? params.collectionIds : null,
   ];
 
   const whereSql = `
@@ -100,6 +103,12 @@ async function fallbackTextSearch(params: {
     AND ($6::numeric IS NULL OR (p.price_range->>'min')::numeric <= $6::numeric)
     AND ($7::text IS NULL OR p.category_id = $7::text)
     AND ($8::uuid[] IS NULL OR p.id <> ALL($8::uuid[]))
+    AND ($11::uuid[] IS NULL OR EXISTS (
+      SELECT 1 FROM shopify_collection_products scp
+       WHERE scp.shop_id = p.shop_id
+         AND scp.product_id = p.id
+         AND scp.collection_id = ANY($11::uuid[])
+    ))
   `;
 
   const rowsResult = await params.client.query<TextSearchRow>(
@@ -109,7 +118,11 @@ async function fallbackTextSearch(params: {
             p.vendor as "vendor",
             p.product_type as "productType",
             p.price_range as "priceRange",
-            0.0 as "similarity"
+            (
+              word_similarity($10, p.title) * 1.0 +
+              word_similarity($10, COALESCE(p.description, '')) * 0.3 +
+              word_similarity($10, COALESCE(p.handle, '')) * 0.2
+            ) / 1.5 as "similarity"
        FROM shopify_products p
        LEFT JOIN LATERAL (
          SELECT sm.url, sm.preview_url
@@ -132,6 +145,9 @@ async function fallbackTextSearch(params: {
          LIMIT 1
        ) v_image ON true
       WHERE ${whereSql}
+      ORDER BY word_similarity($10, p.title) DESC,
+               "similarity" DESC,
+               length(p.title) ASC
       LIMIT $9`,
     values
   );
@@ -141,9 +157,113 @@ async function fallbackTextSearch(params: {
       ...row,
       similarity: Number(row.similarity ?? 0),
     })),
-    // Exact counts are expensive without an index; keep UI responsive.
     total: rowsResult.rows.length,
   };
+}
+
+type UnifiedResult = Readonly<{
+  productId: string;
+  title: string;
+  featuredImageUrl: string | null;
+  vendor: string | null;
+  productType: string | null;
+  priceRange: { min: string; max: string; currency: string } | null;
+  similarity: number;
+  searchMode: 'hybrid' | 'vector' | 'text';
+}>;
+
+/**
+ * Reciprocal Rank Fusion (RRF) merges two ranked lists by assigning each result
+ * a score of 1/(k + rank) per list and summing across lists.
+ * Results that appear in both lists get a boost. k=60 is the standard constant.
+ * Scores are normalized to [0,1] for consistent display in the UI.
+ */
+function rrfMerge(
+  textResults: readonly TextSearchRow[],
+  vectorResults: readonly TextSearchRow[],
+  limit: number,
+  queryText?: string
+): UnifiedResult[] {
+  const scores = new Map<
+    string,
+    {
+      rrfScore: number;
+      row: TextSearchRow;
+      textSimilarity: number;
+      vectorSimilarity: number;
+      inText: boolean;
+      inVector: boolean;
+    }
+  >();
+
+  for (let i = 0; i < textResults.length; i++) {
+    const row = textResults[i]!;
+    const existing = scores.get(row.productId);
+    const rrfScore = 1 / (RRF_K + i + 1);
+    if (existing) {
+      existing.rrfScore += rrfScore;
+      existing.inText = true;
+      existing.textSimilarity = Math.max(existing.textSimilarity, row.similarity);
+    } else {
+      scores.set(row.productId, {
+        rrfScore,
+        row,
+        textSimilarity: row.similarity,
+        vectorSimilarity: 0,
+        inText: true,
+        inVector: false,
+      });
+    }
+  }
+
+  for (let i = 0; i < vectorResults.length; i++) {
+    const row = vectorResults[i]!;
+    const existing = scores.get(row.productId);
+    const rrfScore = 1 / (RRF_K + i + 1);
+    if (existing) {
+      existing.rrfScore += rrfScore;
+      existing.vectorSimilarity = row.similarity;
+      existing.inVector = true;
+    } else {
+      scores.set(row.productId, {
+        rrfScore,
+        row,
+        textSimilarity: 0,
+        vectorSimilarity: row.similarity,
+        inText: false,
+        inVector: true,
+      });
+    }
+  }
+
+  const sorted = Array.from(scores.values()).sort((a, b) => b.rrfScore - a.rrfScore);
+  const q = queryText?.toLowerCase().trim();
+
+  return sorted.slice(0, limit).map((entry) => {
+    let titleMatchBoost = 0;
+    if (q && entry.row.title.toLowerCase().includes(q)) {
+      titleMatchBoost = 1.0;
+    }
+
+    const bestRaw = Math.max(entry.textSimilarity, entry.vectorSimilarity, titleMatchBoost);
+
+    let searchMode: 'hybrid' | 'vector' | 'text';
+    if (entry.inText && entry.inVector) searchMode = 'hybrid';
+    else if (entry.inVector && titleMatchBoost > 0) searchMode = 'hybrid';
+    else if (entry.inVector) searchMode = 'vector';
+    else searchMode = 'text';
+
+    return {
+      productId: entry.row.productId,
+      title: entry.row.title,
+      featuredImageUrl: entry.row.featuredImageUrl,
+      vendor: entry.row.vendor,
+      productType: entry.row.productType,
+      priceRange: entry.row.priceRange,
+      similarity: bestRaw,
+      searchMode,
+    };
+  });
 }
 
 interface SearchCursor {
@@ -439,6 +559,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           priceMin?: unknown;
           priceMax?: unknown;
           categoryId?: unknown;
+          collectionIds?: unknown;
           cursor?: unknown;
         };
         const rawText = query.q;
@@ -473,6 +594,13 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
         const priceMin = parseFloatParam(query.priceMin, NaN, 0, Number.MAX_SAFE_INTEGER);
         const priceMax = parseFloatParam(query.priceMax, NaN, 0, Number.MAX_SAFE_INTEGER);
         const categoryId = typeof query.categoryId === 'string' ? query.categoryId.trim() : '';
+        const collectionIds =
+          typeof query.collectionIds === 'string'
+            ? query.collectionIds
+                .split(',')
+                .map((v) => v.trim())
+                .filter(Boolean)
+            : [];
 
         const cursor = typeof query.cursor === 'string' ? query.cursor.trim() : '';
         const decodedCursor = cursor ? decodeSearchCursor(cursor) : null;
@@ -497,6 +625,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           `priceMin=${Number.isFinite(priceMin) ? priceMin : ''}`,
           `priceMax=${Number.isFinite(priceMax) ? priceMax : ''}`,
           `categoryId=${categoryId}`,
+          `collectionIds=${collectionIds.join('|')}`,
         ].join(' ');
 
         if (!cursor) {
@@ -554,6 +683,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
               priceMin: Number.isFinite(priceMin) ? priceMin : null,
               priceMax: Number.isFinite(priceMax) ? priceMax : null,
               categoryId: categoryId || null,
+              collectionIds: collectionIds.length ? collectionIds : null,
               excludeProductIds: decodedCursor?.seenIds ?? null,
             });
             return { rows, total };
@@ -616,11 +746,10 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           return;
         }
 
-        const provider = createEmbeddingsProvider({
-          ...(openAiConfig.openAiApiKey ? { openAiApiKey: openAiConfig.openAiApiKey } : {}),
-          ...(openAiConfig.openAiBaseUrl ? { openAiBaseUrl: openAiConfig.openAiBaseUrl } : {}),
-          openAiEmbeddingsModel: openAiConfig.openAiEmbeddingsModel,
-          openAiTimeoutMs: env.openAiTimeoutMs,
+        const provider = await resolveEmbeddingsProvider({
+          shopId: session.shopId,
+          env,
+          logger,
         });
 
         const rateLimit = await gateOpenAiEmbeddingRequest({
@@ -659,69 +788,108 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
         let results: ProductSearchResult[];
         let totalCount: number;
 
+        const hybridFetchLimit = MAX_LIMIT;
+        const vectorThresholdForHybrid = Math.max(threshold - 0.3, MIN_THRESHOLD);
+
         try {
-          const embedStartedAt = Date.now();
-          const embedding = await generateQueryEmbedding({
+          const inputScan = await scanInput({
+            shopId: session.shopId,
             text: rawText,
-            provider,
+            env,
             logger,
           });
+          const guardrailsText = inputScan.sanitizedText;
+          const embedStartedAt = Date.now();
+          const embedding = await (async () => {
+            try {
+              const value = await generateQueryEmbedding({
+                text: guardrailsText,
+                provider,
+                logger,
+              });
+              if (provider.kind === 'selfhosted') {
+                const durationSeconds = (Date.now() - embedStartedAt) / 1000;
+                recordSelfhostedRequest(durationSeconds, false);
+                recordSelfhostedEmbeddingRequest(durationSeconds, false, provider.model.name);
+              }
+              return value;
+            } catch (error) {
+              if (provider.kind === 'selfhosted') {
+                const durationSeconds = (Date.now() - embedStartedAt) / 1000;
+                recordSelfhostedRequest(durationSeconds, true);
+                recordSelfhostedEmbeddingRequest(durationSeconds, true, provider.model.name);
+              }
+              throw error;
+            }
+          })();
           await trackOpenAiSearchEmbeddingCost({
             shopId: session.shopId,
             endpoint: 'search-query-embedding',
-            text: rawText,
+            text: guardrailsText,
             costPer1MTokens: env.openAiEmbeddingCostPer1MTokens,
             responseTimeMs: Date.now() - embedStartedAt,
           });
 
+          const filterParams = {
+            vendors: vendors.length ? vendors : null,
+            productTypes: productTypes.length ? productTypes : null,
+            priceMin: Number.isFinite(priceMin) ? priceMin : null,
+            priceMax: Number.isFinite(priceMax) ? priceMax : null,
+            categoryId: categoryId || null,
+            collectionIds: collectionIds.length ? collectionIds : null,
+            excludeProductIds: decodedCursor?.seenIds ?? null,
+          };
+
           const searchResult = await withTenantContext(session.shopId, async (client) => {
-            const rows = await searchSimilarProducts({
-              client,
-              shopId: session.shopId,
-              embedding,
-              limit,
-              threshold,
-              vendors: vendors.length ? vendors : null,
-              productTypes: productTypes.length ? productTypes : null,
-              priceMin: Number.isFinite(priceMin) ? priceMin : null,
-              priceMax: Number.isFinite(priceMax) ? priceMax : null,
-              categoryId: categoryId || null,
-              minSimilarity: decodedCursor?.lastSimilarity ?? null,
-              excludeProductIds: decodedCursor?.seenIds ?? null,
-              queryTimeoutMs: env.vectorSearchQueryTimeoutMs,
-              logger,
-            });
+            const [vectorRows, textResult] = await Promise.all([
+              searchSimilarProducts({
+                client,
+                shopId: session.shopId,
+                embedding,
+                limit: hybridFetchLimit,
+                threshold: vectorThresholdForHybrid,
+                vendors: filterParams.vendors,
+                productTypes: filterParams.productTypes,
+                priceMin: filterParams.priceMin,
+                priceMax: filterParams.priceMax,
+                categoryId: filterParams.categoryId,
+                collectionIds: filterParams.collectionIds,
+                minSimilarity: decodedCursor?.lastSimilarity ?? null,
+                excludeProductIds: filterParams.excludeProductIds,
+                modelVersion: provider.model.name,
+                queryTimeoutMs: env.vectorSearchQueryTimeoutMs,
+                logger,
+              }),
+              fallbackTextSearch({
+                client,
+                shopId: session.shopId,
+                queryText: rawText,
+                limit: hybridFetchLimit,
+                vendors: filterParams.vendors,
+                productTypes: filterParams.productTypes,
+                priceMin: filterParams.priceMin,
+                priceMax: filterParams.priceMax,
+                categoryId: filterParams.categoryId,
+                collectionIds: filterParams.collectionIds,
+                excludeProductIds: filterParams.excludeProductIds,
+              }),
+            ]);
 
-            const vectorLiteral = toPgVectorLiteral(embedding);
-            const countResult = await client.query<{ count: number }>(
-              `SELECT COUNT(*)::int as "count"
-                 FROM shop_product_embeddings e
-                 JOIN shopify_products p ON p.id = e.product_id
-                WHERE e.shop_id = $1
-                  AND e.status = 'ready'
-                  AND p.shop_id = $1
-                  AND (e.embedding <=> $2::vector(2000)) < (1.0 - $3::numeric)
-                  AND ($4::text[] IS NULL OR p.vendor = ANY($4::text[]))
-                  AND ($5::text[] IS NULL OR p.product_type = ANY($5::text[]))
-                  AND ($6::numeric IS NULL OR (p.price_range->>'max')::numeric >= $6::numeric)
-                  AND ($7::numeric IS NULL OR (p.price_range->>'min')::numeric <= $7::numeric)
-                  AND ($8::text IS NULL OR p.category_id = $8::text)`,
-              [
-                session.shopId,
-                vectorLiteral,
-                threshold,
-                vendors.length ? vendors : null,
-                productTypes.length ? productTypes : null,
-                Number.isFinite(priceMin) ? priceMin : null,
-                Number.isFinite(priceMax) ? priceMax : null,
-                categoryId || null,
-              ]
-            );
+            const vectorAsText: TextSearchRow[] = vectorRows.map((row) => ({
+              productId: row.productId,
+              title: row.title,
+              featuredImageUrl: row.featuredImageUrl,
+              vendor: row.vendor,
+              productType: row.productType,
+              priceRange: row.priceRange,
+              similarity: row.similarity,
+            }));
 
-            return { rows, total: countResult.rows[0]?.count ?? 0 };
+            const merged = rrfMerge(textResult.rows, vectorAsText, limit, rawText);
+            return { merged, textCount: textResult.total, vectorCount: vectorRows.length };
           });
 
-          results = searchResult.rows.map((row) => ({
+          results = searchResult.merged.map((row) => ({
             id: row.productId,
             title: row.title,
             similarity: row.similarity,
@@ -730,7 +898,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
             productType: row.productType,
             priceRange: row.priceRange,
           }));
-          totalCount = searchResult.total;
+          totalCount = Math.max(searchResult.textCount, searchResult.vectorCount);
         } catch (error) {
           await trackOpenAiSearchEmbeddingCost({
             shopId: session.shopId,
@@ -741,9 +909,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
             errorMessage: error instanceof Error ? error.message : String(error),
           }).catch(() => undefined);
           if (error instanceof EmbeddingsDisabledError) {
-            // This can still happen if provider is misconfigured at runtime.
-            // Keep the endpoint available by falling back to a DB text search.
-            const start = process.hrtime.bigint();
+            const textStart = process.hrtime.bigint();
             const searchResult = await withTenantContext(session.shopId, async (client) => {
               const { rows, total } = await fallbackTextSearch({
                 client,
@@ -755,6 +921,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
                 priceMin: Number.isFinite(priceMin) ? priceMin : null,
                 priceMax: Number.isFinite(priceMax) ? priceMax : null,
                 categoryId: categoryId || null,
+                collectionIds: collectionIds.length ? collectionIds : null,
                 excludeProductIds: decodedCursor?.seenIds ?? null,
               });
               return { rows, total };
@@ -771,7 +938,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
             }));
             totalCount = searchResult.total;
 
-            const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+            const durationMs = Number(process.hrtime.bigint() - textStart) / 1_000_000;
             vectorSearchLatencySeconds.record(durationMs / 1000);
             recordAiQueryLatencyMs(durationMs);
 
@@ -841,7 +1008,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
       return;
     }
 
-    const { vendors, productTypes, priceRange, categories, enrichmentStatus } =
+    const { vendors, productTypes, priceRange, categories, collections, enrichmentStatus } =
       await withTenantContext(session.shopId, async (client) => {
         const vendorRows = await client.query<{ vendor: string }>(
           `SELECT DISTINCT vendor
@@ -908,6 +1075,20 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           [session.shopId]
         );
 
+        const collectionRows = await client.query<{
+          id: string;
+          title: string;
+          productsCount: number;
+        }>(
+          `SELECT c.id,
+                  c.title,
+                  COALESCE(c.products_count, 0)::int AS "productsCount"
+             FROM shopify_collections c
+            WHERE c.shop_id = $1
+            ORDER BY c.title ASC`,
+          [session.shopId]
+        );
+
         return {
           vendors: vendorRows.rows.map((row) => row.vendor),
           productTypes: productTypeRows.rows.map((row) => row.productType),
@@ -916,6 +1097,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
             max: priceRow.rows[0]?.max ? Number(priceRow.rows[0]?.max) : null,
           },
           categories: buildCategoryTree(categoryRows.rows),
+          collections: collectionRows.rows,
           enrichmentStatus: enrichmentRows.rows.map((row) => row.status),
         };
       });
@@ -926,6 +1108,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
         productTypes,
         priceRange,
         categories,
+        collections,
         enrichmentStatus,
       })
     );
@@ -1014,25 +1197,42 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           return;
         }
 
-        const openAiConfig = await getShopOpenAiConfig({
+        const provider = await resolveEmbeddingsProvider({
           shopId: session.shopId,
           env,
           logger,
         });
 
-        const provider = createEmbeddingsProvider({
-          ...(openAiConfig.openAiApiKey ? { openAiApiKey: openAiConfig.openAiApiKey } : {}),
-          ...(openAiConfig.openAiBaseUrl ? { openAiBaseUrl: openAiConfig.openAiBaseUrl } : {}),
-          openAiEmbeddingsModel: openAiConfig.openAiEmbeddingsModel,
-          openAiTimeoutMs: env.openAiTimeoutMs,
+        const inputScan = await scanInput({
+          shopId: session.shopId,
+          text: rawText,
+          env,
+          logger,
         });
-
+        const guardrailsText = inputScan.sanitizedText;
         const embedStartedAt = Date.now();
-        const embedding = await generateQueryEmbedding({ text: rawText, provider, logger });
+        const embedding = await (async () => {
+          try {
+            const value = await generateQueryEmbedding({ text: guardrailsText, provider, logger });
+            if (provider.kind === 'selfhosted') {
+              const durationSeconds = (Date.now() - embedStartedAt) / 1000;
+              recordSelfhostedRequest(durationSeconds, false);
+              recordSelfhostedEmbeddingRequest(durationSeconds, false, provider.model.name);
+            }
+            return value;
+          } catch (error) {
+            if (provider.kind === 'selfhosted') {
+              const durationSeconds = (Date.now() - embedStartedAt) / 1000;
+              recordSelfhostedRequest(durationSeconds, true);
+              recordSelfhostedEmbeddingRequest(durationSeconds, true, provider.model.name);
+            }
+            throw error;
+          }
+        })();
         await trackOpenAiSearchEmbeddingCost({
           shopId: session.shopId,
           endpoint: 'search-export-embedding',
-          text: rawText,
+          text: guardrailsText,
           costPer1MTokens: env.openAiEmbeddingCostPer1MTokens,
           responseTimeMs: Date.now() - embedStartedAt,
         });
@@ -1049,6 +1249,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
             priceMin: Number.isFinite(priceMin) ? priceMin : null,
             priceMax: Number.isFinite(priceMax) ? priceMax : null,
             categoryId: categoryId || null,
+            modelVersion: provider.model.name,
             queryTimeoutMs: env.vectorSearchQueryTimeoutMs,
             logger,
           });

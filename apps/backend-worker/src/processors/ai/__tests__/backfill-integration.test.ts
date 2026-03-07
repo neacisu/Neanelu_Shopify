@@ -45,6 +45,12 @@ await (async () => {
         createEmbeddingsProvider: () => ({
           model: { name: 'text-embedding-3-large', dimensions: 2000 },
         }),
+        createSelfhostedEmbeddingsProvider: () => ({
+          model: { name: 'qwen3-embedding-8b-q5km', dimensions: 2000 },
+          kind: 'selfhosted',
+          isAvailable: () => true,
+          embedTexts: () => Promise.resolve([[0.1, 0.2, 0.3]]),
+        }),
         sha256Hex: () => 'hash',
       },
     })

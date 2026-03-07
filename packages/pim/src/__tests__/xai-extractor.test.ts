@@ -16,6 +16,7 @@ vi.mock('../services/budget-guard.js', () => ({
 }));
 
 const credentials = {
+  provider: 'xai',
   apiKey: 'xai-test',
   baseUrl: 'https://api.x.ai/v1',
   model: 'grok-4-1-fast-non-reasoning',
@@ -24,7 +25,7 @@ const credentials = {
   rateLimitPerMinute: 60,
   dailyBudget: 1000,
   budgetAlertThreshold: 0.8,
-};
+} as const;
 
 describe('XaiExtractorService', () => {
   it('returneaza succes cand confidence >= 0.8', async () => {

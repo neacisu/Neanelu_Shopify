@@ -1,4 +1,4 @@
-import { RefreshCw, FolderOpen, Layers, Sparkles, Tag, Package } from 'lucide-react';
+import { RefreshCw, FolderOpen, Layers, Sparkles, Tag, Package, Languages } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -44,6 +44,7 @@ interface CollectionsStats {
   manual: number;
   smart: number;
   withTaxonomy: number;
+  translated: number;
   totalProducts: number;
   lastSyncedAt: string | null;
 }
@@ -117,6 +118,7 @@ export default function CollectionsPage() {
 
   const [bulkTaxonomyLoading, setBulkTaxonomyLoading] = useState(false);
   const [bulkMetafieldsLoading, setBulkMetafieldsLoading] = useState(false);
+  const [bulkTranslateLoading, setBulkTranslateLoading] = useState(false);
 
   const isSyncing =
     syncState.status === 'active' ||
@@ -292,8 +294,45 @@ export default function CollectionsPage() {
     if (selectedIds.length === 0) return;
     setBulkTaxonomyLoading(true);
     try {
-      await api.postApi('/collections/bulk/assign-taxonomy-ai', { collectionIds: selectedIds });
-      toast.success(`Taxonomie AI atribuită pentru ${selectedIds.length} colecții`);
+      const response = await api.postApi<
+        {
+          results: {
+            collectionId: string;
+            taxonomyId: string | null;
+            taxonomyName: string | null;
+            confidence: number | null;
+            status: 'assigned' | 'low_confidence' | 'error';
+            translatedText?: string;
+            detectedLanguage?: string;
+            reasoning?: string;
+            candidates?: { name: string; similarity: number }[];
+          }[];
+        },
+        Record<string, unknown>
+      >('/collections/bulk/assign-taxonomy-ai', { collectionIds: selectedIds });
+
+      const assigned = response.results.filter((r) => r.status === 'assigned').length;
+      const lowConf = response.results.filter((r) => r.status === 'low_confidence').length;
+      const errors = response.results.filter((r) => r.status === 'error').length;
+
+      const parts: string[] = [];
+      if (assigned > 0) parts.push(`${assigned} atribuite`);
+      if (lowConf > 0) parts.push(`${lowConf} confidență scăzută`);
+      if (errors > 0) parts.push(`${errors} erori`);
+
+      if (assigned > 0) {
+        toast.success(`Taxonomie AI: ${parts.join(', ')}`);
+      } else if (lowConf > 0) {
+        const first = response.results.find((r) => r.status === 'low_confidence');
+        const pct = Math.round((first?.confidence ?? 0) * 100);
+        const hint = first?.reasoning ? ` ${first.reasoning}` : '';
+        toast.error(
+          `Confidență scăzută (${pct}%): "${first?.taxonomyName}".${hint} Atribuiți manual.`
+        );
+      } else {
+        toast.error('Eroare la atribuirea taxonomiei AI');
+      }
+
       setSelectedIds([]);
       setSelectAllMode(null);
       void loadCollections();
@@ -319,6 +358,41 @@ export default function CollectionsPage() {
       setBulkMetafieldsLoading(false);
     }
   }, [api, selectedIds]);
+
+  const handleBulkTranslate = useCallback(async () => {
+    setBulkTranslateLoading(true);
+    try {
+      const response = await api.postApi<
+        { translated: number; total: number; message: string },
+        Record<string, unknown>
+      >('/collections/bulk/translate', {});
+      toast.success(response.message);
+      void loadCollections();
+      void loadStats();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Eroare la traducere');
+    } finally {
+      setBulkTranslateLoading(false);
+    }
+  }, [api, loadCollections, loadStats]);
+
+  const handleBulkTranslateSelected = useCallback(async () => {
+    if (selectedIds.length === 0) return;
+    setBulkTranslateLoading(true);
+    try {
+      const response = await api.postApi<
+        { translated: number; total: number; message: string },
+        Record<string, unknown>
+      >('/collections/bulk/translate', { collectionIds: selectedIds });
+      toast.success(response.message);
+      void loadCollections();
+      void loadStats();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Eroare la traducere');
+    } finally {
+      setBulkTranslateLoading(false);
+    }
+  }, [api, selectedIds, loadCollections, loadStats]);
 
   const handleSort = useCallback(
     (column: string) => {
@@ -368,21 +442,29 @@ export default function CollectionsPage() {
         title="Gestionare Colecții"
         description="Sincronizează, clasifică și gestionează colecțiile Shopify."
         actions={
-          <span className="inline-flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-2">
             <Button variant="secondary" onClick={() => void startSync()} disabled={isSyncing}>
               <RefreshCw className={`mr-2 size-4 ${isSyncing ? 'animate-spin' : ''}`} />
               {isSyncing ? 'Sincronizare...' : 'Sincronizează din Shopify'}
             </Button>
-            <InfoTooltip title="Sincronizare colecții" side="bottom">
-              Importă/actualizează colecțiile din Shopify. Procesul rulează în fundal și
-              actualizează tabelul automat la finalizare.
+            <Button
+              variant="secondary"
+              onClick={() => void handleBulkTranslate()}
+              disabled={bulkTranslateLoading}
+            >
+              <Languages className={`mr-2 size-4 ${bulkTranslateLoading ? 'animate-pulse' : ''}`} />
+              {bulkTranslateLoading ? 'Se traduce...' : 'Traduce EN'}
+            </Button>
+            <InfoTooltip title="Sincronizare & traducere" side="bottom">
+              Sincronizează colecțiile din Shopify, apoi traduce titlurile în engleză pentru o
+              atribuire precisă a taxonomiei AI. Traducerea se face o singură dată.
             </InfoTooltip>
           </span>
         }
       />
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {[
           {
             label: 'Total colecții',
@@ -407,6 +489,12 @@ export default function CollectionsPage() {
             value: stats?.withTaxonomy ?? 0,
             icon: Tag,
             delay: 3,
+          },
+          {
+            label: 'Traduse EN',
+            value: stats?.translated ?? 0,
+            icon: Languages,
+            delay: 4,
           },
         ].map((card) => (
           <article
@@ -505,6 +593,16 @@ export default function CollectionsPage() {
               disabled={bulkTaxonomyLoading}
             >
               {bulkTaxonomyLoading ? 'Se atribuie...' : 'Atribuie taxonomie AI'}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => void handleBulkTranslateSelected()}
+              disabled={bulkTranslateLoading}
+            >
+              <Languages
+                className={`mr-1.5 size-3.5 ${bulkTranslateLoading ? 'animate-pulse' : ''}`}
+              />
+              {bulkTranslateLoading ? 'Se traduce...' : 'Traduce EN'}
             </Button>
             <Button
               variant="secondary"
@@ -775,11 +873,39 @@ function CollectionDetailDrawerInline({ collection, api, onClose, onRefresh }: D
 
   const handleAssignTaxonomyAi = useCallback(async () => {
     try {
-      await api.postApi('/collections/bulk/assign-taxonomy-ai', {
+      const response = await api.postApi<
+        {
+          results: {
+            collectionId: string;
+            taxonomyId: string | null;
+            taxonomyName: string | null;
+            confidence: number | null;
+            status: 'assigned' | 'low_confidence' | 'error';
+            translatedText?: string;
+            detectedLanguage?: string;
+            reasoning?: string;
+            candidates?: { name: string; similarity: number }[];
+          }[];
+        },
+        Record<string, unknown>
+      >('/collections/bulk/assign-taxonomy-ai', {
         collectionIds: [collection.id],
       });
-      toast.success('Taxonomie AI atribuită');
-      onRefresh();
+
+      const result = response.results[0];
+      if (result?.status === 'assigned') {
+        const pct = Math.round((result.confidence ?? 0) * 100);
+        toast.success(`Taxonomie atribuită: ${result.taxonomyName} — ${pct}% confidență`);
+        onRefresh();
+      } else if (result?.status === 'low_confidence') {
+        const pct = Math.round((result.confidence ?? 0) * 100);
+        const reasoningHint = result.reasoning ? ` ${result.reasoning}` : '';
+        toast.error(
+          `Confidență scăzută (${pct}%): "${result.taxonomyName}".${reasoningHint} Atribuiți manual.`
+        );
+      } else {
+        toast.error('Eroare la atribuirea taxonomiei AI');
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Eroare la atribuirea taxonomiei');
     }

@@ -696,6 +696,318 @@ export const scraperCheerioFastPathHits: Counter = meter.createCounter(
 );
 
 // ============================================
+// SELF-HOSTED LLM METRICS
+// ============================================
+
+export const selfhostedHealthStatus: ObservableGauge = meter.createObservableGauge(
+  'selfhosted_health_status',
+  { description: 'Self-hosted LLM health status (1=ok, 0=error)' }
+);
+
+export const selfhostedGpuVramUsedBytes: ObservableGauge = meter.createObservableGauge(
+  'selfhosted_gpu_vram_used_bytes',
+  { description: 'GPU VRAM used in bytes', unit: 'By' }
+);
+
+export const selfhostedRequestDurationSeconds: Histogram = meter.createHistogram(
+  'selfhosted_request_duration_seconds',
+  {
+    description: 'Self-hosted LLM request duration',
+    unit: 's',
+    advice: {
+      explicitBucketBoundaries: [0.1, 0.5, 1, 2.5, 5, 10, 30, 60],
+    },
+  }
+);
+
+export const selfhostedRequestsTotal: Counter = meter.createCounter('selfhosted_requests_total', {
+  description: 'Total self-hosted LLM requests',
+});
+
+export const selfhostedKvCacheUsagePercent: ObservableGauge = meter.createObservableGauge(
+  'selfhosted_kv_cache_usage_percent',
+  { description: 'vLLM KV cache usage percentage (0-1)' }
+);
+
+export const selfhostedFallbackToFrontierTotal: Counter = meter.createCounter(
+  'selfhosted_fallback_to_frontier_total',
+  {
+    description: 'Total number of times selfhosted routing fell back to frontier providers',
+  }
+);
+
+export const selfhostedEmbeddingLatencySeconds: Histogram = meter.createHistogram(
+  'selfhosted_embedding_latency_seconds',
+  {
+    description: 'Latency for selfhosted embedding requests',
+    unit: 's',
+    advice: {
+      explicitBucketBoundaries: [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30],
+    },
+  }
+);
+
+export const selfhostedEmbeddingRequestsTotal: Counter = meter.createCounter(
+  'selfhosted_embedding_requests_total',
+  {
+    description: 'Total selfhosted embedding requests',
+  }
+);
+
+export const aiProviderRoutingTotal: Counter = meter.createCounter('ai_provider_routing_total', {
+  description: 'Routing decisions for AI providers',
+});
+
+export const vllmTimeToFirstTokenSeconds: Histogram = meter.createHistogram(
+  'vllm_time_to_first_token_seconds',
+  {
+    description: 'vLLM time-to-first-token distribution',
+    unit: 's',
+    advice: {
+      explicitBucketBoundaries: [0.05, 0.1, 0.25, 0.5, 1, 2, 3, 5, 8, 13],
+    },
+  }
+);
+
+export const vllmNumRequestsRunning: ObservableGauge = meter.createObservableGauge(
+  'vllm_num_requests_running',
+  { description: 'Current number of running vLLM requests' }
+);
+
+export const vllmNumRequestsWaiting: ObservableGauge = meter.createObservableGauge(
+  'vllm_num_requests_waiting',
+  { description: 'Current number of queued vLLM requests' }
+);
+
+export const vllmGpuCacheUsagePerc: ObservableGauge = meter.createObservableGauge(
+  'vllm_gpu_cache_usage_perc',
+  { description: 'vLLM KV cache usage percentage (0-100)' }
+);
+
+export const vllmGpuPrefixCacheHitRate: ObservableGauge = meter.createObservableGauge(
+  'vllm_gpu_prefix_cache_hit_rate',
+  { description: 'vLLM prefix cache hit rate (0-1)' }
+);
+
+export const selfhostedCircuitBreakerState: ObservableGauge = meter.createObservableGauge(
+  'selfhosted_circuit_breaker_state',
+  { description: 'Circuit breaker state per selfhosted endpoint (0=CLOSED, 1=OPEN, 2=HALF_OPEN)' }
+);
+
+export const guardrailsScanTotal: Counter = meter.createCounter('guardrails_scan_total', {
+  description: 'Total number of guardrails scan calls',
+});
+
+export const guardrailsBlockTotal: Counter = meter.createCounter('guardrails_block_total', {
+  description: 'Total number of guardrails blocked requests/responses',
+});
+
+export const guardrailsLatencySeconds: Histogram = meter.createHistogram(
+  'guardrails_latency_seconds',
+  {
+    description: 'Latency of guardrails API calls',
+    unit: 's',
+    advice: {
+      explicitBucketBoundaries: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5],
+    },
+  }
+);
+
+export const guardrailsPiiDetectedTotal: Counter = meter.createCounter(
+  'guardrails_pii_detected_total',
+  {
+    description: 'Count of PII entities detected by guardrails',
+  }
+);
+
+export const guardrailsServiceHealth: ObservableGauge = meter.createObservableGauge(
+  'guardrails_service_health',
+  { description: 'Guardrails service health (1=up, 0=down)' }
+);
+
+const selfhostedHealthState = { value: 0 };
+const selfhostedVramUsedBytesState = { value: 0 };
+const selfhostedKvCacheState = { value: 0 };
+const vllmRunningRequestsState = { value: 0 };
+const vllmWaitingRequestsState = { value: 0 };
+const vllmGpuCacheUsagePercState = { value: 0 };
+const vllmPrefixCacheHitRateState = { value: 0 };
+const selfhostedCircuitBreakerStateMap = new Map<
+  string,
+  { state: 'CLOSED' | 'OPEN' | 'HALF_OPEN'; value: number }
+>();
+const guardrailsServiceHealthState = { value: 0 };
+
+meter.addBatchObservableCallback(
+  (observableResult) => {
+    observableResult.observe(selfhostedHealthStatus, selfhostedHealthState.value);
+    observableResult.observe(
+      selfhostedGpuVramUsedBytes,
+      Math.max(0, selfhostedVramUsedBytesState.value)
+    );
+    observableResult.observe(
+      selfhostedKvCacheUsagePercent,
+      Math.max(0, selfhostedKvCacheState.value)
+    );
+    observableResult.observe(vllmNumRequestsRunning, Math.max(0, vllmRunningRequestsState.value));
+    observableResult.observe(vllmNumRequestsWaiting, Math.max(0, vllmWaitingRequestsState.value));
+    observableResult.observe(vllmGpuCacheUsagePerc, Math.max(0, vllmGpuCacheUsagePercState.value));
+    observableResult.observe(
+      vllmGpuPrefixCacheHitRate,
+      Math.max(0, vllmPrefixCacheHitRateState.value)
+    );
+    observableResult.observe(guardrailsServiceHealth, guardrailsServiceHealthState.value);
+    for (const [endpointId, state] of selfhostedCircuitBreakerStateMap.entries()) {
+      observableResult.observe(selfhostedCircuitBreakerState, state.value, {
+        endpointId,
+        state: state.state,
+      });
+    }
+  },
+  [
+    selfhostedHealthStatus,
+    selfhostedGpuVramUsedBytes,
+    selfhostedKvCacheUsagePercent,
+    vllmNumRequestsRunning,
+    vllmNumRequestsWaiting,
+    vllmGpuCacheUsagePerc,
+    vllmGpuPrefixCacheHitRate,
+    guardrailsServiceHealth,
+    selfhostedCircuitBreakerState,
+  ]
+);
+
+export function setSelfhostedHealthStatus(ok: boolean): void {
+  selfhostedHealthState.value = ok ? 1 : 0;
+}
+
+export function setSelfhostedGpuVramUsedBytes(bytes: number): void {
+  if (!Number.isFinite(bytes)) return;
+  selfhostedVramUsedBytesState.value = Math.max(0, bytes);
+}
+
+export function setSelfhostedKvCacheUsagePercent(percent: number): void {
+  if (!Number.isFinite(percent)) return;
+  selfhostedKvCacheState.value = Math.max(0, Math.min(1, percent));
+}
+
+export function recordSelfhostedRequest(durationSeconds: number, isError: boolean): void {
+  if (Number.isFinite(durationSeconds)) {
+    selfhostedRequestDurationSeconds.record(Math.max(0, durationSeconds), {
+      status: isError ? 'error' : 'ok',
+    });
+  }
+  selfhostedRequestsTotal.add(1, { status: isError ? 'error' : 'ok' });
+}
+
+export function recordSelfhostedFallbackToFrontier(
+  taskType: 'translation' | 'classification' | 'extraction' | 'audit' | 'embedding',
+  fallbackProvider: 'xai' | 'openai' | 'deepseek'
+): void {
+  selfhostedFallbackToFrontierTotal.add(1, { taskType, fallbackProvider });
+}
+
+export function recordSelfhostedEmbeddingRequest(
+  durationSeconds: number,
+  isError: boolean,
+  model: string
+): void {
+  if (Number.isFinite(durationSeconds)) {
+    selfhostedEmbeddingLatencySeconds.record(Math.max(0, durationSeconds), {
+      status: isError ? 'error' : 'ok',
+      model,
+    });
+  }
+  selfhostedEmbeddingRequestsTotal.add(1, {
+    status: isError ? 'error' : 'ok',
+    model,
+  });
+}
+
+export function recordAiProviderRouting(params: {
+  provider: 'selfhosted' | 'xai' | 'openai' | 'deepseek';
+  taskType: 'translation' | 'classification' | 'extraction' | 'audit' | 'embedding';
+  outcome: 'primary' | 'fallback' | 'error';
+}): void {
+  aiProviderRoutingTotal.add(1, {
+    provider: params.provider,
+    taskType: params.taskType,
+    outcome: params.outcome,
+  });
+}
+
+export function setVllmInferenceMetrics(params: {
+  timeToFirstTokenSeconds?: number;
+  numRequestsRunning?: number;
+  numRequestsWaiting?: number;
+  gpuCacheUsagePerc?: number;
+  prefixCacheHitRate?: number;
+}): void {
+  if (
+    typeof params.timeToFirstTokenSeconds === 'number' &&
+    Number.isFinite(params.timeToFirstTokenSeconds)
+  ) {
+    vllmTimeToFirstTokenSeconds.record(Math.max(0, params.timeToFirstTokenSeconds));
+  }
+  if (typeof params.numRequestsRunning === 'number' && Number.isFinite(params.numRequestsRunning)) {
+    vllmRunningRequestsState.value = Math.max(0, params.numRequestsRunning);
+  }
+  if (typeof params.numRequestsWaiting === 'number' && Number.isFinite(params.numRequestsWaiting)) {
+    vllmWaitingRequestsState.value = Math.max(0, params.numRequestsWaiting);
+  }
+  if (typeof params.gpuCacheUsagePerc === 'number' && Number.isFinite(params.gpuCacheUsagePerc)) {
+    vllmGpuCacheUsagePercState.value = Math.max(0, params.gpuCacheUsagePerc);
+  }
+  if (typeof params.prefixCacheHitRate === 'number' && Number.isFinite(params.prefixCacheHitRate)) {
+    vllmPrefixCacheHitRateState.value = Math.max(0, params.prefixCacheHitRate);
+  }
+}
+
+export function setSelfhostedCircuitBreakerState(params: {
+  endpointId: string;
+  state: 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+}): void {
+  const endpointId = params.endpointId.trim();
+  if (!endpointId) return;
+  const value = params.state === 'OPEN' ? 1 : params.state === 'HALF_OPEN' ? 2 : 0;
+  selfhostedCircuitBreakerStateMap.set(endpointId, { state: params.state, value });
+}
+
+export function recordGuardrailsScan(params: {
+  direction: 'input' | 'output';
+  scanner: string;
+  result: 'ok' | 'blocked' | 'error' | 'skipped';
+  latencySeconds: number;
+}): void {
+  guardrailsScanTotal.add(1, {
+    direction: params.direction,
+    scanner: params.scanner,
+    result: params.result,
+  });
+  if (params.result === 'blocked') {
+    guardrailsBlockTotal.add(1, {
+      direction: params.direction,
+      scanner: params.scanner,
+      action: 'block',
+    });
+  }
+  if (Number.isFinite(params.latencySeconds)) {
+    guardrailsLatencySeconds.record(Math.max(0, params.latencySeconds), {
+      direction: params.direction,
+    });
+  }
+}
+
+export function recordGuardrailsPiiDetected(entityType: string): void {
+  const entity = entityType.trim() || 'unknown';
+  guardrailsPiiDetectedTotal.add(1, { entity_type: entity });
+}
+
+export function setGuardrailsServiceHealth(isUp: boolean): void {
+  guardrailsServiceHealthState.value = isUp ? 1 : 0;
+}
+
+// ============================================
 // HELPER FUNCTIONS
 // ============================================
 
@@ -923,7 +1235,7 @@ export function recordShopifyApiUsage(costPoints: number, isRateLimited = false)
 
 /** Record PIM external API usage (provider labels only; no shop_id to avoid high cardinality). */
 export function recordPimApiUsage(params: {
-  provider: 'serper' | 'xai' | 'openai' | 'scraper';
+  provider: 'serper' | 'xai' | 'openai' | 'gemini' | 'deepseek' | 'selfhosted' | 'scraper';
   operation: 'search' | 'audit' | 'extraction' | 'embedding' | 'other';
   estimatedCost: number;
   requestCount?: number;
@@ -945,11 +1257,15 @@ export function recordPimApiUsage(params: {
   }
 }
 
-export function recordPimBudgetWarning(provider: 'serper' | 'xai' | 'openai' | 'scraper'): void {
+export function recordPimBudgetWarning(
+  provider: 'serper' | 'xai' | 'openai' | 'gemini' | 'deepseek' | 'selfhosted' | 'scraper'
+): void {
   pimApiBudgetWarningTotal.add(1, { provider });
 }
 
-export function recordPimBudgetExceeded(provider: 'serper' | 'xai' | 'openai' | 'scraper'): void {
+export function recordPimBudgetExceeded(
+  provider: 'serper' | 'xai' | 'openai' | 'gemini' | 'deepseek' | 'selfhosted' | 'scraper'
+): void {
   pimApiBudgetExceededTotal.add(1, { provider });
 }
 
@@ -968,7 +1284,7 @@ export function recordPimQueueResumed(
 }
 
 export function setPimBudgetUsageRatio(
-  provider: 'serper' | 'xai' | 'openai' | 'scraper',
+  provider: 'serper' | 'xai' | 'openai' | 'gemini' | 'deepseek' | 'selfhosted' | 'scraper',
   ratio: number
 ): void {
   if (!Number.isFinite(ratio)) return;
@@ -1061,7 +1377,10 @@ type BudgetRatioCacheLike = Readonly<{
 
 export async function refreshPimBudgetUsageRatios(params: {
   getMaxRatios: () => Promise<
-    readonly { provider: 'serper' | 'xai' | 'openai'; maxRatio: number }[]
+    readonly {
+      provider: 'serper' | 'xai' | 'openai' | 'gemini' | 'deepseek' | 'selfhosted';
+      maxRatio: number;
+    }[]
   >;
   cache?: BudgetRatioCacheLike;
   cacheKey?: string;
@@ -1070,13 +1389,17 @@ export async function refreshPimBudgetUsageRatios(params: {
   const cacheKey = params.cacheKey ?? DEFAULT_BUDGET_RATIO_CACHE_KEY;
   const cacheTtlSeconds = params.cacheTtlSeconds ?? DEFAULT_BUDGET_RATIO_CACHE_TTL_SECONDS;
   try {
-    let ratios: readonly { provider: 'serper' | 'xai' | 'openai'; maxRatio: number }[] | null =
-      null;
+    let ratios:
+      | readonly {
+          provider: 'serper' | 'xai' | 'openai' | 'gemini' | 'deepseek' | 'selfhosted';
+          maxRatio: number;
+        }[]
+      | null = null;
     if (params.cache) {
       const cached = await params.cache.get(cacheKey);
       if (cached) {
         ratios = JSON.parse(cached) as readonly {
-          provider: 'serper' | 'xai' | 'openai';
+          provider: 'serper' | 'xai' | 'openai' | 'gemini' | 'deepseek' | 'selfhosted';
           maxRatio: number;
         }[];
       }

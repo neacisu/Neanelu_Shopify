@@ -75,8 +75,10 @@ export async function searchSimilarProducts(params: {
   priceMin?: number | null;
   priceMax?: number | null;
   categoryId?: string | null;
+  collectionIds?: readonly string[] | null;
   minSimilarity?: number | null;
   excludeProductIds?: readonly string[] | null;
+  modelVersion?: string | null;
   efSearch?: number;
   queryTimeoutMs?: number;
   logger: Logger;
@@ -108,7 +110,8 @@ export async function searchSimilarProducts(params: {
                   $1,
                   $2::vector(2000),
                   $3,
-                  $4
+                  $4,
+                  $13
                 ) s
            JOIN shopify_products p ON p.id = s.product_id
            LEFT JOIN LATERAL (
@@ -139,6 +142,12 @@ export async function searchSimilarProducts(params: {
             AND ($9::text IS NULL OR p.category_id = $9::text)
             AND ($10::numeric IS NULL OR s.similarity < $10::numeric)
             AND ($11::uuid[] IS NULL OR p.id <> ALL($11::uuid[]))
+            AND ($12::uuid[] IS NULL OR EXISTS (
+              SELECT 1 FROM shopify_collection_products scp
+               WHERE scp.shop_id = p.shop_id
+                 AND scp.product_id = p.id
+                 AND scp.collection_id = ANY($12::uuid[])
+            ))
           ORDER BY s.similarity DESC`,
       [
         params.shopId,
@@ -152,6 +161,8 @@ export async function searchSimilarProducts(params: {
         params.categoryId ?? null,
         params.minSimilarity ?? null,
         params.excludeProductIds?.length ? params.excludeProductIds : null,
+        params.collectionIds?.length ? params.collectionIds : null,
+        params.modelVersion ?? null,
       ]
     );
 
