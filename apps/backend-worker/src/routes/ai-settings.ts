@@ -27,6 +27,8 @@ type ShopAiRow = Readonly<{
   openaiLastError: string | null;
 }>;
 
+type AiSettingsUpdateValue = string | boolean | number | Buffer | null;
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -75,6 +77,47 @@ function buildEncryptionKey(env: AppEnv): Buffer {
 const DEFAULT_EMBEDDING_BATCH_SIZE = 100;
 const DEFAULT_SIMILARITY_THRESHOLD = 0.8;
 const DEFAULT_DAILY_BUDGET = 100000;
+
+function applyOpenAiApiKeyUpdate(params: {
+  apiKeyRaw: string;
+  enabled: boolean | undefined;
+  updates: string[];
+  values: AiSettingsUpdateValue[];
+  idx: number;
+  env: AppEnv;
+}): { nextIdx: number; nextStatus: OpenAiConnectionStatus } {
+  const trimmed = params.apiKeyRaw.trim();
+  let idx = params.idx;
+
+  if (trimmed.length === 0) {
+    params.updates.push(
+      `openai_api_key_ciphertext = NULL`,
+      `openai_api_key_iv = NULL`,
+      `openai_api_key_tag = NULL`,
+      `openai_key_version = $${idx++}`
+    );
+    params.values.push(params.env.encryptionKeyVersion);
+    return {
+      nextIdx: idx,
+      nextStatus: params.enabled === false ? 'disabled' : 'missing_key',
+    };
+  }
+
+  const key = buildEncryptionKey(params.env);
+  const encrypted = encryptAesGcm(Buffer.from(trimmed, 'utf-8'), key);
+  params.updates.push(`openai_api_key_ciphertext = $${idx++}`);
+  params.values.push(encrypted.ciphertext);
+  params.updates.push(`openai_api_key_iv = $${idx++}`);
+  params.values.push(encrypted.iv);
+  params.updates.push(`openai_api_key_tag = $${idx++}`);
+  params.values.push(encrypted.tag);
+  params.updates.push(`openai_key_version = $${idx++}`);
+  params.values.push(params.env.encryptionKeyVersion);
+  return {
+    nextIdx: idx,
+    nextStatus: params.enabled === false ? 'disabled' : 'pending',
+  };
+}
 
 function toNumber(value: string | number | null | undefined): number | null {
   if (value == null) return null;
@@ -372,7 +415,7 @@ export const aiSettingsRoutes: FastifyPluginCallback<AiSettingsPluginOptions> = 
           );
 
           const updates: string[] = [];
-          const values: (string | boolean | number | Buffer | null)[] = [session.shopId];
+          const values: AiSettingsUpdateValue[] = [session.shopId];
           let idx = 2;
           let nextStatus: OpenAiConnectionStatus | null | undefined;
 
@@ -403,27 +446,16 @@ export const aiSettingsRoutes: FastifyPluginCallback<AiSettingsPluginOptions> = 
           }
 
           if (apiKeyRaw !== undefined) {
-            const trimmed = apiKeyRaw.trim();
-            if (trimmed.length === 0) {
-              updates.push(`openai_api_key_ciphertext = NULL`);
-              updates.push(`openai_api_key_iv = NULL`);
-              updates.push(`openai_api_key_tag = NULL`);
-              updates.push(`openai_key_version = $${idx++}`);
-              values.push(env.encryptionKeyVersion);
-              nextStatus = enabled === false ? 'disabled' : 'missing_key';
-            } else {
-              const key = buildEncryptionKey(env);
-              const encrypted = encryptAesGcm(Buffer.from(trimmed, 'utf-8'), key);
-              updates.push(`openai_api_key_ciphertext = $${idx++}`);
-              values.push(encrypted.ciphertext);
-              updates.push(`openai_api_key_iv = $${idx++}`);
-              values.push(encrypted.iv);
-              updates.push(`openai_api_key_tag = $${idx++}`);
-              values.push(encrypted.tag);
-              updates.push(`openai_key_version = $${idx++}`);
-              values.push(env.encryptionKeyVersion);
-              nextStatus = enabled === false ? 'disabled' : 'pending';
-            }
+            const keyUpdate = applyOpenAiApiKeyUpdate({
+              apiKeyRaw,
+              enabled,
+              updates,
+              values,
+              idx,
+              env,
+            });
+            idx = keyUpdate.nextIdx;
+            nextStatus = keyUpdate.nextStatus;
           }
 
           if (nextStatus != null) {
@@ -546,7 +578,7 @@ export const aiSettingsRoutes: FastifyPluginCallback<AiSettingsPluginOptions> = 
         'extraction',
         'audit',
       ] as const;
-      const VALID_PROVIDERS = ['openai', 'xai', 'gemini', 'deepseek', 'selfhosted'];
+      const VALID_PROVIDERS = new Set(['openai', 'xai', 'gemini', 'deepseek', 'selfhosted']);
       const COLUMN_MAP: Record<string, string> = {
         translation: 'model_translation',
         classification: 'model_classification',
@@ -571,7 +603,7 @@ export const aiSettingsRoutes: FastifyPluginCallback<AiSettingsPluginOptions> = 
             if (typeof val !== 'string') continue;
             const parts = val.split(':');
             const provider = parts[0];
-            if (!provider || parts.length < 2 || !VALID_PROVIDERS.includes(provider)) continue;
+            if (!provider || parts.length < 2 || !VALID_PROVIDERS.has(provider)) continue;
             updates.push(`${COLUMN_MAP[task]} = $${idx++}`);
             values.push(val);
           }

@@ -82,7 +82,7 @@ export interface AiSettingsUpdateRequest {
 }
 
 export interface AiHealthResponse {
-  status: 'ok' | 'disabled' | 'missing_key' | 'error';
+  status: AiHealthStatus;
   checkedAt: string;
   message?: string;
   latencyMs?: number;
@@ -134,7 +134,7 @@ export interface XaiSettingsUpdateRequest {
 }
 
 export interface XaiHealthResponse {
-  status: 'ok' | 'disabled' | 'missing_key' | 'error';
+  status: AiHealthStatus;
   message?: string;
   checkedAt: string;
   latencyMs?: number;
@@ -150,6 +150,10 @@ export type AiConnectionStatus =
   | 'disabled'
   | 'missing_key'
   | 'pending';
+
+export type AiHealthStatus =
+  | 'ok'
+  | Extract<AiConnectionStatus, 'error' | 'disabled' | 'missing_key'>;
 
 export type AiProvider = 'openai' | 'xai' | 'gemini' | 'deepseek' | 'selfhosted';
 
@@ -198,7 +202,7 @@ export interface GeminiSettingsUpdateRequest {
 }
 
 export interface GeminiHealthResponse {
-  status: 'ok' | 'disabled' | 'missing_key' | 'error';
+  status: AiHealthStatus;
   message?: string;
   checkedAt: string;
   latencyMs?: number;
@@ -244,7 +248,7 @@ export interface DeepSeekSettingsUpdateRequest {
 }
 
 export interface DeepSeekHealthResponse {
-  status: 'ok' | 'disabled' | 'missing_key' | 'error';
+  status: AiHealthStatus;
   message?: string;
   checkedAt: string;
   latencyMs?: number;
@@ -405,6 +409,48 @@ function isCanonicalUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
 }
 
+function isValidTriggeredBy(
+  value: 'scheduler' | 'manual' | 'system' | undefined
+): value is 'scheduler' | 'manual' | 'system' {
+  return value === 'scheduler' || value === 'manual' || value === 'system';
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return isFiniteNumber(value) && Number.isInteger(value) && value > 0;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return isFiniteNumber(value) && Number.isInteger(value) && value >= 0;
+}
+
+function isOptionalPositiveInteger(value: unknown): boolean {
+  return value === undefined || isPositiveInteger(value);
+}
+
+function isOptionalNonNegativeInteger(value: unknown): boolean {
+  return value === undefined || isNonNegativeInteger(value);
+}
+
+function isOptionalCanonicalUuid(value: unknown): boolean {
+  return value === undefined || (typeof value === 'string' && isCanonicalUuid(value));
+}
+
+function isOptionalBoolean(value: unknown): boolean {
+  return value === undefined || typeof value === 'boolean';
+}
+
+function hasValidUuidArray(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((item) => typeof item === 'string' && isCanonicalUuid(item))
+  );
+}
+
 export function validateAiBatchOrchestratorJobPayload(
   data: unknown
 ): data is AiBatchOrchestratorJobPayload {
@@ -417,28 +463,14 @@ export function validateAiBatchOrchestratorJobPayload(
   if (typeof job.embeddingType !== 'string') return false;
   if (!(AI_EMBEDDING_TYPES as readonly string[]).includes(job.embeddingType)) return false;
   if (typeof job.model !== 'string' || !job.model.trim()) return false;
-  if (typeof job.dimensions !== 'number' || !Number.isFinite(job.dimensions)) return false;
-  if (!Number.isInteger(job.dimensions) || job.dimensions <= 0) return false;
-  if (typeof job.requestedAt !== 'number' || !Number.isFinite(job.requestedAt)) return false;
+  if (!isPositiveInteger(job.dimensions)) return false;
+  if (!isFiniteNumber(job.requestedAt)) return false;
+  if (!isValidTriggeredBy(job.triggeredBy)) return false;
 
-  if (
-    job.triggeredBy !== 'scheduler' &&
-    job.triggeredBy !== 'manual' &&
-    job.triggeredBy !== 'system'
-  ) {
-    return false;
-  }
-
-  if (job.maxItems !== undefined) {
-    if (typeof job.maxItems !== 'number' || !Number.isFinite(job.maxItems)) return false;
-    if (!Number.isInteger(job.maxItems) || job.maxItems <= 0) return false;
-  }
+  if (!isOptionalPositiveInteger(job.maxItems)) return false;
 
   if (job.productIds !== undefined) {
-    if (!Array.isArray(job.productIds) || job.productIds.length === 0) return false;
-    if (!job.productIds.every((value) => typeof value === 'string' && isCanonicalUuid(value))) {
-      return false;
-    }
+    if (!hasValidUuidArray(job.productIds)) return false;
   }
 
   return true;
@@ -452,20 +484,10 @@ export function validateAiBatchPollerJobPayload(data: unknown): data is AiBatchP
   if (typeof job.embeddingBatchId !== 'string' || !isCanonicalUuid(job.embeddingBatchId))
     return false;
   if (typeof job.openAiBatchId !== 'string' || !job.openAiBatchId.trim()) return false;
-  if (typeof job.requestedAt !== 'number' || !Number.isFinite(job.requestedAt)) return false;
+  if (!isFiniteNumber(job.requestedAt)) return false;
+  if (!isValidTriggeredBy(job.triggeredBy)) return false;
 
-  if (
-    job.triggeredBy !== 'scheduler' &&
-    job.triggeredBy !== 'manual' &&
-    job.triggeredBy !== 'system'
-  ) {
-    return false;
-  }
-
-  if (job.pollAttempt !== undefined) {
-    if (typeof job.pollAttempt !== 'number' || !Number.isFinite(job.pollAttempt)) return false;
-    if (!Number.isInteger(job.pollAttempt) || job.pollAttempt < 0) return false;
-  }
+  if (!isOptionalNonNegativeInteger(job.pollAttempt)) return false;
 
   return true;
 }
@@ -475,20 +497,10 @@ export function validateAiBatchCleanupJobPayload(data: unknown): data is AiBatch
   const job = data as Partial<AiBatchCleanupJobPayload>;
 
   if (typeof job.shopId !== 'string' || !isCanonicalUuid(job.shopId)) return false;
-  if (typeof job.requestedAt !== 'number' || !Number.isFinite(job.requestedAt)) return false;
+  if (!isFiniteNumber(job.requestedAt)) return false;
+  if (!isValidTriggeredBy(job.triggeredBy)) return false;
 
-  if (
-    job.triggeredBy !== 'scheduler' &&
-    job.triggeredBy !== 'manual' &&
-    job.triggeredBy !== 'system'
-  ) {
-    return false;
-  }
-
-  if (job.retentionDays !== undefined) {
-    if (typeof job.retentionDays !== 'number' || !Number.isFinite(job.retentionDays)) return false;
-    if (!Number.isInteger(job.retentionDays) || job.retentionDays <= 0) return false;
-  }
+  if (!isOptionalPositiveInteger(job.retentionDays)) return false;
 
   return true;
 }
@@ -500,40 +512,13 @@ export function validateAiBatchBackfillJobPayload(
   const job = data as Partial<AiBatchBackfillJobPayload>;
 
   if (typeof job.shopId !== 'string' || !isCanonicalUuid(job.shopId)) return false;
-  if (typeof job.requestedAt !== 'number' || !Number.isFinite(job.requestedAt)) return false;
+  if (!isFiniteNumber(job.requestedAt)) return false;
+  if (!isValidTriggeredBy(job.triggeredBy)) return false;
 
-  if (
-    job.triggeredBy !== 'scheduler' &&
-    job.triggeredBy !== 'manual' &&
-    job.triggeredBy !== 'system'
-  ) {
-    return false;
-  }
-
-  if (job.chunkSize !== undefined) {
-    if (typeof job.chunkSize !== 'number' || !Number.isFinite(job.chunkSize)) return false;
-    if (!Number.isInteger(job.chunkSize) || job.chunkSize <= 0) return false;
-  }
-
-  if (job.offsetProductId !== undefined) {
-    if (typeof job.offsetProductId !== 'string' || !isCanonicalUuid(job.offsetProductId)) {
-      return false;
-    }
-  }
-
-  if (job.dailyBudgetRemaining !== undefined) {
-    if (
-      typeof job.dailyBudgetRemaining !== 'number' ||
-      !Number.isFinite(job.dailyBudgetRemaining)
-    ) {
-      return false;
-    }
-    if (!Number.isInteger(job.dailyBudgetRemaining) || job.dailyBudgetRemaining < 0) return false;
-  }
-
-  if (job.nightlyWindowOnly !== undefined) {
-    if (typeof job.nightlyWindowOnly !== 'boolean') return false;
-  }
+  if (!isOptionalPositiveInteger(job.chunkSize)) return false;
+  if (!isOptionalCanonicalUuid(job.offsetProductId)) return false;
+  if (!isOptionalNonNegativeInteger(job.dailyBudgetRemaining)) return false;
+  if (!isOptionalBoolean(job.nightlyWindowOnly)) return false;
 
   return true;
 }

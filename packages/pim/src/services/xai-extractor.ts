@@ -35,6 +35,131 @@ export type ExtractionResult = Readonly<{
   };
 }>;
 
+interface LLMExtractionResponse {
+  httpStatus: number;
+  tokensInput: number;
+  tokensOutput: number;
+  parsed: ExtractedProduct;
+}
+
+interface TrackExtractionCostParams {
+  credentials: ChatModelCredentials;
+  shopId: string;
+  tokensInput: number;
+  tokensOutput: number;
+  httpStatus: number;
+  latencyMs: number;
+  productId?: string | undefined;
+  matchId?: string | undefined;
+  errorMessage?: string | undefined;
+}
+
+async function callLLMExtraction(
+  credentials: ChatModelCredentials,
+  sourceUrl: string,
+  html: string
+): Promise<LLMExtractionResponse> {
+  const truncatedHtml = html.slice(0, 50000);
+  const response = await fetch(buildChatCompletionsUrl(credentials.baseUrl), {
+    method: 'POST',
+    headers: {
+      ...(credentials.apiKey ? { Authorization: `Bearer ${credentials.apiKey}` } : {}),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: credentials.model,
+      temperature: credentials.temperature,
+      max_tokens: credentials.maxTokensPerRequest,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Esti un expert in extractia structurata a datelor despre produse din pagini web.\n' +
+            'REGULI STRICTE:\n' +
+            '- Extrage DOAR informatii care apar explicit in HTML\n' +
+            '- NU inventa sau presupune valori\n' +
+            '- Daca un camp nu exista, lasa-l undefined\n' +
+            '- Pentru GTIN/EAN/UPC verifica 8-14 cifre\n' +
+            '- Extrage descrierea completa a produsului in campul description\n' +
+            '- Descrierea trebuie sa fie in romana si sa aiba minimum 100 cuvinte\n' +
+            '- Daca nu exista descriere clara, lasa description undefined\n' +
+            '- Confidence < 0.8 daca informatiile sunt ambigue\n' +
+            '- Adauga in fieldsUncertain toate campurile nesigure',
+        },
+        {
+          role: 'user',
+          content: `Extrage informatiile despre produs din acest HTML.\n\nURL sursa: ${sourceUrl}\n\nHTML:\n${truncatedHtml}`,
+        },
+      ],
+    }),
+  });
+
+  const httpStatus = response.status;
+  const data = (await response.json()) as {
+    choices?: { message?: { content?: string } }[];
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
+  };
+  const tokensInput = data.usage?.prompt_tokens ?? 0;
+  const tokensOutput = data.usage?.completion_tokens ?? 0;
+
+  if (!response.ok) {
+    throw new Error(
+      `${credentials.provider} extraction failed: ${response.status} ${response.statusText}`
+    );
+  }
+
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error(`${credentials.provider} response missing content`);
+  }
+
+  const parsed = ExtractedProductSchema.parse(safeJsonParse(content));
+
+  return { httpStatus, tokensInput, tokensOutput, parsed };
+}
+
+function applyGtinValidation(
+  parsed: ExtractedProduct
+): ExtractionResult['gtinValidation'] | undefined {
+  if (!parsed.gtin) return undefined;
+
+  const normalized = normalizeGTIN(parsed.gtin);
+  const valid = validateGTINChecksum(parsed.gtin);
+
+  if (!valid) {
+    parsed.confidence.fieldsUncertain.push('gtin');
+    if (parsed.confidence.overall > 0.7) {
+      parsed.confidence.overall = 0.7;
+    }
+  }
+
+  return { original: parsed.gtin, normalized, valid };
+}
+
+async function trackExtractionCost(params: TrackExtractionCostParams): Promise<void> {
+  await trackCost({
+    provider: params.credentials.provider,
+    operation: 'extraction',
+    endpoint: 'extract-product',
+    shopId: params.shopId,
+    tokensInput: params.tokensInput,
+    tokensOutput: params.tokensOutput,
+    estimatedCost: estimateChatCost({
+      provider: params.credentials.provider,
+      tokensInput: params.tokensInput,
+      tokensOutput: params.tokensOutput,
+    }),
+    httpStatus: params.httpStatus,
+    responseTimeMs: params.latencyMs,
+    ...(params.productId ? { productId: params.productId } : {}),
+    metadata: {
+      ...(params.matchId ? { matchId: params.matchId } : {}),
+    },
+    ...(params.errorMessage ? { errorMessage: params.errorMessage } : {}),
+  });
+}
+
 export class XaiExtractorService {
   async extractProductFromHTML(params: ExtractionParams): Promise<ExtractionResult> {
     const { html, sourceUrl, shopId, credentials, matchId, productId } = params;
@@ -62,112 +187,39 @@ export class XaiExtractorService {
     let httpStatus = 0;
 
     try {
-      const truncatedHtml = html.slice(0, 50000);
-      const response = await fetch(buildChatCompletionsUrl(credentials.baseUrl), {
-        method: 'POST',
-        headers: {
-          ...(credentials.apiKey ? { Authorization: `Bearer ${credentials.apiKey}` } : {}),
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: credentials.model,
-          temperature: credentials.temperature,
-          max_tokens: credentials.maxTokensPerRequest,
-          response_format: { type: 'json_object' },
-          messages: [
-            {
-              role: 'system',
-              content:
-                'Esti un expert in extractia structurata a datelor despre produse din pagini web.\n' +
-                'REGULI STRICTE:\n' +
-                '- Extrage DOAR informatii care apar explicit in HTML\n' +
-                '- NU inventa sau presupune valori\n' +
-                '- Daca un camp nu exista, lasa-l undefined\n' +
-                '- Pentru GTIN/EAN/UPC verifica 8-14 cifre\n' +
-                '- Extrage descrierea completa a produsului in campul description\n' +
-                '- Descrierea trebuie sa fie in romana si sa aiba minimum 100 cuvinte\n' +
-                '- Daca nu exista descriere clara, lasa description undefined\n' +
-                '- Confidence < 0.8 daca informatiile sunt ambigue\n' +
-                '- Adauga in fieldsUncertain toate campurile nesigure',
-            },
-            {
-              role: 'user',
-              content: `Extrage informatiile despre produs din acest HTML.\n\nURL sursa: ${sourceUrl}\n\nHTML:\n${truncatedHtml}`,
-            },
-          ],
-        }),
-      });
-
-      httpStatus = response.status;
-      const data = (await response.json()) as {
-        choices?: { message?: { content?: string } }[];
-        usage?: { prompt_tokens?: number; completion_tokens?: number };
-      };
-      tokensInput = data.usage?.prompt_tokens ?? 0;
-      tokensOutput = data.usage?.completion_tokens ?? 0;
+      const llmResult = await callLLMExtraction(credentials, sourceUrl, html);
+      httpStatus = llmResult.httpStatus;
+      tokensInput = llmResult.tokensInput;
+      tokensOutput = llmResult.tokensOutput;
       const latencyMs = Date.now() - startTime;
 
-      if (!response.ok) {
-        throw new Error(
-          `${credentials.provider} extraction failed: ${response.status} ${response.statusText}`
-        );
-      }
+      const gtinValidation = applyGtinValidation(llmResult.parsed);
 
-      const content = data.choices?.[0]?.message?.content;
-      if (!content) {
-        throw new Error(`${credentials.provider} response missing content`);
-      }
-
-      const parsed = ExtractedProductSchema.parse(safeJsonParse(content));
-
-      let gtinValidation: ExtractionResult['gtinValidation'];
-      if (parsed.gtin) {
-        const normalized = normalizeGTIN(parsed.gtin);
-        const valid = validateGTINChecksum(parsed.gtin);
-        gtinValidation = { original: parsed.gtin, normalized, valid };
-
-        if (!valid) {
-          parsed.confidence.fieldsUncertain.push('gtin');
-          if (parsed.confidence.overall > 0.7) {
-            parsed.confidence.overall = 0.7;
-          }
-        }
-      }
-
-      await trackCost({
-        provider: credentials.provider,
-        operation: 'extraction',
-        endpoint: 'extract-product',
+      await trackExtractionCost({
+        credentials,
         shopId,
         tokensInput,
         tokensOutput,
-        estimatedCost: estimateChatCost({
-          provider: credentials.provider,
-          tokensInput,
-          tokensOutput,
-        }),
         httpStatus,
-        responseTimeMs: latencyMs,
-        ...(productId ? { productId } : {}),
-        metadata: {
-          ...(matchId ? { matchId } : {}),
-        },
+        latencyMs,
+        productId,
+        matchId,
       });
 
-      if (parsed.confidence.overall < XAI_CONFIDENCE_THRESHOLD) {
+      if (llmResult.parsed.confidence.overall < XAI_CONFIDENCE_THRESHOLD) {
         return {
           success: false,
-          data: parsed,
+          data: llmResult.parsed,
           tokensUsed: { input: tokensInput, output: tokensOutput },
           latencyMs,
           ...(gtinValidation ? { gtinValidation } : {}),
-          error: `Confidence ${parsed.confidence.overall} below threshold ${XAI_CONFIDENCE_THRESHOLD}`,
+          error: `Confidence ${llmResult.parsed.confidence.overall} below threshold ${XAI_CONFIDENCE_THRESHOLD}`,
         };
       }
 
       return {
         success: true,
-        data: parsed,
+        data: llmResult.parsed,
         tokensUsed: { input: tokensInput, output: tokensOutput },
         latencyMs,
         ...(gtinValidation ? { gtinValidation } : {}),
@@ -176,24 +228,15 @@ export class XaiExtractorService {
       const latencyMs = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : 'Unknown extraction error';
 
-      await trackCost({
-        provider: credentials.provider,
-        operation: 'extraction',
-        endpoint: 'extract-product',
+      await trackExtractionCost({
+        credentials,
         shopId,
         tokensInput,
         tokensOutput,
-        estimatedCost: estimateChatCost({
-          provider: credentials.provider,
-          tokensInput,
-          tokensOutput,
-        }),
         httpStatus,
-        responseTimeMs: latencyMs,
-        ...(productId ? { productId } : {}),
-        metadata: {
-          ...(matchId ? { matchId } : {}),
-        },
+        latencyMs,
+        productId,
+        matchId,
         errorMessage,
       });
 

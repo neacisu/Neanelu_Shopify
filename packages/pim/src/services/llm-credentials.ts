@@ -14,7 +14,8 @@ export type ChatModelCredentials = Readonly<{
 
 export function buildChatCompletionsUrl(baseUrl: string): string {
   const normalized = baseUrl.replace(/\/$/, '');
-  return `${normalized.endsWith('/v1') ? normalized : `${normalized}/v1`}/chat/completions`;
+  const apiBase = normalized.endsWith('/v1') ? normalized : `${normalized}/v1`;
+  return `${apiBase}/chat/completions`;
 }
 
 export function estimateChatCost(params: {

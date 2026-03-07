@@ -160,7 +160,7 @@ const tabs = [
 
 function resolveActiveTab(pathname: string): string {
   const segments = pathname.split('/').filter(Boolean);
-  const last = segments[segments.length - 1] ?? 'general';
+  const last = segments.at(-1) ?? 'general';
   if (last === 'settings') return 'general';
   if (tabs.some((tab) => tab.value === last)) return last;
   return 'general';

@@ -1,4 +1,4 @@
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 import { Redis } from 'ioredis';
 
 import type { Logger } from '@app/logger';
@@ -112,6 +112,595 @@ export interface ExtractionWorkerHandle {
   close: () => Promise<void>;
 }
 
+// ---------------------------------------------------------------------------
+// Helper interfaces
+// ---------------------------------------------------------------------------
+
+interface FetchOrScrapeParams {
+  shopId: string;
+  matchId: string;
+  sourceUrl: string;
+  sourceId: string | null;
+  productId: string | null;
+  env: AppEnv;
+  logger: Logger;
+}
+
+interface FetchOrScrapeResult {
+  harvestId: string;
+  html: string;
+}
+
+interface ScraperCallbackDeps {
+  shopId: string;
+  configId: string;
+  sourceId: string;
+  domain: string;
+  sourceUrl: string;
+  productId: string | null;
+  activeRunIdRef: { value: string | null };
+  fetchedHtml: string | null;
+}
+
+interface HandleScrapeResultParams {
+  scrapeResult: Awaited<ReturnType<typeof scrapeProductPage>>;
+  redisClient: Redis;
+  domain: string;
+  shopId: string;
+  configId: string;
+  sourceUrl: string;
+  scraperStart: number;
+}
+
+interface RunExtractionParams {
+  shopId: string;
+  matchId: string;
+  sourceUrl: string;
+  productId: string | null;
+  harvestId: string;
+  html: string;
+  env: AppEnv;
+  logger: Logger;
+}
+
+interface ScraperQueueRow {
+  id: string;
+  shop_id: string | null;
+  config_id: string;
+  url: string;
+  attempts: number;
+  max_attempts: number;
+}
+
+interface SweepScrapeResultParams {
+  rowId: string;
+  result: Awaited<ReturnType<typeof scrapeProductPage>>;
+  shopId: string;
+  config: { sourceId: string };
+  url: string;
+  attemptNo: number;
+  maxAttempts: number;
+}
+
+// ---------------------------------------------------------------------------
+// Extracted helpers – processor
+// ---------------------------------------------------------------------------
+
+function buildScraperCallbacks(deps: ScraperCallbackDeps) {
+  const { shopId, configId, sourceId, domain, sourceUrl, productId, activeRunIdRef, fetchedHtml } =
+    deps;
+
+  return {
+    onRateLimited: async ({
+      url,
+      retryAtIso,
+      configId: maybeConfigId,
+    }: {
+      url: string;
+      retryAtIso: string;
+      configId?: string | null;
+    }) => {
+      await withTenantContext(shopId, async (client) => {
+        await client.query(
+          `INSERT INTO scraper_queue
+             (shop_id, config_id, url, status, attempts, max_attempts, next_attempt_at, created_at)
+           VALUES ($1, $2, $3, 'pending', 0, 3, $4::timestamptz, now())`,
+          [shopId, maybeConfigId ?? configId, url, retryAtIso]
+        );
+      });
+    },
+
+    fetchStaticHtml: () => Promise.resolve(fetchedHtml),
+
+    onBrowserPage: (delta: number) => {
+      if (delta === 1) incrementScraperBrowserActivePages(domain);
+      else decrementScraperBrowserActivePages(domain);
+    },
+
+    isKnownHash: async (hash: string) => {
+      const existing = await withTenantContext(shopId, async (client) => {
+        const result = await client.query<{ id: string }>(
+          `SELECT id FROM prod_raw_harvest WHERE content_hash = $1 LIMIT 1`,
+          [hash]
+        );
+        return result.rows[0]?.id ?? null;
+      });
+      return Boolean(existing);
+    },
+
+    createRunRecord: async (run: {
+      status: string;
+      durationMs?: number | null;
+      errorsCount?: number | null;
+      contentHashesDeduped?: number | null;
+      method?: string | null;
+      errorLog?: unknown;
+    }) => {
+      await withTenantContext(shopId, async (client) => {
+        if (run.status === 'running') {
+          const inserted = await client.query<{ id: string }>(
+            `INSERT INTO scraper_runs
+             (shop_id, config_id, source_id, status, trigger_type, target_urls, started_at, created_at)
+             VALUES ($1, $2, $3, 'running', 'extraction_fallback', ARRAY[$4], now(), now())
+             RETURNING id`,
+            [shopId, configId, sourceId, sourceUrl]
+          );
+          activeRunIdRef.value = inserted.rows[0]?.id ?? null;
+          return;
+        }
+        const runId = activeRunIdRef.value;
+        if (!runId) return;
+        await client.query(
+          `UPDATE scraper_runs
+             SET status = $2,
+                 duration_ms = $3,
+                 errors_count = COALESCE($4, errors_count),
+                 content_hashes_deduped = COALESCE($5, content_hashes_deduped),
+                 method = COALESCE($6, method),
+                 completed_at = now(),
+                 error_log = COALESCE($7::jsonb, error_log)
+           WHERE id = $1
+             AND shop_id = $8`,
+          [
+            runId,
+            run.status,
+            run.durationMs ?? 0,
+            run.errorsCount ?? null,
+            run.contentHashesDeduped ?? null,
+            run.method ?? null,
+            run.errorLog ? JSON.stringify(run.errorLog) : null,
+            shopId,
+          ]
+        );
+      });
+    },
+
+    trackUsage: async (usage: { endpoint: string; responseTimeMs: number }) => {
+      await withTenantContext(shopId, async (client) => {
+        await client.query(
+          `INSERT INTO api_usage_log
+             (api_provider, endpoint, request_count, estimated_cost, response_time_ms, product_id, shop_id, created_at)
+           VALUES ('scraper', $1, 1, 0, $2, $3, $4, now())`,
+          [usage.endpoint.slice(0, 100), usage.responseTimeMs, productId, shopId]
+        );
+      });
+      recordPimApiUsage({
+        provider: 'scraper',
+        operation: 'other',
+        estimatedCost: 0,
+        requestCount: 1,
+        responseTimeMs: usage.responseTimeMs,
+      });
+    },
+  };
+}
+
+async function handleScrapeResult(params: HandleScrapeResultParams): Promise<string | null> {
+  const { scrapeResult, redisClient, domain, shopId, configId, sourceUrl, scraperStart } = params;
+
+  const robotsBlockKey = `scraper:robots:block:streak:${domain}`;
+  const failureKey = `scraper:failure:streak:${domain}`;
+  const failureWindowTotalKey = `scraper:failure:window:total:${domain}`;
+  const failureWindowFailKey = `scraper:failure:window:fail:${domain}`;
+  const failureAlertCooldownKey = `scraper:failure:alert:cooldown:${domain}`;
+
+  if (scrapeResult.status === 'success') {
+    if (scrapeResult.method === 'cheerio') {
+      recordScraperSuccess(domain, 'cheerio');
+    } else {
+      recordScraperSuccess(domain, 'playwright');
+    }
+    recordScraperLatency(domain, scrapeResult.method, (Date.now() - scraperStart) / 1000);
+    await redisClient.del(robotsBlockKey);
+    await redisClient.del(failureKey);
+    await redisClient.incr(failureWindowTotalKey);
+    await redisClient.expire(failureWindowTotalKey, 1800);
+    return scrapeResult.html;
+  }
+
+  if (scrapeResult.reason === 'deduped') {
+    recordScraperDeduped(domain, 'playwright');
+    await redisClient.incr(failureWindowTotalKey);
+    await redisClient.expire(failureWindowTotalKey, 1800);
+    return null;
+  }
+
+  if (scrapeResult.status === 'robots_blocked') {
+    recordScraperRobotsBlocked(domain);
+    await redisClient.incr(failureWindowTotalKey);
+    await redisClient.expire(failureWindowTotalKey, 1800);
+    const robotsStreak = await redisClient.incr(robotsBlockKey);
+    await redisClient.expire(robotsBlockKey, 3600);
+    await withTenantContext(shopId, async (client) => {
+      await client.query(
+        `INSERT INTO pim_notifications (shop_id, type, title, body, read, created_at)
+         VALUES ($1, 'scraper.robots.blocked', 'Scraper blocked by robots.txt', $2::jsonb, false, now())`,
+        [shopId, JSON.stringify({ url: sourceUrl, domain })]
+      );
+      if (robotsStreak >= 5) {
+        await client.query(
+          `INSERT INTO pim_notifications (shop_id, type, title, body, read, created_at)
+           VALUES ($1, 'scraper.robots.mass_block', 'Scraper robots mass block', $2::jsonb, false, now())`,
+          [shopId, JSON.stringify({ domain, blockedConsecutive: robotsStreak })]
+        );
+      }
+    });
+    return null;
+  }
+
+  if (scrapeResult.status === 'login_detected') {
+    recordScraperLoginDetected(domain, 'playwright');
+    await redisClient.incr(failureWindowTotalKey);
+    await redisClient.expire(failureWindowTotalKey, 1800);
+    await withTenantContext(shopId, async (client) => {
+      await client.query(
+        `INSERT INTO pim_notifications (shop_id, type, title, body, read, created_at)
+         VALUES ($1, 'scraper.login.detected', 'Scraper login wall detected', $2::jsonb, false, now())`,
+        [shopId, JSON.stringify({ url: sourceUrl, domain })]
+      );
+    });
+    return null;
+  }
+
+  // Generic failure path
+  recordScraperFailure(domain, 'playwright');
+  const failureStreak = await redisClient.incr(failureKey);
+  await redisClient.expire(failureKey, 1800);
+  const [total, fail]: [number, number] = await redisClient
+    .multi()
+    .incr(failureWindowTotalKey)
+    .expire(failureWindowTotalKey, 1800)
+    .incr(failureWindowFailKey)
+    .expire(failureWindowFailKey, 1800)
+    .exec()
+    .then((rows) => {
+      const totalValue = Number(rows?.[0]?.[1] ?? 0);
+      const failValue = Number(rows?.[2]?.[1] ?? 0);
+      return [totalValue, failValue];
+    });
+  const failureRatio = total > 0 ? fail / total : 0;
+  const canNotifyFailureRatio = !(await redisClient.exists(failureAlertCooldownKey));
+  await withTenantContext(shopId, async (client) => {
+    await client.query(
+      `INSERT INTO scraper_queue
+         (shop_id, config_id, url, status, attempts, max_attempts, next_attempt_at, created_at)
+       VALUES ($1, $2, $3, 'pending', 1, 3, now() + interval '1 minute', now())`,
+      [shopId, configId, sourceUrl]
+    );
+    await client.query(
+      `INSERT INTO pim_notifications (shop_id, type, title, body, read, created_at)
+       VALUES ($1, 'scraper.page.failed', 'Scraper page failed', $2::jsonb, false, now())`,
+      [shopId, JSON.stringify({ url: sourceUrl, domain })]
+    );
+    if (failureStreak >= 3 || (total >= 6 && failureRatio > 0.5 && canNotifyFailureRatio)) {
+      await client.query(
+        `INSERT INTO pim_notifications (shop_id, type, title, body, read, created_at)
+         VALUES ($1, 'scraper.failure.high_rate', 'Scraper failure rate > 50%', $2::jsonb, false, now())`,
+        [
+          shopId,
+          JSON.stringify({
+            domain,
+            failureStreak,
+            failureRatio,
+            windowTotal: total,
+          }),
+        ]
+      );
+      await redisClient.set(failureAlertCooldownKey, '1', 'EX', 900);
+    }
+  });
+  return null;
+}
+
+async function fetchOrScrapeHTML(params: FetchOrScrapeParams): Promise<FetchOrScrapeResult | null> {
+  const { shopId, matchId, sourceUrl, sourceId: matchSourceId, productId, env, logger } = params;
+
+  const existingHarvest = await withTenantContext(shopId, async (client) => {
+    const result = await client.query<{ id: string; raw_html: string | null }>(
+      `SELECT id, raw_html
+         FROM prod_raw_harvest
+        WHERE source_url = $1
+        ORDER BY fetched_at DESC
+        LIMIT 1`,
+      [sourceUrl]
+    );
+    return result.rows[0] ?? null;
+  });
+
+  if (existingHarvest?.raw_html) {
+    return { harvestId: existingHarvest.id, html: existingHarvest.raw_html };
+  }
+
+  const fetcher = new SimpleHTMLFetcherSafe();
+  const fetched = await fetcher.fetchHTML(sourceUrl);
+
+  let domain: string;
+  try {
+    domain = new URL(sourceUrl).hostname.toLowerCase();
+  } catch {
+    domain = 'unknown';
+  }
+
+  let html: string | null = null;
+
+  if (fetched.html) {
+    const staticJsonLd = extractJsonLd(fetched.html);
+    if (staticJsonLd.length > 0) {
+      html = fetched.html;
+      recordScraperCheerioFastPathHit(domain);
+      recordScraperSuccess(domain, 'cheerio');
+      recordScraperLatency(domain, 'cheerio', 0.01);
+    }
+  }
+
+  if (!html) {
+    const scraperSettings = await withTenantContext(shopId, async (client) =>
+      resolveScraperRuntimeSettings(client, shopId, env)
+    );
+    if (!scraperSettings.enabled) {
+      return null;
+    }
+
+    const scraperStart = Date.now();
+    recordScraperAttempt(domain, 'playwright');
+
+    const sourceId = await withTenantContext(shopId, async (client) =>
+      resolveSourceId(client, matchSourceId, sourceUrl)
+    );
+
+    const sourceConfig = await withTenantContext(shopId, async (client) => {
+      const result = await client.query<{
+        id: string;
+        source_id: string;
+        target_url_pattern: string;
+        rate_limit: { requestsPerSecond?: number } | null;
+        headers: Record<string, string> | null;
+        cookies: { name: string; value: string; domain?: string; path?: string }[] | null;
+        proxy_config: {
+          server?: string;
+          username?: string;
+          password?: string;
+          host?: string;
+          port?: number;
+          protocol?: 'http' | 'https' | 'socks5';
+        } | null;
+      }>(
+        `SELECT id, source_id, target_url_pattern, rate_limit, headers, cookies, proxy_config
+         FROM scraper_configs
+         WHERE shop_id = $2
+           AND is_active = true
+           AND $1 ~ target_url_pattern
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+        [sourceUrl, shopId]
+      );
+      const row = result.rows[0];
+      if (!row) return null;
+      return {
+        id: row.id,
+        sourceId: row.source_id,
+        targetUrlPattern: row.target_url_pattern,
+        rateLimit: row.rate_limit,
+        headers: row.headers,
+        cookies: row.cookies,
+        proxyConfig: row.proxy_config,
+      };
+    });
+
+    const configId =
+      sourceConfig?.id ??
+      (await withTenantContext(shopId, async (client) =>
+        ensureDefaultScraperConfig(client, shopId, sourceId, sourceUrl)
+      ));
+
+    const redisClient = new Redis(process.env['REDIS_URL'] ?? env.redisUrl);
+    const activeRunIdRef = { value: null as string | null };
+
+    const callbacks = buildScraperCallbacks({
+      shopId,
+      configId,
+      sourceId,
+      domain,
+      sourceUrl,
+      productId,
+      activeRunIdRef,
+      fetchedHtml: fetched.html ?? null,
+    });
+
+    const scrapeResult = await scrapeProductPage(sourceUrl, {
+      redis: redisClient,
+      userAgent: scraperSettings.userAgent,
+      timeoutMs: scraperSettings.timeoutMs,
+      rateLimitPerDomain: scraperSettings.rateLimitPerDomain,
+      robotsCacheTtlSeconds: scraperSettings.robotsCacheTtl,
+      maxConcurrentPages: scraperSettings.maxConcurrentPages,
+      sourceId,
+      sourceConfig: sourceConfig ?? {
+        id: configId,
+        sourceId,
+        targetUrlPattern: '.*',
+        rateLimit: null,
+        headers: null,
+        cookies: null,
+        proxyConfig: null,
+      },
+      shouldStopForQueue: true,
+      ...callbacks,
+    });
+
+    try {
+      html = await handleScrapeResult({
+        scrapeResult,
+        redisClient,
+        domain,
+        shopId,
+        configId,
+        sourceUrl,
+        scraperStart,
+      });
+    } finally {
+      await redisClient.quit();
+    }
+  }
+
+  if (!html) {
+    if (fetched.error || !fetched.html) {
+      warnLogger(logger).warn(
+        { matchId, error: fetched.error },
+        'Failed to fetch HTML for extraction'
+      );
+    }
+    return null;
+  }
+
+  const contentHash = createHash('sha256').update(html).digest('hex');
+  const harvestSourceId = await withTenantContext(shopId, async (client) =>
+    resolveSourceId(client, matchSourceId, sourceUrl)
+  );
+
+  const harvestId = await withTenantContext(shopId, async (client) => {
+    const insert = await client.query<{ id: string }>(
+      `INSERT INTO prod_raw_harvest (
+         source_id,
+         source_url,
+         raw_json,
+         raw_html,
+         http_status,
+         processing_status,
+         content_hash,
+         fetched_at,
+         created_at
+       )
+       VALUES ($1, $2, $3, $4, $5, 'pending', $6, now(), now())
+       RETURNING id`,
+      [harvestSourceId, sourceUrl, JSON.stringify({}), html, fetched.statusCode, contentHash]
+    );
+    return insert.rows[0]?.id ?? null;
+  });
+
+  if (!harvestId) {
+    warnLogger(logger).warn({ matchId }, 'Missing harvest data for extraction');
+    return null;
+  }
+
+  return { harvestId, html };
+}
+
+async function runExtractionAndPersist(params: RunExtractionParams): Promise<void> {
+  const { shopId, matchId, sourceUrl, productId, harvestId, html, env, logger } = params;
+
+  const credentials = await resolveChatTaskCredentials({
+    shopId,
+    taskType: 'extraction',
+    env,
+    logger,
+  });
+  if (!credentials) {
+    warnLogger(logger).warn({ shopId }, 'No routed AI credentials available for extraction');
+    return;
+  }
+
+  const extractor = new XaiExtractorServiceSafe();
+  const inputScan = await scanInput({ shopId, text: html, env, logger });
+  if (!inputScan.isValid) {
+    warnLogger(logger).warn(
+      { shopId, matchId, reason: inputScan.reason },
+      'guardrails_blocked_extraction_input'
+    );
+    return;
+  }
+
+  const extraction = await extractor.extractProductFromHTML({
+    html: inputScan.sanitizedText,
+    sourceUrl,
+    shopId,
+    credentials,
+    ...(matchId ? { matchId } : {}),
+    ...(productId ? { productId } : {}),
+  });
+
+  const confidenceOverall = extraction.data?.confidence?.overall;
+  const fieldsUncertain = extraction.data?.confidence?.fieldsUncertain;
+  const outputScan = await scanOutput({
+    shopId,
+    prompt: inputScan.sanitizedText,
+    output: JSON.stringify(extraction.data ?? {}),
+    env,
+    logger,
+  });
+
+  let extractedSpecs: Record<string, unknown> = {};
+  if (outputScan.isValid) {
+    try {
+      const parsed = JSON.parse(outputScan.sanitizedText) as Record<string, unknown>;
+      extractedSpecs = parsed ?? {};
+    } catch {
+      extractedSpecs = {};
+    }
+  }
+
+  const sessionPayload: NewExtractionSession = {
+    harvestId,
+    agentVersion: 'xai-extractor-v1.0',
+    modelName: credentials.model,
+    extractedSpecs,
+    tokensUsed: extraction.tokensUsed.input + extraction.tokensUsed.output,
+    latencyMs: extraction.latencyMs,
+  };
+
+  if (confidenceOverall !== undefined) {
+    sessionPayload.confidenceScore = confidenceOverall;
+  }
+  if (fieldsUncertain) {
+    sessionPayload.fieldConfidences = { fieldsUncertain };
+  }
+  if (extraction.error) {
+    sessionPayload.errorMessage = extraction.error;
+  }
+
+  const session = await createExtractionSessionSafe(sessionPayload);
+
+  if (extraction.data) {
+    await updateSpecsExtractedSafe({
+      id: matchId,
+      specsExtracted: extractedSpecs,
+      extractionSessionId: session.id,
+    });
+
+    if (productId) {
+      await enqueueConsensusJob({
+        shopId,
+        productId,
+        trigger: 'extraction_complete',
+      });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Main worker
+// ---------------------------------------------------------------------------
+
 export function startExtractionWorker(logger: Logger): ExtractionWorkerHandle {
   const env = loadEnv();
   const scraperQueueSweepId = setInterval(() => {
@@ -163,468 +752,30 @@ export function startExtractionWorker(logger: Logger): ExtractionWorkerHandle {
               return;
             }
 
-            const existingHarvest = await withTenantContext(payload.shopId, async (client) => {
-              const result = await client.query<{ id: string; raw_html: string | null }>(
-                `SELECT id, raw_html
-                   FROM prod_raw_harvest
-                  WHERE source_url = $1
-                  ORDER BY fetched_at DESC
-                  LIMIT 1`,
-                [match.source_url]
-              );
-              return result.rows[0] ?? null;
-            });
-
-            let harvestId = existingHarvest?.id ?? null;
-            let html = existingHarvest?.raw_html ?? null;
-
-            if (!html) {
-              const fetcher = new SimpleHTMLFetcherSafe();
-              const fetched = await fetcher.fetchHTML(match.source_url);
-
-              const domain = (() => {
-                try {
-                  return new URL(match.source_url).hostname.toLowerCase();
-                } catch {
-                  return 'unknown';
-                }
-              })();
-
-              if (fetched.html) {
-                const staticJsonLd = extractJsonLd(fetched.html);
-                if (staticJsonLd.length > 0) {
-                  html = fetched.html;
-                  recordScraperCheerioFastPathHit(domain);
-                  recordScraperSuccess(domain, 'cheerio');
-                  recordScraperLatency(domain, 'cheerio', 0.01);
-                }
-              }
-
-              if (!html) {
-                const scraperSettings = await withTenantContext(payload.shopId, async (client) =>
-                  resolveScraperRuntimeSettings(client, payload.shopId, env)
-                );
-                if (!scraperSettings.enabled) {
-                  return;
-                }
-                const scraperStart = Date.now();
-                recordScraperAttempt(domain, 'playwright');
-                const sourceId = await withTenantContext(payload.shopId, async (client) =>
-                  resolveSourceId(client, match.source_id, match.source_url)
-                );
-                const sourceConfig = await withTenantContext(payload.shopId, async (client) => {
-                  const result = await client.query<{
-                    id: string;
-                    source_id: string;
-                    target_url_pattern: string;
-                    rate_limit: { requestsPerSecond?: number } | null;
-                    headers: Record<string, string> | null;
-                    cookies:
-                      | { name: string; value: string; domain?: string; path?: string }[]
-                      | null;
-                    proxy_config: {
-                      server?: string;
-                      username?: string;
-                      password?: string;
-                      host?: string;
-                      port?: number;
-                      protocol?: 'http' | 'https' | 'socks5';
-                    } | null;
-                  }>(
-                    `SELECT id, source_id, target_url_pattern, rate_limit, headers, cookies, proxy_config
-                     FROM scraper_configs
-                     WHERE shop_id = $2
-                       AND is_active = true
-                       AND $1 ~ target_url_pattern
-                     ORDER BY updated_at DESC
-                     LIMIT 1`,
-                    [match.source_url, payload.shopId]
-                  );
-                  const row = result.rows[0];
-                  if (!row) return null;
-                  return {
-                    id: row.id,
-                    sourceId: row.source_id,
-                    targetUrlPattern: row.target_url_pattern,
-                    rateLimit: row.rate_limit,
-                    headers: row.headers,
-                    cookies: row.cookies,
-                    proxyConfig: row.proxy_config,
-                  };
-                });
-                const configId =
-                  sourceConfig?.id ??
-                  (await withTenantContext(payload.shopId, async (client) =>
-                    ensureDefaultScraperConfig(client, payload.shopId, sourceId, match.source_url)
-                  ));
-                const redisClient = new Redis(process.env['REDIS_URL'] ?? env.redisUrl);
-                let activeRunId: string | null = null;
-                const scrapeResult = await scrapeProductPage(match.source_url, {
-                  redis: redisClient,
-                  userAgent: scraperSettings.userAgent,
-                  timeoutMs: scraperSettings.timeoutMs,
-                  rateLimitPerDomain: scraperSettings.rateLimitPerDomain,
-                  robotsCacheTtlSeconds: scraperSettings.robotsCacheTtl,
-                  maxConcurrentPages: scraperSettings.maxConcurrentPages,
-                  sourceId,
-                  sourceConfig: sourceConfig ?? {
-                    id: configId,
-                    sourceId,
-                    targetUrlPattern: '.*',
-                    rateLimit: null,
-                    headers: null,
-                    cookies: null,
-                    proxyConfig: null,
-                  },
-                  shouldStopForQueue: true,
-                  onRateLimited: async ({ url, retryAtIso, configId: maybeConfigId }) => {
-                    await withTenantContext(payload.shopId, async (client) => {
-                      await client.query(
-                        `INSERT INTO scraper_queue
-                           (shop_id, config_id, url, status, attempts, max_attempts, next_attempt_at, created_at)
-                         VALUES ($1, $2, $3, 'pending', 0, 3, $4::timestamptz, now())`,
-                        [payload.shopId, maybeConfigId ?? configId, url, retryAtIso]
-                      );
-                    });
-                  },
-                  fetchStaticHtml: () => Promise.resolve(fetched.html ?? null),
-                  onBrowserPage: (delta) => {
-                    if (delta === 1) incrementScraperBrowserActivePages(domain);
-                    else decrementScraperBrowserActivePages(domain);
-                  },
-                  isKnownHash: async (hash) => {
-                    const existing = await withTenantContext(payload.shopId, async (client) => {
-                      const result = await client.query<{ id: string }>(
-                        `SELECT id FROM prod_raw_harvest WHERE content_hash = $1 LIMIT 1`,
-                        [hash]
-                      );
-                      return result.rows[0]?.id ?? null;
-                    });
-                    return Boolean(existing);
-                  },
-                  createRunRecord: async (run) => {
-                    await withTenantContext(payload.shopId, async (client) => {
-                      if (run.status === 'running') {
-                        const inserted = await client.query<{ id: string }>(
-                          `INSERT INTO scraper_runs
-                           (shop_id, config_id, source_id, status, trigger_type, target_urls, started_at, created_at)
-                           VALUES ($1, $2, $3, 'running', 'extraction_fallback', ARRAY[$4], now(), now())
-                           RETURNING id`,
-                          [payload.shopId, configId, sourceId, match.source_url]
-                        );
-                        activeRunId = inserted.rows[0]?.id ?? null;
-                        return;
-                      }
-                      const runId = activeRunId;
-                      if (!runId) return;
-                      await client.query(
-                        `UPDATE scraper_runs
-                           SET status = $2,
-                               duration_ms = $3,
-                               errors_count = COALESCE($4, errors_count),
-                               content_hashes_deduped = COALESCE($5, content_hashes_deduped),
-                               method = COALESCE($6, method),
-                               completed_at = now(),
-                               error_log = COALESCE($7::jsonb, error_log)
-                         WHERE id = $1
-                           AND shop_id = $8`,
-                        [
-                          runId,
-                          run.status,
-                          run.durationMs ?? 0,
-                          run.errorsCount ?? null,
-                          run.contentHashesDeduped ?? null,
-                          run.method ?? null,
-                          run.errorLog ? JSON.stringify(run.errorLog) : null,
-                          payload.shopId,
-                        ]
-                      );
-                    });
-                  },
-                  trackUsage: async (usage) => {
-                    await withTenantContext(payload.shopId, async (client) => {
-                      await client.query(
-                        `INSERT INTO api_usage_log
-                           (api_provider, endpoint, request_count, estimated_cost, response_time_ms, product_id, shop_id, created_at)
-                         VALUES ('scraper', $1, 1, 0, $2, $3, $4, now())`,
-                        [
-                          usage.endpoint.slice(0, 100),
-                          usage.responseTimeMs,
-                          match.product_id,
-                          payload.shopId,
-                        ]
-                      );
-                    });
-                    recordPimApiUsage({
-                      provider: 'scraper',
-                      operation: 'other',
-                      estimatedCost: 0,
-                      requestCount: 1,
-                      responseTimeMs: usage.responseTimeMs,
-                    });
-                  },
-                });
-
-                try {
-                  const robotsBlockKey = `scraper:robots:block:streak:${domain}`;
-                  const failureKey = `scraper:failure:streak:${domain}`;
-                  const failureWindowTotalKey = `scraper:failure:window:total:${domain}`;
-                  const failureWindowFailKey = `scraper:failure:window:fail:${domain}`;
-                  const failureAlertCooldownKey = `scraper:failure:alert:cooldown:${domain}`;
-                  if (scrapeResult.status === 'success') {
-                    html = scrapeResult.html;
-                    if (scrapeResult.method === 'cheerio') {
-                      recordScraperSuccess(domain, 'cheerio');
-                    } else {
-                      recordScraperSuccess(domain, 'playwright');
-                    }
-                    recordScraperLatency(
-                      domain,
-                      scrapeResult.method,
-                      (Date.now() - scraperStart) / 1000
-                    );
-                    await redisClient.del(robotsBlockKey);
-                    await redisClient.del(failureKey);
-                    await redisClient.incr(failureWindowTotalKey);
-                    await redisClient.expire(failureWindowTotalKey, 1800);
-                  } else if (scrapeResult.reason === 'deduped') {
-                    recordScraperDeduped(domain, 'playwright');
-                    await redisClient.incr(failureWindowTotalKey);
-                    await redisClient.expire(failureWindowTotalKey, 1800);
-                  } else if (scrapeResult.status === 'robots_blocked') {
-                    recordScraperRobotsBlocked(domain);
-                    await redisClient.incr(failureWindowTotalKey);
-                    await redisClient.expire(failureWindowTotalKey, 1800);
-                    const robotsStreak = await redisClient.incr(robotsBlockKey);
-                    await redisClient.expire(robotsBlockKey, 3600);
-                    await withTenantContext(payload.shopId, async (client) => {
-                      await client.query(
-                        `INSERT INTO pim_notifications (shop_id, type, title, body, read, created_at)
-                         VALUES ($1, 'scraper.robots.blocked', 'Scraper blocked by robots.txt', $2::jsonb, false, now())`,
-                        [payload.shopId, JSON.stringify({ url: match.source_url, domain })]
-                      );
-                      if (robotsStreak >= 5) {
-                        await client.query(
-                          `INSERT INTO pim_notifications (shop_id, type, title, body, read, created_at)
-                           VALUES ($1, 'scraper.robots.mass_block', 'Scraper robots mass block', $2::jsonb, false, now())`,
-                          [
-                            payload.shopId,
-                            JSON.stringify({ domain, blockedConsecutive: robotsStreak }),
-                          ]
-                        );
-                      }
-                    });
-                  } else if (scrapeResult.status === 'login_detected') {
-                    recordScraperLoginDetected(domain, 'playwright');
-                    await redisClient.incr(failureWindowTotalKey);
-                    await redisClient.expire(failureWindowTotalKey, 1800);
-                    await withTenantContext(payload.shopId, async (client) => {
-                      await client.query(
-                        `INSERT INTO pim_notifications (shop_id, type, title, body, read, created_at)
-                         VALUES ($1, 'scraper.login.detected', 'Scraper login wall detected', $2::jsonb, false, now())`,
-                        [payload.shopId, JSON.stringify({ url: match.source_url, domain })]
-                      );
-                    });
-                  } else {
-                    recordScraperFailure(domain, 'playwright');
-                    const failureStreak = await redisClient.incr(failureKey);
-                    await redisClient.expire(failureKey, 1800);
-                    const [total, fail]: [number, number] = await redisClient
-                      .multi()
-                      .incr(failureWindowTotalKey)
-                      .expire(failureWindowTotalKey, 1800)
-                      .incr(failureWindowFailKey)
-                      .expire(failureWindowFailKey, 1800)
-                      .exec()
-                      .then((rows) => {
-                        const totalValue = Number(rows?.[0]?.[1] ?? 0);
-                        const failValue = Number(rows?.[2]?.[1] ?? 0);
-                        return [totalValue, failValue];
-                      });
-                    const failureRatio = total > 0 ? fail / total : 0;
-                    const canNotifyFailureRatio =
-                      !(await redisClient.exists(failureAlertCooldownKey));
-                    await withTenantContext(payload.shopId, async (client) => {
-                      await client.query(
-                        `INSERT INTO scraper_queue
-                           (shop_id, config_id, url, status, attempts, max_attempts, next_attempt_at, created_at)
-                         VALUES ($1, $2, $3, 'pending', 1, 3, now() + interval '1 minute', now())`,
-                        [payload.shopId, configId, match.source_url]
-                      );
-                      await client.query(
-                        `INSERT INTO pim_notifications (shop_id, type, title, body, read, created_at)
-                         VALUES ($1, 'scraper.page.failed', 'Scraper page failed', $2::jsonb, false, now())`,
-                        [payload.shopId, JSON.stringify({ url: match.source_url, domain })]
-                      );
-                      if (
-                        failureStreak >= 3 ||
-                        (total >= 6 && failureRatio > 0.5 && canNotifyFailureRatio)
-                      ) {
-                        await client.query(
-                          `INSERT INTO pim_notifications (shop_id, type, title, body, read, created_at)
-                           VALUES ($1, 'scraper.failure.high_rate', 'Scraper failure rate > 50%', $2::jsonb, false, now())`,
-                          [
-                            payload.shopId,
-                            JSON.stringify({
-                              domain,
-                              failureStreak,
-                              failureRatio,
-                              windowTotal: total,
-                            }),
-                          ]
-                        );
-                        await redisClient.set(failureAlertCooldownKey, '1', 'EX', 900);
-                      }
-                    });
-                  }
-                } finally {
-                  await redisClient.quit();
-                }
-              }
-
-              if (!html) {
-                if (fetched.error || !fetched.html) {
-                  warnLogger(logger).warn(
-                    { matchId: payload.matchId, error: fetched.error },
-                    'Failed to fetch HTML for extraction'
-                  );
-                }
-                return;
-              }
-
-              const contentHash = createHash('sha256').update(html).digest('hex');
-              const sourceId = await withTenantContext(payload.shopId, async (client) => {
-                return resolveSourceId(client, match.source_id, match.source_url);
-              });
-
-              harvestId = await withTenantContext(payload.shopId, async (client) => {
-                const insert = await client.query<{ id: string }>(
-                  `INSERT INTO prod_raw_harvest (
-                     source_id,
-                     source_url,
-                     raw_json,
-                     raw_html,
-                     http_status,
-                     processing_status,
-                     content_hash,
-                     fetched_at,
-                     created_at
-                   )
-                   VALUES ($1, $2, $3, $4, $5, 'pending', $6, now(), now())
-                   RETURNING id`,
-                  [
-                    sourceId,
-                    match.source_url,
-                    JSON.stringify({}),
-                    html,
-                    fetched.statusCode,
-                    contentHash,
-                  ]
-                );
-                return insert.rows[0]?.id ?? null;
-              });
-            }
-
-            if (!harvestId || !html) {
-              warnLogger(logger).warn(
-                { matchId: payload.matchId },
-                'Missing harvest data for extraction'
-              );
-              return;
-            }
-
-            const credentials = await resolveChatTaskCredentials({
+            const harvestResult = await fetchOrScrapeHTML({
               shopId: payload.shopId,
-              taskType: 'extraction',
-              env,
-              logger,
-            });
-            if (!credentials) {
-              warnLogger(logger).warn(
-                { shopId: payload.shopId },
-                'No routed AI credentials available for extraction'
-              );
-              return;
-            }
-
-            const extractor = new XaiExtractorServiceSafe();
-            const inputScan = await scanInput({
-              shopId: payload.shopId,
-              text: html,
-              env,
-              logger,
-            });
-            if (!inputScan.isValid) {
-              warnLogger(logger).warn(
-                { shopId: payload.shopId, matchId: payload.matchId, reason: inputScan.reason },
-                'guardrails_blocked_extraction_input'
-              );
-              return;
-            }
-            const extraction = await extractor.extractProductFromHTML({
-              html: inputScan.sanitizedText,
+              matchId: payload.matchId,
               sourceUrl: match.source_url,
-              shopId: payload.shopId,
-              credentials,
-              ...(match.id ? { matchId: match.id } : {}),
-              ...(match.product_id ? { productId: match.product_id } : {}),
-            });
-
-            const confidenceOverall = extraction.data?.confidence?.overall;
-            const fieldsUncertain = extraction.data?.confidence?.fieldsUncertain;
-            const outputScan = await scanOutput({
-              shopId: payload.shopId,
-              prompt: inputScan.sanitizedText,
-              output: JSON.stringify(extraction.data ?? {}),
+              sourceId: match.source_id,
+              productId: match.product_id,
               env,
               logger,
             });
-            let extractedSpecs: Record<string, unknown> = {};
-            if (outputScan.isValid) {
-              try {
-                const parsed = JSON.parse(outputScan.sanitizedText) as Record<string, unknown>;
-                extractedSpecs = parsed ?? {};
-              } catch {
-                extractedSpecs = {};
-              }
+
+            if (!harvestResult) {
+              return;
             }
 
-            const sessionPayload: NewExtractionSession = {
-              harvestId,
-              agentVersion: 'xai-extractor-v1.0',
-              modelName: credentials.model,
-              extractedSpecs,
-              tokensUsed: extraction.tokensUsed.input + extraction.tokensUsed.output,
-              latencyMs: extraction.latencyMs,
-            };
-
-            if (confidenceOverall !== undefined) {
-              sessionPayload.confidenceScore = confidenceOverall;
-            }
-            if (fieldsUncertain) {
-              sessionPayload.fieldConfidences = { fieldsUncertain };
-            }
-            if (extraction.error) {
-              sessionPayload.errorMessage = extraction.error;
-            }
-
-            const session = await createExtractionSessionSafe(sessionPayload);
-
-            if (extraction.data) {
-              await updateSpecsExtractedSafe({
-                id: match.id,
-                specsExtracted: extractedSpecs,
-                extractionSessionId: session.id,
-              });
-
-              if (match.product_id) {
-                await enqueueConsensusJob({
-                  shopId: payload.shopId,
-                  productId: match.product_id,
-                  trigger: 'extraction_complete',
-                });
-              }
-            }
+            await runExtractionAndPersist({
+              shopId: payload.shopId,
+              matchId: match.id,
+              sourceUrl: match.source_url,
+              productId: match.product_id,
+              harvestId: harvestResult.harvestId,
+              html: harvestResult.html,
+              env,
+              logger,
+            });
           } finally {
             clearWorkerCurrentJob('pim-extraction-worker', jobId);
           }
@@ -641,6 +792,10 @@ export function startExtractionWorker(logger: Logger): ExtractionWorkerHandle {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Scraper-queue sweep
+// ---------------------------------------------------------------------------
+
 export async function recoverStaleScraperQueueItems(db: {
   query: (sql: string, values?: unknown[]) => Promise<unknown>;
 }): Promise<void> {
@@ -654,9 +809,219 @@ export async function recoverStaleScraperQueueItems(db: {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Extracted helpers – sweep
+// ---------------------------------------------------------------------------
+
+async function handleSweepScrapeResult(params: SweepScrapeResultParams): Promise<void> {
+  const { rowId, result, shopId, config, url, attemptNo, maxAttempts } = params;
+
+  if (result.status === 'success' && result.html) {
+    await withTenantContext(shopId, async (client) => {
+      await client.query(
+        `INSERT INTO prod_raw_harvest (
+           source_id, source_url, raw_json, raw_html, http_status, processing_status, content_hash, fetched_at, created_at
+         )
+         VALUES ($1, $2, $3, $4, 200, 'pending', $5, now(), now())`,
+        [config.sourceId, url, JSON.stringify({}), result.html, result.contentHash]
+      );
+    });
+    await pool.query(
+      `UPDATE scraper_queue SET status = 'completed', error_message = NULL WHERE id = $1`,
+      [rowId]
+    );
+    return;
+  }
+
+  const delayMinutes = Math.min(30, Math.max(1, attemptNo));
+  const nextStatus = attemptNo >= maxAttempts ? 'failed' : 'pending';
+  await pool.query(
+    `UPDATE scraper_queue
+       SET status = $2,
+           next_attempt_at = CASE WHEN $2 = 'pending' THEN now() + ($3::int || ' minutes')::interval ELSE next_attempt_at END,
+           error_message = $4
+     WHERE id = $1`,
+    [rowId, nextStatus, delayMinutes, result.status]
+  );
+}
+
+async function processScraperQueueRow(
+  row: ScraperQueueRow,
+  env: AppEnv,
+  _logger: Logger
+): Promise<void> {
+  const shopId = row.shop_id;
+  if (!shopId) return;
+
+  const attemptNo = Number(row.attempts ?? 0);
+  const maxAttempts = Number(row.max_attempts ?? 3);
+
+  if (attemptNo > maxAttempts) {
+    await pool.query(
+      `UPDATE scraper_queue
+         SET status = 'failed',
+             error_message = COALESCE(error_message, 'max_attempts_reached')
+       WHERE id = $1`,
+      [row.id]
+    );
+    return;
+  }
+
+  try {
+    const runtimeSettings = await withTenantContext(shopId, async (client) =>
+      resolveScraperRuntimeSettings(client, shopId, env)
+    );
+    if (!runtimeSettings.enabled) {
+      await pool.query(
+        `UPDATE scraper_queue
+           SET status = 'failed',
+               error_message = 'scraper_disabled_for_shop'
+         WHERE id = $1`,
+        [row.id]
+      );
+      return;
+    }
+
+    const config = await withTenantContext(shopId, async (client) => {
+      const result = await client.query<{
+        id: string;
+        source_id: string;
+        target_url_pattern: string;
+        rate_limit: { requestsPerSecond?: number } | null;
+        headers: Record<string, string> | null;
+        cookies: { name: string; value: string; domain?: string; path?: string }[] | null;
+        proxy_config: {
+          server?: string;
+          username?: string;
+          password?: string;
+          host?: string;
+          port?: number;
+          protocol?: 'http' | 'https' | 'socks5';
+        } | null;
+      }>(
+        `SELECT id, source_id, target_url_pattern, rate_limit, headers, cookies, proxy_config
+         FROM scraper_configs
+         WHERE id = $1
+           AND shop_id = $2
+           AND is_active = true
+         LIMIT 1`,
+        [row.config_id, shopId]
+      );
+      const r = result.rows[0];
+      if (!r) return null;
+      return {
+        id: r.id,
+        sourceId: r.source_id,
+        targetUrlPattern: r.target_url_pattern,
+        rateLimit: r.rate_limit,
+        headers: r.headers,
+        cookies: r.cookies,
+        proxyConfig: r.proxy_config,
+      };
+    });
+
+    if (!config) {
+      await pool.query(
+        `UPDATE scraper_queue
+           SET status = 'failed',
+               error_message = 'config_not_found_or_inactive'
+         WHERE id = $1`,
+        [row.id]
+      );
+      return;
+    }
+
+    const redis = new Redis(process.env['REDIS_URL'] ?? env.redisUrl);
+    let runId: string | null = null;
+    try {
+      const result = await scrapeProductPage(row.url, {
+        redis,
+        userAgent: runtimeSettings.userAgent,
+        timeoutMs: runtimeSettings.timeoutMs,
+        rateLimitPerDomain: runtimeSettings.rateLimitPerDomain,
+        robotsCacheTtlSeconds: runtimeSettings.robotsCacheTtl,
+        maxConcurrentPages: runtimeSettings.maxConcurrentPages,
+        sourceId: config.sourceId,
+        sourceConfig: config,
+        createRunRecord: async (run) => {
+          await withTenantContext(shopId, async (client) => {
+            if (run.status === 'running') {
+              const inserted = await client.query<{ id: string }>(
+                `INSERT INTO scraper_runs
+                   (shop_id, config_id, source_id, status, trigger_type, target_urls, started_at, created_at)
+                 VALUES ($1, $2, $3, 'running', 'queue_retry', ARRAY[$4], now(), now())
+                 RETURNING id`,
+                [shopId, config.id, config.sourceId, row.url]
+              );
+              runId = inserted.rows[0]?.id ?? null;
+              return;
+            }
+            if (!runId) return;
+            await client.query(
+              `UPDATE scraper_runs
+                 SET status = $2,
+                     duration_ms = $3,
+                     errors_count = COALESCE($4, errors_count),
+                     content_hashes_deduped = COALESCE($5, content_hashes_deduped),
+                     method = COALESCE($6, method),
+                     completed_at = now(),
+                     error_log = COALESCE($7::jsonb, error_log)
+               WHERE id = $1
+                 AND shop_id = $8`,
+              [
+                runId,
+                run.status,
+                run.durationMs ?? 0,
+                run.errorsCount ?? null,
+                run.contentHashesDeduped ?? null,
+                run.method ?? null,
+                run.errorLog ? JSON.stringify(run.errorLog) : null,
+                shopId,
+              ]
+            );
+          });
+        },
+        isKnownHash: async (hash) => {
+          const existing = await withTenantContext(shopId, async (client) => {
+            const q = await client.query<{ id: string }>(
+              `SELECT id FROM prod_raw_harvest WHERE content_hash = $1 LIMIT 1`,
+              [hash]
+            );
+            return q.rows[0]?.id ?? null;
+          });
+          return Boolean(existing);
+        },
+      });
+
+      await handleSweepScrapeResult({
+        rowId: row.id,
+        result,
+        shopId,
+        config,
+        url: row.url,
+        attemptNo,
+        maxAttempts,
+      });
+    } finally {
+      await redis.quit();
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'queue_retry_failed';
+    const delayMinutes = Math.min(30, Math.max(1, attemptNo));
+    const nextStatus = attemptNo >= maxAttempts ? 'failed' : 'pending';
+    await pool.query(
+      `UPDATE scraper_queue
+         SET status = $2,
+             next_attempt_at = CASE WHEN $2 = 'pending' THEN now() + ($3::int || ' minutes')::interval ELSE next_attempt_at END,
+             error_message = $4
+       WHERE id = $1`,
+      [row.id, nextStatus, delayMinutes, message]
+    );
+  }
+}
+
 async function runScraperQueueSweep(env: AppEnv, logger: Logger): Promise<void> {
   try {
-    // Recover stuck rows left in processing state (worker crash/restart).
     await recoverStaleScraperQueueItems(pool);
 
     await pool.query(
@@ -665,14 +1030,7 @@ async function runScraperQueueSweep(env: AppEnv, logger: Logger): Promise<void> 
          AND created_at < now() - interval '7 days'`
     );
 
-    const dueRows = await pool.query<{
-      id: string;
-      shop_id: string | null;
-      config_id: string;
-      url: string;
-      attempts: number;
-      max_attempts: number;
-    }>(
+    const dueRows = await pool.query<ScraperQueueRow>(
       `WITH due AS (
          SELECT id, shop_id, config_id, url, attempts, max_attempts
          FROM scraper_queue
@@ -693,192 +1051,7 @@ async function runScraperQueueSweep(env: AppEnv, logger: Logger): Promise<void> 
     );
 
     for (const row of dueRows.rows) {
-      const shopId = row.shop_id;
-      if (!shopId) {
-        continue;
-      }
-
-      const attemptNo = Number(row.attempts ?? 0);
-      const maxAttempts = Number(row.max_attempts ?? 3);
-      if (attemptNo > maxAttempts) {
-        await pool.query(
-          `UPDATE scraper_queue
-             SET status = 'failed',
-                 error_message = COALESCE(error_message, 'max_attempts_reached')
-           WHERE id = $1`,
-          [row.id]
-        );
-        continue;
-      }
-
-      try {
-        const runtimeSettings = await withTenantContext(shopId, async (client) =>
-          resolveScraperRuntimeSettings(client, shopId, env)
-        );
-        if (!runtimeSettings.enabled) {
-          await pool.query(
-            `UPDATE scraper_queue
-               SET status = 'failed',
-                   error_message = 'scraper_disabled_for_shop'
-             WHERE id = $1`,
-            [row.id]
-          );
-          continue;
-        }
-
-        const config = await withTenantContext(shopId, async (client) => {
-          const result = await client.query<{
-            id: string;
-            source_id: string;
-            target_url_pattern: string;
-            rate_limit: { requestsPerSecond?: number } | null;
-            headers: Record<string, string> | null;
-            cookies: { name: string; value: string; domain?: string; path?: string }[] | null;
-            proxy_config: {
-              server?: string;
-              username?: string;
-              password?: string;
-              host?: string;
-              port?: number;
-              protocol?: 'http' | 'https' | 'socks5';
-            } | null;
-          }>(
-            `SELECT id, source_id, target_url_pattern, rate_limit, headers, cookies, proxy_config
-             FROM scraper_configs
-             WHERE id = $1
-               AND shop_id = $2
-               AND is_active = true
-             LIMIT 1`,
-            [row.config_id, shopId]
-          );
-          const r = result.rows[0];
-          if (!r) return null;
-          return {
-            id: r.id,
-            sourceId: r.source_id,
-            targetUrlPattern: r.target_url_pattern,
-            rateLimit: r.rate_limit,
-            headers: r.headers,
-            cookies: r.cookies,
-            proxyConfig: r.proxy_config,
-          };
-        });
-
-        if (!config) {
-          await pool.query(
-            `UPDATE scraper_queue
-               SET status = 'failed',
-                   error_message = 'config_not_found_or_inactive'
-             WHERE id = $1`,
-            [row.id]
-          );
-          continue;
-        }
-
-        const redis = new Redis(process.env['REDIS_URL'] ?? env.redisUrl);
-        let runId: string | null = null;
-        try {
-          const result = await scrapeProductPage(row.url, {
-            redis,
-            userAgent: runtimeSettings.userAgent,
-            timeoutMs: runtimeSettings.timeoutMs,
-            rateLimitPerDomain: runtimeSettings.rateLimitPerDomain,
-            robotsCacheTtlSeconds: runtimeSettings.robotsCacheTtl,
-            maxConcurrentPages: runtimeSettings.maxConcurrentPages,
-            sourceId: config.sourceId,
-            sourceConfig: config,
-            createRunRecord: async (run) => {
-              await withTenantContext(shopId, async (client) => {
-                if (run.status === 'running') {
-                  const inserted = await client.query<{ id: string }>(
-                    `INSERT INTO scraper_runs
-                       (shop_id, config_id, source_id, status, trigger_type, target_urls, started_at, created_at)
-                     VALUES ($1, $2, $3, 'running', 'queue_retry', ARRAY[$4], now(), now())
-                     RETURNING id`,
-                    [shopId, config.id, config.sourceId, row.url]
-                  );
-                  runId = inserted.rows[0]?.id ?? null;
-                  return;
-                }
-                if (!runId) return;
-                await client.query(
-                  `UPDATE scraper_runs
-                     SET status = $2,
-                         duration_ms = $3,
-                         errors_count = COALESCE($4, errors_count),
-                         content_hashes_deduped = COALESCE($5, content_hashes_deduped),
-                         method = COALESCE($6, method),
-                         completed_at = now(),
-                         error_log = COALESCE($7::jsonb, error_log)
-                   WHERE id = $1
-                     AND shop_id = $8`,
-                  [
-                    runId,
-                    run.status,
-                    run.durationMs ?? 0,
-                    run.errorsCount ?? null,
-                    run.contentHashesDeduped ?? null,
-                    run.method ?? null,
-                    run.errorLog ? JSON.stringify(run.errorLog) : null,
-                    shopId,
-                  ]
-                );
-              });
-            },
-            isKnownHash: async (hash) => {
-              const existing = await withTenantContext(shopId, async (client) => {
-                const q = await client.query<{ id: string }>(
-                  `SELECT id FROM prod_raw_harvest WHERE content_hash = $1 LIMIT 1`,
-                  [hash]
-                );
-                return q.rows[0]?.id ?? null;
-              });
-              return Boolean(existing);
-            },
-          });
-
-          if (result.status === 'success' && result.html) {
-            await withTenantContext(shopId, async (client) => {
-              await client.query(
-                `INSERT INTO prod_raw_harvest (
-                   source_id, source_url, raw_json, raw_html, http_status, processing_status, content_hash, fetched_at, created_at
-                 )
-                 VALUES ($1, $2, $3, $4, 200, 'pending', $5, now(), now())`,
-                [config.sourceId, row.url, JSON.stringify({}), result.html, result.contentHash]
-              );
-            });
-            await pool.query(
-              `UPDATE scraper_queue SET status = 'completed', error_message = NULL WHERE id = $1`,
-              [row.id]
-            );
-          } else {
-            const delayMinutes = Math.min(30, Math.max(1, attemptNo));
-            const nextStatus = attemptNo >= maxAttempts ? 'failed' : 'pending';
-            await pool.query(
-              `UPDATE scraper_queue
-                 SET status = $2,
-                     next_attempt_at = CASE WHEN $2 = 'pending' THEN now() + ($3::int || ' minutes')::interval ELSE next_attempt_at END,
-                     error_message = $4
-               WHERE id = $1`,
-              [row.id, nextStatus, delayMinutes, result.status]
-            );
-          }
-        } finally {
-          await redis.quit();
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'queue_retry_failed';
-        const delayMinutes = Math.min(30, Math.max(1, attemptNo));
-        const nextStatus = attemptNo >= maxAttempts ? 'failed' : 'pending';
-        await pool.query(
-          `UPDATE scraper_queue
-             SET status = $2,
-                 next_attempt_at = CASE WHEN $2 = 'pending' THEN now() + ($3::int || ' minutes')::interval ELSE next_attempt_at END,
-                 error_message = $4
-           WHERE id = $1`,
-          [row.id, nextStatus, delayMinutes, message]
-        );
-      }
+      await processScraperQueueRow(row, env, logger);
     }
   } catch (error) {
     logger.warn(
@@ -887,6 +1060,10 @@ async function runScraperQueueSweep(env: AppEnv, logger: Logger): Promise<void> 
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Shared DB helpers
+// ---------------------------------------------------------------------------
 
 async function resolveScraperRuntimeSettings(
   client: { query: <T>(sql: string, params: unknown[]) => Promise<{ rows: T[] }> },
@@ -953,8 +1130,8 @@ async function ensureDefaultScraperConfig(
 
   let hostPattern = '.*';
   try {
-    const host = new URL(sourceUrl).hostname.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    hostPattern = `^https?:\\/\\/(?:www\\.)?${host}(?:\\/|$)`;
+    const host = new URL(sourceUrl).hostname.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+    hostPattern = String.raw`^https?:\/\/(?:www\.)?${host}(?:\/|$)`;
   } catch {
     // keep generic fallback
   }

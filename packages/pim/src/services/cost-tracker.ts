@@ -50,6 +50,12 @@ export type UnifiedBudgetStatus = Readonly<{
   alertTriggered: boolean;
 }>;
 
+type BudgetPrimaryUnit = UnifiedBudgetStatus['primary']['unit'];
+type BudgetSecondaryUnit = NonNullable<UnifiedBudgetStatus['secondary']>['unit'];
+interface BudgetClient {
+  query<T>(text: string, values?: readonly unknown[]): Promise<{ rows: T[] }>;
+}
+
 type OTelUsageCallback = (params: {
   provider: ApiProvider;
   operation: CostOperation;
@@ -64,6 +70,204 @@ let otelUsageCallback: OTelUsageCallback | null = null;
 
 export function registerOtelCallback(callback: OTelUsageCallback | null): void {
   otelUsageCallback = callback;
+}
+
+function buildBudgetBucket<U extends BudgetPrimaryUnit | BudgetSecondaryUnit>(
+  unit: U,
+  used: number,
+  limit: number
+) {
+  const ratio = limit > 0 ? used / limit : 1;
+  return {
+    unit,
+    used,
+    limit,
+    remaining: Math.max(0, limit - used),
+    ratio,
+  } as const;
+}
+
+async function loadDailyCostUsage(
+  client: BudgetClient,
+  provider: ApiProvider,
+  shopId: string
+): Promise<number> {
+  const usageRes = await client.query<{ used: string }>(
+    `SELECT COALESCE(SUM(estimated_cost), 0) as used
+       FROM api_usage_log
+      WHERE api_provider = $1
+        AND shop_id = $2
+        AND created_at >= date_trunc('day', now())
+        AND created_at < date_trunc('day', now()) + interval '1 day'`,
+    [provider, shopId]
+  );
+  return Number(usageRes.rows[0]?.used ?? 0);
+}
+
+async function checkSerperBudget(
+  client: BudgetClient,
+  shopId: string
+): Promise<UnifiedBudgetStatus> {
+  const budgetRes = await client.query<{
+    serper_daily_budget: number | null;
+    serper_budget_alert_threshold: string | null;
+  }>(
+    `SELECT serper_daily_budget, serper_budget_alert_threshold
+       FROM shop_ai_credentials
+      WHERE shop_id = $1`,
+    [shopId]
+  );
+  const usageRes = await client.query<{ used: string }>(
+    `SELECT COALESCE(SUM(request_count), 0) as used
+       FROM api_usage_log
+      WHERE api_provider = 'serper'
+        AND shop_id = $1
+        AND created_at >= date_trunc('day', now())
+        AND created_at < date_trunc('day', now()) + interval '1 day'`,
+    [shopId]
+  );
+
+  const limit = Number(budgetRes.rows[0]?.serper_daily_budget ?? 1000);
+  const alertThreshold = Number(budgetRes.rows[0]?.serper_budget_alert_threshold ?? 0.8);
+  const used = Number(usageRes.rows[0]?.used ?? 0);
+  const primary = buildBudgetBucket('requests', used, limit);
+
+  return {
+    provider: 'serper',
+    primary,
+    alertThreshold,
+    exceeded: used >= limit,
+    alertTriggered: primary.ratio >= alertThreshold,
+  };
+}
+
+async function checkXaiBudget(client: BudgetClient, shopId: string): Promise<UnifiedBudgetStatus> {
+  const budgetRes = await client.query<{
+    xai_daily_budget: number | null;
+    xai_budget_alert_threshold: string | null;
+  }>(
+    `SELECT xai_daily_budget, xai_budget_alert_threshold
+       FROM shop_ai_credentials
+      WHERE shop_id = $1`,
+    [shopId]
+  );
+  const used = await loadDailyCostUsage(client, 'xai', shopId);
+  const limit = Number(budgetRes.rows[0]?.xai_daily_budget ?? 1000);
+  const alertThreshold = Number(budgetRes.rows[0]?.xai_budget_alert_threshold ?? 0.8);
+  const primary = buildBudgetBucket('dollars', used, limit);
+
+  return {
+    provider: 'xai',
+    primary,
+    alertThreshold,
+    exceeded: used >= limit,
+    alertTriggered: primary.ratio >= alertThreshold,
+  };
+}
+
+async function checkOpenAiBudget(
+  client: BudgetClient,
+  shopId: string
+): Promise<UnifiedBudgetStatus> {
+  const budgetRes = await client.query<{
+    openai_daily_budget: string | null;
+    openai_budget_alert_threshold: string | null;
+    openai_items_daily_budget: number | null;
+  }>(
+    `SELECT openai_daily_budget, openai_budget_alert_threshold, openai_items_daily_budget
+       FROM shop_ai_credentials
+      WHERE shop_id = $1`,
+    [shopId]
+  );
+  const usageRes = await client.query<{ used_cost: string; used_items: string }>(
+    `SELECT
+        COALESCE(SUM(estimated_cost), 0) as used_cost,
+        COALESCE(SUM(request_count), 0) as used_items
+       FROM api_usage_log
+      WHERE api_provider = 'openai'
+        AND shop_id = $1
+        AND created_at >= date_trunc('day', now())
+        AND created_at < date_trunc('day', now()) + interval '1 day'`,
+    [shopId]
+  );
+
+  const costLimit = Number(budgetRes.rows[0]?.openai_daily_budget ?? 10);
+  const itemsLimit = Number(budgetRes.rows[0]?.openai_items_daily_budget ?? 100000);
+  const alertThreshold = Number(budgetRes.rows[0]?.openai_budget_alert_threshold ?? 0.8);
+  const usedCost = Number(usageRes.rows[0]?.used_cost ?? 0);
+  const usedItems = Number(usageRes.rows[0]?.used_items ?? 0);
+  const primary = buildBudgetBucket('dollars', usedCost, costLimit);
+  const secondary = buildBudgetBucket('items', usedItems, itemsLimit);
+
+  return {
+    provider: 'openai',
+    primary,
+    secondary,
+    alertThreshold,
+    exceeded: usedCost >= costLimit || usedItems >= itemsLimit,
+    alertTriggered: Math.max(primary.ratio, secondary.ratio) >= alertThreshold,
+  };
+}
+
+async function checkFrontierProviderBudget(
+  client: BudgetClient,
+  provider: 'gemini' | 'deepseek',
+  shopId: string
+): Promise<UnifiedBudgetStatus> {
+  const configColumn = provider === 'gemini' ? 'gemini' : 'deepseek';
+  const budgetRes = await client.query<{
+    daily_budget: number | null;
+    budget_alert_threshold: string | null;
+  }>(
+    `SELECT ${configColumn}_daily_budget AS daily_budget,
+            ${configColumn}_budget_alert_threshold AS budget_alert_threshold
+       FROM shop_ai_credentials
+      WHERE shop_id = $1`,
+    [shopId]
+  );
+
+  const used = await loadDailyCostUsage(client, provider, shopId);
+  const limit = Number(budgetRes.rows[0]?.daily_budget ?? 1000);
+  const alertThreshold = Number(budgetRes.rows[0]?.budget_alert_threshold ?? 0.8);
+  const primary = buildBudgetBucket('dollars', used, limit);
+
+  return {
+    provider,
+    primary,
+    alertThreshold,
+    exceeded: used >= limit,
+    alertTriggered: primary.ratio >= alertThreshold,
+  };
+}
+
+async function checkSelfHostedBudget(
+  client: BudgetClient,
+  shopId: string
+): Promise<UnifiedBudgetStatus> {
+  const usageRes = await client.query<{ used_cost: string; used_items: string }>(
+    `SELECT
+        COALESCE(SUM(estimated_cost), 0) as used_cost,
+        COALESCE(SUM(request_count), 0) as used_items
+       FROM api_usage_log
+      WHERE api_provider = 'selfhosted'
+        AND shop_id = $1
+        AND created_at >= date_trunc('day', now())
+        AND created_at < date_trunc('day', now()) + interval '1 day'`,
+    [shopId]
+  );
+
+  const usedCost = Number(usageRes.rows[0]?.used_cost ?? 0);
+  const usedItems = Number(usageRes.rows[0]?.used_items ?? 0);
+  const max = Number.MAX_SAFE_INTEGER;
+
+  return {
+    provider: 'selfhosted',
+    primary: { unit: 'dollars', used: usedCost, limit: max, remaining: max, ratio: 0 },
+    secondary: { unit: 'items', used: usedItems, limit: max, remaining: max, ratio: 0 },
+    alertThreshold: 1,
+    exceeded: false,
+    alertTriggered: false,
+  };
 }
 
 export async function trackCost(params: TrackCostParams): Promise<void> {
@@ -112,7 +316,11 @@ export async function trackCost(params: TrackCostParams): Promise<void> {
         params.productId ?? null,
         params.shopId ?? null,
         params.errorMessage ?? null,
-        JSON.stringify({ ...(params.metadata ?? {}), operation: params.operation }),
+        JSON.stringify(
+          params.metadata
+            ? { ...params.metadata, operation: params.operation }
+            : { operation: params.operation }
+        ),
       ]
     );
     if (params.shopId) {
@@ -153,217 +361,20 @@ export async function checkBudget(
   await client.query(`SELECT set_config('app.current_shop_id', $1, true)`, [shopId]);
 
   try {
-    if (provider === 'serper') {
-      const budgetRes = await client.query<{
-        serper_daily_budget: number | null;
-        serper_budget_alert_threshold: string | null;
-      }>(
-        `SELECT serper_daily_budget, serper_budget_alert_threshold
-           FROM shop_ai_credentials
-          WHERE shop_id = $1`,
-        [shopId]
-      );
-      const usageRes = await client.query<{ used: string }>(
-        `SELECT COALESCE(SUM(request_count), 0) as used
-           FROM api_usage_log
-          WHERE api_provider = 'serper'
-            AND shop_id = $1
-            AND created_at >= date_trunc('day', now())
-            AND created_at < date_trunc('day', now()) + interval '1 day'`,
-        [shopId]
-      );
-
-      const limit = Number(budgetRes.rows[0]?.serper_daily_budget ?? 1000);
-      const alertThreshold = Number(budgetRes.rows[0]?.serper_budget_alert_threshold ?? 0.8);
-      const used = Number(usageRes.rows[0]?.used ?? 0);
-      const ratio = limit > 0 ? used / limit : 1;
-
-      return {
-        provider,
-        primary: {
-          unit: 'requests',
-          used,
-          limit,
-          remaining: Math.max(0, limit - used),
-          ratio,
-        },
-        alertThreshold,
-        exceeded: used >= limit,
-        alertTriggered: ratio >= alertThreshold,
-      };
+    switch (provider) {
+      case 'serper':
+        return await checkSerperBudget(client, shopId);
+      case 'xai':
+        return await checkXaiBudget(client, shopId);
+      case 'openai':
+        return await checkOpenAiBudget(client, shopId);
+      case 'gemini':
+      case 'deepseek':
+        return await checkFrontierProviderBudget(client, provider, shopId);
+      case 'selfhosted':
+      default:
+        return await checkSelfHostedBudget(client, shopId);
     }
-
-    if (provider === 'xai') {
-      const budgetRes = await client.query<{
-        xai_daily_budget: number | null;
-        xai_budget_alert_threshold: string | null;
-      }>(
-        `SELECT xai_daily_budget, xai_budget_alert_threshold
-           FROM shop_ai_credentials
-          WHERE shop_id = $1`,
-        [shopId]
-      );
-      const usageRes = await client.query<{ used: string }>(
-        `SELECT COALESCE(SUM(estimated_cost), 0) as used
-           FROM api_usage_log
-          WHERE api_provider = 'xai'
-            AND shop_id = $1
-            AND created_at >= date_trunc('day', now())
-            AND created_at < date_trunc('day', now()) + interval '1 day'`,
-        [shopId]
-      );
-
-      const limit = Number(budgetRes.rows[0]?.xai_daily_budget ?? 1000);
-      const alertThreshold = Number(budgetRes.rows[0]?.xai_budget_alert_threshold ?? 0.8);
-      const used = Number(usageRes.rows[0]?.used ?? 0);
-      const ratio = limit > 0 ? used / limit : 1;
-
-      return {
-        provider,
-        primary: {
-          unit: 'dollars',
-          used,
-          limit,
-          remaining: Math.max(0, limit - used),
-          ratio,
-        },
-        alertThreshold,
-        exceeded: used >= limit,
-        alertTriggered: ratio >= alertThreshold,
-      };
-    }
-
-    const budgetRes = await client.query<{
-      openai_daily_budget: string | null;
-      openai_budget_alert_threshold: string | null;
-      openai_items_daily_budget: number | null;
-    }>(
-      `SELECT openai_daily_budget, openai_budget_alert_threshold, openai_items_daily_budget
-         FROM shop_ai_credentials
-        WHERE shop_id = $1`,
-      [shopId]
-    );
-    const usageRes = await client.query<{ used_cost: string; used_items: string }>(
-      `SELECT
-          COALESCE(SUM(estimated_cost), 0) as used_cost,
-          COALESCE(SUM(request_count), 0) as used_items
-         FROM api_usage_log
-        WHERE api_provider = 'openai'
-          AND shop_id = $1
-          AND created_at >= date_trunc('day', now())
-          AND created_at < date_trunc('day', now()) + interval '1 day'`,
-      [shopId]
-    );
-
-    if (provider === 'openai') {
-      const costLimit = Number(budgetRes.rows[0]?.openai_daily_budget ?? 10);
-      const itemsLimit = Number(budgetRes.rows[0]?.openai_items_daily_budget ?? 100000);
-      const alertThreshold = Number(budgetRes.rows[0]?.openai_budget_alert_threshold ?? 0.8);
-      const usedCost = Number(usageRes.rows[0]?.used_cost ?? 0);
-      const usedItems = Number(usageRes.rows[0]?.used_items ?? 0);
-      const costRatio = costLimit > 0 ? usedCost / costLimit : 1;
-      const itemsRatio = itemsLimit > 0 ? usedItems / itemsLimit : 1;
-      const ratio = Math.max(costRatio, itemsRatio);
-
-      return {
-        provider,
-        primary: {
-          unit: 'dollars',
-          used: usedCost,
-          limit: costLimit,
-          remaining: Math.max(0, costLimit - usedCost),
-          ratio: costRatio,
-        },
-        secondary: {
-          unit: 'items',
-          used: usedItems,
-          limit: itemsLimit,
-          remaining: Math.max(0, itemsLimit - usedItems),
-          ratio: itemsRatio,
-        },
-        alertThreshold,
-        exceeded: usedCost >= costLimit || usedItems >= itemsLimit,
-        alertTriggered: ratio >= alertThreshold,
-      };
-    }
-
-    if (provider === 'gemini' || provider === 'deepseek') {
-      const configColumn = provider === 'gemini' ? 'gemini' : 'deepseek';
-      const budgetResProvider = await client.query<{
-        daily_budget: number | null;
-        budget_alert_threshold: string | null;
-      }>(
-        `SELECT ${configColumn}_daily_budget AS daily_budget,
-                ${configColumn}_budget_alert_threshold AS budget_alert_threshold
-           FROM shop_ai_credentials
-          WHERE shop_id = $1`,
-        [shopId]
-      );
-      const usageResProvider = await client.query<{ used: string }>(
-        `SELECT COALESCE(SUM(estimated_cost), 0) as used
-           FROM api_usage_log
-          WHERE api_provider = $1
-            AND shop_id = $2
-            AND created_at >= date_trunc('day', now())
-            AND created_at < date_trunc('day', now()) + interval '1 day'`,
-        [provider, shopId]
-      );
-
-      const limit = Number(budgetResProvider.rows[0]?.daily_budget ?? 1000);
-      const alertThreshold = Number(budgetResProvider.rows[0]?.budget_alert_threshold ?? 0.8);
-      const used = Number(usageResProvider.rows[0]?.used ?? 0);
-      const ratio = limit > 0 ? used / limit : 1;
-
-      return {
-        provider,
-        primary: {
-          unit: 'dollars',
-          used,
-          limit,
-          remaining: Math.max(0, limit - used),
-          ratio,
-        },
-        alertThreshold,
-        exceeded: used >= limit,
-        alertTriggered: ratio >= alertThreshold,
-      };
-    }
-
-    const usageResSelfHosted = await client.query<{ used_cost: string; used_items: string }>(
-      `SELECT
-          COALESCE(SUM(estimated_cost), 0) as used_cost,
-          COALESCE(SUM(request_count), 0) as used_items
-         FROM api_usage_log
-        WHERE api_provider = 'selfhosted'
-          AND shop_id = $1
-          AND created_at >= date_trunc('day', now())
-          AND created_at < date_trunc('day', now()) + interval '1 day'`,
-      [shopId]
-    );
-
-    const usedCost = Number(usageResSelfHosted.rows[0]?.used_cost ?? 0);
-    const usedItems = Number(usageResSelfHosted.rows[0]?.used_items ?? 0);
-
-    return {
-      provider,
-      primary: {
-        unit: 'dollars',
-        used: usedCost,
-        limit: Number.MAX_SAFE_INTEGER,
-        remaining: Number.MAX_SAFE_INTEGER,
-        ratio: 0,
-      },
-      secondary: {
-        unit: 'items',
-        used: usedItems,
-        limit: Number.MAX_SAFE_INTEGER,
-        remaining: Number.MAX_SAFE_INTEGER,
-        ratio: 0,
-      },
-      alertThreshold: 1,
-      exceeded: false,
-      alertTriggered: false,
-    };
   } finally {
     try {
       await client.query('COMMIT');

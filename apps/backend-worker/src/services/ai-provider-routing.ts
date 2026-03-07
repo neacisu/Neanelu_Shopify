@@ -37,6 +37,22 @@ type DeepSeekRow = Readonly<{
   deepseek_rate_limit_per_minute: number | null;
 }>;
 
+interface RetryOptions {
+  maxRetries: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+  timeoutMs: number;
+}
+
+type FallbackStage = 'none' | 'primary' | 'secondary';
+
+interface RoutingContext {
+  shopId: string;
+  taskType: ChatTaskType;
+  env: AppEnv;
+  logger: Logger;
+}
+
 const DEFAULT_CHAT_MODELS: Record<ChatTaskType, string> = {
   classification: 'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
   translation: 'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
@@ -56,6 +72,13 @@ const SECONDARY_FALLBACK_CHAT_MODELS: Record<ChatTaskType, string> = {
   translation: 'openai:gpt-4o-mini',
   extraction: 'openai:gpt-4o-mini',
   audit: 'openai:gpt-4o-mini',
+};
+
+const DEFAULT_RETRY: RetryOptions = {
+  maxRetries: 2,
+  baseDelayMs: 1_000,
+  maxDelayMs: 4_000,
+  timeoutMs: 30_000,
 };
 
 function buildEncryptionKey(encryptionKeyHex: string): Buffer {
@@ -157,6 +180,303 @@ async function loadDeepSeekCredentials(params: {
   };
 }
 
+async function callWithRetry<T>(fn: () => Promise<T>, opts: RetryOptions): Promise<T> {
+  const shouldFailFast = (error: unknown): boolean => {
+    if (!(error instanceof Error)) return false;
+    return /\b(400|401|403)\b/.test(error.message);
+  };
+
+  let attempt = 0;
+  let lastError: unknown = null;
+  while (attempt <= opts.maxRetries) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), opts.timeoutMs);
+    try {
+      const result = await Promise.race([
+        fn(),
+        new Promise<T>((_, reject) => {
+          controller.signal.addEventListener('abort', () => reject(new Error('retry_timeout')), {
+            once: true,
+          });
+        }),
+      ]);
+      clearTimeout(timeout);
+      return result;
+    } catch (error) {
+      clearTimeout(timeout);
+      lastError = error;
+      if (shouldFailFast(error) || attempt >= opts.maxRetries) {
+        break;
+      }
+      const exponentialDelay = Math.min(opts.maxDelayMs, opts.baseDelayMs * 2 ** attempt);
+      const jitterMs = Math.floor(Math.random() * 1_000);
+      await new Promise((resolve) => setTimeout(resolve, exponentialDelay + jitterMs));
+      attempt += 1;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('retry_failed');
+}
+
+function routingOutcome(fallbackStage: FallbackStage): 'primary' | 'fallback' {
+  return fallbackStage === 'none' ? 'primary' : 'fallback';
+}
+
+async function resolveXaiRoute(
+  route: { provider: AiProvider; model: string },
+  fallbackStage: FallbackStage,
+  ctx: RoutingContext
+): Promise<ChatModelCredentials | null> {
+  const credentials = await callWithRetry(
+    () =>
+      loadXAICredentials({
+        shopId: ctx.shopId,
+        encryptionKeyHex: ctx.env.encryptionKeyHex,
+      }),
+    DEFAULT_RETRY
+  ).catch(() => null);
+  if (!credentials) {
+    recordAiProviderRouting({ provider: 'xai', taskType: ctx.taskType, outcome: 'error' });
+    return null;
+  }
+  recordAiProviderRouting({
+    provider: 'xai',
+    taskType: ctx.taskType,
+    outcome: routingOutcome(fallbackStage),
+  });
+  return { ...credentials, provider: 'xai', model: route.model };
+}
+
+async function resolveOpenAiRoute(
+  route: { provider: AiProvider; model: string },
+  fallbackStage: FallbackStage,
+  ctx: RoutingContext
+): Promise<ChatModelCredentials | null> {
+  const config = await callWithRetry(
+    () =>
+      getShopOpenAiConfig({
+        shopId: ctx.shopId,
+        env: ctx.env,
+        logger: ctx.logger,
+      }),
+    DEFAULT_RETRY
+  ).catch(() => null);
+  if (!config || !config.enabled || !config.openAiApiKey) {
+    recordAiProviderRouting({
+      provider: 'openai',
+      taskType: ctx.taskType,
+      outcome: 'error',
+    });
+    return null;
+  }
+
+  recordAiProviderRouting({
+    provider: 'openai',
+    taskType: ctx.taskType,
+    outcome: routingOutcome(fallbackStage),
+  });
+  return {
+    provider: 'openai',
+    apiKey: config.openAiApiKey,
+    baseUrl: (config.openAiBaseUrl ?? ctx.env.openAiBaseUrl ?? 'https://api.openai.com').replace(
+      /\/$/,
+      ''
+    ),
+    model: route.model,
+    temperature: 0.1,
+    maxTokensPerRequest: 2000,
+    rateLimitPerMinute: 0,
+  };
+}
+
+async function resolveDeepseekRoute(
+  route: { provider: AiProvider; model: string },
+  fallbackStage: FallbackStage,
+  ctx: RoutingContext
+): Promise<ChatModelCredentials | null> {
+  const credentials = await callWithRetry(
+    () =>
+      loadDeepSeekCredentials({
+        shopId: ctx.shopId,
+        env: ctx.env,
+        model: route.model,
+      }),
+    DEFAULT_RETRY
+  ).catch(() => null);
+  if (!credentials) {
+    recordAiProviderRouting({
+      provider: 'deepseek',
+      taskType: ctx.taskType,
+      outcome: 'error',
+    });
+    return null;
+  }
+  recordAiProviderRouting({
+    provider: 'deepseek',
+    taskType: ctx.taskType,
+    outcome: routingOutcome(fallbackStage),
+  });
+  return credentials;
+}
+
+async function tryFallbackChain(ctx: RoutingContext): Promise<ChatModelCredentials | null> {
+  const fallbackRoute = parseProviderRoute(FALLBACK_CHAT_MODELS[ctx.taskType]);
+  if (fallbackRoute) {
+    if (
+      fallbackRoute.provider === 'xai' ||
+      fallbackRoute.provider === 'openai' ||
+      fallbackRoute.provider === 'deepseek'
+    ) {
+      recordSelfhostedFallbackToFrontier(ctx.taskType, fallbackRoute.provider);
+    }
+    const fallbackCreds = await resolveProviderRoute(fallbackRoute, 'primary', ctx);
+    if (fallbackCreds) {
+      return fallbackCreds;
+    }
+  }
+  const secondaryRoute = parseProviderRoute(SECONDARY_FALLBACK_CHAT_MODELS[ctx.taskType]);
+  if (secondaryRoute) {
+    return await resolveProviderRoute(secondaryRoute, 'secondary', ctx);
+  }
+  return null;
+}
+
+async function resolveSelfhostedRoute(
+  route: { provider: AiProvider; model: string },
+  fallbackStage: FallbackStage,
+  ctx: RoutingContext
+): Promise<ChatModelCredentials | null> {
+  const enabled = await isFeatureFlagEnabled({
+    shopId: ctx.shopId,
+    flagKey: 'selfhosted_llm_enabled',
+    fallback: false,
+  });
+  if (!enabled) {
+    ctx.logger.warn(
+      { shopId: ctx.shopId, taskType: ctx.taskType },
+      'selfhosted_feature_flag_disabled'
+    );
+  }
+  const selfHosted = enabled
+    ? await callWithRetry(
+        () =>
+          loadSelfHostedCredentials({
+            shopId: ctx.shopId,
+            encryptionKeyHex: ctx.env.encryptionKeyHex,
+          }),
+        DEFAULT_RETRY
+      ).catch(() => null)
+    : null;
+  if (!enabled || !selfHosted?.enabled) {
+    return fallbackStage === 'none' ? await tryFallbackChain(ctx) : null;
+  }
+
+  if (
+    selfHosted.connectionStatus === 'error' ||
+    selfHosted.connectionStatus === 'disabled' ||
+    selfHosted.connectionStatus === 'unreachable'
+  ) {
+    const redis = getRoutingRedis(ctx.env);
+    const affectedEndpoints = selfHosted.endpoints.filter(
+      (candidate) =>
+        candidate.enabled &&
+        candidate.modelId === route.model &&
+        (candidate.type === 'chat' || candidate.type === 'both')
+    );
+    await Promise.all(
+      affectedEndpoints.map(async (endpoint) => {
+        await recordCircuitBreakerFailure({
+          redis,
+          redisPrefix: ctx.env.redisPrefix,
+          endpointId: endpoint.id,
+        });
+      })
+    );
+    ctx.logger.warn(
+      {
+        shopId: ctx.shopId,
+        connectionStatus: selfHosted.connectionStatus,
+        taskType: ctx.taskType,
+      },
+      'selfhosted_unavailable_fallback'
+    );
+    return fallbackStage === 'none' ? await tryFallbackChain(ctx) : null;
+  }
+
+  const endpoint = selfHosted.endpoints.find(
+    (candidate) =>
+      candidate.enabled &&
+      candidate.modelId === route.model &&
+      (candidate.type === 'chat' || candidate.type === 'both')
+  );
+  if (!endpoint) {
+    if (fallbackStage === 'none') {
+      ctx.logger.warn(
+        { shopId: ctx.shopId, taskType: ctx.taskType, model: route.model },
+        'selfhosted_endpoint_missing_fallback'
+      );
+    }
+    return fallbackStage === 'none' ? await tryFallbackChain(ctx) : null;
+  }
+
+  const redis = getRoutingRedis(ctx.env);
+  const cbState = await getCircuitBreakerState({
+    redis,
+    redisPrefix: ctx.env.redisPrefix,
+    endpointId: endpoint.id,
+  });
+  if (cbState === 'OPEN') {
+    ctx.logger.info(
+      { shopId: ctx.shopId, endpointId: endpoint.id },
+      'circuit_breaker_open_failfast'
+    );
+    return await tryFallbackChain(ctx);
+  }
+
+  recordAiProviderRouting({
+    provider: 'selfhosted',
+    taskType: ctx.taskType,
+    outcome: routingOutcome(fallbackStage),
+  });
+  await recordCircuitBreakerSuccess({
+    redis,
+    redisPrefix: ctx.env.redisPrefix,
+    endpointId: endpoint.id,
+  });
+  return {
+    provider: 'selfhosted',
+    ...(selfHosted.bearerToken ? { apiKey: selfHosted.bearerToken } : {}),
+    baseUrl: endpoint.baseUrl,
+    model: endpoint.modelId,
+    temperature: 0.1,
+    maxTokensPerRequest: 4000,
+    rateLimitPerMinute: 0,
+  };
+}
+
+async function resolveProviderRoute(
+  route: { provider: AiProvider; model: string },
+  fallbackStage: FallbackStage,
+  ctx: RoutingContext
+): Promise<ChatModelCredentials | null> {
+  if (route.provider === 'xai') {
+    return resolveXaiRoute(route, fallbackStage, ctx);
+  }
+  if (route.provider === 'openai') {
+    return resolveOpenAiRoute(route, fallbackStage, ctx);
+  }
+  if (route.provider === 'deepseek') {
+    return resolveDeepseekRoute(route, fallbackStage, ctx);
+  }
+  if (route.provider === 'selfhosted') {
+    return resolveSelfhostedRoute(route, fallbackStage, ctx);
+  }
+  ctx.logger.warn(
+    { shopId: ctx.shopId, provider: route.provider, taskType: ctx.taskType },
+    'AI provider routing is not supported for this runtime path'
+  );
+  return null;
+}
+
 export async function resolveChatTaskCredentials(params: {
   shopId: string;
   taskType: ChatTaskType;
@@ -172,338 +492,7 @@ export async function resolveChatTaskCredentials(params: {
     );
     return null;
   }
-
-  const callWithRetry = async <T>(
-    fn: () => Promise<T>,
-    opts: { maxRetries: number; baseDelayMs: number; maxDelayMs: number; timeoutMs: number }
-  ): Promise<T> => {
-    const shouldFailFast = (error: unknown): boolean => {
-      if (!(error instanceof Error)) return false;
-      return /\b(400|401|403)\b/.test(error.message);
-    };
-
-    let attempt = 0;
-    let lastError: unknown = null;
-    while (attempt <= opts.maxRetries) {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), opts.timeoutMs);
-      try {
-        const result = await Promise.race([
-          fn(),
-          new Promise<T>((_, reject) => {
-            controller.signal.addEventListener('abort', () => reject(new Error('retry_timeout')), {
-              once: true,
-            });
-          }),
-        ]);
-        clearTimeout(timeout);
-        return result;
-      } catch (error) {
-        clearTimeout(timeout);
-        lastError = error;
-        if (shouldFailFast(error) || attempt >= opts.maxRetries) {
-          break;
-        }
-        const exponentialDelay = Math.min(opts.maxDelayMs, opts.baseDelayMs * 2 ** attempt);
-        const jitterMs = Math.floor(Math.random() * 1_000);
-        await new Promise((resolve) => setTimeout(resolve, exponentialDelay + jitterMs));
-        attempt += 1;
-      }
-    }
-    throw lastError instanceof Error ? lastError : new Error('retry_failed');
-  };
-
-  const resolveProviderRoute = async (
-    route: { provider: AiProvider; model: string },
-    fallbackStage: 'none' | 'primary' | 'secondary'
-  ): Promise<ChatModelCredentials | null> => {
-    if (route.provider === 'xai') {
-      const credentials = await callWithRetry(
-        () =>
-          loadXAICredentials({
-            shopId: params.shopId,
-            encryptionKeyHex: params.env.encryptionKeyHex,
-          }),
-        { maxRetries: 2, baseDelayMs: 1_000, maxDelayMs: 4_000, timeoutMs: 30_000 }
-      ).catch(() => null);
-      if (!credentials) {
-        recordAiProviderRouting({ provider: 'xai', taskType: params.taskType, outcome: 'error' });
-        return null;
-      }
-      recordAiProviderRouting({
-        provider: 'xai',
-        taskType: params.taskType,
-        outcome: fallbackStage === 'none' ? 'primary' : 'fallback',
-      });
-      return { ...credentials, provider: 'xai', model: route.model };
-    }
-
-    if (route.provider === 'openai') {
-      const config = await callWithRetry(
-        () =>
-          getShopOpenAiConfig({
-            shopId: params.shopId,
-            env: params.env,
-            logger: params.logger,
-          }),
-        { maxRetries: 2, baseDelayMs: 1_000, maxDelayMs: 4_000, timeoutMs: 30_000 }
-      ).catch(() => null);
-      if (!config || !config.enabled || !config.openAiApiKey) {
-        recordAiProviderRouting({
-          provider: 'openai',
-          taskType: params.taskType,
-          outcome: 'error',
-        });
-        return null;
-      }
-
-      recordAiProviderRouting({
-        provider: 'openai',
-        taskType: params.taskType,
-        outcome: fallbackStage === 'none' ? 'primary' : 'fallback',
-      });
-      return {
-        provider: 'openai',
-        apiKey: config.openAiApiKey,
-        baseUrl: (
-          config.openAiBaseUrl ??
-          params.env.openAiBaseUrl ??
-          'https://api.openai.com'
-        ).replace(/\/$/, ''),
-        model: route.model,
-        temperature: 0.1,
-        maxTokensPerRequest: 2000,
-        rateLimitPerMinute: 0,
-      };
-    }
-
-    if (route.provider === 'deepseek') {
-      const credentials = await callWithRetry(
-        () =>
-          loadDeepSeekCredentials({
-            shopId: params.shopId,
-            env: params.env,
-            model: route.model,
-          }),
-        { maxRetries: 2, baseDelayMs: 1_000, maxDelayMs: 4_000, timeoutMs: 30_000 }
-      ).catch(() => null);
-      if (!credentials) {
-        recordAiProviderRouting({
-          provider: 'deepseek',
-          taskType: params.taskType,
-          outcome: 'error',
-        });
-        return null;
-      }
-      recordAiProviderRouting({
-        provider: 'deepseek',
-        taskType: params.taskType,
-        outcome: fallbackStage === 'none' ? 'primary' : 'fallback',
-      });
-      return credentials;
-    }
-
-    if (route.provider !== 'selfhosted') {
-      params.logger.warn(
-        { shopId: params.shopId, provider: route.provider, taskType: params.taskType },
-        'AI provider routing is not supported for this runtime path'
-      );
-      return null;
-    }
-
-    const enabled = await isFeatureFlagEnabled({
-      shopId: params.shopId,
-      flagKey: 'selfhosted_llm_enabled',
-      fallback: false,
-    });
-    if (!enabled) {
-      params.logger.warn(
-        { shopId: params.shopId, taskType: params.taskType },
-        'selfhosted_feature_flag_disabled'
-      );
-    }
-    const selfHosted = enabled
-      ? await callWithRetry(
-          () =>
-            loadSelfHostedCredentials({
-              shopId: params.shopId,
-              encryptionKeyHex: params.env.encryptionKeyHex,
-            }),
-          { maxRetries: 2, baseDelayMs: 1_000, maxDelayMs: 4_000, timeoutMs: 30_000 }
-        ).catch(() => null)
-      : null;
-    if (!enabled || !selfHosted?.enabled) {
-      if (fallbackStage === 'none') {
-        params.logger.info(
-          {
-            shopId: params.shopId,
-            taskType: params.taskType,
-            fallback: FALLBACK_CHAT_MODELS[params.taskType],
-          },
-          'selfhosted_fallback_to_frontier'
-        );
-        const fallbackRoute = parseProviderRoute(FALLBACK_CHAT_MODELS[params.taskType]);
-        if (fallbackRoute) {
-          if (
-            fallbackRoute.provider === 'xai' ||
-            fallbackRoute.provider === 'openai' ||
-            fallbackRoute.provider === 'deepseek'
-          ) {
-            recordSelfhostedFallbackToFrontier(params.taskType, fallbackRoute.provider);
-          }
-          const fallbackCreds = await resolveProviderRoute(fallbackRoute, 'primary');
-          if (fallbackCreds) {
-            return fallbackCreds;
-          }
-        }
-        const secondaryRoute = parseProviderRoute(SECONDARY_FALLBACK_CHAT_MODELS[params.taskType]);
-        if (secondaryRoute) {
-          return await resolveProviderRoute(secondaryRoute, 'secondary');
-        }
-      }
-      return null;
-    }
-
-    if (
-      selfHosted.connectionStatus === 'error' ||
-      selfHosted.connectionStatus === 'disabled' ||
-      selfHosted.connectionStatus === 'unreachable'
-    ) {
-      const redis = getRoutingRedis(params.env);
-      const affectedEndpoints = selfHosted.endpoints.filter(
-        (candidate) =>
-          candidate.enabled &&
-          candidate.modelId === route.model &&
-          (candidate.type === 'chat' || candidate.type === 'both')
-      );
-      await Promise.all(
-        affectedEndpoints.map(async (endpoint) => {
-          await recordCircuitBreakerFailure({
-            redis,
-            redisPrefix: params.env.redisPrefix,
-            endpointId: endpoint.id,
-          });
-        })
-      );
-      params.logger.warn(
-        {
-          shopId: params.shopId,
-          connectionStatus: selfHosted.connectionStatus,
-          taskType: params.taskType,
-        },
-        'selfhosted_unavailable_fallback'
-      );
-      if (fallbackStage === 'none') {
-        const fallbackRoute = parseProviderRoute(FALLBACK_CHAT_MODELS[params.taskType]);
-        if (fallbackRoute) {
-          if (
-            fallbackRoute.provider === 'xai' ||
-            fallbackRoute.provider === 'openai' ||
-            fallbackRoute.provider === 'deepseek'
-          ) {
-            recordSelfhostedFallbackToFrontier(params.taskType, fallbackRoute.provider);
-          }
-          const fallbackCreds = await resolveProviderRoute(fallbackRoute, 'primary');
-          if (fallbackCreds) {
-            return fallbackCreds;
-          }
-        }
-        const secondaryRoute = parseProviderRoute(SECONDARY_FALLBACK_CHAT_MODELS[params.taskType]);
-        if (secondaryRoute) {
-          return await resolveProviderRoute(secondaryRoute, 'secondary');
-        }
-      }
-      return null;
-    }
-
-    const endpoint = selfHosted.endpoints.find(
-      (candidate) =>
-        candidate.enabled &&
-        candidate.modelId === route.model &&
-        (candidate.type === 'chat' || candidate.type === 'both')
-    );
-    if (!endpoint) {
-      if (fallbackStage === 'none') {
-        params.logger.warn(
-          { shopId: params.shopId, taskType: params.taskType, model: route.model },
-          'selfhosted_endpoint_missing_fallback'
-        );
-        const fallbackRoute = parseProviderRoute(FALLBACK_CHAT_MODELS[params.taskType]);
-        if (fallbackRoute) {
-          if (
-            fallbackRoute.provider === 'xai' ||
-            fallbackRoute.provider === 'openai' ||
-            fallbackRoute.provider === 'deepseek'
-          ) {
-            recordSelfhostedFallbackToFrontier(params.taskType, fallbackRoute.provider);
-          }
-          const fallbackCreds = await resolveProviderRoute(fallbackRoute, 'primary');
-          if (fallbackCreds) {
-            return fallbackCreds;
-          }
-        }
-        const secondaryRoute = parseProviderRoute(SECONDARY_FALLBACK_CHAT_MODELS[params.taskType]);
-        if (secondaryRoute) {
-          return await resolveProviderRoute(secondaryRoute, 'secondary');
-        }
-      }
-      return null;
-    }
-
-    const redis = getRoutingRedis(params.env);
-    const cbState = await getCircuitBreakerState({
-      redis,
-      redisPrefix: params.env.redisPrefix,
-      endpointId: endpoint.id,
-    });
-    if (cbState === 'OPEN') {
-      params.logger.info(
-        { shopId: params.shopId, endpointId: endpoint.id },
-        'circuit_breaker_open_failfast'
-      );
-      const fallbackRoute = parseProviderRoute(FALLBACK_CHAT_MODELS[params.taskType]);
-      if (fallbackRoute) {
-        if (
-          fallbackRoute.provider === 'xai' ||
-          fallbackRoute.provider === 'openai' ||
-          fallbackRoute.provider === 'deepseek'
-        ) {
-          recordSelfhostedFallbackToFrontier(params.taskType, fallbackRoute.provider);
-        }
-        const fallbackCreds = await resolveProviderRoute(fallbackRoute, 'primary');
-        if (fallbackCreds) {
-          return fallbackCreds;
-        }
-      }
-      const secondaryRoute = parseProviderRoute(SECONDARY_FALLBACK_CHAT_MODELS[params.taskType]);
-      if (secondaryRoute) {
-        return await resolveProviderRoute(secondaryRoute, 'secondary');
-      }
-      return null;
-    }
-
-    recordAiProviderRouting({
-      provider: 'selfhosted',
-      taskType: params.taskType,
-      outcome: fallbackStage === 'none' ? 'primary' : 'fallback',
-    });
-    await recordCircuitBreakerSuccess({
-      redis,
-      redisPrefix: params.env.redisPrefix,
-      endpointId: endpoint.id,
-    });
-    return {
-      provider: 'selfhosted',
-      ...(selfHosted.bearerToken ? { apiKey: selfHosted.bearerToken } : {}),
-      baseUrl: endpoint.baseUrl,
-      model: endpoint.modelId,
-      temperature: 0.1,
-      maxTokensPerRequest: 4000,
-      rateLimitPerMinute: 0,
-    };
-  };
-
-  return await resolveProviderRoute(parsedRoute, 'none');
+  return await resolveProviderRoute(parsedRoute, 'none', params);
 }
 
 const DEFAULT_EMBEDDING_ROUTE = 'selfhosted:qwen3-embedding-8b-q5km';

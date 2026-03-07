@@ -60,12 +60,12 @@ const detectors = [
   {
     name: 'GitHub personal access token',
     severity: 'error',
-    regex: /\bgh[pousr]_[A-Za-z0-9_]{30,}\b/g,
+    regex: /\bgh[pousr]_\w{30,}\b/g,
   },
   {
     name: 'GitHub fine-grained token',
     severity: 'error',
-    regex: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
+    regex: /\bgithub_pat_\w{20,}\b/g,
   },
   {
     name: 'Slack token',

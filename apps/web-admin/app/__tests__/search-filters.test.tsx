@@ -27,12 +27,14 @@ describe('SearchFilters', () => {
           priceMin: null,
           priceMax: null,
           categoryId: null,
+          collectionIds: [],
         }}
         options={{
           vendors: ['Nike', 'Adidas'],
           productTypes: ['Shoes'],
           priceRange: { min: 10, max: 100 },
           categories: [{ id: 'cat-1', name: 'Footwear' }],
+          collections: [],
           enrichmentStatus: [],
         }}
         onChange={() => undefined}

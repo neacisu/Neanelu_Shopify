@@ -17,6 +17,138 @@ function buildEncryptionKey(env: AppEnv): Buffer {
 
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
+interface GeminiCredentialsRow {
+  gemini_enabled: boolean;
+  gemini_api_key_ciphertext: Buffer | null;
+  gemini_api_key_iv: Buffer | null;
+  gemini_api_key_tag: Buffer | null;
+  gemini_model: string | null;
+}
+
+function hasGeminiStoredKey(row: GeminiCredentialsRow): boolean {
+  return Boolean(row.gemini_api_key_ciphertext && row.gemini_api_key_iv && row.gemini_api_key_tag);
+}
+
+async function loadGeminiCredentials(shopId: string): Promise<GeminiCredentialsRow | undefined> {
+  return withTenantContext(shopId, async (client) => {
+    const result = await client.query<GeminiCredentialsRow>(
+      `SELECT gemini_enabled, gemini_api_key_ciphertext, gemini_api_key_iv, gemini_api_key_tag,
+              gemini_model
+         FROM shop_ai_credentials
+        WHERE shop_id = $1`,
+      [shopId]
+    );
+    return result.rows[0];
+  });
+}
+
+async function persistGeminiError(
+  shopId: string,
+  message: string,
+  persist: boolean | undefined
+): Promise<void> {
+  if (!persist) return;
+  await withTenantContext(shopId, async (client) => {
+    await client.query(
+      `UPDATE shop_ai_credentials
+          SET gemini_connection_status = 'error',
+              gemini_last_checked_at = now(),
+              gemini_last_error = $1
+        WHERE shop_id = $2`,
+      [message, shopId]
+    );
+  });
+}
+
+async function persistGeminiHealth(params: {
+  shopId: string;
+  persist: boolean | undefined;
+  isOk: boolean;
+  httpStatus: number;
+  availableModels?: string[];
+}): Promise<void> {
+  if (!params.persist) return;
+  const connectionStatus = params.isOk ? 'connected' : 'error';
+  await withTenantContext(params.shopId, async (client) => {
+    const modelsArray =
+      params.availableModels && params.availableModels.length > 0 ? params.availableModels : null;
+    await client.query(
+      `UPDATE shop_ai_credentials
+          SET gemini_connection_status = $1,
+              gemini_last_checked_at = now(),
+              gemini_last_error = $2,
+              gemini_last_success_at = CASE WHEN $1 = 'connected' THEN now() ELSE gemini_last_success_at END,
+              gemini_available_models = COALESCE($4::text[], gemini_available_models)
+        WHERE shop_id = $3`,
+      [
+        connectionStatus,
+        params.isOk ? null : `HTTP ${params.httpStatus}`,
+        params.shopId,
+        modelsArray,
+      ]
+    );
+  });
+}
+
+function parseGeminiModels(body: unknown): string[] | undefined {
+  if (!body || typeof body !== 'object' || !('models' in body)) return undefined;
+  const maybeModels = (body as { models?: { name?: string }[] }).models ?? [];
+  const availableModels = maybeModels
+    .map((m) => m.name?.replace('models/', '') ?? '')
+    .filter((n) => n.length > 0 && (n.includes('gemini') || n.includes('flash')));
+  return availableModels.length > 0 ? availableModels : undefined;
+}
+
+function geminiPrecheckFailure(params: {
+  row: GeminiCredentialsRow;
+  hasOverride: boolean;
+  allowStoredWhenDisabled: boolean | undefined;
+}): GeminiHealthResponse | null {
+  const { row, hasOverride, allowStoredWhenDisabled } = params;
+  if (!hasOverride && !row.gemini_enabled && !allowStoredWhenDisabled) {
+    return { status: 'disabled', checkedAt: nowIso(), message: 'Gemini is disabled' };
+  }
+  if (!hasOverride && !hasGeminiStoredKey(row)) {
+    return { status: 'missing_key', checkedAt: nowIso(), message: 'Missing Gemini API key' };
+  }
+  return null;
+}
+
+async function resolveGeminiApiKey(params: {
+  row: GeminiCredentialsRow;
+  env: AppEnv;
+  shopId: string;
+  apiKeyOverride: string | null | undefined;
+  persist: boolean | undefined;
+}): Promise<{ apiKey?: string; failure?: GeminiHealthResponse }> {
+  const { row, env, shopId, apiKeyOverride, persist } = params;
+  if (apiKeyOverride) {
+    return { apiKey: apiKeyOverride };
+  }
+
+  const ciphertext = row.gemini_api_key_ciphertext;
+  const iv = row.gemini_api_key_iv;
+  const tag = row.gemini_api_key_tag;
+  if (!ciphertext || !iv || !tag) {
+    return {
+      failure: { status: 'missing_key', checkedAt: nowIso(), message: 'Missing Gemini API key' },
+    };
+  }
+
+  try {
+    const apiKey = decryptAesGcm(ciphertext, buildEncryptionKey(env), iv, tag).toString('utf-8');
+    return { apiKey };
+  } catch {
+    const failure: GeminiHealthResponse = {
+      status: 'error',
+      checkedAt: nowIso(),
+      message: 'Encryption key mismatch — please re-save the API key',
+    };
+    await persistGeminiError(shopId, failure.message ?? 'unknown_error', persist);
+    return { failure };
+  }
+}
+
 export async function runGeminiHealthCheck(params: {
   shopId: string;
   env: AppEnv;
@@ -26,69 +158,25 @@ export async function runGeminiHealthCheck(params: {
   persist?: boolean;
 }): Promise<GeminiHealthResponse> {
   const { shopId, env, logger, apiKeyOverride, allowStoredWhenDisabled, persist } = params;
-  const row = await withTenantContext(shopId, async (client) => {
-    const result = await client.query<{
-      gemini_enabled: boolean;
-      gemini_api_key_ciphertext: Buffer | null;
-      gemini_api_key_iv: Buffer | null;
-      gemini_api_key_tag: Buffer | null;
-      gemini_model: string | null;
-    }>(
-      `SELECT gemini_enabled, gemini_api_key_ciphertext, gemini_api_key_iv, gemini_api_key_tag,
-              gemini_model
-         FROM shop_ai_credentials
-        WHERE shop_id = $1`,
-      [shopId]
-    );
-    return result.rows[0];
-  });
+  const row = await loadGeminiCredentials(shopId);
 
   if (!row) {
     return { status: 'missing_key', checkedAt: nowIso(), message: 'Missing Gemini configuration' };
   }
 
-  if (!apiKeyOverride && !row.gemini_enabled && !allowStoredWhenDisabled) {
-    return { status: 'disabled', checkedAt: nowIso(), message: 'Gemini is disabled' };
+  const hasOverride = Boolean(apiKeyOverride);
+  const precheckFailure = geminiPrecheckFailure({ row, hasOverride, allowStoredWhenDisabled });
+  if (precheckFailure) {
+    return precheckFailure;
   }
 
-  if (
-    !apiKeyOverride &&
-    (!row.gemini_api_key_ciphertext || !row.gemini_api_key_iv || !row.gemini_api_key_tag)
-  ) {
+  const apiKeyResolution = await resolveGeminiApiKey({ row, env, shopId, apiKeyOverride, persist });
+  if (apiKeyResolution.failure) {
+    return apiKeyResolution.failure;
+  }
+  const apiKey = apiKeyResolution.apiKey;
+  if (!apiKey) {
     return { status: 'missing_key', checkedAt: nowIso(), message: 'Missing Gemini API key' };
-  }
-
-  let apiKey: string;
-  if (apiKeyOverride) {
-    apiKey = apiKeyOverride;
-  } else {
-    try {
-      apiKey = decryptAesGcm(
-        row.gemini_api_key_ciphertext!,
-        buildEncryptionKey(env),
-        row.gemini_api_key_iv!,
-        row.gemini_api_key_tag!
-      ).toString('utf-8');
-    } catch {
-      const result: GeminiHealthResponse = {
-        status: 'error',
-        checkedAt: nowIso(),
-        message: 'Encryption key mismatch — please re-save the API key',
-      };
-      if (persist) {
-        await withTenantContext(shopId, async (client) => {
-          await client.query(
-            `UPDATE shop_ai_credentials
-                SET gemini_connection_status = 'error',
-                    gemini_last_checked_at = now(),
-                    gemini_last_error = $1
-              WHERE shop_id = $2`,
-            [result.message, shopId]
-          );
-        });
-      }
-      return result;
-    }
   }
 
   const start = Date.now();
@@ -103,10 +191,7 @@ export async function runGeminiHealthCheck(params: {
     let availableModels: string[] | undefined;
     if (response.ok) {
       try {
-        const body = (await response.json()) as { models?: { name?: string }[] };
-        availableModels = (body.models ?? [])
-          .map((m) => m.name?.replace('models/', '') ?? '')
-          .filter((n) => n.length > 0 && (n.includes('gemini') || n.includes('flash')));
+        availableModels = parseGeminiModels(await response.json());
       } catch {
         /* ignore parse errors */
       }
@@ -122,22 +207,13 @@ export async function runGeminiHealthCheck(params: {
       ...(availableModels ? { availableModels } : {}),
     };
 
-    if (persist) {
-      const connectionStatus = response.ok ? 'connected' : 'error';
-      await withTenantContext(shopId, async (client) => {
-        const modelsArray = availableModels && availableModels.length > 0 ? availableModels : null;
-        await client.query(
-          `UPDATE shop_ai_credentials
-              SET gemini_connection_status = $1,
-                  gemini_last_checked_at = now(),
-                  gemini_last_error = $2,
-                  gemini_last_success_at = CASE WHEN $1 = 'connected' THEN now() ELSE gemini_last_success_at END,
-                  gemini_available_models = COALESCE($4::text[], gemini_available_models)
-            WHERE shop_id = $3`,
-          [connectionStatus, response.ok ? null : `HTTP ${httpStatus}`, shopId, modelsArray]
-        );
-      });
-    }
+    await persistGeminiHealth({
+      shopId,
+      persist,
+      isOk: response.ok,
+      httpStatus,
+      ...(availableModels ? { availableModels } : {}),
+    });
 
     return result;
   } catch (error) {
@@ -148,20 +224,11 @@ export async function runGeminiHealthCheck(params: {
       latencyMs: Date.now() - start,
       ...(row.gemini_model ? { model: row.gemini_model } : {}),
       message: error instanceof Error ? error.message : 'Gemini connection failed',
-      ...(httpStatus !== undefined ? { httpStatus } : {}),
     };
-    if (persist) {
-      await withTenantContext(shopId, async (client) => {
-        await client.query(
-          `UPDATE shop_ai_credentials
-              SET gemini_connection_status = 'error',
-                  gemini_last_checked_at = now(),
-                  gemini_last_error = $1
-            WHERE shop_id = $2`,
-          [result.message ?? 'unknown_error', shopId]
-        );
-      });
+    if (httpStatus != null) {
+      result.httpStatus = httpStatus;
     }
+    await persistGeminiError(shopId, result.message ?? 'unknown_error', persist);
     return result;
   }
 }

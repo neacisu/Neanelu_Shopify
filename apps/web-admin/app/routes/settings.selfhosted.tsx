@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import type {
   SelfHostedEndpoint,
@@ -23,6 +23,24 @@ function createEmptyEndpoint(): SelfHostedEndpoint {
     maxConcurrentRequests: 1,
     timeoutMs: 20000,
   };
+}
+
+function formatGpuMetricsText(data: SelfHostedSettingsResponse): string {
+  const metrics = data.gpuMetrics;
+  if (!metrics) return 'Fără metrici GPU detectate';
+
+  const parts: string[] = [];
+  if (metrics.gpuUtilizationPercent != null) {
+    parts.push(`GPU ${metrics.gpuUtilizationPercent.toFixed(0)}%`);
+  }
+  if (metrics.temperatureCelsius != null) {
+    parts.push(`${metrics.temperatureCelsius.toFixed(0)}°C`);
+  }
+  if (metrics.vramUsedGiB != null && metrics.vramTotalGiB != null) {
+    parts.push(`${metrics.vramUsedGiB.toFixed(1)}/${metrics.vramTotalGiB.toFixed(1)} GiB`);
+  }
+
+  return parts.length > 0 ? parts.join(' · ') : 'Fără metrici GPU detectate';
 }
 
 export default function SettingsSelfHosted() {
@@ -59,23 +77,7 @@ export default function SettingsSelfHosted() {
         setLastCheckedAt(data.lastCheckedAt ?? null);
         setLastSuccessAt(data.lastSuccessAt ?? null);
         setLastError(data.lastError ?? null);
-        setGpuMetricsText(
-          data.gpuMetrics
-            ? [
-                data.gpuMetrics.gpuUtilizationPercent != null
-                  ? `GPU ${data.gpuMetrics.gpuUtilizationPercent.toFixed(0)}%`
-                  : null,
-                data.gpuMetrics.temperatureCelsius != null
-                  ? `${data.gpuMetrics.temperatureCelsius.toFixed(0)}°C`
-                  : null,
-                data.gpuMetrics.vramUsedGiB != null && data.gpuMetrics.vramTotalGiB != null
-                  ? `${data.gpuMetrics.vramUsedGiB.toFixed(1)}/${data.gpuMetrics.vramTotalGiB.toFixed(1)} GiB`
-                  : null,
-              ]
-                .filter(Boolean)
-                .join(' · ')
-            : 'Fără metrici GPU detectate'
-        );
+        setGpuMetricsText(formatGpuMetricsText(data));
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Nu am putut încărca setările selfhosted.');
@@ -108,16 +110,22 @@ export default function SettingsSelfHosted() {
     setHealthLoading(true);
     setHealthResult(null);
     try {
+      const payload: {
+        bearerToken?: string;
+        endpoints: SelfHostedEndpoint[];
+        useStoredToken?: boolean;
+      } = { endpoints };
+      const trimmedBearerToken = bearerToken.trim();
+      if (bearerTokenDirty && trimmedBearerToken.length > 0) {
+        payload.bearerToken = trimmedBearerToken;
+      } else if (hasBearerToken && !bearerTokenDirty) {
+        payload.useStoredToken = true;
+      }
+
       const response = await api.postApi<
         SelfHostedHealthResponse,
         { bearerToken?: string; endpoints: SelfHostedEndpoint[]; useStoredToken?: boolean }
-      >('/settings/selfhosted/health', {
-        ...(bearerTokenDirty && bearerToken.trim().length > 0
-          ? { bearerToken: bearerToken.trim() }
-          : {}),
-        ...(hasBearerToken && !bearerTokenDirty ? { useStoredToken: true } : {}),
-        endpoints,
-      });
+      >('/settings/selfhosted/health', payload);
       setHealthResult(response);
     } catch (err) {
       setHealthResult({
@@ -132,7 +140,7 @@ export default function SettingsSelfHosted() {
     }
   };
 
-  const saveSettings = async (event: FormEvent<HTMLFormElement>) => {
+  const saveSettings = async (event: { preventDefault: () => void }): Promise<void> => {
     event.preventDefault();
     setSaving(true);
     setError(null);
@@ -161,6 +169,18 @@ export default function SettingsSelfHosted() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const onSaveSettingsSubmit = (event: { preventDefault: () => void }): void => {
+    void saveSettings(event);
+  };
+
+  const onTestConnectionClick = (): void => {
+    void testConnection();
+  };
+
+  const removeEndpoint = (id: string): void => {
+    setEndpoints((prev) => prev.filter((item) => item.id !== id));
   };
 
   return (
@@ -194,7 +214,7 @@ export default function SettingsSelfHosted() {
         <div className="mt-2 text-xs text-muted dark:text-slate-400">{gpuMetricsText}</div>
       </div>
 
-      <form onSubmit={(event) => void saveSettings(event)} className="space-y-4">
+      <form onSubmit={onSaveSettingsSubmit} className="space-y-4">
         <label className="flex items-center gap-2 text-body dark:text-slate-200">
           <input
             type="checkbox"
@@ -352,27 +372,21 @@ export default function SettingsSelfHosted() {
                         }}
                         className="size-4 accent-primary"
                       />
-                      Activ
+                      <span>Activ</span>
                     </label>
                   </div>
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted dark:text-slate-400">
                   <span>Status: {health?.status ?? 'nevalidat'}</span>
-                  {health?.latencyMs != null ? <span>Latență: {health.latencyMs} ms</span> : null}
-                  {health?.modelsLoaded?.length ? (
+                  {health?.latencyMs == null ? null : <span>Latență: {health.latencyMs} ms</span>}
+                  {health?.modelsLoaded != null && health.modelsLoaded.length > 0 ? (
                     <span>Modele: {health.modelsLoaded.join(', ')}</span>
                   ) : null}
                 </div>
 
                 <div className="mt-3">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() =>
-                      setEndpoints((prev) => prev.filter((item) => item.id !== endpoint.id))
-                    }
-                  >
+                  <Button type="button" variant="ghost" onClick={() => removeEndpoint(endpoint.id)}>
                     Elimină endpoint
                   </Button>
                 </div>
@@ -386,7 +400,7 @@ export default function SettingsSelfHosted() {
           <Button
             type="button"
             variant="secondary"
-            onClick={() => void testConnection()}
+            onClick={onTestConnectionClick}
             disabled={healthLoading || endpoints.length === 0}
           >
             {healthLoading ? 'Se testează...' : 'Test conexiune'}

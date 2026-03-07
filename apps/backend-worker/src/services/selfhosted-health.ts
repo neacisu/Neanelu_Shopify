@@ -57,14 +57,33 @@ function parseGpuMetrics(metricsText: string): GpuMetrics | null {
 
 function parsePrometheusValue(metricsText: string, names: readonly string[]): number | null {
   for (const name of names) {
-    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`^${escaped}(?:\\{[^}]*\\})?\\s+([0-9.e+-]+)$`, 'm');
+    const escaped = name.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+    const regex = new RegExp(String.raw`^${escaped}(?:\{[^}]*\})?\s+([0-9.e+-]+)$`, 'm');
     const match = regex.exec(metricsText);
     if (!match?.[1]) continue;
     const value = Number(match[1]);
     if (Number.isFinite(value)) return value;
   }
   return null;
+}
+
+function resolveSelfHostedOverallStatus(params: {
+  endpointCount: number;
+  okCount: number;
+  unreachableCount: number;
+}): SelfHostedHealthResponse['status'] {
+  if (params.endpointCount === 0) return 'error';
+  if (params.okCount === params.endpointCount) return 'ok';
+  if (params.okCount > 0) return 'partial';
+  if (params.unreachableCount === params.endpointCount) return 'unreachable';
+  return 'error';
+}
+
+function toPersistedConnectionStatus(status: SelfHostedHealthResponse['status']): string {
+  if (status === 'ok') return 'connected';
+  if (status === 'partial') return 'error';
+  if (status === 'unreachable') return 'unreachable';
+  return status;
 }
 
 async function fetchEndpointModels(params: {
@@ -261,16 +280,11 @@ export async function runSelfHostedHealthCheck(params: {
     ([, result]) => result.status === 'unreachable'
   ).length;
 
-  const status: SelfHostedHealthResponse['status'] =
-    endpointEntries.length === 0
-      ? 'error'
-      : okCount === endpointEntries.length
-        ? 'ok'
-        : okCount > 0
-          ? 'partial'
-          : unreachableCount === endpointEntries.length
-            ? 'unreachable'
-            : 'error';
+  const status = resolveSelfHostedOverallStatus({
+    endpointCount: endpointEntries.length,
+    okCount,
+    unreachableCount,
+  });
 
   const gpuMetrics = await fetchGpuMetrics({
     endpoint:
@@ -280,14 +294,7 @@ export async function runSelfHostedHealthCheck(params: {
   });
 
   if (params.persist) {
-    const connectionStatus =
-      status === 'ok'
-        ? 'connected'
-        : status === 'partial'
-          ? 'error'
-          : status === 'unreachable'
-            ? 'unreachable'
-            : status;
+    const connectionStatus = toPersistedConnectionStatus(status);
     const lastError = endpointEntries
       .map(([, result]) => (result.status === 'ok' ? null : result.message))
       .find((value) => typeof value === 'string' && value.length > 0);

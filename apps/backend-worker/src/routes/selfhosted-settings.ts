@@ -105,6 +105,18 @@ function toApiResponse(params: {
   health: SelfHostedHealthResponse | null;
   usage: { requests: number; inputTokens: number; outputTokens: number; cost: number };
 }): SelfHostedSettingsResponse {
+  const toEndpointConnectionStatus = (
+    status: SelfHostedHealthResponse['endpoints'][string]['status'] | undefined
+  ): 'connected' | 'unreachable' | 'error' => {
+    if (status === 'ok') {
+      return 'connected';
+    }
+    if (status === 'unreachable') {
+      return 'unreachable';
+    }
+    return 'error';
+  };
+
   const endpoints = normalizeSelfHostedEndpoints(params.row?.selfhostedEndpoints ?? []);
   return {
     enabled: params.row?.selfhostedEnabled ?? false,
@@ -123,12 +135,7 @@ function toApiResponse(params: {
         return [
           endpoint.id,
           {
-            status:
-              healthStatus?.status === 'ok'
-                ? 'connected'
-                : healthStatus?.status === 'unreachable'
-                  ? 'unreachable'
-                  : 'error',
+            status: toEndpointConnectionStatus(healthStatus?.status),
             latencyMs: healthStatus?.latencyMs ?? null,
             lastError: healthStatus && healthStatus.status !== 'ok' ? healthStatus.message : null,
             modelsLoaded: healthStatus?.modelsLoaded ?? [],
@@ -274,10 +281,12 @@ export const selfhostedSettingsRoutes: FastifyPluginCallback<SelfHostedSettingsP
           if (bearerToken !== undefined) {
             const trimmed = bearerToken?.trim?.() ?? '';
             if (trimmed.length === 0) {
-              updates.push(`selfhosted_bearer_token_ciphertext = NULL`);
-              updates.push(`selfhosted_bearer_token_iv = NULL`);
-              updates.push(`selfhosted_bearer_token_tag = NULL`);
-              updates.push(`selfhosted_key_version = $${idx++}`);
+              updates.push(
+                `selfhosted_bearer_token_ciphertext = NULL`,
+                `selfhosted_bearer_token_iv = NULL`,
+                `selfhosted_bearer_token_tag = NULL`,
+                `selfhosted_key_version = $${idx++}`
+              );
               values.push(env.encryptionKeyVersion);
             } else {
               const encrypted = encryptAesGcm(

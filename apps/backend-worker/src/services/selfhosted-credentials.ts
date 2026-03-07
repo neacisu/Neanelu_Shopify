@@ -30,7 +30,7 @@ function isPrivateIpv4(hostname: string): boolean {
   if (isIP(hostname) !== 4) return false;
   if (hostname.startsWith('10.')) return true;
   if (hostname.startsWith('192.168.')) return true;
-  const parts = hostname.split('.').map((part) => Number(part));
+  const parts = hostname.split('.').map(Number);
   return (
     parts.length === 4 &&
     parts[0] !== undefined &&

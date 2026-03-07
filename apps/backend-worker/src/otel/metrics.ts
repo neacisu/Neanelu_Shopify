@@ -969,7 +969,12 @@ export function setSelfhostedCircuitBreakerState(params: {
 }): void {
   const endpointId = params.endpointId.trim();
   if (!endpointId) return;
-  const value = params.state === 'OPEN' ? 1 : params.state === 'HALF_OPEN' ? 2 : 0;
+  let value = 0;
+  if (params.state === 'OPEN') {
+    value = 1;
+  } else if (params.state === 'HALF_OPEN') {
+    value = 2;
+  }
   selfhostedCircuitBreakerStateMap.set(endpointId, { state: params.state, value });
 }
 
@@ -1233,9 +1238,21 @@ export function recordShopifyApiUsage(costPoints: number, isRateLimited = false)
   }
 }
 
+export type PimApiProvider =
+  | 'serper'
+  | 'xai'
+  | 'openai'
+  | 'gemini'
+  | 'deepseek'
+  | 'selfhosted'
+  | 'scraper';
+
+type PimBudgetProvider = Exclude<PimApiProvider, 'scraper'>;
+type PimUsageRatioRow = Readonly<{ provider: PimBudgetProvider; maxRatio: number }>;
+
 /** Record PIM external API usage (provider labels only; no shop_id to avoid high cardinality). */
 export function recordPimApiUsage(params: {
-  provider: 'serper' | 'xai' | 'openai' | 'gemini' | 'deepseek' | 'selfhosted' | 'scraper';
+  provider: PimApiProvider;
   operation: 'search' | 'audit' | 'extraction' | 'embedding' | 'other';
   estimatedCost: number;
   requestCount?: number;
@@ -1257,15 +1274,11 @@ export function recordPimApiUsage(params: {
   }
 }
 
-export function recordPimBudgetWarning(
-  provider: 'serper' | 'xai' | 'openai' | 'gemini' | 'deepseek' | 'selfhosted' | 'scraper'
-): void {
+export function recordPimBudgetWarning(provider: PimApiProvider): void {
   pimApiBudgetWarningTotal.add(1, { provider });
 }
 
-export function recordPimBudgetExceeded(
-  provider: 'serper' | 'xai' | 'openai' | 'gemini' | 'deepseek' | 'selfhosted' | 'scraper'
-): void {
+export function recordPimBudgetExceeded(provider: PimApiProvider): void {
   pimApiBudgetExceededTotal.add(1, { provider });
 }
 
@@ -1283,10 +1296,7 @@ export function recordPimQueueResumed(
   pimApiQueueResumedTotal.add(1, queueName ? { trigger, queue_name: queueName } : { trigger });
 }
 
-export function setPimBudgetUsageRatio(
-  provider: 'serper' | 'xai' | 'openai' | 'gemini' | 'deepseek' | 'selfhosted' | 'scraper',
-  ratio: number
-): void {
+export function setPimBudgetUsageRatio(provider: PimApiProvider, ratio: number): void {
   if (!Number.isFinite(ratio)) return;
   pimBudgetUsageRatioState.set(provider, Math.max(0, ratio));
 }
@@ -1376,12 +1386,7 @@ type BudgetRatioCacheLike = Readonly<{
 }>;
 
 export async function refreshPimBudgetUsageRatios(params: {
-  getMaxRatios: () => Promise<
-    readonly {
-      provider: 'serper' | 'xai' | 'openai' | 'gemini' | 'deepseek' | 'selfhosted';
-      maxRatio: number;
-    }[]
-  >;
+  getMaxRatios: () => Promise<readonly PimUsageRatioRow[]>;
   cache?: BudgetRatioCacheLike;
   cacheKey?: string;
   cacheTtlSeconds?: number;
@@ -1389,19 +1394,11 @@ export async function refreshPimBudgetUsageRatios(params: {
   const cacheKey = params.cacheKey ?? DEFAULT_BUDGET_RATIO_CACHE_KEY;
   const cacheTtlSeconds = params.cacheTtlSeconds ?? DEFAULT_BUDGET_RATIO_CACHE_TTL_SECONDS;
   try {
-    let ratios:
-      | readonly {
-          provider: 'serper' | 'xai' | 'openai' | 'gemini' | 'deepseek' | 'selfhosted';
-          maxRatio: number;
-        }[]
-      | null = null;
+    let ratios: readonly PimUsageRatioRow[] | null = null;
     if (params.cache) {
       const cached = await params.cache.get(cacheKey);
       if (cached) {
-        ratios = JSON.parse(cached) as readonly {
-          provider: 'serper' | 'xai' | 'openai' | 'gemini' | 'deepseek' | 'selfhosted';
-          maxRatio: number;
-        }[];
+        ratios = JSON.parse(cached) as readonly PimUsageRatioRow[];
       }
     }
 

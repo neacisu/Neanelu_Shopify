@@ -55,6 +55,7 @@ const emptyFilterOptions: ProductFiltersResponse = {
   productTypes: [],
   priceRange: { min: null, max: null },
   categories: [],
+  collections: [],
   enrichmentStatus: [],
 };
 
@@ -472,7 +473,7 @@ export default function ProductsPage() {
                     checked={searchMode === 'exact'}
                     onChange={() => setSearchMode('exact')}
                   />
-                  Exact
+                  <span>Exact</span>
                 </label>
                 <label className="flex items-center gap-1">
                   <input
@@ -481,7 +482,7 @@ export default function ProductsPage() {
                     checked={searchMode === 'semantic'}
                     onChange={() => setSearchMode('semantic')}
                   />
-                  Semantic
+                  <span>Semantic</span>
                 </label>
               </span>
             </div>
@@ -504,10 +505,22 @@ export default function ProductsPage() {
                 });
             }}
             onExport={onExport}
-            onAssignCategory={() => void onAssignCategory()}
-            onAddToCollection={() => void onAddToCollection()}
-            onCompare={() => void onCompare()}
-            onRequestEnrichment={() => void onRequestEnrichment()}
+            onAssignCategory={onAssignCategory}
+            onAddToCollection={() => {
+              onAddToCollection().catch(() => {
+                // handled by called function/toast
+              });
+            }}
+            onCompare={() => {
+              onCompare().catch(() => {
+                // handled by called function/toast
+              });
+            }}
+            onRequestEnrichment={() => {
+              onRequestEnrichment().catch(() => {
+                // handled by called function/toast
+              });
+            }}
           />
 
           {items.length === 0 && !loading ? (

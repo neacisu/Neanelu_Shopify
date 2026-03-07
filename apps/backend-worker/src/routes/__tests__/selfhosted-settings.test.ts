@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 
 const sessionPath = new URL('../../auth/session.js', import.meta.url).href;
-void mock.module(sessionPath, {
+mock.module(sessionPath, {
   namedExports: {
     requireSession: () => (req: unknown) => {
       (req as { session?: { shopId: string } }).session = { shopId: 'shop-1' };
@@ -45,7 +45,7 @@ const queryMock = mock.fn((sql: unknown) => {
   return { rows: [] };
 });
 
-void mock.module('@app/database', {
+mock.module('@app/database', {
   namedExports: {
     decryptAesGcm: () => Buffer.from('token'),
     encryptAesGcm: () => ({
@@ -74,7 +74,7 @@ const healthMock = mock.fn(() => ({
   gpuMetrics: null,
 }));
 
-void mock.module('../../services/selfhosted-health.js', {
+mock.module('../../services/selfhosted-health.js', {
   namedExports: {
     runSelfHostedHealthCheck: healthMock,
   },
@@ -286,7 +286,7 @@ void describe('selfhosted settings routes', () => {
     const body = JSON.parse(response.body) as { success?: boolean };
     assert.equal(body.success, true);
 
-    const lastCall = healthMock.mock.calls[healthMock.mock.calls.length - 1];
+    const lastCall = healthMock.mock.calls.at(-1);
     const args = (lastCall?.arguments as unknown[])?.[0] as {
       bearerTokenOverride?: string;
       endpointsOverride?: unknown;

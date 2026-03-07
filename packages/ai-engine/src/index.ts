@@ -99,9 +99,8 @@ class OpenAiEmbeddingsProvider implements EmbeddingsProvider {
 
       if (!res.ok) {
         const body = await res.text().catch(() => '');
-        throw new Error(
-          `EMBEDDING_FAILED: ${res.status} ${res.statusText}${body ? ` - ${body}` : ''}`
-        );
+        const bodySuffix = body ? ` - ${body}` : '';
+        throw new Error(`EMBEDDING_FAILED: ${res.status} ${res.statusText}${bodySuffix}`);
       }
 
       const json = (await res.json()) as {
@@ -168,8 +167,9 @@ class SelfhostedEmbeddingsProvider implements EmbeddingsProvider {
 
       if (!res.ok) {
         const body = await res.text().catch(() => '');
+        const bodySuffix = body ? ` - ${body}` : '';
         throw new Error(
-          `SELFHOSTED_EMBEDDING_FAILED: ${res.status} ${res.statusText}${body ? ` - ${body}` : ''}`
+          `SELFHOSTED_EMBEDDING_FAILED: ${res.status} ${res.statusText}${bodySuffix}`
         );
       }
 
@@ -189,7 +189,7 @@ class SelfhostedEmbeddingsProvider implements EmbeddingsProvider {
         if (!Number.isFinite(norm) || norm <= 0) {
           return embedding;
         }
-        if (Math.abs(norm - 1.0) <= 0.001) {
+        if (Math.abs(norm - 1) <= 0.001) {
           return embedding;
         }
         return embedding.map((value) => value / norm);
@@ -224,11 +224,12 @@ export function createEmbeddingsProvider(params: {
 
   // Determine dimensions based on model
   // text-embedding-3-large: 2000 (truncated), text-embedding-3-small: 1536
-  const dimensions = modelName.includes('large')
-    ? 2000
-    : modelName.includes('small')
-      ? 1536
-      : DEFAULT_EMBEDDING_DIMENSIONS;
+  let dimensions = DEFAULT_EMBEDDING_DIMENSIONS;
+  if (modelName.includes('large')) {
+    dimensions = 2000;
+  } else if (modelName.includes('small')) {
+    dimensions = 1536;
+  }
 
   const model: EmbeddingModel = {
     name: modelName,
