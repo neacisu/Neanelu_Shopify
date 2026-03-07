@@ -152,6 +152,40 @@ async function resolveDeepSeekApiKey(params: {
   }
 }
 
+async function callDeepSeekModelsEndpoint(params: {
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+  start: number;
+}): Promise<DeepSeekHealthResponse> {
+  const { baseUrl, model, apiKey, start } = params;
+  const response = await fetch(`${baseUrl}/models`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+  const latencyMs = Date.now() - start;
+  const status = response.ok ? 'ok' : 'error';
+
+  let availableModels: string[] | undefined;
+  if (response.ok) {
+    try {
+      availableModels = parseDeepSeekModels(await response.json());
+    } catch {
+      /* ignore parse errors */
+    }
+  }
+
+  return {
+    status,
+    checkedAt: nowIso(),
+    latencyMs,
+    httpStatus: response.status,
+    baseUrl,
+    model,
+    message: response.ok ? 'DeepSeek connection OK' : 'DeepSeek connection failed',
+    ...(availableModels ? { availableModels } : {}),
+  };
+}
+
 export async function runDeepSeekHealthCheck(params: {
   shopId: string;
   env: AppEnv;
@@ -195,59 +229,30 @@ export async function runDeepSeekHealthCheck(params: {
   }
 
   const start = Date.now();
-  let httpStatus: number | undefined;
 
   try {
-    const response = await fetch(`${baseUrl}/models`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-    httpStatus = response.status;
-    const latencyMs = Date.now() - start;
-    const status = response.ok ? 'ok' : 'error';
-
-    let availableModels: string[] | undefined;
-    if (response.ok) {
-      try {
-        availableModels = parseDeepSeekModels(await response.json());
-      } catch {
-        /* ignore parse errors */
-      }
-    }
-
-    const result: DeepSeekHealthResponse = {
-      status,
-      checkedAt: nowIso(),
-      latencyMs,
-      httpStatus,
-      baseUrl,
-      model,
-      message: response.ok ? 'DeepSeek connection OK' : 'DeepSeek connection failed',
-      ...(availableModels ? { availableModels } : {}),
-    };
+    const result = await callDeepSeekModelsEndpoint({ baseUrl, model, apiKey, start });
 
     await persistDeepSeekHealth({
       shopId,
       persist,
-      isOk: response.ok,
-      httpStatus,
-      ...(availableModels ? { availableModels } : {}),
+      isOk: result.status === 'ok',
+      httpStatus: result.httpStatus ?? 0,
+      ...(result.availableModels ? { availableModels: result.availableModels } : {}),
     });
 
     return result;
   } catch (error) {
     logger.warn({ error }, 'DeepSeek health check failed');
-    const result: DeepSeekHealthResponse = {
+    const errorMessage = error instanceof Error ? error.message : 'DeepSeek connection failed';
+    await persistDeepSeekError(shopId, errorMessage, persist);
+    return {
       status: 'error',
       checkedAt: nowIso(),
       latencyMs: Date.now() - start,
       baseUrl,
       model,
-      message: error instanceof Error ? error.message : 'DeepSeek connection failed',
+      message: errorMessage,
     };
-    if (httpStatus != null) {
-      result.httpStatus = httpStatus;
-    }
-    await persistDeepSeekError(shopId, result.message ?? 'unknown_error', persist);
-    return result;
   }
 }

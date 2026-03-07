@@ -78,6 +78,10 @@ async function checkWebhookQueueFunctional(env: AppEnv, timeoutMs = 1500): Promi
   }
 }
 
+function okOrFail(v: boolean): 'ok' | 'fail' {
+  return v ? 'ok' : 'fail';
+}
+
 async function buildReadinessPayload(env: AppEnv): Promise<{
   statusCode: 200 | 503;
   status: 'ready' | 'not_ready';
@@ -93,52 +97,33 @@ async function buildReadinessPayload(env: AppEnv): Promise<{
 
   const readiness = getWorkerReadiness();
   const { webhookWorkerOk, tokenHealthWorkerOk } = readiness;
-  let tokenHealthCheck: 'ok' | 'fail' | null = null;
+
+  const checks: Record<string, 'ok' | 'fail'> = {
+    database: okOrFail(databaseOk),
+    redis: okOrFail(redisOk),
+    shopify_api: okOrFail(shopifyOk),
+    queue_webhook: okOrFail(webhookQueueOk),
+    worker_webhook: okOrFail(webhookWorkerOk),
+    worker_sync: okOrFail(Boolean(readiness.syncWorkerOk)),
+    worker_enrichment: okOrFail(Boolean(readiness.enrichmentWorkerOk)),
+    worker_similarity_search: okOrFail(Boolean(readiness.similaritySearchWorkerOk)),
+    worker_ai_audit: okOrFail(Boolean(readiness.similarityAIAuditWorkerOk)),
+    worker_extraction: okOrFail(Boolean(readiness.extractionWorkerOk)),
+    worker_consensus: okOrFail(Boolean(readiness.consensusWorkerOk)),
+    worker_mv_refresh: okOrFail(Boolean(readiness.mvRefreshSchedulerOk)),
+    worker_quality_webhook: okOrFail(Boolean(readiness.qualityWebhookWorkerOk)),
+    worker_quality_webhook_sweep: okOrFail(Boolean(readiness.qualityWebhookSweepSchedulerOk)),
+    worker_budget_reset: okOrFail(Boolean(readiness.budgetResetSchedulerOk)),
+    worker_weekly_summary: okOrFail(Boolean(readiness.weeklySummarySchedulerOk)),
+    worker_auto_enrichment: okOrFail(Boolean(readiness.autoEnrichmentSchedulerOk)),
+    worker_raw_harvest_retention: okOrFail(Boolean(readiness.rawHarvestRetentionSchedulerOk)),
+  };
+
   if (tokenHealthWorkerOk != null) {
-    tokenHealthCheck = tokenHealthWorkerOk ? 'ok' : 'fail';
+    checks['worker_token_health'] = okOrFail(tokenHealthWorkerOk);
   }
 
-  const checks = {
-    database: databaseOk ? 'ok' : 'fail',
-    redis: redisOk ? 'ok' : 'fail',
-    shopify_api: shopifyOk ? 'ok' : 'fail',
-    queue_webhook: webhookQueueOk ? 'ok' : 'fail',
-    worker_webhook: webhookWorkerOk ? 'ok' : 'fail',
-    worker_sync: readiness.syncWorkerOk ? 'ok' : 'fail',
-    worker_enrichment: readiness.enrichmentWorkerOk ? 'ok' : 'fail',
-    worker_similarity_search: readiness.similaritySearchWorkerOk ? 'ok' : 'fail',
-    worker_ai_audit: readiness.similarityAIAuditWorkerOk ? 'ok' : 'fail',
-    worker_extraction: readiness.extractionWorkerOk ? 'ok' : 'fail',
-    worker_consensus: readiness.consensusWorkerOk ? 'ok' : 'fail',
-    worker_mv_refresh: readiness.mvRefreshSchedulerOk ? 'ok' : 'fail',
-    worker_quality_webhook: readiness.qualityWebhookWorkerOk ? 'ok' : 'fail',
-    worker_quality_webhook_sweep: readiness.qualityWebhookSweepSchedulerOk ? 'ok' : 'fail',
-    worker_budget_reset: readiness.budgetResetSchedulerOk ? 'ok' : 'fail',
-    worker_weekly_summary: readiness.weeklySummarySchedulerOk ? 'ok' : 'fail',
-    worker_auto_enrichment: readiness.autoEnrichmentSchedulerOk ? 'ok' : 'fail',
-    worker_raw_harvest_retention: readiness.rawHarvestRetentionSchedulerOk ? 'ok' : 'fail',
-    ...(tokenHealthCheck == null ? {} : { worker_token_health: tokenHealthCheck }),
-  } as const;
-
-  const allOk =
-    databaseOk &&
-    redisOk &&
-    shopifyOk &&
-    webhookQueueOk &&
-    webhookWorkerOk &&
-    Boolean(readiness.syncWorkerOk) &&
-    Boolean(readiness.enrichmentWorkerOk) &&
-    Boolean(readiness.similaritySearchWorkerOk) &&
-    Boolean(readiness.similarityAIAuditWorkerOk) &&
-    Boolean(readiness.extractionWorkerOk) &&
-    Boolean(readiness.consensusWorkerOk) &&
-    Boolean(readiness.mvRefreshSchedulerOk) &&
-    Boolean(readiness.qualityWebhookWorkerOk) &&
-    Boolean(readiness.qualityWebhookSweepSchedulerOk) &&
-    Boolean(readiness.budgetResetSchedulerOk) &&
-    Boolean(readiness.weeklySummarySchedulerOk) &&
-    Boolean(readiness.autoEnrichmentSchedulerOk) &&
-    Boolean(readiness.rawHarvestRetentionSchedulerOk);
+  const allOk = Object.values(checks).every((v) => v === 'ok');
 
   return {
     statusCode: allOk ? 200 : 503,

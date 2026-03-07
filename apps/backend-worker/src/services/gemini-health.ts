@@ -149,6 +149,36 @@ async function resolveGeminiApiKey(params: {
   }
 }
 
+async function callGeminiModelsEndpoint(params: {
+  apiKey: string;
+  model: string | null;
+  start: number;
+}): Promise<GeminiHealthResponse> {
+  const { apiKey, model, start } = params;
+  const response = await fetch(`${GEMINI_API_BASE}/models?key=${apiKey}`);
+  const latencyMs = Date.now() - start;
+  const status = response.ok ? 'ok' : 'error';
+
+  let availableModels: string[] | undefined;
+  if (response.ok) {
+    try {
+      availableModels = parseGeminiModels(await response.json());
+    } catch {
+      /* ignore parse errors */
+    }
+  }
+
+  return {
+    status,
+    checkedAt: nowIso(),
+    latencyMs,
+    httpStatus: response.status,
+    ...(model ? { model } : {}),
+    message: response.ok ? 'Gemini connection OK' : 'Gemini connection failed',
+    ...(availableModels ? { availableModels } : {}),
+  };
+}
+
 export async function runGeminiHealthCheck(params: {
   shopId: string;
   env: AppEnv;
@@ -180,55 +210,33 @@ export async function runGeminiHealthCheck(params: {
   }
 
   const start = Date.now();
-  let httpStatus: number | undefined;
 
   try {
-    const response = await fetch(`${GEMINI_API_BASE}/models?key=${apiKey}`);
-    httpStatus = response.status;
-    const latencyMs = Date.now() - start;
-    const status = response.ok ? 'ok' : 'error';
-
-    let availableModels: string[] | undefined;
-    if (response.ok) {
-      try {
-        availableModels = parseGeminiModels(await response.json());
-      } catch {
-        /* ignore parse errors */
-      }
-    }
-
-    const result: GeminiHealthResponse = {
-      status,
-      checkedAt: nowIso(),
-      latencyMs,
-      httpStatus,
-      ...(row.gemini_model ? { model: row.gemini_model } : {}),
-      message: response.ok ? 'Gemini connection OK' : 'Gemini connection failed',
-      ...(availableModels ? { availableModels } : {}),
-    };
+    const result = await callGeminiModelsEndpoint({
+      apiKey,
+      model: row.gemini_model ?? null,
+      start,
+    });
 
     await persistGeminiHealth({
       shopId,
       persist,
-      isOk: response.ok,
-      httpStatus,
-      ...(availableModels ? { availableModels } : {}),
+      isOk: result.status === 'ok',
+      httpStatus: result.httpStatus ?? 0,
+      ...(result.availableModels ? { availableModels: result.availableModels } : {}),
     });
 
     return result;
   } catch (error) {
     logger.warn({ error }, 'Gemini health check failed');
-    const result: GeminiHealthResponse = {
+    const errorMessage = error instanceof Error ? error.message : 'Gemini connection failed';
+    await persistGeminiError(shopId, errorMessage, persist);
+    return {
       status: 'error',
       checkedAt: nowIso(),
       latencyMs: Date.now() - start,
       ...(row.gemini_model ? { model: row.gemini_model } : {}),
-      message: error instanceof Error ? error.message : 'Gemini connection failed',
+      message: errorMessage,
     };
-    if (httpStatus != null) {
-      result.httpStatus = httpStatus;
-    }
-    await persistGeminiError(shopId, result.message ?? 'unknown_error', persist);
-    return result;
   }
 }

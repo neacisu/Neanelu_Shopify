@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type {
@@ -10,6 +11,14 @@ import type {
 import { InfoTooltip } from '../components/ui/info-tooltip';
 import { SubmitButton } from '../components/forms/submit-button';
 import { useApiClient } from '../hooks/use-api';
+
+type OpenAiConnectionStatus =
+  | 'unknown'
+  | 'connected'
+  | 'error'
+  | 'disabled'
+  | 'missing_key'
+  | 'pending';
 
 interface AiStateSetters {
   setAiEnabled: (v: boolean) => void;
@@ -26,6 +35,7 @@ interface AiStateSetters {
   setLastError: (v: string | null) => void;
   setLastTestedKey: (v: string | null) => void;
   setAiHealthResult: (v: AiHealthResponse | null) => void;
+  setAiHealthLoading: (v: boolean) => void;
   setAiLoading: (v: boolean) => void;
   setAiError: (v: string | null) => void;
 }
@@ -213,14 +223,6 @@ function buildModelOptions(params: {
   return options;
 }
 
-type OpenAiConnectionStatus =
-  | 'unknown'
-  | 'connected'
-  | 'error'
-  | 'disabled'
-  | 'missing_key'
-  | 'pending';
-
 function normalizeStatus(value: AiSettingsResponse['connectionStatus']): OpenAiConnectionStatus {
   if (
     value === 'connected' ||
@@ -239,219 +241,197 @@ function coerceNullableString(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
 }
 
-const CONNECTION_STATUS_LABELS: Record<OpenAiConnectionStatus, string> = {
-  unknown: 'necunoscut',
-  connected: 'conectat',
-  error: 'eroare',
-  disabled: 'dezactivat',
-  missing_key: 'cheie lipsă',
-  pending: 'în așteptare',
-};
+function applyStoredKeyHealthState(
+  data: AiHealthResponse,
+  setters: Pick<
+    AiStateSetters,
+    'setConnectionStatus' | 'setLastError' | 'setLastSuccessAt' | 'setLastCheckedAt'
+  >
+): void {
+  setters.setLastCheckedAt(new Date().toISOString());
+  if (data.status === 'ok') {
+    setters.setConnectionStatus('connected');
+    setters.setLastError(null);
+    setters.setLastSuccessAt(new Date().toISOString());
+    return;
+  }
+  if (data.status === 'disabled') {
+    setters.setConnectionStatus('disabled');
+    setters.setLastError(null);
+    return;
+  }
+  if (data.status === 'missing_key') {
+    setters.setConnectionStatus('missing_key');
+    setters.setLastError(null);
+    return;
+  }
+  setters.setConnectionStatus('error');
+  setters.setLastError(data.message ?? 'Eroare conexiune');
+}
 
-export default function SettingsOpenAi() {
-  const api = useApiClient();
-
-  const [aiLoading, setAiLoading] = useState(true);
-  const [aiSaving, setAiSaving] = useState(false);
-  const [aiSuccess, setAiSuccess] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
-  const [aiEnabled, setAiEnabled] = useState(false);
-  const [aiBaseUrl, setAiBaseUrl] = useState('');
-  const [aiEmbeddingsModel, setAiEmbeddingsModel] = useState('');
-  const [aiModels, setAiModels] = useState<string[]>([]);
-  const [aiBatchSize, setAiBatchSize] = useState(100);
-  const [aiSimilarityThreshold, setAiSimilarityThreshold] = useState(0.8);
-  const [aiApiKey, setAiApiKey] = useState('');
-  const [aiApiKeyDirty, setAiApiKeyDirty] = useState(false);
-  const [aiHasApiKey, setAiHasApiKey] = useState(false);
-  const [todayUsage, setTodayUsage] = useState<AiSettingsResponse['todayUsage']>(undefined);
-  const [connectionStatus, setConnectionStatus] = useState<OpenAiConnectionStatus>('unknown');
-  const [lastCheckedAt, setLastCheckedAt] = useState<string | null>(null);
-  const [lastSuccessAt, setLastSuccessAt] = useState<string | null>(null);
-  const [lastError, setLastError] = useState<string | null>(null);
-  const [aiHealthLoading, setAiHealthLoading] = useState(false);
-  const [aiHealthResult, setAiHealthResult] = useState<AiHealthResponse | null>(null);
-  const [lastTestedKey, setLastTestedKey] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const setters: AiStateSetters = {
-      setAiEnabled,
-      setAiBaseUrl,
-      setAiEmbeddingsModel,
-      setAiModels,
-      setAiBatchSize,
-      setAiSimilarityThreshold,
-      setAiHasApiKey,
-      setTodayUsage,
-      setConnectionStatus,
-      setLastCheckedAt,
-      setLastSuccessAt,
-      setLastError,
-      setLastTestedKey,
-      setAiHealthResult,
-      setAiLoading,
-      setAiError,
-    };
-    void loadAndApplyAiSettings(api, setters, () => cancelled);
-    return () => {
-      cancelled = true;
-    };
-  }, [api]);
-
-  useEffect(() => {
-    if (!aiSuccess) return;
-    const timer = setTimeout(() => setAiSuccess(false), 2000);
-    return () => clearTimeout(timer);
-  }, [aiSuccess]);
-
-  const aiSubmitState = useMemo(() => {
-    if (aiSaving) return 'loading';
-    if (aiSuccess) return 'success';
-    if (aiError) return 'error';
-    return 'idle';
-  }, [aiError, aiSaving, aiSuccess]);
-
-  const effectiveKey = useMemo(() => {
-    if (aiApiKeyDirty) return aiApiKey.trim();
-    if (aiHasApiKey) return '__stored__';
-    return '';
-  }, [aiApiKeyDirty, aiApiKey, aiHasApiKey]);
-  const isConnectionTested = lastTestedKey === effectiveKey;
-  const mustTestConnection = aiEnabled || aiApiKeyDirty;
-  const canSave = !mustTestConnection || isConnectionTested;
-  const isConnected =
-    connectionStatus === 'connected' && aiEnabled && aiHasApiKey && !aiApiKeyDirty;
-
-  const applyStoredKeyHealthState = (data: AiHealthResponse): void => {
-    setLastCheckedAt(new Date().toISOString());
-    if (data.status === 'ok') {
-      setConnectionStatus('connected');
-      setLastError(null);
-      setLastSuccessAt(new Date().toISOString());
-      return;
-    }
-    if (data.status === 'disabled') {
-      setConnectionStatus('disabled');
-      setLastError(null);
-      return;
-    }
-    if (data.status === 'missing_key') {
-      setConnectionStatus('missing_key');
-      setLastError(null);
-      return;
-    }
-    setConnectionStatus('error');
-    setLastError(data.message ?? 'Eroare conexiune');
-  };
-
-  const runOpenAiHealthRequest = async (trimmedKey: string): Promise<AiHealthResponse> => {
-    if (trimmedKey.length > 0) {
-      return api.postApi<AiHealthResponse, { apiKey: string }>('/settings/ai/health', {
-        apiKey: trimmedKey,
-      });
-    }
-    if (aiHasApiKey) {
-      return api.postApi<AiHealthResponse, { useStoredKey: true }>('/settings/ai/health', {
-        useStoredKey: true,
-      });
-    }
-    return api.getApi<AiHealthResponse>('/settings/ai/health');
-  };
-
-  const testOpenAiHealth = async () => {
-    setAiHealthLoading(true);
-    setAiHealthResult(null);
-    try {
-      const trimmedKey = aiApiKeyDirty ? aiApiKey.trim() : '';
-      const usingStoredKey = trimmedKey.length === 0 && aiHasApiKey;
-      const data = await runOpenAiHealthRequest(trimmedKey);
-      setAiHealthResult(data);
-      if (Array.isArray(data.availableModels)) {
-        setAiModels(data.availableModels);
-      }
-      if (usingStoredKey) {
-        applyStoredKeyHealthState(data);
-      }
-      setLastTestedKey(data.status === 'ok' ? trimmedKey || '__stored__' : null);
-    } catch (error) {
-      setAiHealthResult({
-        status: 'error',
-        checkedAt: new Date().toISOString(),
-        message: error instanceof Error ? error.message : 'Test conexiune eșuat.',
-      });
-      setLastTestedKey(null);
-    } finally {
-      setAiHealthLoading(false);
-    }
-  };
-
-  const saveAiSettings = async (event: { preventDefault: () => void }): Promise<void> => {
-    event.preventDefault();
-    if (!canSave) {
-      setAiError('Testează conexiunea înainte de a salva setările OpenAI.');
-      return;
-    }
-    setAiSaving(true);
-    setAiError(null);
-    try {
-      const payload: AiSettingsUpdateRequest = {
-        enabled: aiEnabled,
-        openaiBaseUrl: aiBaseUrl || null,
-        openaiEmbeddingsModel: aiEmbeddingsModel || null,
-        embeddingBatchSize: aiBatchSize,
-        similarityThreshold: aiSimilarityThreshold,
-      };
-      if (aiApiKeyDirty) {
-        payload.apiKey = aiApiKey;
-      }
-      // Use putApi so Content-Type is set and backend parses JSON body.
-      const data = await api.putApi<AiSettingsResponse, AiSettingsUpdateRequest>(
-        '/settings/ai',
-        payload
-      );
-      setAiHasApiKey(data.hasApiKey);
-      setAiModels(data.availableModels ?? []);
-      setConnectionStatus(normalizeStatus(data.connectionStatus));
-      setLastCheckedAt(coerceNullableString(data.lastCheckedAt));
-      setLastSuccessAt(coerceNullableString(data.lastSuccessAt));
-      setLastError(coerceNullableString(data.lastError));
-      setAiApiKey('');
-      setAiApiKeyDirty(false);
-      setAiSuccess(true);
-      if (lastTestedKey) {
-        setLastTestedKey('__stored__');
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Salvarea setărilor OpenAI a eșuat.';
-      setAiError(message);
-    } finally {
-      setAiSaving(false);
-    }
-  };
-
-  const onSaveAiSettingsSubmit = (event: { preventDefault: () => void }): void => {
-    void saveAiSettings(event);
-  };
-
-  const disconnectConnection = async () => {
-    await disconnectOpenAiConnection(api, {
-      setAiEnabled,
-      setAiHasApiKey,
-      setConnectionStatus,
-      setLastCheckedAt,
-      setLastSuccessAt,
-      setLastError,
-      setLastTestedKey,
-      setAiHealthResult,
-      setAiError,
-      setAiApiKey,
-      setAiApiKeyDirty,
-      setAiSaving,
-      setAiSuccess,
+async function executeHealthRequest(
+  api: ReturnType<typeof useApiClient>,
+  trimmedKey: string,
+  aiHasApiKey: boolean
+): Promise<AiHealthResponse> {
+  if (trimmedKey.length > 0) {
+    return api.postApi<AiHealthResponse, { apiKey: string }>('/settings/ai/health', {
+      apiKey: trimmedKey,
     });
-  };
+  }
+  if (aiHasApiKey) {
+    return api.postApi<AiHealthResponse, { useStoredKey: true }>('/settings/ai/health', {
+      useStoredKey: true,
+    });
+  }
+  return api.getApi<AiHealthResponse>('/settings/ai/health');
+}
 
+async function runOpenAiHealthTest(
+  api: ReturnType<typeof useApiClient>,
+  state: { aiApiKeyDirty: boolean; aiApiKey: string; aiHasApiKey: boolean },
+  setters: Pick<
+    AiStateSetters,
+    | 'setAiHealthResult'
+    | 'setAiModels'
+    | 'setConnectionStatus'
+    | 'setLastError'
+    | 'setLastSuccessAt'
+    | 'setLastCheckedAt'
+    | 'setAiHealthLoading'
+    | 'setLastTestedKey'
+  >
+): Promise<void> {
+  setters.setAiHealthLoading(true);
+  setters.setAiHealthResult(null);
+  try {
+    const trimmedKey = state.aiApiKeyDirty ? state.aiApiKey.trim() : '';
+    const usingStoredKey = trimmedKey.length === 0 && state.aiHasApiKey;
+    const data = await executeHealthRequest(api, trimmedKey, state.aiHasApiKey);
+    setters.setAiHealthResult(data);
+    if (Array.isArray(data.availableModels)) {
+      setters.setAiModels(data.availableModels);
+    }
+    if (usingStoredKey) {
+      applyStoredKeyHealthState(data, setters);
+    }
+    setters.setLastTestedKey(data.status === 'ok' ? trimmedKey || '__stored__' : null);
+  } catch (error) {
+    setters.setAiHealthResult({
+      status: 'error',
+      checkedAt: new Date().toISOString(),
+      message: error instanceof Error ? error.message : 'Test conexiune eșuat.',
+    });
+    setters.setLastTestedKey(null);
+  } finally {
+    setters.setAiHealthLoading(false);
+  }
+}
+
+async function saveOpenAiSettings(
+  api: ReturnType<typeof useApiClient>,
+  state: {
+    aiEnabled: boolean;
+    aiBaseUrl: string;
+    aiEmbeddingsModel: string;
+    aiBatchSize: number;
+    aiSimilarityThreshold: number;
+    aiApiKeyDirty: boolean;
+    aiApiKey: string;
+    canSave: boolean;
+    lastTestedKey: string | null;
+  },
+  setters: Pick<
+    AiStateSetters,
+    | 'setAiHasApiKey'
+    | 'setAiModels'
+    | 'setConnectionStatus'
+    | 'setLastCheckedAt'
+    | 'setLastSuccessAt'
+    | 'setLastError'
+    | 'setLastTestedKey'
+  > & {
+    setAiApiKey: (v: string) => void;
+    setAiApiKeyDirty: (v: boolean) => void;
+    setAiSuccess: (v: boolean) => void;
+    setAiError: (v: string | null) => void;
+    setAiSaving: (v: boolean) => void;
+  }
+): Promise<void> {
+  if (!state.canSave) {
+    setters.setAiError('Testează conexiunea înainte de a salva setările OpenAI.');
+    return;
+  }
+  setters.setAiSaving(true);
+  setters.setAiError(null);
+  try {
+    const payload: AiSettingsUpdateRequest = {
+      enabled: state.aiEnabled,
+      openaiBaseUrl: state.aiBaseUrl || null,
+      openaiEmbeddingsModel: state.aiEmbeddingsModel || null,
+      embeddingBatchSize: state.aiBatchSize,
+      similarityThreshold: state.aiSimilarityThreshold,
+    };
+    if (state.aiApiKeyDirty) {
+      payload.apiKey = state.aiApiKey;
+    }
+    const data = await api.putApi<AiSettingsResponse, AiSettingsUpdateRequest>(
+      '/settings/ai',
+      payload
+    );
+    setters.setAiHasApiKey(data.hasApiKey);
+    setters.setAiModels(data.availableModels ?? []);
+    setters.setConnectionStatus(normalizeStatus(data.connectionStatus));
+    setters.setLastCheckedAt(coerceNullableString(data.lastCheckedAt));
+    setters.setLastSuccessAt(coerceNullableString(data.lastSuccessAt));
+    setters.setLastError(coerceNullableString(data.lastError));
+    setters.setAiApiKey('');
+    setters.setAiApiKeyDirty(false);
+    setters.setAiSuccess(true);
+    if (state.lastTestedKey) {
+      setters.setLastTestedKey('__stored__');
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Salvarea setărilor OpenAI a eșuat.';
+    setters.setAiError(message);
+  } finally {
+    setters.setAiSaving(false);
+  }
+}
+
+function HealthResultLabel({ result }: { result: AiHealthResponse }): ReactNode {
+  if (result.status === 'ok') {
+    return `Conexiune OK (${(result.latencyMs ?? 0).toLocaleString('ro-RO')} ms)`;
+  }
+  if (result.status === 'disabled') return 'OpenAI dezactivat';
+  if (result.status === 'missing_key') return 'API key lipsă';
+  return result.message ?? 'Eroare conexiune';
+}
+
+function ConnectionStatusBar({
+  connectionStatus,
+  lastCheckedAt,
+  lastSuccessAt,
+  lastError,
+}: Readonly<{
+  connectionStatus: OpenAiConnectionStatus;
+  lastCheckedAt: string | null;
+  lastSuccessAt: string | null;
+  lastError: string | null;
+}>): ReactNode {
+  if (!connectionStatus || connectionStatus === 'unknown') return null;
+  return (
+    <div className="text-xs text-muted dark:text-slate-400">
+      Status conexiune: {CONNECTION_STATUS_LABELS[connectionStatus]}
+      {lastCheckedAt ? ` · verificat ${new Date(lastCheckedAt).toLocaleString('ro-RO')}` : ''}
+      {lastSuccessAt ? ` · succes ${new Date(lastSuccessAt).toLocaleString('ro-RO')}` : ''}
+      {lastError ? ` · ${lastError}` : ''}
+    </div>
+  );
+}
+
+function ModelRoutingSection(): ReactNode {
+  const api = useApiClient();
   const [routing, setRouting] = useState<ModelRoutingResponse>({
     translation: 'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
     classification: 'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
@@ -464,6 +444,7 @@ export default function SettingsOpenAi() {
   const [routingSuccess, setRoutingSuccess] = useState(false);
   const [routingError, setRoutingError] = useState<string | null>(null);
   const [selfHostedModels, setSelfHostedModels] = useState<string[]>([]);
+
   const routingSubmitState = useMemo(() => {
     if (routingSaving) return 'loading';
     if (routingSuccess) return 'success';
@@ -529,14 +510,6 @@ export default function SettingsOpenAi() {
     void saveRouting(event);
   };
 
-  const onDisconnectClick = (): void => {
-    void disconnectConnection();
-  };
-
-  const onTestConnectionClick = (): void => {
-    void testOpenAiHealth();
-  };
-
   const modelOptionsByTask = useMemo(
     () => ({
       translation: buildModelOptions({ task: 'translation', selfHostedModels }),
@@ -547,6 +520,231 @@ export default function SettingsOpenAi() {
     }),
     [selfHostedModels]
   );
+
+  return (
+    <div className="mt-8 border-t border-muted/20 pt-6 dark:border-slate-700">
+      <h3 className="mb-1 text-lg font-semibold text-body dark:text-slate-100 inline-flex items-center gap-2">
+        Rutare modele per task
+        <InfoTooltip title="Rutare modele AI" side="bottom" portalToBody>
+          Alege ce model și furnizor AI folosește fiecare operație. Poți optimiza costurile folosind
+          modele economice pentru task-uri simple (traducere) și modele premium pentru task-uri
+          complexe (clasificare). Fiecare furnizor trebuie să aibă cheia API configurată în tab-ul
+          său. Sfat: gpt-4o-mini e ideal pentru traduceri; text-embedding-3-large e cel mai precis
+          pentru embedding-uri.
+        </InfoTooltip>
+      </h3>
+      <p className="mb-4 text-sm text-muted dark:text-slate-400">
+        Selectează furnizorul și modelul AI pentru fiecare tip de operație.
+      </p>
+
+      {routingLoading ? (
+        <div className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+          Se încarcă configurația modelelor...
+        </div>
+      ) : (
+        <form onSubmit={onSaveRoutingSubmit} className="space-y-4">
+          {routingError ? (
+            <div className="rounded-md border border-error/30 bg-error/10 p-4 text-error shadow-sm dark:border-red-700/50 dark:bg-red-900/20">
+              {routingError}
+            </div>
+          ) : null}
+
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {Object.entries(TASK_LABELS).map(([task, { label, description }]) => (
+              <label key={task} className="space-y-1 text-sm">
+                <span className="font-medium text-body dark:text-slate-200 inline-flex items-center gap-1">
+                  {label}
+                  <InfoTooltip title={label} side="bottom" portalToBody>
+                    {description}
+                  </InfoTooltip>
+                </span>
+                <select
+                  value={routing[task as keyof ModelRoutingResponse] ?? ''}
+                  onChange={(event) =>
+                    setRouting((prev) => ({ ...prev, [task]: event.target.value }))
+                  }
+                  className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-sm transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
+                >
+                  {(modelOptionsByTask[task as keyof ModelRoutingResponse] ?? []).map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <SubmitButton state={routingSubmitState}>Salvează rutarea modelelor</SubmitButton>
+          </div>
+
+          {routingSuccess ? (
+            <div className="rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success shadow-sm dark:border-emerald-700/50 dark:bg-emerald-900/20">
+              Rutarea modelelor a fost salvată.
+            </div>
+          ) : null}
+        </form>
+      )}
+    </div>
+  );
+}
+
+const CONNECTION_STATUS_LABELS: Record<OpenAiConnectionStatus, string> = {
+  unknown: 'necunoscut',
+  connected: 'conectat',
+  error: 'eroare',
+  disabled: 'dezactivat',
+  missing_key: 'cheie lipsă',
+  pending: 'în așteptare',
+};
+
+export default function SettingsOpenAi() {
+  const api = useApiClient();
+
+  const [aiLoading, setAiLoading] = useState(true);
+  const [aiSaving, setAiSaving] = useState(false);
+  const [aiSuccess, setAiSuccess] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [aiBaseUrl, setAiBaseUrl] = useState('');
+  const [aiEmbeddingsModel, setAiEmbeddingsModel] = useState('');
+  const [aiModels, setAiModels] = useState<string[]>([]);
+  const [aiBatchSize, setAiBatchSize] = useState(100);
+  const [aiSimilarityThreshold, setAiSimilarityThreshold] = useState(0.8);
+  const [aiApiKey, setAiApiKey] = useState('');
+  const [aiApiKeyDirty, setAiApiKeyDirty] = useState(false);
+  const [aiHasApiKey, setAiHasApiKey] = useState(false);
+  const [todayUsage, setTodayUsage] = useState<AiSettingsResponse['todayUsage']>(undefined);
+  const [connectionStatus, setConnectionStatus] = useState<OpenAiConnectionStatus>('unknown');
+  const [lastCheckedAt, setLastCheckedAt] = useState<string | null>(null);
+  const [lastSuccessAt, setLastSuccessAt] = useState<string | null>(null);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const [aiHealthLoading, setAiHealthLoading] = useState(false);
+  const [aiHealthResult, setAiHealthResult] = useState<AiHealthResponse | null>(null);
+  const [lastTestedKey, setLastTestedKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const setters: AiStateSetters = {
+      setAiEnabled,
+      setAiBaseUrl,
+      setAiEmbeddingsModel,
+      setAiModels,
+      setAiBatchSize,
+      setAiSimilarityThreshold,
+      setAiHasApiKey,
+      setTodayUsage,
+      setConnectionStatus,
+      setLastCheckedAt,
+      setLastSuccessAt,
+      setLastError,
+      setLastTestedKey,
+      setAiHealthResult,
+      setAiHealthLoading,
+      setAiLoading,
+      setAiError,
+    };
+    void loadAndApplyAiSettings(api, setters, () => cancelled);
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
+
+  useEffect(() => {
+    if (!aiSuccess) return;
+    const timer = setTimeout(() => setAiSuccess(false), 2000);
+    return () => clearTimeout(timer);
+  }, [aiSuccess]);
+
+  const aiSubmitState = useMemo(() => {
+    if (aiSaving) return 'loading';
+    if (aiSuccess) return 'success';
+    if (aiError) return 'error';
+    return 'idle';
+  }, [aiError, aiSaving, aiSuccess]);
+
+  const effectiveKey = useMemo(() => {
+    if (aiApiKeyDirty) return aiApiKey.trim();
+    if (aiHasApiKey) return '__stored__';
+    return '';
+  }, [aiApiKeyDirty, aiApiKey, aiHasApiKey]);
+  const isConnectionTested = lastTestedKey === effectiveKey;
+  const mustTestConnection = aiEnabled || aiApiKeyDirty;
+  const canSave = !mustTestConnection || isConnectionTested;
+  const isConnected =
+    connectionStatus === 'connected' && aiEnabled && aiHasApiKey && !aiApiKeyDirty;
+
+  const onSaveAiSettingsSubmit = (event: { preventDefault: () => void }): void => {
+    event.preventDefault();
+    void saveOpenAiSettings(
+      api,
+      {
+        aiEnabled,
+        aiBaseUrl,
+        aiEmbeddingsModel,
+        aiBatchSize,
+        aiSimilarityThreshold,
+        aiApiKeyDirty,
+        aiApiKey,
+        canSave,
+        lastTestedKey,
+      },
+      {
+        setAiHasApiKey,
+        setAiModels,
+        setConnectionStatus,
+        setLastCheckedAt,
+        setLastSuccessAt,
+        setLastError,
+        setLastTestedKey,
+        setAiApiKey,
+        setAiApiKeyDirty,
+        setAiSuccess,
+        setAiError,
+        setAiSaving,
+      }
+    );
+  };
+
+  const disconnectConnection = async () => {
+    await disconnectOpenAiConnection(api, {
+      setAiEnabled,
+      setAiHasApiKey,
+      setConnectionStatus,
+      setLastCheckedAt,
+      setLastSuccessAt,
+      setLastError,
+      setLastTestedKey,
+      setAiHealthResult,
+      setAiError,
+      setAiApiKey,
+      setAiApiKeyDirty,
+      setAiSaving,
+      setAiSuccess,
+    });
+  };
+
+  const onDisconnectClick = (): void => {
+    void disconnectConnection();
+  };
+
+  const onTestConnectionClick = (): void => {
+    void runOpenAiHealthTest(
+      api,
+      { aiApiKeyDirty, aiApiKey, aiHasApiKey },
+      {
+        setAiHealthResult,
+        setAiModels,
+        setConnectionStatus,
+        setLastError,
+        setLastSuccessAt,
+        setLastCheckedAt,
+        setAiHealthLoading,
+        setLastTestedKey,
+      }
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -781,14 +979,7 @@ export default function SettingsOpenAi() {
             <span
               className={`text-xs ${aiHealthResult.status === 'ok' ? 'text-success' : 'text-error'}`}
             >
-              {(() => {
-                if (aiHealthResult.status === 'ok') {
-                  return `Conexiune OK (${(aiHealthResult.latencyMs ?? 0).toLocaleString('ro-RO')} ms)`;
-                }
-                if (aiHealthResult.status === 'disabled') return 'OpenAI dezactivat';
-                if (aiHealthResult.status === 'missing_key') return 'API key lipsă';
-                return aiHealthResult.message ?? 'Eroare conexiune';
-              })()}
+              <HealthResultLabel result={aiHealthResult} />
             </span>
           ) : null}
         </div>
@@ -798,14 +989,12 @@ export default function SettingsOpenAi() {
             Pentru a salva conexiunea, testează mai întâi conexiunea OpenAI.
           </div>
         ) : null}
-        {connectionStatus && connectionStatus !== 'unknown' ? (
-          <div className="text-xs text-muted dark:text-slate-400">
-            Status conexiune: {CONNECTION_STATUS_LABELS[connectionStatus]}
-            {lastCheckedAt ? ` · verificat ${new Date(lastCheckedAt).toLocaleString('ro-RO')}` : ''}
-            {lastSuccessAt ? ` · succes ${new Date(lastSuccessAt).toLocaleString('ro-RO')}` : ''}
-            {lastError ? ` · ${lastError}` : ''}
-          </div>
-        ) : null}
+        <ConnectionStatusBar
+          connectionStatus={connectionStatus}
+          lastCheckedAt={lastCheckedAt}
+          lastSuccessAt={lastSuccessAt}
+          lastError={lastError}
+        />
 
         {aiSuccess ? (
           <div className="rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success shadow-sm dark:border-emerald-700/50 dark:bg-emerald-900/20">
@@ -814,71 +1003,7 @@ export default function SettingsOpenAi() {
         ) : null}
       </form>
 
-      <div className="mt-8 border-t border-muted/20 pt-6 dark:border-slate-700">
-        <h3 className="mb-1 text-lg font-semibold text-body dark:text-slate-100 inline-flex items-center gap-2">
-          Rutare modele per task
-          <InfoTooltip title="Rutare modele AI" side="bottom" portalToBody>
-            Alege ce model și furnizor AI folosește fiecare operație. Poți optimiza costurile
-            folosind modele economice pentru task-uri simple (traducere) și modele premium pentru
-            task-uri complexe (clasificare). Fiecare furnizor trebuie să aibă cheia API configurată
-            în tab-ul său. Sfat: gpt-4o-mini e ideal pentru traduceri; text-embedding-3-large e cel
-            mai precis pentru embedding-uri.
-          </InfoTooltip>
-        </h3>
-        <p className="mb-4 text-sm text-muted dark:text-slate-400">
-          Selectează furnizorul și modelul AI pentru fiecare tip de operație.
-        </p>
-
-        {routingLoading ? (
-          <div className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-            Se încarcă configurația modelelor...
-          </div>
-        ) : (
-          <form onSubmit={onSaveRoutingSubmit} className="space-y-4">
-            {routingError ? (
-              <div className="rounded-md border border-error/30 bg-error/10 p-4 text-error shadow-sm dark:border-red-700/50 dark:bg-red-900/20">
-                {routingError}
-              </div>
-            ) : null}
-
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {Object.entries(TASK_LABELS).map(([task, { label, description }]) => (
-                <label key={task} className="space-y-1 text-sm">
-                  <span className="font-medium text-body dark:text-slate-200 inline-flex items-center gap-1">
-                    {label}
-                    <InfoTooltip title={label} side="bottom" portalToBody>
-                      {description}
-                    </InfoTooltip>
-                  </span>
-                  <select
-                    value={routing[task as keyof ModelRoutingResponse] ?? ''}
-                    onChange={(event) =>
-                      setRouting((prev) => ({ ...prev, [task]: event.target.value }))
-                    }
-                    className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-sm transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
-                  >
-                    {(modelOptionsByTask[task as keyof ModelRoutingResponse] ?? []).map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ))}
-            </div>
-
-            <div className="flex items-center gap-3">
-              <SubmitButton state={routingSubmitState}>Salvează rutarea modelelor</SubmitButton>
-            </div>
-
-            {routingSuccess ? (
-              <div className="rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success shadow-sm dark:border-emerald-700/50 dark:bg-emerald-900/20">
-                Rutarea modelelor a fost salvată.
-              </div>
-            ) : null}
-          </form>
-        )}
-      </div>
+      <ModelRoutingSection />
     </div>
   );
 }
