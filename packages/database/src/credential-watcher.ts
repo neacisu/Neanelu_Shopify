@@ -10,11 +10,8 @@ import {
   isAuthError,
   pool,
 } from './db.js';
-import {
-  createEphemeralRedis,
-  rotateAllManagedRedis,
-  getManagedRedisConnectionsCount,
-} from './redis-manager.js';
+import { Redis as IORedis, type Redis } from 'ioredis';
+import { rotateAllManagedRedis, getManagedRedisConnectionsCount } from './redis-manager.js';
 
 const SECRETS_PATH = process.env['CREDENTIALS_FILE'] ?? '/secrets/neanelu-api.env';
 const POLL_INTERVAL_MS = 5_000;
@@ -223,9 +220,15 @@ async function runHealthProbe(): Promise<void> {
     }
   }
 
-  let probeClient: Awaited<ReturnType<typeof createEphemeralRedis>> | null = null;
+  let probeClient: Redis | null = null;
   try {
-    probeClient = createEphemeralRedis({ connectTimeout: 3_000, maxRetriesPerRequest: 1 });
+    const redisUrl = (process.env['REDIS_URL'] ?? '').trim();
+    probeClient = new IORedis(redisUrl, {
+      enableReadyCheck: true,
+      connectTimeout: 3_000,
+      maxRetriesPerRequest: 1,
+      retryStrategy: () => null,
+    });
     await probeClient.ping();
   } catch (err) {
     log('warn', 'Redis health probe failed — triggering credential refresh', {
