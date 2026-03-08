@@ -110,7 +110,10 @@ export async function buildMenuAssignPendingMetadata(params: {
       menu_item_id: string | null;
       proposed_path: string | null;
       target_menu_item_gid: string | null;
+      target_menu_item_level: number | null;
       target_menu_path: string | null;
+      target_parent_gid: string | null;
+      target_parent_path: string | null;
       menu_gid: string | null;
       menu_title: string | null;
       menu_handle: string | null;
@@ -121,7 +124,10 @@ export async function buildMenuAssignPendingMetadata(params: {
               a.menu_item_id,
               a.proposed_path,
               mi.shopify_gid AS target_menu_item_gid,
+              mi.level AS target_menu_item_level,
               array_to_string(mi.path, ' > ') AS target_menu_path,
+              mi_parent.shopify_gid AS target_parent_gid,
+              array_to_string(mi_parent.path, ' > ') AS target_parent_path,
               m.shopify_gid AS menu_gid,
               m.title AS menu_title,
               m.handle AS menu_handle,
@@ -134,6 +140,9 @@ export async function buildMenuAssignPendingMetadata(params: {
          LEFT JOIN shopify_menu_items mi
            ON mi.id = a.menu_item_id
           AND mi.shop_id = a.shop_id
+         LEFT JOIN shopify_menu_items mi_parent
+           ON mi_parent.id = mi.parent_item_id
+          AND mi_parent.shop_id = mi.shop_id
          LEFT JOIN shopify_menus m
            ON m.id = COALESCE(a.menu_id, mi.menu_id)
           AND m.shop_id = a.shop_id
@@ -149,11 +158,23 @@ export async function buildMenuAssignPendingMetadata(params: {
       return null;
     }
 
+    const SHOPIFY_MAX_MENU_DEPTH = 3;
     let resolvedMenuGid = assignment.menu_gid;
     let resolvedMenuHandle = assignment.menu_handle;
     let resolvedMenuTitle = assignment.menu_title;
-    let resolvedTargetMenuItemGid = assignment.target_menu_item_gid;
-    let resolvedTargetMenuPath = assignment.target_menu_path;
+
+    // When the target menu item is at the deepest allowed level (3),
+    // the collection must become a sibling (under the target's parent),
+    // not a child (which would exceed Shopify's 3-level limit).
+    const targetAtMaxDepth =
+      assignment.target_menu_item_level != null &&
+      assignment.target_menu_item_level >= SHOPIFY_MAX_MENU_DEPTH;
+    let resolvedTargetMenuItemGid = targetAtMaxDepth
+      ? (assignment.target_parent_gid ?? assignment.target_menu_item_gid)
+      : assignment.target_menu_item_gid;
+    let resolvedTargetMenuPath = targetAtMaxDepth
+      ? (assignment.target_parent_path ?? assignment.target_menu_path)
+      : assignment.target_menu_path;
 
     if (!resolvedMenuGid && assignment.proposed_path) {
       const primaryMenuRes = await client.query<{

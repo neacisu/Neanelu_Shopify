@@ -30,7 +30,7 @@ type MenuNode = Readonly<{
   type: string;
   resourceId: string | null;
   tags: readonly string[] | null;
-  items: readonly MenuNode[];
+  items?: readonly MenuNode[];
 }>;
 
 type MenuQueryResponse = Readonly<{
@@ -303,7 +303,7 @@ async function processMenuAssign(
     throw new Error('menu_assign_menu_not_found');
   }
 
-  const items = menu.items.map(toMenuUpdateInput);
+  const items = (menu.items ?? []).map(toMenuUpdateInput);
 
   switch (action) {
     case 'add': {
@@ -396,7 +396,7 @@ function toMenuUpdateInput(node: MenuNode): MenuUpdateInput {
     ...(node.resourceId ? { resourceId: node.resourceId } : {}),
     ...(node.url ? { url: node.url } : {}),
     ...(node.tags ? { tags: [...node.tags] } : {}),
-    items: node.items.map(toMenuUpdateInput),
+    items: (node.items ?? []).map(toMenuUpdateInput),
   };
 }
 
