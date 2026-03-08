@@ -2,6 +2,8 @@ import type { AppEnv } from '@app/config';
 import { withTenantContext } from '@app/database';
 import type { Logger } from '@app/logger';
 import { toPgVectorLiteral } from '../processors/bulk-operations/pim/vector.js';
+import { upsertMenuAssignPendingChange } from './collection-pending-changes.js';
+import { buildMenuAssignPendingMetadata } from './collection-sync-back-metadata.js';
 import { consensusChatCompletion } from './consensus-engine.js';
 import {
   buildMenuAssignmentQueryText,
@@ -18,8 +20,8 @@ import {
 } from './multi-model-embedding.js';
 
 const PRIMARY_COLLECTIONS_MENU_HANDLE = 'categorii-produse';
-const MENU_ASSIGNMENT_VECTOR_LIMIT = 15;
-const MENU_ASSIGNMENT_KEYWORD_LIMIT = 10;
+const MENU_ASSIGNMENT_VECTOR_LIMIT = 40;
+const MENU_ASSIGNMENT_KEYWORD_LIMIT = 20;
 
 export interface MenuAssignmentRecord {
   id: string;
@@ -51,6 +53,7 @@ interface CollectionMenuAssignmentContext {
   id: string;
   title: string;
   description: string | null;
+  descriptionEn: string | null;
   titleEn: string | null;
   parentTitle: string | null;
   menuLevel: number | null;
@@ -193,6 +196,7 @@ async function loadCollectionMenuAssignmentContext(params: {
       id: string;
       title: string;
       description: string | null;
+      description_en: string | null;
       title_en: string | null;
       parent_title: string | null;
       menu_level: number | null;
@@ -202,6 +206,7 @@ async function loadCollectionMenuAssignmentContext(params: {
       `SELECT sc.id,
               sc.title,
               sc.description,
+              sc.description_en,
               sc.title_en,
               parent_sc.title AS parent_title,
               sc.menu_level,
@@ -249,6 +254,7 @@ async function loadCollectionMenuAssignmentContext(params: {
       id: base.id,
       title: base.title,
       description: base.description,
+      descriptionEn: base.description_en,
       titleEn: base.title_en,
       parentTitle: base.parent_title,
       menuLevel: base.menu_level,
@@ -420,7 +426,8 @@ async function translateCollectionForMenuAssignment(params: {
   const prompt = [
     `Collection title: ${params.context.title}`,
     params.context.titleEn ? `Existing English title: ${params.context.titleEn}` : null,
-    params.context.description ? `Description: ${params.context.description}` : null,
+    params.context.description ? `Description (RO): ${params.context.description}` : null,
+    params.context.descriptionEn ? `Description (EN): ${params.context.descriptionEn}` : null,
     params.context.taxonomyName ? `Existing taxonomy: ${params.context.taxonomyName}` : null,
     hierarchyContext,
     params.context.productSamples.length > 0
@@ -461,7 +468,7 @@ RULES:
     keyField: 'normalizedTitleEn',
     maxTokens: 400,
     onProgress: (event) =>
-      params.onProgress?.(`consensus_${event.step}`, event.message, event.status),
+      params.onProgress?.(`translate_${event.step}`, event.message, event.status),
   });
 
   const parsed = consensus.result;
@@ -532,12 +539,13 @@ async function retrieveMenuAssignmentCandidates(params: {
   const keywordTerms = uniqueStrings([
     ...params.disambiguationTerms,
     ...tokenizeQuery(params.queryText),
-  ]).slice(0, 8);
+  ]).slice(0, 12);
 
-  const [primaryVectorResults, secondaryVectorResults, keywordResults] = await Promise.all([
-    withTenantContext(params.shopId, async (client) => {
-      const result = await client.query<MenuAssignmentCandidate>(
-        `SELECT mi.id AS "menuItemId",
+  const [primaryVectorResults, secondaryVectorResults, keywordResults, exactNameResults] =
+    (await Promise.all([
+      withTenantContext(params.shopId, async (client) => {
+        const result = await client.query<MenuAssignmentCandidate>(
+          `SELECT mi.id AS "menuItemId",
                 mi.menu_id AS "menuId",
                 mi.shopify_gid AS "shopifyGid",
                 mi.title,
@@ -557,19 +565,19 @@ async function retrieveMenuAssignmentCandidates(params: {
             AND mi.level > 1
           ORDER BY mi.embedding <=> $1::vector(2000)
           LIMIT $4`,
-        [
-          toPgVectorLiteral(embeddings.primaryEmbedding),
-          params.shopId,
-          PRIMARY_COLLECTIONS_MENU_HANDLE,
-          MENU_ASSIGNMENT_VECTOR_LIMIT,
-        ]
-      );
-      return result.rows;
-    }),
-    embeddings.secondaryEmbedding && embeddings.secondaryModel
-      ? withTenantContext(params.shopId, async (client) => {
-          const result = await client.query<MenuAssignmentCandidate>(
-            `SELECT mi.id AS "menuItemId",
+          [
+            toPgVectorLiteral(embeddings.primaryEmbedding),
+            params.shopId,
+            PRIMARY_COLLECTIONS_MENU_HANDLE,
+            MENU_ASSIGNMENT_VECTOR_LIMIT,
+          ]
+        );
+        return result.rows;
+      }),
+      embeddings.secondaryEmbedding && embeddings.secondaryModel
+        ? withTenantContext(params.shopId, async (client) => {
+            const result = await client.query<MenuAssignmentCandidate>(
+              `SELECT mi.id AS "menuItemId",
                     mi.menu_id AS "menuId",
                     mi.shopify_gid AS "shopifyGid",
                     mi.title,
@@ -590,31 +598,38 @@ async function retrieveMenuAssignmentCandidates(params: {
                 AND mi.level > 1
               ORDER BY mi.embedding_secondary <=> $1::vector(2000)
               LIMIT $4`,
-            [
-              toPgVectorLiteral(embeddings.secondaryEmbedding!),
-              params.shopId,
-              PRIMARY_COLLECTIONS_MENU_HANDLE,
-              MENU_ASSIGNMENT_VECTOR_LIMIT,
-              embeddings.secondaryModel,
-            ]
-          );
-          return result.rows;
-        })
-      : Promise.resolve([]),
-    keywordTerms.length > 0
-      ? withTenantContext(params.shopId, async (client) => {
-          const conditions = keywordTerms
-            .map((_, index) => `LOWER(mi.embedding_text) LIKE $${index + 4}`)
-            .join(' OR ');
-          const result = await client.query<MenuAssignmentCandidate>(
-            `SELECT mi.id AS "menuItemId",
+              [
+                toPgVectorLiteral(embeddings.secondaryEmbedding!),
+                params.shopId,
+                PRIMARY_COLLECTIONS_MENU_HANDLE,
+                MENU_ASSIGNMENT_VECTOR_LIMIT,
+                embeddings.secondaryModel,
+              ]
+            );
+            return result.rows;
+          })
+        : Promise.resolve([]),
+      keywordTerms.length > 0
+        ? withTenantContext(params.shopId, async (client) => {
+            const matchCases = keywordTerms
+              .map(
+                (_, index) =>
+                  `CASE WHEN LOWER(mi.embedding_text) LIKE $${index + 4} THEN 1 ELSE 0 END`
+              )
+              .join(' + ');
+            const conditions = keywordTerms
+              .map((_, index) => `LOWER(mi.embedding_text) LIKE $${index + 4}`)
+              .join(' OR ');
+            const result = await client.query<MenuAssignmentCandidate & { match_count: number }>(
+              `SELECT mi.id AS "menuItemId",
                     mi.menu_id AS "menuId",
                     mi.shopify_gid AS "shopifyGid",
                     mi.title,
                     array_to_string(mi.path, ' > ') AS path,
                     mi.level,
-                    0.72::float AS similarity,
-                    mi.resource_id AS "resourceId"
+                    (0.70 + 0.05 * LEAST(${matchCases}, 4))::float AS similarity,
+                    mi.resource_id AS "resourceId",
+                    (${matchCases})::int AS match_count
                FROM shopify_menu_items mi
                JOIN shopify_menus sm
                  ON sm.id = mi.menu_id
@@ -626,19 +641,73 @@ async function retrieveMenuAssignmentCandidates(params: {
                 AND mi.embedding IS NOT NULL
                 AND mi.level > 1
                 AND (${conditions})
-              ORDER BY mi.level ASC, mi.title ASC
+              ORDER BY (${matchCases}) DESC, mi.level ASC, mi.title ASC
               LIMIT $3`,
-            [
-              params.shopId,
-              PRIMARY_COLLECTIONS_MENU_HANDLE,
-              MENU_ASSIGNMENT_KEYWORD_LIMIT,
-              ...keywordTerms.map((term) => `%${term.toLowerCase()}%`),
-            ]
-          );
-          return result.rows;
-        })
-      : Promise.resolve([]),
-  ]);
+              [
+                params.shopId,
+                PRIMARY_COLLECTIONS_MENU_HANDLE,
+                MENU_ASSIGNMENT_KEYWORD_LIMIT,
+                ...keywordTerms.map((term) => `%${term.toLowerCase()}%`),
+              ]
+            );
+            return result.rows.map(({ match_count: _, ...candidate }) => candidate);
+          })
+        : Promise.resolve([]),
+
+      // 4. Exact title substring match — finds menu items whose title overlaps
+      //    with the collection's significant terms regardless of embedding proximity.
+      //    Ensures cross-branch candidates are always surfaced.
+      withTenantContext(params.shopId, async (client) => {
+        const titleTokensRo = tokenizeQuery(params.queryText.split('|')[1]?.trim() ?? '');
+        const titleTokensEn = tokenizeQuery(params.queryText.split('|')[0]?.trim() ?? '');
+        const significantTokens = uniqueStrings([...titleTokensRo, ...titleTokensEn])
+          .filter((token) => token.length >= 3)
+          .slice(0, 10);
+        if (significantTokens.length === 0) return [];
+
+        const matchCases = significantTokens
+          .map((_, index) => `CASE WHEN LOWER(mi.title) LIKE $${index + 4} THEN 1 ELSE 0 END`)
+          .join(' + ');
+        const conditions = significantTokens
+          .map((_, index) => `LOWER(mi.title) LIKE $${index + 4}`)
+          .join(' OR ');
+        const result = await client.query<MenuAssignmentCandidate & { match_count: number }>(
+          `SELECT mi.id AS "menuItemId",
+                mi.menu_id AS "menuId",
+                mi.shopify_gid AS "shopifyGid",
+                mi.title,
+                array_to_string(mi.path, ' > ') AS path,
+                mi.level,
+                (0.74 + 0.06 * LEAST(${matchCases}, 3))::float AS similarity,
+                mi.resource_id AS "resourceId",
+                (${matchCases})::int AS match_count
+           FROM shopify_menu_items mi
+           JOIN shopify_menus sm
+             ON sm.id = mi.menu_id
+            AND sm.shop_id = mi.shop_id
+          WHERE mi.shop_id = $1
+            AND sm.handle = $2
+            AND mi.item_type = 'COLLECTION'
+            AND mi.resource_id IS NOT NULL
+            AND mi.level > 1
+            AND (${conditions})
+          ORDER BY (${matchCases}) DESC, mi.level ASC
+          LIMIT $3`,
+          [
+            params.shopId,
+            PRIMARY_COLLECTIONS_MENU_HANDLE,
+            MENU_ASSIGNMENT_KEYWORD_LIMIT,
+            ...significantTokens.map((token) => `%${token.toLowerCase()}%`),
+          ]
+        );
+        return result.rows.map(({ match_count: _, ...candidate }) => candidate);
+      }),
+    ])) as [
+      MenuAssignmentCandidate[],
+      MenuAssignmentCandidate[],
+      MenuAssignmentCandidate[],
+      MenuAssignmentCandidate[],
+    ];
 
   const vectorResults = mergeMultiModelCandidates(
     primaryVectorResults.map((candidate) => ({ ...candidate, id: candidate.menuItemId })),
@@ -647,7 +716,7 @@ async function retrieveMenuAssignmentCandidates(params: {
   ).map(({ id: _id, ...candidate }) => candidate);
 
   const merged = new Map<string, MenuAssignmentCandidate>();
-  for (const candidate of [...vectorResults, ...keywordResults]) {
+  for (const candidate of [...vectorResults, ...keywordResults, ...exactNameResults]) {
     if (!merged.has(candidate.menuItemId)) {
       merged.set(candidate.menuItemId, candidate);
       continue;
@@ -658,8 +727,65 @@ async function retrieveMenuAssignmentCandidates(params: {
     }
   }
 
+  const sortedCandidates = [...merged.values()].sort(
+    (left, right) => right.similarity - left.similarity
+  );
+
+  // Cross-branch diversity enforcement: ensure candidates from multiple root
+  // branches are represented. If only one branch dominates the top results,
+  // pull in the best candidates from under-represented branches.
+  const branchBuckets = new Map<string, MenuAssignmentCandidate[]>();
+  for (const candidate of sortedCandidates) {
+    const rootBranch = candidate.path.split(' > ')[0] ?? '';
+    if (!branchBuckets.has(rootBranch)) {
+      branchBuckets.set(rootBranch, []);
+    }
+    branchBuckets.get(rootBranch)!.push(candidate);
+  }
+
+  if (branchBuckets.size > 1) {
+    const topSimilarity = sortedCandidates[0]?.similarity ?? 0;
+    const BRANCH_BOOST_THRESHOLD = 0.15;
+    const diversified = new Map<string, MenuAssignmentCandidate>();
+    for (const candidate of sortedCandidates) {
+      diversified.set(candidate.menuItemId, candidate);
+    }
+
+    for (const [, branchCandidates] of branchBuckets) {
+      const branchBest = branchCandidates[0];
+      if (!branchBest) continue;
+      if (topSimilarity - branchBest.similarity > BRANCH_BOOST_THRESHOLD) {
+        const boosted: MenuAssignmentCandidate = {
+          ...branchBest,
+          similarity: Math.max(
+            branchBest.similarity,
+            topSimilarity - BRANCH_BOOST_THRESHOLD + 0.01
+          ),
+        };
+        diversified.set(boosted.menuItemId, boosted);
+        const second = branchCandidates[1];
+        if (second && topSimilarity - second.similarity > BRANCH_BOOST_THRESHOLD) {
+          diversified.set(second.menuItemId, {
+            ...second,
+            similarity: Math.max(second.similarity, topSimilarity - BRANCH_BOOST_THRESHOLD),
+          });
+        }
+      }
+    }
+    const finalCandidates = [...diversified.values()].sort(
+      (left, right) => right.similarity - left.similarity
+    );
+    return {
+      candidates: finalCandidates,
+      embeddingModel: embeddings.secondaryModel
+        ? `${embeddings.primaryModel} + ${embeddings.secondaryModel}`
+        : embeddings.primaryModel,
+      embeddingDimensions: providers.primary.model.dimensions,
+    };
+  }
+
   return {
-    candidates: [...merged.values()].sort((left, right) => right.similarity - left.similarity),
+    candidates: sortedCandidates,
     embeddingModel: embeddings.secondaryModel
       ? `${embeddings.primaryModel} + ${embeddings.secondaryModel}`
       : embeddings.primaryModel,
@@ -682,17 +808,39 @@ async function reasonAboutMenuAssignments(params: {
     menuLevel: params.context.menuLevel,
     parentTitle: params.context.parentTitle,
   });
-  const candidateText = params.candidates
-    .map(
-      (candidate, index) =>
-        `${index + 1}. ${candidate.path} | level=${candidate.level} | similarity=${candidate.similarity.toFixed(3)}`
-    )
-    .join('\n');
+  // Group candidates by root branch so the LLM sees cross-branch options clearly
+  const branchGroups = new Map<
+    string,
+    { index: number; candidate: (typeof params.candidates)[number] }[]
+  >();
+  for (let index = 0; index < params.candidates.length; index++) {
+    const candidate = params.candidates[index]!;
+    const rootBranch = candidate.path.split(' > ')[0] ?? 'Other';
+    if (!branchGroups.has(rootBranch)) branchGroups.set(rootBranch, []);
+    branchGroups.get(rootBranch)!.push({ index: index + 1, candidate });
+  }
+  const candidateText = [...branchGroups.entries()]
+    .map(([branch, items]) => {
+      const lines = items
+        .map(
+          ({ index, candidate }) =>
+            `  ${index}. ${candidate.path} | level=${candidate.level} | similarity=${candidate.similarity.toFixed(3)}`
+        )
+        .join('\n');
+      return `[Branch: ${branch}]\n${lines}`;
+    })
+    .join('\n\n');
 
   const prompt = [
     `Romanian title: ${params.context.title}`,
     `Normalized English title: ${params.translation.normalizedTitleEn}`,
     `Domain summary: ${params.translation.domainSummary}`,
+    params.context.description
+      ? `Collection description (RO): ${params.context.description}`
+      : null,
+    params.context.descriptionEn
+      ? `Collection description (EN): ${params.context.descriptionEn}`
+      : null,
     params.translation.disambiguationTerms.length > 0
       ? `Disambiguation terms: ${params.translation.disambiguationTerms.join(', ')}`
       : null,
@@ -717,7 +865,9 @@ async function reasonAboutMenuAssignments(params: {
     env: params.env,
     logger: params.logger,
     taskType: 'classification',
-    systemPrompt: `You place Shopify collections into an existing menu tree.
+    systemPrompt: `You place Shopify collections into an existing menu tree. A collection can and SHOULD appear in MULTIPLE branches when it legitimately fits.
+
+The candidates are GROUPED BY ROOT BRANCH (e.g. [Branch: Bricolaj & Materiale], [Branch: Piese de Schimb Vehicule]). You MUST evaluate candidates from EVERY branch independently.
 
 Return STRICT JSON:
 {
@@ -726,6 +876,12 @@ Return STRICT JSON:
       "candidateIndex": 1,
       "role": "primary",
       "confidence": 0.92,
+      "reasoning": "..."
+    },
+    {
+      "candidateIndex": 3,
+      "role": "secondary",
+      "confidence": 0.85,
       "reasoning": "..."
     }
   ],
@@ -738,18 +894,20 @@ Return STRICT JSON:
 
 RULES:
 1. Candidate indexes are 1-based and must reference the provided candidate list only.
-2. You may return multiple assignments when the collection legitimately belongs in multiple branches.
-3. Choose exactly one primary when at least one assignment is valid.
-4. NEVER assign to a root category.
+2. ACTIVELY look for valid placements in EVERY branch group. For example, "Tool Sets" belongs BOTH under "Bricolaj > Scule si Unelte" AND under "Piese de Schimb > Scule & echipamente service auto". Cross-branch assignments are EXPECTED and CORRECT.
+3. Choose exactly one "primary" (the BEST fit) and mark additional valid placements as "secondary".
+4. NEVER assign to a root category (level 1).
 5. NEVER modify or replace any fixed root category.
 6. If no candidate is safe enough, return assignments: [] and use missingPathProposal instead.
-7. If confidence is below 0.40, do not force an assignment.`,
+7. If confidence is below 0.40, do not force that particular assignment.
+8. Use the product samples and descriptions to understand the FULL scope of what the collection contains — this often reveals it spans multiple sub-domains.
+9. When candidates exist in MULTIPLE root branches, you MUST select at least one assignment from each relevant branch. A collection with tools should appear under BOTH "Bricolaj" tools AND "Piese Auto" tools categories.
+10. The similarity score is a retrieval hint only. A candidate with 0.75 from a different branch is equally valid as one with 0.85 from the dominant branch — evaluate by SEMANTIC FIT, not score ranking.`,
     userPrompt: prompt,
     responseFormat: { type: 'json_object' },
     keyField: 'assignments[0].candidateIndex',
     maxTokens: 900,
-    onProgress: (event) =>
-      params.onProgress?.(`consensus_${event.step}`, event.message, event.status),
+    onProgress: (event) => params.onProgress?.(`select_${event.step}`, event.message, event.status),
   });
 
   const parsed = consensus.result;
@@ -880,10 +1038,11 @@ async function persistMenuAssignmentResults(params: {
         const assignment = selectedAssignments[index]!;
         const candidate = params.retrieval.candidates[assignment.candidateIndex - 1];
         if (!candidate) continue;
+        const AUTO_ACTIVATE_THRESHOLD = 0.75;
         const nextStatus: MenuAssignmentStatus =
-          assignment.confidence >= 0.85 ? 'active' : 'proposed';
+          assignment.confidence >= AUTO_ACTIVATE_THRESHOLD ? 'active' : 'proposed';
         const action: MenuAssignmentAction =
-          assignment.confidence >= 0.85 ? 'auto_activated' : 'created';
+          assignment.confidence >= AUTO_ACTIVATE_THRESHOLD ? 'auto_activated' : 'created';
         const isPrimary = index === primarySelectionIndex;
         const queryText = buildMenuAssignmentQueryText({
           normalizedTitleEn: params.translation.normalizedTitleEn,
@@ -1120,10 +1279,55 @@ async function persistMenuAssignmentResults(params: {
         }
       }
 
+      // Before commit: invalidate stale pending menu_assign changes for this collection
+      // so re-runs don't produce duplicates
+      await client.query(
+        `UPDATE collection_pending_changes
+            SET status = 'rejected',
+                error_message = 'Superseded by new AI assignment run'
+          WHERE shop_id = $1
+            AND collection_id = $2
+            AND change_type = 'menu_assign'
+            AND status = 'pending'`,
+        [params.shopId, params.context.id]
+      );
+
       await client.query('COMMIT');
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
+    }
+  });
+
+  // After transaction: create pending changes for ALL active/approved assignments
+  // (both newly auto-activated and previously HITL-reviewed ones)
+  await withTenantContext(params.shopId, async (client) => {
+    const activeResult = await client.query<{ id: string; assignment_source: string }>(
+      `SELECT id, assignment_source
+         FROM shopify_collection_menu_assignments
+        WHERE shop_id = $1
+          AND collection_id = $2
+          AND status IN ('active', 'approved')
+          AND menu_item_id IS NOT NULL
+        ORDER BY is_primary DESC, confidence DESC`,
+      [params.shopId, params.context.id]
+    );
+
+    for (const row of activeResult.rows) {
+      const pendingMetadata = await buildMenuAssignPendingMetadata({
+        shopId: params.shopId,
+        collectionId: params.context.id,
+        assignmentId: row.id,
+      });
+      if (pendingMetadata) {
+        await upsertMenuAssignPendingChange(client, {
+          shopId: params.shopId,
+          collectionId: params.context.id,
+          assignmentId: row.id,
+          metadata: pendingMetadata,
+          source: 'ai_menu',
+        });
+      }
     }
   });
 
@@ -1253,7 +1457,7 @@ export async function executeMenuAssignmentForCollection(
   const reviewRequired =
     proposedAssignments.length > 0 ||
     selection.missingPathProposal != null ||
-    selection.assignments.some((assignment) => assignment.confidence < 0.85);
+    selection.assignments.some((assignment) => assignment.confidence < 0.75);
 
   return {
     status:

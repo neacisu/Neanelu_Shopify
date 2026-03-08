@@ -750,6 +750,20 @@
       "when": 1773080400000,
       "tag": "0106_dual_model_embeddings",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1773166800000,
+      "tag": "0107_collections_description_en",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1773253200000,
+      "tag": "0108_collection_pending_changes",
+      "breakpoints": true
     }
   ]
 }

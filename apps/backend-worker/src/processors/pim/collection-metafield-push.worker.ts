@@ -16,12 +16,12 @@ type CollectionMetafieldPushPayload = Readonly<{
   trigger: 'category_classifier' | 'manual';
 }>;
 
-type CollectionRow = Readonly<{
+export type CollectionRow = Readonly<{
   id: string;
   shopify_gid: string;
 }>;
 
-type TaxonomySchemaRow = Readonly<{
+export type TaxonomySchemaRow = Readonly<{
   attr_code: string;
   shopify_namespace: string;
   shopify_key: string;
@@ -38,7 +38,7 @@ type MetafieldsSetResponse = Readonly<{
   }> | null;
 }>;
 
-type MetafieldsSetInput = Readonly<{
+export type MetafieldsSetInput = Readonly<{
   ownerId: string;
   namespace: string;
   key: string;
@@ -90,51 +90,52 @@ export function startCollectionMetafieldPushWorker(
   return { worker, close: async () => await worker.close() };
 }
 
-async function processCollectionMetafieldPush(
-  payload: CollectionMetafieldPushPayload,
-  logger: Logger
-): Promise<void> {
-  const env = loadEnv();
-  const encryptionKey = Buffer.from(env.encryptionKeyHex, 'hex');
-
+export async function loadCollectionMetafieldsForPush(params: {
+  shopId: string;
+  collectionId: string;
+}): Promise<{
+  collection: CollectionRow | null;
+  schema: TaxonomySchemaRow[];
+  metafields: MetafieldsSetInput[];
+}> {
   const [collection, schema, productSpecs] = await withTenantContext(
-    payload.shopId,
+    params.shopId,
     async (client) => {
       const collectionRes = await client.query<CollectionRow>(
         `SELECT id, shopify_gid
-       FROM shopify_collections
-       WHERE id = $1
-         AND shop_id = $2
-       LIMIT 1`,
-        [payload.collectionId, payload.shopId]
+         FROM shopify_collections
+        WHERE id = $1
+          AND shop_id = $2
+        LIMIT 1`,
+        [params.collectionId, params.shopId]
       );
 
       const schemaRes = await client.query<TaxonomySchemaRow>(
         `SELECT s.attr_code, s.shopify_namespace, s.shopify_key, s.shopify_type
-       FROM pim_taxonomy_collection_map m
-       JOIN pim_taxonomy_metafield_schema s
-         ON s.taxonomy_id = m.taxonomy_id
-       WHERE m.shop_id = $1
-         AND m.collection_id = $2`,
-        [payload.shopId, payload.collectionId]
+         FROM pim_taxonomy_collection_map m
+         JOIN pim_taxonomy_metafield_schema s
+           ON s.taxonomy_id = m.taxonomy_id
+        WHERE m.shop_id = $1
+          AND m.collection_id = $2`,
+        [params.shopId, params.collectionId]
       );
 
       const specsRes = await client.query<ProductSpecsRow>(
         `SELECT psn.specs
-       FROM shopify_collection_products scp
-       JOIN shopify_products sp
-         ON sp.id = scp.product_id
-        AND sp.shop_id = scp.shop_id
-       JOIN prod_channel_mappings pcm
-         ON pcm.channel = 'shopify'
-        AND pcm.shop_id = scp.shop_id
-        AND pcm.external_id = sp.shopify_gid
-       JOIN prod_specs_normalized psn
-         ON psn.product_id = pcm.product_id
-        AND psn.is_current = true
-       WHERE scp.shop_id = $1
-         AND scp.collection_id = $2`,
-        [payload.shopId, payload.collectionId]
+         FROM shopify_collection_products scp
+         JOIN shopify_products sp
+           ON sp.id = scp.product_id
+          AND sp.shop_id = scp.shop_id
+         JOIN prod_channel_mappings pcm
+           ON pcm.channel = 'shopify'
+          AND pcm.shop_id = scp.shop_id
+          AND pcm.external_id = sp.shopify_gid
+         JOIN prod_specs_normalized psn
+           ON psn.product_id = pcm.product_id
+          AND psn.is_current = true
+        WHERE scp.shop_id = $1
+          AND scp.collection_id = $2`,
+        [params.shopId, params.collectionId]
       );
 
       return [collectionRes.rows[0] ?? null, schemaRes.rows, specsRes.rows] as const;
@@ -142,7 +143,7 @@ async function processCollectionMetafieldPush(
   );
 
   if (!collection?.shopify_gid || schema.length === 0) {
-    return;
+    return { collection, schema, metafields: [] };
   }
 
   const aggregated: Record<string, string[]> = {};
@@ -179,8 +180,23 @@ async function processCollectionMetafieldPush(
     });
   }
 
+  return { collection, schema, metafields };
+}
+
+export async function pushCollectionMetafields(params: {
+  shopId: string;
+  collectionId: string;
+  logger: Logger;
+}): Promise<{ metafields: MetafieldsSetInput[] }> {
+  const env = loadEnv();
+  const encryptionKey = Buffer.from(env.encryptionKeyHex, 'hex');
+  const { metafields } = await loadCollectionMetafieldsForPush({
+    shopId: params.shopId,
+    collectionId: params.collectionId,
+  });
+
   if (metafields.length === 0) {
-    return;
+    return { metafields: [] };
   }
 
   const mutation = `#graphql
@@ -193,9 +209,9 @@ async function processCollectionMetafieldPush(
     }`;
 
   const response = await withTokenRetry(
-    payload.shopId,
+    params.shopId,
     encryptionKey,
-    logger,
+    params.logger,
     async (accessToken, shopDomain) => {
       const client = shopifyApi.createClient({ shopDomain, accessToken });
       return await client.request<MetafieldsSetResponse>(mutation, { metafields });
@@ -211,7 +227,7 @@ async function processCollectionMetafieldPush(
     throw new Error(message || 'collection_metafield_push_failed');
   }
 
-  await withTenantContext(payload.shopId, async (client) => {
+  await withTenantContext(params.shopId, async (client) => {
     await client.query(
       `UPDATE shopify_collections
        SET metafields = COALESCE(metafields, '{}'::jsonb) || $3::jsonb,
@@ -219,8 +235,8 @@ async function processCollectionMetafieldPush(
        WHERE id = $1
          AND shop_id = $2`,
       [
-        payload.collectionId,
-        payload.shopId,
+        params.collectionId,
+        params.shopId,
         JSON.stringify(
           Object.fromEntries(
             metafields.map((m) => [`${m.namespace}.${m.key}`, { type: m.type, value: m.value }])
@@ -228,5 +244,17 @@ async function processCollectionMetafieldPush(
         ),
       ]
     );
+  });
+  return { metafields };
+}
+
+export async function processCollectionMetafieldPush(
+  payload: CollectionMetafieldPushPayload,
+  logger: Logger
+): Promise<void> {
+  await pushCollectionMetafields({
+    shopId: payload.shopId,
+    collectionId: payload.collectionId,
+    logger,
   });
 }

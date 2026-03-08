@@ -6,6 +6,7 @@ import { withTokenRetry } from '../../auth/token-lifecycle.js';
 import { syncMenuItemEmbeddings } from '../../services/menu-ai.js';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
 import { shopifyApi } from '../../shopify/client.js';
+import { invalidatePendingCollectionChanges } from '../../services/collection-pending-changes.js';
 import {
   PIM_COLLECTIONS_SYNC_JOB,
   PIM_COLLECTIONS_SYNC_QUEUE_NAME,
@@ -93,6 +94,7 @@ export function startCollectionsSyncWorker(logger: Logger): CollectionsSyncWorke
                   'Menu item embedding sync failed after hierarchy correlation'
                 );
               }
+              await invalidatePendingCollectionChanges(payload.shopId);
               safeUpdateProgress(job, {
                 phase: 'done',
                 fetched,

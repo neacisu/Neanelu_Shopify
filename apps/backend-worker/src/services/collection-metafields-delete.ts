@@ -8,22 +8,24 @@ const METAFIELDS_DELETE_BATCH_SIZE = 25;
 
 type SchemaRow = Readonly<{ shopify_namespace: string; shopify_key: string }>;
 
+export type MetafieldIdentifierInput = Readonly<{
+  ownerId: string;
+  namespace: string;
+  key: string;
+}>;
+
 type MetafieldsDeleteResponse = Readonly<{
   metafieldsDelete?: Readonly<{
     userErrors?: readonly Readonly<{ message?: string | null }>[] | null;
   }> | null;
 }>;
 
-export async function deleteCollectionMetafieldsForTaxonomy(params: {
+export async function loadCollectionMetafieldsToDelete(params: {
   shopId: string;
   collectionId: string;
   taxonomyId: string;
-  logger: Logger;
-}): Promise<void> {
-  const { shopId, collectionId, taxonomyId, logger } = params;
-  const env = loadEnv();
-  const encryptionKey = Buffer.from(env.encryptionKeyHex, 'hex');
-
+}): Promise<MetafieldIdentifierInput[]> {
+  const { shopId, collectionId, taxonomyId } = params;
   const { shopifyGid, schemaRows } = await withTenantContext(shopId, async (client) => {
     const collRes = await client.query<{ shopify_gid: string }>(
       `SELECT shopify_gid FROM shopify_collections
@@ -44,14 +46,31 @@ export async function deleteCollectionMetafieldsForTaxonomy(params: {
   });
 
   if (!shopifyGid || schemaRows.length === 0) {
-    return;
+    return [];
   }
 
-  const identifiers = schemaRows.map((r) => ({
+  return schemaRows.map((r) => ({
     ownerId: shopifyGid,
     namespace: r.shopify_namespace,
     key: r.shopify_key,
   }));
+}
+
+export async function deleteCollectionMetafieldsForTaxonomy(params: {
+  shopId: string;
+  collectionId: string;
+  taxonomyId: string;
+  logger: Logger;
+}): Promise<void> {
+  const { shopId, collectionId, taxonomyId, logger } = params;
+  const env = loadEnv();
+  const encryptionKey = Buffer.from(env.encryptionKeyHex, 'hex');
+
+  const identifiers = await loadCollectionMetafieldsToDelete({ shopId, collectionId, taxonomyId });
+
+  if (identifiers.length === 0) {
+    return;
+  }
 
   for (let i = 0; i < identifiers.length; i += METAFIELDS_DELETE_BATCH_SIZE) {
     const batch = identifiers.slice(i, i + METAFIELDS_DELETE_BATCH_SIZE);

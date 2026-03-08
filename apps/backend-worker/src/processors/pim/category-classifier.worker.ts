@@ -7,7 +7,8 @@ import {
   PIM_CATEGORY_CLASSIFIER_JOB,
   PIM_CATEGORY_CLASSIFIER_QUEUE_NAME,
 } from '../../queue/category-classifier-queue.js';
-import { enqueueCollectionMetafieldPushJob } from '../../queue/collection-metafield-push-queue.js';
+import { upsertTaxonomyAssignPendingChange } from '../../services/collection-pending-changes.js';
+import { buildTaxonomyAssignPendingMetadata } from '../../services/collection-sync-back-metadata.js';
 import { resolveEmbeddingsProvider } from '../../services/ai-provider-routing.js';
 import { consensusChatCompletion } from '../../services/consensus-engine.js';
 import { normalizeText, toPgVectorLiteral } from '../bulk-operations/pim/vector.js';
@@ -185,10 +186,16 @@ async function processCategoryClassification(
           [payload.shopId, collectionId, payload.productId]
         );
 
-        await enqueueCollectionMetafieldPushJob({
+        const metadata = await buildTaxonomyAssignPendingMetadata({
           shopId: payload.shopId,
           collectionId,
-          trigger: 'category_classifier',
+          taxonomyId: selectedTaxonomyId,
+        });
+        await upsertTaxonomyAssignPendingChange(client, {
+          shopId: payload.shopId,
+          collectionId,
+          metadata,
+          source: 'sync',
         });
       }
       return;

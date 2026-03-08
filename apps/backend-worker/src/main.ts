@@ -47,6 +47,7 @@ import { startQualityWebhookWorker } from './processors/pim/quality-webhook.work
 import { startQualityWebhookSweepScheduler } from './processors/pim/quality-webhook-sweep.js';
 import { startCollectionsSyncWorker } from './processors/pim/collections-sync.worker.js';
 import { startCollectionMetafieldPushWorker } from './processors/pim/collection-metafield-push.worker.js';
+import { startCollectionShopifySyncWorker } from './processors/pim/collection-shopify-sync.worker.js';
 import { pauseCostSensitiveQueues } from './processors/pim/cost-sensitive-queues.js';
 import { scheduleTokenHealthJob, closeTokenHealthQueue } from './queue/token-health-queue.js';
 import { closeSimilarityQueues } from './queue/similarity-queues.js';
@@ -55,6 +56,7 @@ import { closeConsensusQueue } from './queue/consensus-queue.js';
 import { closePimManualSyncQueue } from './queue/pim-manual-sync-queue.js';
 import { closeCollectionsSyncQueue } from './queue/collections-sync-queue.js';
 import { closeCollectionMetafieldPushQueue } from './queue/collection-metafield-push-queue.js';
+import { closeCollectionShopifySyncQueue } from './queue/collection-shopify-sync-queue.js';
 import {
   setBulkOrchestratorWorkerHandle,
   setBulkIngestWorkerHandle,
@@ -79,6 +81,7 @@ import {
   setWebhookWorkerHandle,
   setCollectionsSyncWorkerHandle,
   setCollectionMetafieldPushWorkerHandle,
+  setCollectionShopifySyncWorkerHandle,
 } from './runtime/worker-registry.js';
 import { emitQueueStreamEvent } from './runtime/queue-stream.js';
 import { startQueueConfigListener } from './runtime/queue-config-listener.js';
@@ -245,6 +248,9 @@ let collectionsSyncWorker: Awaited<ReturnType<typeof startCollectionsSyncWorker>
 let collectionMetafieldPushWorker: Awaited<
   ReturnType<typeof startCollectionMetafieldPushWorker>
 > | null = null;
+let collectionShopifySyncWorker: Awaited<
+  ReturnType<typeof startCollectionShopifySyncWorker>
+> | null = null;
 let queueConfigListener: Awaited<ReturnType<typeof startQueueConfigListener>> | null = null;
 let budgetGaugeRedis: ReturnType<typeof createManagedRedis> | null = null;
 let budgetGaugeInterval: NodeJS.Timeout | null = null;
@@ -274,6 +280,9 @@ function buildQueueConfigRegistry() {
     },
     'pim-quality-webhook': qualityWebhookWorker?.worker as unknown as { concurrency?: number },
     'pim-quality-webhook-sweep': qualityWebhookSweepScheduler?.worker as unknown as {
+      concurrency?: number;
+    },
+    'collection-shopify-sync': collectionShopifySyncWorker?.worker as unknown as {
       concurrency?: number;
     },
   };
@@ -396,6 +405,10 @@ async function recreateRedisDependentWorkers(newRedisUrl: string): Promise<void>
   if (collectionMetafieldPushWorker) await collectionMetafieldPushWorker.close();
   collectionMetafieldPushWorker = startCollectionMetafieldPushWorker(logger);
   setCollectionMetafieldPushWorkerHandle(collectionMetafieldPushWorker);
+
+  if (collectionShopifySyncWorker) await collectionShopifySyncWorker.close();
+  collectionShopifySyncWorker = startCollectionShopifySyncWorker(logger);
+  setCollectionShopifySyncWorkerHandle(collectionShopifySyncWorker);
 
   queueConfigListener = await startQueueConfigListener(env, logger, buildQueueConfigRegistry());
   logger.warn({}, 'Redis-dependent workers recreated successfully');
@@ -663,6 +676,15 @@ try {
   emitQueueStreamEvent({
     type: 'worker.online',
     workerId: 'pim-collection-metafield-push-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  collectionShopifySyncWorker = startCollectionShopifySyncWorker(logger);
+  setCollectionShopifySyncWorkerHandle(collectionShopifySyncWorker);
+  logger.info({}, 'collection shopify sync worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'collection-shopify-sync-worker',
     timestamp: new Date().toISOString(),
   });
 
@@ -1040,6 +1062,18 @@ const shutdown = async (signal: string): Promise<void> => {
       });
     }
 
+    if (collectionShopifySyncWorker) {
+      await collectionShopifySyncWorker.close();
+      collectionShopifySyncWorker = null;
+      setCollectionShopifySyncWorkerHandle(null);
+      logger.info({ signal }, 'collection shopify sync worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'collection-shopify-sync-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     if (queueConfigListener) {
       await queueConfigListener.quit().catch(() => undefined);
       queueConfigListener = null;
@@ -1064,6 +1098,7 @@ const shutdown = async (signal: string): Promise<void> => {
     await closeEnrichmentQueue();
     await closeCollectionsSyncQueue();
     await closeCollectionMetafieldPushQueue();
+    await closeCollectionShopifySyncQueue();
 
     stopCredentialWatcher();
     await closePimPool();

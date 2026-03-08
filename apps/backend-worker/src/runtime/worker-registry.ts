@@ -38,6 +38,7 @@ let categoryClassifierWorker: WorkerLike | null = null;
 let descriptionGeneratorWorker: WorkerLike | null = null;
 let metafieldPushWorker: WorkerLike | null = null;
 let collectionMetafieldPushWorker: WorkerLike | null = null;
+let collectionShopifySyncWorker: WorkerLike | null = null;
 let collectionsSyncWorker: WorkerLike | null = null;
 
 const currentJobByWorkerId = new Map<string, WorkerCurrentJob>();
@@ -142,6 +143,10 @@ export function setCollectionMetafieldPushWorkerHandle(handle: WorkerHandleLike 
   collectionMetafieldPushWorker = handle?.worker ?? null;
 }
 
+export function setCollectionShopifySyncWorkerHandle(handle: WorkerHandleLike | null): void {
+  collectionShopifySyncWorker = handle?.worker ?? null;
+}
+
 export function setCollectionsSyncWorkerHandle(handle: WorkerHandleLike | null): void {
   collectionsSyncWorker = handle?.worker ?? null;
 }
@@ -203,6 +208,7 @@ export function getWorkerReadiness(): Readonly<{
   descriptionGeneratorWorkerOk: boolean | null;
   metafieldPushWorkerOk: boolean | null;
   collectionMetafieldPushWorkerOk: boolean | null;
+  collectionShopifySyncWorkerOk: boolean | null;
   collectionsSyncWorkerOk: boolean | null;
 }> {
   return {
@@ -252,6 +258,9 @@ export function getWorkerReadiness(): Readonly<{
     metafieldPushWorkerOk: metafieldPushWorker ? isWorkerRunning(metafieldPushWorker) : null,
     collectionMetafieldPushWorkerOk: collectionMetafieldPushWorker
       ? isWorkerRunning(collectionMetafieldPushWorker)
+      : null,
+    collectionShopifySyncWorkerOk: collectionShopifySyncWorker
+      ? isWorkerRunning(collectionShopifySyncWorker)
       : null,
     collectionsSyncWorkerOk: collectionsSyncWorker ? isWorkerRunning(collectionsSyncWorker) : null,
   };

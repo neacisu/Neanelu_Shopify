@@ -15,6 +15,10 @@ import {
   Clock3,
   LoaderCircle,
   X,
+  FileText,
+  ImageIcon,
+  ExternalLink,
+  Upload,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -27,6 +31,7 @@ import { SearchInput } from '../components/ui/SearchInput';
 import { ProgressBar } from '../components/ui/progress-bar';
 import { EmptyState } from '../components/patterns';
 import { Badge } from '../components/ui/badge';
+import { Modal } from '../components/ui/modal';
 import { useApiClient } from '../hooks/use-api';
 import { useScrollReveal } from '../hooks/useScrollReveal';
 
@@ -44,6 +49,7 @@ interface CollectionRow {
   synced_at: string | null;
   description: string | null;
   description_html: string | null;
+  description_en: string | null;
   image_url: string | null;
   parent_collection_id: string | null;
   parent_title: string | null;
@@ -68,11 +74,36 @@ interface CollectionsStats {
   smart: number;
   withTaxonomy: number;
   translated: number;
+  withDescription: number;
+  withImage: number;
   inMenu: number;
   roots: number;
   notInMenu: number;
   totalProducts: number;
   lastSyncedAt: string | null;
+}
+
+type PendingChangeType = 'field_update' | 'taxonomy_assign' | 'taxonomy_unassign' | 'menu_assign';
+
+interface PendingChangesByType {
+  field_update: number;
+  taxonomy_assign: number;
+  taxonomy_unassign: number;
+  menu_assign: number;
+}
+
+interface PendingChangeRow {
+  id: string;
+  collectionId: string;
+  collectionTitle: string;
+  changeType: PendingChangeType;
+  fieldName: string | null;
+  oldValue: string | null;
+  newValue: string | null;
+  metadata: Record<string, unknown>;
+  source: string;
+  shopifyMutation: string | null;
+  createdAt: string;
 }
 
 type SyncStatus = 'idle' | 'active' | 'completed' | 'failed' | 'waiting' | 'delayed';
@@ -402,6 +433,161 @@ function CategoryTreeCell({
   );
 }
 
+function asDisplayText(value: unknown, fallback = '—'): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') return String(value);
+  if (typeof value === 'boolean') return value ? 'Da' : 'Nu';
+  return fallback;
+}
+
+function getDraftFieldValue(
+  collection: CollectionRow,
+  titleEn: string | null,
+  draftFields: Record<string, string>,
+  fieldKey: string
+): string {
+  if (fieldKey in draftFields) {
+    return draftFields[fieldKey] ?? '';
+  }
+
+  switch (fieldKey) {
+    case 'title':
+      return collection.title ?? '';
+    case 'title_en':
+      return titleEn ?? '';
+    case 'description':
+      return collection.description ?? '';
+    case 'description_en':
+      return collection.description_en ?? '';
+    default:
+      return '';
+  }
+}
+
+function renderPendingChangeSummary(row: PendingChangeRow) {
+  if (row.changeType === 'field_update') {
+    return (
+      <div className="space-y-1">
+        <div className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          {row.fieldName === 'title' ? 'Titlu' : 'Descriere'}
+        </div>
+        <div className="text-sm text-slate-500 line-through dark:text-slate-500">
+          {row.oldValue ?? '—'}
+        </div>
+        <div className="text-sm font-medium text-green-700 dark:text-green-400">
+          {row.newValue ?? '—'}
+        </div>
+      </div>
+    );
+  }
+
+  if (row.changeType === 'taxonomy_assign') {
+    return (
+      <div className="space-y-1 text-sm">
+        <div className="font-medium text-slate-800 dark:text-slate-200">
+          {asDisplayText(row.metadata['taxonomyName'], 'Taxonomie nouă')}
+        </div>
+        <div className="text-slate-500 dark:text-slate-400">
+          Veche: {asDisplayText(row.metadata['previousTaxonomyName'])}
+        </div>
+        <div className="text-slate-500 dark:text-slate-400">
+          Metafields: {asDisplayText(row.metadata['metafieldCount'], '0')}
+        </div>
+      </div>
+    );
+  }
+
+  if (row.changeType === 'taxonomy_unassign') {
+    return (
+      <div className="space-y-1 text-sm">
+        <div className="font-medium text-slate-800 dark:text-slate-200">
+          {asDisplayText(row.metadata['taxonomyName'], 'Taxonomie eliminată')}
+        </div>
+        <div className="text-slate-500 dark:text-slate-400">
+          Metafields de șters: {asDisplayText(row.metadata['metafieldCount'], '0')}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1 text-sm">
+      <div className="font-medium text-slate-800 dark:text-slate-200">
+        {asDisplayText(row.metadata['action'], 'update')}
+      </div>
+      <div className="text-slate-500 dark:text-slate-400">
+        Path: {asDisplayText(row.metadata['parentPath'] ?? row.metadata['proposedPath'])}
+      </div>
+      <div className="text-slate-500 dark:text-slate-400">
+        Meniu: {asDisplayText(row.metadata['menuTitle'] ?? row.metadata['menuHandle'])}
+      </div>
+    </div>
+  );
+}
+
+function PendingChangesSection({
+  title,
+  rows,
+  onReject,
+}: {
+  title: string;
+  rows: PendingChangeRow[];
+  onReject: (changeId: string) => Promise<void>;
+}) {
+  if (rows.length === 0) return null;
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</h3>
+        <Badge tone="neutral">{rows.length}</Badge>
+      </div>
+      <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
+        <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
+          <thead className="bg-slate-50 dark:bg-slate-800/70">
+            <tr>
+              <th className="px-4 py-2 text-left font-medium text-slate-500 dark:text-slate-400">
+                Colecție
+              </th>
+              <th className="px-4 py-2 text-left font-medium text-slate-500 dark:text-slate-400">
+                Schimbare
+              </th>
+              <th className="px-4 py-2 text-left font-medium text-slate-500 dark:text-slate-400">
+                Sursă
+              </th>
+              <th className="px-4 py-2 text-left font-medium text-slate-500 dark:text-slate-400">
+                Data
+              </th>
+              <th className="px-4 py-2 text-right font-medium text-slate-500 dark:text-slate-400">
+                Acțiune
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900/40">
+            {rows.map((row) => (
+              <tr key={row.id}>
+                <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-200">
+                  {row.collectionTitle}
+                </td>
+                <td className="px-4 py-3">{renderPendingChangeSummary(row)}</td>
+                <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{row.source}</td>
+                <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
+                  {new Date(row.createdAt).toLocaleString('ro-RO')}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <Button variant="ghost" onClick={() => void onReject(row.id)}>
+                    Respinge
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 export default function CollectionsPage() {
   const api = useApiClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -412,6 +598,8 @@ export default function CollectionsPage() {
   const type = searchParams.get('type') ?? 'all';
   const hasTaxonomy = searchParams.get('hasTaxonomy') ?? 'all';
   const hasTranslation = searchParams.get('hasTranslation') ?? 'all';
+  const hasDescription = searchParams.get('hasDescription') ?? 'all';
+  const hasImage = searchParams.get('hasImage') ?? 'all';
   const menuLevel = searchParams.get('menuLevel') ?? 'all';
   const menuAiState = searchParams.get('menuAiState') ?? 'all';
   const sortBy = searchParams.get('sortBy') ?? 'synced_at';
@@ -440,8 +628,18 @@ export default function CollectionsPage() {
   const [syncElapsedMs, setSyncElapsedMs] = useState(0);
 
   const [bulkTaxonomyLoading, setBulkTaxonomyLoading] = useState(false);
-  const [bulkMetafieldsLoading, setBulkMetafieldsLoading] = useState(false);
   const [bulkTranslateLoading, setBulkTranslateLoading] = useState(false);
+  const [pendingChangesCount, setPendingChangesCount] = useState(0);
+  const [pendingChangesByType, setPendingChangesByType] = useState<PendingChangesByType>({
+    field_update: 0,
+    taxonomy_assign: 0,
+    taxonomy_unassign: 0,
+    menu_assign: 0,
+  });
+  const [pendingChangesOpen, setPendingChangesOpen] = useState(false);
+  const [pendingChangesLoading, setPendingChangesLoading] = useState(false);
+  const [pendingChangesApproving, setPendingChangesApproving] = useState(false);
+  const [pendingChangesRows, setPendingChangesRows] = useState<PendingChangeRow[]>([]);
 
   interface BulkCollectionStep {
     step: string;
@@ -491,6 +689,8 @@ export default function CollectionsPage() {
       if (type !== 'all') params.set('type', type);
       if (hasTaxonomy !== 'all') params.set('hasTaxonomy', hasTaxonomy);
       if (hasTranslation !== 'all') params.set('hasTranslation', hasTranslation);
+      if (hasDescription !== 'all') params.set('hasDescription', hasDescription);
+      if (hasImage !== 'all') params.set('hasImage', hasImage);
       if (menuLevel !== 'all') params.set('menuLevel', menuLevel);
       if (menuAiState !== 'all') params.set('menuAiState', menuAiState);
       params.set('sortBy', sortBy);
@@ -516,6 +716,8 @@ export default function CollectionsPage() {
     type,
     hasTaxonomy,
     hasTranslation,
+    hasDescription,
+    hasImage,
     menuLevel,
     menuAiState,
     sortBy,
@@ -534,13 +736,88 @@ export default function CollectionsPage() {
     }
   }, [api]);
 
+  const loadPendingCounts = useCallback(async () => {
+    try {
+      const result = await api.getApi<{ count: number; byType: PendingChangesByType }>(
+        '/collections/pending-changes/count'
+      );
+      setPendingChangesCount(result.count ?? 0);
+      setPendingChangesByType(
+        result.byType ?? {
+          field_update: 0,
+          taxonomy_assign: 0,
+          taxonomy_unassign: 0,
+          menu_assign: 0,
+        }
+      );
+    } catch {
+      setPendingChangesCount(0);
+      setPendingChangesByType({
+        field_update: 0,
+        taxonomy_assign: 0,
+        taxonomy_unassign: 0,
+        menu_assign: 0,
+      });
+    }
+  }, [api]);
+
+  const loadPendingChanges = useCallback(async () => {
+    setPendingChangesLoading(true);
+    try {
+      const result = await api.getApi<{
+        changes: PendingChangeRow[];
+        byType: PendingChangesByType;
+      }>('/collections/pending-changes');
+      setPendingChangesRows(result.changes ?? []);
+      setPendingChangesByType(
+        result.byType ?? {
+          field_update: 0,
+          taxonomy_assign: 0,
+          taxonomy_unassign: 0,
+          menu_assign: 0,
+        }
+      );
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Eroare la încărcarea modificărilor în așteptare'
+      );
+    } finally {
+      setPendingChangesLoading(false);
+    }
+  }, [api]);
+
   useEffect(() => {
     void loadCollections();
   }, [loadCollections]);
 
   useEffect(() => {
+    if (!selectedCollection) return;
+    const updated = collections.find((c) => c.id === selectedCollection.id);
+    if (updated && updated !== selectedCollection) {
+      setSelectedCollection(updated);
+    }
+  }, [collections, selectedCollection]);
+
+  useEffect(() => {
     void loadStats();
   }, [loadStats]);
+
+  useEffect(() => {
+    void loadPendingCounts();
+  }, [loadPendingCounts]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void loadPendingCounts();
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, [loadPendingCounts]);
+
+  useEffect(() => {
+    if (pendingChangesOpen) {
+      void loadPendingChanges();
+    }
+  }, [loadPendingChanges, pendingChangesOpen]);
 
   const stopElapsedTicker = useCallback(() => {
     if (elapsedTimerRef.current) {
@@ -596,6 +873,7 @@ export default function CollectionsPage() {
         if (previousStatus !== 'completed') {
           void loadCollections();
           void loadStats();
+          void loadPendingCounts();
         }
         if (isRunningSyncStatus(previousStatus)) {
           toast.success('Sincronizare completă');
@@ -699,6 +977,8 @@ export default function CollectionsPage() {
       if (type !== 'all') params.set('type', type);
       if (hasTaxonomy !== 'all') params.set('hasTaxonomy', hasTaxonomy);
       if (hasTranslation !== 'all') params.set('hasTranslation', hasTranslation);
+      if (hasDescription !== 'all') params.set('hasDescription', hasDescription);
+      if (hasImage !== 'all') params.set('hasImage', hasImage);
       if (menuLevel !== 'all') params.set('menuLevel', menuLevel);
       if (menuAiState !== 'all') params.set('menuAiState', menuAiState);
 
@@ -710,7 +990,17 @@ export default function CollectionsPage() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Eroare la extinderea selecției');
     }
-  }, [api, search, type, hasTaxonomy, hasTranslation, menuLevel, menuAiState]);
+  }, [
+    api,
+    search,
+    type,
+    hasTaxonomy,
+    hasTranslation,
+    hasDescription,
+    hasImage,
+    menuLevel,
+    menuAiState,
+  ]);
 
   const handleClearSelection = useCallback(() => {
     setSelectedIds([]);
@@ -726,7 +1016,7 @@ export default function CollectionsPage() {
     try {
       await api.streamPost(
         '/collections/bulk/assign-taxonomy-ai',
-        { collectionIds: selectedIds },
+        { collectionIds: selectedIds, source: 'ai_taxonomy' },
         (event) => {
           const type = event['type'] as string;
 
@@ -821,8 +1111,9 @@ export default function CollectionsPage() {
       setSelectAllMode(null);
       void loadCollections();
       void loadStats();
+      void loadPendingCounts();
     }
-  }, [api, selectedIds, loadCollections, loadStats]);
+  }, [api, selectedIds, loadCollections, loadPendingCounts, loadStats]);
 
   const handleBulkAssignMenu = useCallback(async () => {
     if (selectedIds.length === 0) return;
@@ -933,21 +1224,6 @@ export default function CollectionsPage() {
       void loadStats();
     }
   }, [api, selectedIds, loadCollections, loadStats]);
-
-  const handleBulkPushMetafields = useCallback(async () => {
-    if (selectedIds.length === 0) return;
-    setBulkMetafieldsLoading(true);
-    try {
-      await api.postApi('/collections/bulk/push-metafields', { collectionIds: selectedIds });
-      toast.success(`Push metafields pornit pentru ${selectedIds.length} colecții`);
-      setSelectedIds([]);
-      setSelectAllMode(null);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Eroare la push metafields');
-    } finally {
-      setBulkMetafieldsLoading(false);
-    }
-  }, [api, selectedIds]);
 
   const runTranslateStream = useCallback(
     async (body: Record<string, unknown>) => {
@@ -1070,6 +1346,38 @@ export default function CollectionsPage() {
     setSelectedIds([]);
     setSelectAllMode(null);
   }, [runTranslateStream, selectedIds]);
+
+  const handleRejectPendingChange = useCallback(
+    async (changeId: string) => {
+      try {
+        await api.postApi(`/collections/pending-changes/${changeId}/reject`, {});
+        await Promise.all([loadPendingCounts(), loadPendingChanges()]);
+        toast.success('Modificarea a fost respinsă');
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Eroare la respingerea modificării');
+      }
+    },
+    [api, loadPendingChanges, loadPendingCounts]
+  );
+
+  const handleApprovePendingChanges = useCallback(async () => {
+    setPendingChangesApproving(true);
+    try {
+      await api.postApi('/collections/pending-changes/approve', {});
+      await Promise.all([
+        loadPendingCounts(),
+        loadPendingChanges(),
+        loadCollections(),
+        loadStats(),
+      ]);
+      toast.success('Modificările au fost aprobate și trimise în coada de sincronizare');
+      setPendingChangesOpen(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Eroare la aprobarea modificărilor');
+    } finally {
+      setPendingChangesApproving(false);
+    }
+  }, [api, loadCollections, loadPendingChanges, loadPendingCounts, loadStats]);
 
   const handleSort = useCallback(
     (column: string) => {
@@ -1217,6 +1525,12 @@ export default function CollectionsPage() {
 
         <div className="flex flex-col items-end gap-1.5">
           <span className="inline-flex items-center gap-2">
+            {pendingChangesCount > 0 && (
+              <Button variant="secondary" onClick={() => setPendingChangesOpen(true)}>
+                <Upload className="mr-2 size-4" />
+                {pendingChangesCount} modificări de sincronizat
+              </Button>
+            )}
             <Button variant="secondary" onClick={() => void startSync()} disabled={isSyncing}>
               <RefreshCw className={`mr-2 size-4 ${isSyncing ? 'animate-spin' : ''}`} />
               {isSyncing ? 'Sincronizare...' : 'Sincronizează din Shopify'}
@@ -1254,16 +1568,6 @@ export default function CollectionsPage() {
 
       {/* Stats Cards */}
       {(() => {
-        const simpleCards = [
-          {
-            label: 'Total colecții',
-            value: stats?.total ?? 0,
-            icon: FolderOpen,
-            delay: 0,
-            filterKey: 'all' as const,
-          },
-        ];
-
         const total = stats?.total ?? 0;
         const splitPairs: {
           top: {
@@ -1284,6 +1588,25 @@ export default function CollectionsPage() {
           };
           delay: number;
         }[] = [
+          {
+            top: {
+              label: 'Total colecții',
+              value: total,
+              icon: FolderOpen,
+              filterKey: 'all',
+              filterParam: '',
+              filterValue: '',
+            },
+            bottom: {
+              label: 'Cu imagine',
+              value: stats?.withImage ?? 0,
+              icon: ImageIcon,
+              filterKey: 'withImage',
+              filterParam: 'hasImage',
+              filterValue: 'true',
+            },
+            delay: 0,
+          },
           {
             top: {
               label: 'Manuale',
@@ -1343,6 +1666,25 @@ export default function CollectionsPage() {
           },
           {
             top: {
+              label: 'Cu descriere',
+              value: stats?.withDescription ?? 0,
+              icon: FileText,
+              filterKey: 'withDescription',
+              filterParam: 'hasDescription',
+              filterValue: 'true',
+            },
+            bottom: {
+              label: 'Fără descriere',
+              value: total - (stats?.withDescription ?? 0),
+              icon: CircleOff,
+              filterKey: 'withoutDescription',
+              filterParam: 'hasDescription',
+              filterValue: 'false',
+            },
+            delay: 4,
+          },
+          {
+            top: {
               label: 'În meniu',
               value: stats?.inMenu ?? 0,
               icon: GitBranch,
@@ -1358,7 +1700,7 @@ export default function CollectionsPage() {
               filterParam: 'menuLevel',
               filterValue: 'none',
             },
-            delay: 4,
+            delay: 5,
           },
         ];
 
@@ -1367,6 +1709,8 @@ export default function CollectionsPage() {
             type === 'all' &&
             hasTaxonomy === 'all' &&
             hasTranslation === 'all' &&
+            hasDescription === 'all' &&
+            hasImage === 'all' &&
             menuLevel === 'all' &&
             menuAiState === 'all') ||
           (filterKey === 'manual' && type === 'MANUAL') ||
@@ -1375,6 +1719,10 @@ export default function CollectionsPage() {
           (filterKey === 'withoutTaxonomy' && hasTaxonomy === 'false') ||
           (filterKey === 'translated' && hasTranslation === 'true') ||
           (filterKey === 'untranslated' && hasTranslation === 'false') ||
+          (filterKey === 'withDescription' && hasDescription === 'true') ||
+          (filterKey === 'withoutDescription' && hasDescription === 'false') ||
+          (filterKey === 'withImage' && hasImage === 'true') ||
+          (filterKey === 'withoutImage' && hasImage === 'false') ||
           (filterKey === 'inMenu' && menuLevel === 'in_menu') ||
           (filterKey === 'notInMenu' && menuLevel === 'none');
 
@@ -1383,6 +1731,8 @@ export default function CollectionsPage() {
           next.delete('type');
           next.delete('hasTaxonomy');
           next.delete('hasTranslation');
+          next.delete('hasDescription');
+          next.delete('hasImage');
           next.delete('menuLevel');
           next.delete('menuAiState');
           next.set('page', '1');
@@ -1405,43 +1755,7 @@ export default function CollectionsPage() {
           }`;
 
         return (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            {simpleCards.map((card) => {
-              const active = isCardActive(card.filterKey);
-              return (
-                <article
-                  key={card.label}
-                  onClick={() => applyFilter()}
-                  className={`${cardBase(active)} p-4`}
-                  style={{
-                    animation: statsLoading
-                      ? 'none'
-                      : `fadeSlideUp 0.4s ease-out ${card.delay * 0.1}s both`,
-                  }}
-                >
-                  <div className="flex items-center justify-between">
-                    <span
-                      className={`text-xs font-medium uppercase tracking-wider ${active ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400'}`}
-                    >
-                      {card.label}
-                    </span>
-                    <card.icon
-                      className={`size-4 ${active ? 'text-blue-500 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500'}`}
-                    />
-                  </div>
-                  <p
-                    className={`mt-2 text-2xl font-bold ${active ? 'text-blue-700 dark:text-blue-300' : 'text-slate-900 dark:text-slate-50'}`}
-                  >
-                    {statsLoading ? (
-                      <span className="inline-block h-7 w-16 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
-                    ) : (
-                      card.value.toLocaleString('ro-RO')
-                    )}
-                  </p>
-                </article>
-              );
-            })}
-
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
             {splitPairs.map((pair) => {
               const topActive = isCardActive(pair.top.filterKey);
               const bottomActive = isCardActive(pair.bottom.filterKey);
@@ -1736,13 +2050,6 @@ export default function CollectionsPage() {
               {translateRunning
                 ? `Se traduce (${translateProgress.filter((e) => e.finalStatus !== 'running').length}/${translateProgress.length})...`
                 : 'Traduce EN'}
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => void handleBulkPushMetafields()}
-              disabled={bulkMetafieldsLoading}
-            >
-              {bulkMetafieldsLoading ? 'Se trimit...' : 'Push metafields'}
             </Button>
             <Button variant="ghost" onClick={handleClearSelection}>
               Șterge selecția
@@ -2383,6 +2690,74 @@ export default function CollectionsPage() {
       )}
 
       {/* Collection Detail Drawer */}
+      <Modal
+        open={pendingChangesOpen}
+        onClose={() => setPendingChangesOpen(false)}
+        className="max-w-5xl"
+      >
+        <div className="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+            Modificări în așteptare
+          </h2>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Revizuiește schimbările locale înainte de sincronizarea în Shopify.
+          </p>
+        </div>
+        <div className="max-h-[70vh] space-y-6 overflow-y-auto px-6 py-5">
+          {pendingChangesLoading ? (
+            <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
+              Se încarcă modificările...
+            </div>
+          ) : pendingChangesRows.length === 0 ? (
+            <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
+              Nicio modificare în așteptare.
+            </div>
+          ) : (
+            <>
+              <PendingChangesSection
+                title="Modificări câmpuri"
+                rows={pendingChangesRows.filter((row) => row.changeType === 'field_update')}
+                onReject={handleRejectPendingChange}
+              />
+              <PendingChangesSection
+                title="Atribuiri taxonomie"
+                rows={pendingChangesRows.filter((row) => row.changeType === 'taxonomy_assign')}
+                onReject={handleRejectPendingChange}
+              />
+              <PendingChangesSection
+                title="Stergeri taxonomie"
+                rows={pendingChangesRows.filter((row) => row.changeType === 'taxonomy_unassign')}
+                onReject={handleRejectPendingChange}
+              />
+              <PendingChangesSection
+                title="Asignări meniu"
+                rows={pendingChangesRows.filter((row) => row.changeType === 'menu_assign')}
+                onReject={handleRejectPendingChange}
+              />
+            </>
+          )}
+        </div>
+        <div className="flex items-center justify-between border-t border-slate-200 px-6 py-4 dark:border-slate-700">
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            {pendingChangesByType.field_update} câmpuri, {pendingChangesByType.taxonomy_assign}{' '}
+            atribuiri, {pendingChangesByType.taxonomy_unassign} ștergeri taxonomie,{' '}
+            {pendingChangesByType.menu_assign} meniuri
+          </div>
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={() => setPendingChangesOpen(false)}>
+              Închide
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => void handleApprovePendingChanges()}
+              disabled={pendingChangesApproving || pendingChangesRows.length === 0}
+            >
+              {pendingChangesApproving ? 'Se aprobă...' : 'Aprobă toate și sincronizează'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {selectedCollection && (
         <CollectionDetailDrawerInline
           collection={selectedCollection}
@@ -2392,8 +2767,239 @@ export default function CollectionsPage() {
           onRefresh={() => {
             void loadCollections();
             void loadStats();
+            void loadPendingCounts();
           }}
         />
+      )}
+    </div>
+  );
+}
+
+function DetailsTab({
+  collection,
+  titleEn,
+  draftFields,
+  dirtyFields,
+  savingDetails,
+  aiGeneratingField,
+  onDraftFieldChange,
+  onAiGenerate,
+  onSaveChanges,
+}: {
+  collection: CollectionRow;
+  titleEn: string | null;
+  draftFields: Record<string, string>;
+  dirtyFields: string[];
+  savingDetails: boolean;
+  aiGeneratingField: string | null;
+  onDraftFieldChange: (field: string, value: string) => void;
+  onAiGenerate: (field: string) => Promise<void>;
+  onSaveChanges: () => Promise<void>;
+}) {
+  const editableFields: {
+    key: string;
+    label: string;
+    editable: boolean;
+    aiEnabled: boolean;
+    aiMode?: 'generate' | 'translate';
+    aiLabel?: string;
+    multiline?: boolean;
+  }[] = [
+    {
+      key: 'title',
+      label: 'Titlu (RO)',
+      editable: true,
+      aiEnabled: true,
+      aiMode: 'generate',
+      aiLabel: 'Generează cu AI',
+    },
+    {
+      key: 'title_en',
+      label: 'Titlu (EN)',
+      editable: true,
+      aiEnabled: true,
+      aiMode: 'translate',
+      aiLabel: 'Traduce din RO (4 agenți consensus)',
+    },
+    {
+      key: 'description',
+      label: 'Descriere (RO)',
+      editable: true,
+      aiEnabled: true,
+      aiMode: 'generate',
+      aiLabel: 'Generează cu AI',
+      multiline: true,
+    },
+    {
+      key: 'description_en',
+      label: 'Descriere (EN)',
+      editable: true,
+      aiEnabled: true,
+      aiMode: 'translate',
+      aiLabel: 'Traduce din RO (4 agenți consensus)',
+      multiline: true,
+    },
+  ];
+
+  const readonlyFields: { label: string; value: string | null | number }[] = [
+    { label: 'Handle', value: collection.handle },
+    { label: 'Tip colecție', value: collection.collection_type },
+    { label: 'Produse', value: collection.products_count },
+    { label: 'Shopify GID', value: collection.shopify_gid },
+    { label: 'Legacy ID', value: collection.legacy_resource_id },
+    { label: 'Taxonomie', value: collection.taxonomy_name },
+    { label: 'Nivel meniu', value: collection.menu_level },
+    { label: 'Path meniu', value: collection.menu_path },
+    { label: 'Colecție părinte', value: collection.parent_title },
+    {
+      label: 'Sincronizat',
+      value: collection.synced_at ? new Date(collection.synced_at).toLocaleString('ro-RO') : null,
+    },
+  ];
+
+  return (
+    <div className="space-y-4">
+      {collection.image_url && (
+        <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+          <img
+            src={collection.image_url}
+            alt={collection.title}
+            className="h-40 w-full object-cover"
+          />
+        </div>
+      )}
+
+      {editableFields.map((field) => {
+        const isAiGenerating = aiGeneratingField === field.key;
+        const value = getDraftFieldValue(collection, titleEn, draftFields, field.key);
+        const isDirty = dirtyFields.includes(field.key);
+
+        return (
+          <div
+            key={field.key}
+            className={`rounded-lg border bg-white p-3 dark:bg-slate-800/50 ${
+              isDirty
+                ? 'border-amber-300 dark:border-amber-700'
+                : 'border-slate-200 dark:border-slate-700'
+            }`}
+          >
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                {field.label}
+              </span>
+              <div className="flex gap-1">
+                {isDirty && <Badge tone="warning">Nesalvat</Badge>}
+                {field.aiEnabled && (
+                  <button
+                    type="button"
+                    disabled={isAiGenerating}
+                    className={`rounded p-1 disabled:opacity-50 ${
+                      field.aiMode === 'translate'
+                        ? 'text-blue-400 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/30 dark:hover:text-blue-300'
+                        : 'text-purple-400 hover:bg-purple-50 hover:text-purple-600 dark:hover:bg-purple-950/30 dark:hover:text-purple-300'
+                    }`}
+                    title={field.aiLabel ?? 'AI'}
+                    onClick={() => void onAiGenerate(field.key)}
+                  >
+                    {isAiGenerating ? (
+                      <LoaderCircle className="size-3.5 animate-spin" />
+                    ) : field.aiMode === 'translate' ? (
+                      <Languages className="size-3.5" />
+                    ) : (
+                      <Sparkles className="size-3.5" />
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+            {field.multiline ? (
+              <textarea
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                rows={4}
+                value={value}
+                onChange={(e) => onDraftFieldChange(field.key, e.target.value)}
+              />
+            ) : (
+              <input
+                type="text"
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                value={value}
+                onChange={(e) => onDraftFieldChange(field.key, e.target.value)}
+              />
+            )}
+          </div>
+        );
+      })}
+
+      {dirtyFields.length > 0 && (
+        <div className="sticky bottom-0 z-10 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/30">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-amber-800 dark:text-amber-200">
+              {dirtyFields.length} câmpuri modificate local.
+            </p>
+            <Button
+              variant="secondary"
+              onClick={() => void onSaveChanges()}
+              disabled={savingDetails}
+            >
+              {savingDetails ? 'Se salvează...' : 'Salvează modificările'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {collection.menu_path && (
+        <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800/50">
+          <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+            Ierarhie categorii
+          </span>
+          <div className="flex flex-wrap items-center gap-1 text-sm">
+            {parseMenuPath(collection.menu_path).map((segment, i, arr) => (
+              <span key={`${segment}-${i}`} className="inline-flex items-center gap-1">
+                {i > 0 && <ChevronRight className="size-3 text-slate-400 dark:text-slate-500" />}
+                <span
+                  className={
+                    i === arr.length - 1
+                      ? 'font-medium text-blue-600 dark:text-blue-400'
+                      : 'text-slate-600 dark:text-slate-400'
+                  }
+                >
+                  {segment}
+                </span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800/50">
+        <div className="border-b border-slate-100 px-3 py-2 dark:border-slate-700/50">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+            Informații suplimentare
+          </span>
+        </div>
+        <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
+          {readonlyFields.map((rf) => (
+            <div key={rf.label} className="flex items-center justify-between px-3 py-2">
+              <span className="text-xs text-slate-500 dark:text-slate-400">{rf.label}</span>
+              <span className="max-w-[60%] truncate text-right text-xs font-medium text-slate-700 dark:text-slate-300">
+                {rf.value ?? '—'}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {collection.shopify_gid && (
+        <a
+          href={`https://admin.shopify.com/store/neanelu/collections/${collection.legacy_resource_id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+        >
+          <ExternalLink className="size-3.5" />
+          Deschide în Shopify
+        </a>
       )}
     </div>
   );
@@ -2414,9 +3020,9 @@ function CollectionDetailDrawerInline({
   onClose,
   onRefresh,
 }: DrawerProps) {
-  const [activeTab, setActiveTab] = useState<'products' | 'taxonomy' | 'metafields' | 'menuAi'>(
-    'products'
-  );
+  const [activeTab, setActiveTab] = useState<
+    'details' | 'products' | 'taxonomy' | 'metafields' | 'menuAi'
+  >('details');
   const [products, setProducts] = useState<
     { id: string; title: string; products_count?: number; quality_level?: string }[]
   >([]);
@@ -2426,7 +3032,7 @@ function CollectionDetailDrawerInline({
   const [taxonomyName, setTaxonomyName] = useState<string | null>(collection.taxonomy_name);
 
   useEffect(() => {
-    setActiveTab('products');
+    setActiveTab('details');
     setProducts([]);
     setMetafields(null);
     setTaxonomyName(collection.taxonomy_name);
@@ -2508,6 +3114,14 @@ function CollectionDetailDrawerInline({
   const [menuAssignRunning, setMenuAssignRunning] = useState(false);
   const [menuAssignSteps, setMenuAssignSteps] = useState<ProgressStep[]>([]);
   const [menuActionBusyId, setMenuActionBusyId] = useState<string | null>(null);
+  const [draftFields, setDraftFields] = useState<Record<string, string>>({
+    title: collection.title ?? '',
+    title_en: collection.title_en ?? '',
+    description: collection.description ?? '',
+    description_en: collection.description_en ?? '',
+  });
+  const [savingDetails, setSavingDetails] = useState(false);
+  const [aiGeneratingField, setAiGeneratingField] = useState<string | null>(null);
 
   useEffect(() => {
     setTitleEn(collection.title_en ?? null);
@@ -2515,7 +3129,38 @@ function CollectionDetailDrawerInline({
     setMenuAssignments(null);
     setMenuAssignSteps([]);
     setMenuActionBusyId(null);
-  }, [collection.id, collection.title_en]);
+    setDraftFields({
+      title: collection.title ?? '',
+      title_en: collection.title_en ?? '',
+      description: collection.description ?? '',
+      description_en: collection.description_en ?? '',
+    });
+  }, [
+    collection.description,
+    collection.description_en,
+    collection.id,
+    collection.title,
+    collection.title_en,
+  ]);
+
+  const dirtyFields = useMemo(() => {
+    const comparisons: [string, string | null][] = [
+      ['title', collection.title ?? null],
+      ['title_en', titleEn ?? collection.title_en ?? null],
+      ['description', collection.description ?? null],
+      ['description_en', collection.description_en ?? null],
+    ];
+    return comparisons
+      .filter(([field, original]) => (draftFields[field] ?? '') !== (original ?? ''))
+      .map(([field]) => field);
+  }, [
+    collection.description,
+    collection.description_en,
+    collection.title,
+    collection.title_en,
+    draftFields,
+    titleEn,
+  ]);
 
   const handleTranslateSingle = useCallback(async () => {
     setTranslateRunningLocal(true);
@@ -2523,7 +3168,7 @@ function CollectionDetailDrawerInline({
     try {
       await api.streamPost(
         `/collections/${collection.id}/translate`,
-        { force: !!titleEn },
+        { force: !!titleEn, source: 'ai_translate' },
         (event) => {
           const type = event['type'] as string;
 
@@ -2555,6 +3200,14 @@ function CollectionDetailDrawerInline({
             if (resultStatus === 'translated') {
               const translated = event['titleEn'] as string;
               setTitleEn(translated);
+              setDraftFields((prev) => ({
+                ...prev,
+                title_en: translated,
+                description_en: asDisplayText(event['descriptionEn'], prev['description_en'] ?? ''),
+              }));
+              if (event['descriptionEn']) {
+                onRefresh();
+              }
               setTranslateSteps((prev) => [
                 ...prev,
                 { step: 'done', message: `Traducere finalizată: „${translated}"`, status: 'done' },
@@ -2607,7 +3260,7 @@ function CollectionDetailDrawerInline({
     } finally {
       setTranslateRunningLocal(false);
     }
-  }, [api, collection.id, onRefresh]);
+  }, [api, collection.id, onRefresh, titleEn]);
 
   const handleAssignTaxonomyAi = useCallback(async () => {
     setAssignRunning(true);
@@ -2617,68 +3270,80 @@ function CollectionDetailDrawerInline({
     }
 
     try {
-      await api.streamPost(`/collections/${collection.id}/assign-taxonomy-ai`, {}, (event) => {
-        const type = event['type'] as string;
+      await api.streamPost(
+        `/collections/${collection.id}/assign-taxonomy-ai`,
+        { source: 'ai_taxonomy' },
+        (event) => {
+          const type = event['type'] as string;
 
-        if (type === 'progress') {
-          const step = event['step'] as string;
-          const message = event['message'] as string;
-          const status = (event['status'] as string) === 'done' ? 'done' : 'in_progress';
-          setProgressSteps((prev) => {
-            const existing = prev.findIndex((s) => s.step === step);
-            if (existing >= 0) {
-              const updated = [...prev];
-              updated[existing] = { step, message, status };
-              return updated;
+          if (type === 'progress') {
+            const step = event['step'] as string;
+            const message = event['message'] as string;
+            const rawStatus = event['status'] as string | undefined;
+            const status: ProgressStep['status'] =
+              rawStatus === 'done' ? 'done' : rawStatus === 'error' ? 'error' : 'in_progress';
+            setProgressSteps((prev) => {
+              const existing = prev.findIndex((s) => s.step === step);
+              if (existing >= 0) {
+                const updated = [...prev];
+                updated[existing] = { step, message, status };
+                return updated;
+              }
+              return [...prev, { step, message, status }];
+            });
+          }
+
+          if (type === 'result') {
+            const resultStatus = event['status'] as string;
+            const consensusMethod = (event['consensusMethod'] as ConsensusMethod | null) ?? null;
+            const consensusScore =
+              typeof event['consensusScore'] === 'number' ? event['consensusScore'] : null;
+            if (resultStatus === 'assigned') {
+              const name = event['taxonomyName'] as string;
+              const pct = Math.round(((event['confidence'] as number) ?? 0) * 100);
+              setTaxonomyName(name);
+              setProgressSteps((prev) => [
+                ...prev,
+                {
+                  step: 'done',
+                  message: `Taxonomie atribuită: „${name}" — ${pct}% confidență`,
+                  status: 'done',
+                },
+                ...(consensusScore != null
+                  ? [
+                      {
+                        step: 'consensus_result',
+                        message: `Consens: ${formatConsensusMethod(consensusMethod)} · scor ${formatConsensusScore(consensusScore)}`,
+                        status: 'done' as const,
+                      },
+                    ]
+                  : []),
+              ]);
+              onRefresh();
+              toast.success('Taxonomia a fost adăugată în coada de sincronizare');
+            } else {
+              const msg = (event['message'] as string) ?? 'Confidență scăzută. Atribuiți manual.';
+              setProgressSteps((prev) => [
+                ...prev,
+                { step: 'low_conf', message: msg, status: 'error' },
+              ]);
             }
-            return [...prev, { step, message, status }];
-          });
-        }
+          }
 
-        if (type === 'result') {
-          const resultStatus = event['status'] as string;
-          const consensusMethod = (event['consensusMethod'] as ConsensusMethod | null) ?? null;
-          const consensusScore =
-            typeof event['consensusScore'] === 'number' ? event['consensusScore'] : null;
-          if (resultStatus === 'assigned') {
-            const name = event['taxonomyName'] as string;
-            const pct = Math.round(((event['confidence'] as number) ?? 0) * 100);
-            setTaxonomyName(name);
+          if (type === 'error') {
+            const msg = (event['message'] as string) ?? 'Eroare la atribuirea taxonomiei.';
             setProgressSteps((prev) => [
-              ...prev,
-              {
-                step: 'done',
-                message: `Taxonomie atribuită: „${name}" — ${pct}% confidență`,
-                status: 'done',
-              },
-              ...(consensusScore != null
-                ? [
-                    {
-                      step: 'consensus_result',
-                      message: `Consens: ${formatConsensusMethod(consensusMethod)} · scor ${formatConsensusScore(consensusScore)}`,
-                      status: 'done' as const,
-                    },
-                  ]
-                : []),
-            ]);
-            onRefresh();
-          } else {
-            const msg = (event['message'] as string) ?? 'Confidență scăzută. Atribuiți manual.';
-            setProgressSteps((prev) => [
-              ...prev,
-              { step: 'low_conf', message: msg, status: 'error' },
+              ...prev.map((s) =>
+                s.status === 'in_progress' ? { ...s, status: 'error' as const } : s
+              ),
+              { step: 'error', message: msg, status: 'error' },
             ]);
           }
         }
-
-        if (type === 'error') {
-          const msg = (event['message'] as string) ?? 'Eroare la atribuirea taxonomiei.';
-          setProgressSteps((prev) => [...prev, { step: 'error', message: msg, status: 'error' }]);
-        }
-      });
+      );
     } catch (err) {
       setProgressSteps((prev) => [
-        ...prev,
+        ...prev.map((s) => (s.status === 'in_progress' ? { ...s, status: 'error' as const } : s)),
         {
           step: 'error',
           message: err instanceof Error ? err.message : 'Eroare la atribuirea taxonomiei.',
@@ -2746,7 +3411,9 @@ function CollectionDetailDrawerInline({
 
         if (type === 'error') {
           setMenuAssignSteps((prev) => [
-            ...prev,
+            ...prev.map((s) =>
+              s.status === 'in_progress' ? { ...s, status: 'error' as const } : s
+            ),
             {
               step: 'error',
               message: (event['message'] as string) ?? 'Eroare la asignarea AI.',
@@ -2757,7 +3424,7 @@ function CollectionDetailDrawerInline({
       });
     } catch (err) {
       setMenuAssignSteps((prev) => [
-        ...prev,
+        ...prev.map((s) => (s.status === 'in_progress' ? { ...s, status: 'error' as const } : s)),
         {
           step: 'error',
           message: err instanceof Error ? err.message : 'Eroare la asignarea AI.',
@@ -2778,6 +3445,7 @@ function CollectionDetailDrawerInline({
             `/collections/${collection.id}/menu-assignments/${assignmentId}/approve`,
             {}
           );
+          toast.success('Modificarea de meniu a fost adăugată în coada de sincronizare');
         } else if (action === 'reject') {
           await api.postApi(
             `/collections/${collection.id}/menu-assignments/${assignmentId}/reject`,
@@ -2790,6 +3458,7 @@ function CollectionDetailDrawerInline({
           );
         } else {
           await api.deleteApi(`/collections/${collection.id}/menu-assignments/${assignmentId}`);
+          toast.success('Eliminarea din meniu a fost adăugată în coada de sincronizare');
         }
         await loadMenuAssignments();
         onRefresh();
@@ -2802,14 +3471,39 @@ function CollectionDetailDrawerInline({
     [api, collection.id, loadMenuAssignments, onRefresh]
   );
 
-  const handlePushMetafields = useCallback(async () => {
+  const handleSaveDetails = useCallback(async () => {
+    if (dirtyFields.length === 0) return;
+    setSavingDetails(true);
     try {
-      await api.postApi(`/collections/${collection.id}/push-metafields`, {});
-      toast.success('Push metafields pornit');
+      const payload = Object.fromEntries(
+        dirtyFields.map((field) => [field, (draftFields[field] ?? '').trim() || null])
+      );
+      const resp = await api.patchApi(`/collections/${collection.id}`, {
+        ...payload,
+        source: 'manual',
+      });
+      if ('title_en' in payload) {
+        const nextTitleEn = payload['title_en'];
+        if (typeof nextTitleEn === 'string' || nextTitleEn === null) {
+          setTitleEn(nextTitleEn);
+        }
+      }
+      const hasSyncableFields = 'title' in payload || 'description' in payload;
+      const pendingCount = (resp as Record<string, unknown>)?.['pendingChanges'] as
+        | Record<string, unknown>
+        | undefined;
+      if (hasSyncableFields && pendingCount) {
+        toast.success('Modificările au fost salvate și adăugate în coada de sincronizare');
+      } else {
+        toast.success('Modificările au fost salvate local');
+      }
+      onRefresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Eroare la push metafields');
+      toast.error(err instanceof Error ? err.message : 'Eroare la salvarea modificărilor');
+    } finally {
+      setSavingDetails(false);
     }
-  }, [api, collection.id]);
+  }, [api, collection.id, dirtyFields, draftFields, onRefresh]);
 
   return (
     <div
@@ -2857,6 +3551,20 @@ function CollectionDetailDrawerInline({
                 Deschide părintele: {collection.parent_title}
               </button>
             )}
+            {collection.description && (
+              <div className="mt-3 rounded-md bg-slate-50 p-3 dark:bg-slate-800/50">
+                <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-400">
+                  {collection.description.slice(0, 200)}
+                  {collection.description.length > 200 ? '...' : ''}
+                </p>
+                {collection.description_en && (
+                  <p className="mt-1.5 text-xs italic leading-relaxed text-slate-500 dark:text-slate-500">
+                    {collection.description_en.slice(0, 200)}
+                    {collection.description_en.length > 200 ? '...' : ''}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
           <button
             onClick={onClose}
@@ -2868,29 +3576,105 @@ function CollectionDetailDrawerInline({
 
         {/* Tabs */}
         <div className="flex border-b border-slate-200 dark:border-slate-700">
-          {(['products', 'taxonomy', 'menuAi', 'metafields'] as const).map((tab) => (
-            <button
-              key={tab}
-              className={`flex-1 px-4 py-2.5 text-sm font-medium transition-colors ${
-                activeTab === tab
-                  ? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400'
-                  : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
-              }`}
-              onClick={() => setActiveTab(tab)}
-            >
-              {tab === 'products'
-                ? 'Produse'
-                : tab === 'taxonomy'
-                  ? 'Taxonomie'
-                  : tab === 'menuAi'
-                    ? 'Categorii AI'
-                    : 'Metafields'}
-            </button>
-          ))}
+          {(['details', 'products', 'taxonomy', 'menuAi', 'metafields'] as const).map((tab) => {
+            const label =
+              tab === 'details'
+                ? 'Detalii'
+                : tab === 'products'
+                  ? 'Produse'
+                  : tab === 'taxonomy'
+                    ? 'Taxonomie'
+                    : tab === 'menuAi'
+                      ? 'Categorii AI'
+                      : 'Metafields';
+            return (
+              <button
+                key={tab}
+                className={`flex-1 px-3 py-2.5 text-xs font-medium transition-colors ${
+                  activeTab === tab
+                    ? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                }`}
+                onClick={() => setActiveTab(tab)}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-5">
+          {activeTab === 'details' && (
+            <DetailsTab
+              collection={collection}
+              titleEn={titleEn}
+              draftFields={draftFields}
+              dirtyFields={dirtyFields}
+              savingDetails={savingDetails}
+              aiGeneratingField={aiGeneratingField}
+              onDraftFieldChange={(field, value) =>
+                setDraftFields((prev) => ({
+                  ...prev,
+                  [field]: value,
+                }))
+              }
+              onAiGenerate={async (field) => {
+                setAiGeneratingField(field);
+                try {
+                  if (field === 'title' || field === 'description') {
+                    await api.streamPost(
+                      `/collections/${collection.id}/generate-ro`,
+                      { field, source: 'ai_generate' },
+                      (event) => {
+                        const type = event['type'] as string;
+                        if (type === 'result' && event['status'] === 'generated') {
+                          onRefresh();
+                        }
+                      }
+                    );
+                    onRefresh();
+                    toast.success(
+                      field === 'title'
+                        ? 'Titlu RO generat cu consensus 4 agenți'
+                        : 'Descriere RO generată cu consensus 4 agenți'
+                    );
+                  } else {
+                    await api.streamPost(
+                      `/collections/${collection.id}/translate`,
+                      { force: true, source: 'ai_translate', field },
+                      (event) => {
+                        const type = event['type'] as string;
+                        if (type === 'result' && event['status'] === 'translated') {
+                          if (field === 'title_en' && event['titleEn']) {
+                            const translated = event['titleEn'] as string;
+                            setTitleEn(translated);
+                            setDraftFields((prev) => ({ ...prev, title_en: translated }));
+                          }
+                          if (field === 'description_en' && event['descriptionEn']) {
+                            const translated = asDisplayText(event['descriptionEn'], '');
+                            setDraftFields((prev) => ({ ...prev, description_en: translated }));
+                          }
+                        }
+                      }
+                    );
+                    onRefresh();
+                    toast.success(
+                      field === 'title_en'
+                        ? 'Titlu tradus cu consensus 4 agenți'
+                        : 'Descriere tradusă cu consensus 4 agenți'
+                    );
+                  }
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : 'Eroare la generare AI');
+                } finally {
+                  setAiGeneratingField(null);
+                }
+              }}
+              onSaveChanges={handleSaveDetails}
+            />
+          )}
+
           {activeTab === 'products' && (
             <div className="space-y-3">
               {loadingProducts ? (
@@ -3055,13 +3839,6 @@ function CollectionDetailDrawerInline({
                     : taxonomyName
                       ? 'Reatribuie cu AI'
                       : 'Atribuie cu AI'}
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => void handlePushMetafields()}
-                  disabled={!taxonomyName || assignRunning}
-                >
-                  Push metafields
                 </Button>
               </div>
             </div>

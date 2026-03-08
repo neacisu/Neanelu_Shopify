@@ -558,6 +558,11 @@ export async function consensusChatCompletion<T>(
       majority.count === participants.length ? 'unanimous' : 'majority';
     const score = majority.count / participants.length;
     onProgress?.({
+      step: 'consensus_start',
+      message: `${participants.length} agenti au terminat evaluarea`,
+      status: 'done',
+    });
+    onProgress?.({
       step: 'consensus_majority',
       message: `Consens: ${majority.count}/${participants.length} identice`,
       status: 'done',
@@ -580,6 +585,11 @@ export async function consensusChatCompletion<T>(
     };
   }
 
+  onProgress?.({
+    step: 'consensus_start',
+    message: `${participants.length} agenti au terminat evaluarea`,
+    status: 'done',
+  });
   onProgress?.({
     step: 'consensus_arbitration',
     message: 'Arbitrare deep reasoning...',
@@ -635,6 +645,11 @@ export async function consensusChatCompletion<T>(
     0,
     Math.min(1, envelope?.consensusScore ?? Math.max(0.5, 1 / participants.length))
   );
+  onProgress?.({
+    step: 'consensus_arbitration',
+    message: 'Arbitrare deep reasoning finalizată.',
+    status: 'done',
+  });
   onProgress?.({
     step: 'consensus_result',
     message: `Consens final score ${score.toFixed(2)}`,

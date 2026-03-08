@@ -6,10 +6,7 @@ import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { SessionConfig } from '../auth/session.js';
 import { requireSession } from '../auth/session.js';
 import { getShopOpenAiConfig } from '../runtime/openai-config.js';
-import {
-  resolveChatTaskCredentials,
-  resolveEmbeddingsProvider,
-} from '../services/ai-provider-routing.js';
+import { resolveChatTaskCredentials } from '../services/ai-provider-routing.js';
 import { consensusChatCompletion } from '../services/consensus-engine.js';
 import {
   approveMenuAssignment,
@@ -21,12 +18,33 @@ import {
 } from '../services/menu-assignment-engine.js';
 import { syncMenuItemEmbeddings } from '../services/menu-ai.js';
 import {
+  generateDualEmbeddings,
+  mergeMultiModelCandidates,
+  resolveDualEmbeddingsProviders,
+} from '../services/multi-model-embedding.js';
+import {
   enqueueCollectionsSyncJob,
   PIM_COLLECTIONS_SYNC_QUEUE_NAME,
 } from '../queue/collections-sync-queue.js';
-import { enqueueCollectionMetafieldPushJob } from '../queue/collection-metafield-push-queue.js';
+import { enqueueCollectionShopifySyncJob } from '../queue/collection-shopify-sync-queue.js';
 import { toPgVectorLiteral } from '../processors/bulk-operations/pim/vector.js';
-import { deleteCollectionMetafieldsForTaxonomy } from '../services/collection-metafields-delete.js';
+import {
+  approvePendingCollectionChanges,
+  getPendingCollectionChangeCounts,
+  listPendingCollectionChanges,
+  rejectPendingCollectionChange,
+  upsertFieldUpdatePendingChange,
+  upsertMenuAssignPendingChange,
+  upsertTaxonomyAssignPendingChange,
+  upsertTaxonomyUnassignPendingChange,
+  type CollectionPendingChangeSource,
+} from '../services/collection-pending-changes.js';
+import {
+  buildMenuAssignPendingMetadata,
+  buildTaxonomyAssignPendingMetadata,
+  buildTaxonomyUnassignPendingMetadata,
+  loadCollectionFieldSnapshot,
+} from '../services/collection-sync-back-metadata.js';
 
 interface CollectionsRoutesOptions {
   env: AppEnv;
@@ -54,6 +72,7 @@ interface TaxonomyClassification {
 interface CollectionAiContext {
   title: string;
   description: string | null;
+  descriptionEn: string | null;
   titleEn: string | null;
   parentTitle: string | null;
   menuLevel: number | null;
@@ -65,6 +84,23 @@ interface CollectionTitleTranslation {
   reasoning: string;
   consensusMethod?: 'unanimous' | 'majority' | 'arbitration' | 'single_fallback';
   consensusScore?: number;
+}
+
+function parsePendingSource(
+  value: unknown,
+  fallback: CollectionPendingChangeSource
+): CollectionPendingChangeSource {
+  switch (value) {
+    case 'manual':
+    case 'ai_generate':
+    case 'ai_translate':
+    case 'ai_taxonomy':
+    case 'ai_menu':
+    case 'sync':
+      return value;
+    default:
+      return fallback;
+  }
 }
 
 function parseHierarchySegments(menuPath: string | null): string[] {
@@ -112,6 +148,7 @@ function buildCollectionEmbeddingText(params: {
   title: string;
   titleEn: string | null;
   description: string | null;
+  descriptionEn: string | null;
   menuPath: string | null;
   parentTitle: string | null;
 }): string {
@@ -124,8 +161,9 @@ function buildCollectionEmbeddingText(params: {
   } else if (params.parentTitle) {
     parts.push(`Parent category: ${params.parentTitle}`);
   }
-  if (params.description) {
-    parts.push(params.description);
+  const descText = params.descriptionEn ?? params.description;
+  if (descText) {
+    parts.push(descText);
   }
   return parts.join(' — ').trim();
 }
@@ -138,6 +176,7 @@ async function getCollectionAiContext(params: {
     const r = await client.query<CollectionAiContext>(
       `SELECT sc.title,
               sc.description,
+              sc.description_en AS "descriptionEn",
               sc.title_en AS "titleEn",
               parent_sc.title AS "parentTitle",
               sc.menu_level AS "menuLevel",
@@ -160,16 +199,8 @@ const TAXONOMY_KEYWORD_STOP_WORDS = new Set([
   'from',
   'other',
   'more',
-  'set',
-  'sets',
-  'kit',
-  'kits',
   'type',
   'types',
-  'parts',
-  'part',
-  'accessories',
-  'accessory',
   'supplies',
   'supply',
   'products',
@@ -179,9 +210,6 @@ const TAXONOMY_KEYWORD_STOP_WORDS = new Set([
   'general',
   'misc',
   'various',
-  'tools',
-  'tool',
-  'equipment',
 ]);
 
 function filterKeywordTokens(tokens: string[]): string[] {
@@ -197,6 +225,15 @@ function scoreKeywordMatch(taxonomyName: string, queryTokens: string[]): number 
   }
   const ratio = matched / queryTokens.length;
   return 0.45 + ratio * 0.35;
+}
+
+function scoreExactNameMatch(taxonomyName: string, searchTitle: string): number {
+  const lowerName = taxonomyName.toLowerCase().trim();
+  const lowerTitle = searchTitle.toLowerCase().trim();
+  if (lowerName === lowerTitle) return 0.98;
+  if (lowerTitle.includes(lowerName)) return 0.92;
+  if (lowerName.includes(lowerTitle)) return 0.88;
+  return 0.85;
 }
 
 async function classifyWithLLM(params: {
@@ -445,6 +482,63 @@ Return JSON: { "reasoning": "...", "categoryEn": "..." }`,
   }
 }
 
+async function translateDescriptionToEnglish(params: {
+  shopId: string;
+  title: string;
+  titleEn: string | null;
+  description: string;
+  env: AppEnv;
+  logger: Logger;
+  onConsensusProgress?: (event: {
+    step: string;
+    message: string;
+    status?: 'done' | 'error';
+  }) => void;
+}): Promise<{ descriptionEn: string; consensusMethod?: string; consensusScore?: number } | null> {
+  try {
+    const consensus = await consensusChatCompletion<{
+      descriptionEn?: string;
+    }>({
+      shopId: params.shopId,
+      env: params.env,
+      logger: params.logger,
+      taskType: 'translation',
+      systemPrompt: `You translate Romanian product collection descriptions into English for a home improvement / hardware / garden e-commerce store.
+
+RULES:
+1. Translate the description text accurately from Romanian to English.
+2. Preserve the meaning, tone, and structure of the original description.
+3. Use domain-specific English terms for home improvement, hardware, garden, and agricultural products.
+4. Keep the translation concise and professional — do not add information not present in the original.
+5. Use the collection title (Romanian and English) as context for domain disambiguation.
+
+Return JSON: { "descriptionEn": "..." }`,
+      userPrompt: `Collection: "${params.title}"${params.titleEn ? ` (English: "${params.titleEn}")` : ''}\n\nRomanian description to translate:\n${params.description}`,
+      responseFormat: { type: 'json_object' },
+      maxTokens: 500,
+      keyField: 'descriptionEn',
+      ...(params.onConsensusProgress ? { onProgress: params.onConsensusProgress } : {}),
+    });
+
+    const descEn = consensus.result.descriptionEn?.trim();
+    if (!descEn) {
+      params.logger.warn(
+        { shopId: params.shopId },
+        'translate_description: returned no descriptionEn'
+      );
+      return null;
+    }
+    return {
+      descriptionEn: descEn,
+      consensusMethod: consensus.method,
+      consensusScore: consensus.consensusScore,
+    };
+  } catch (err) {
+    params.logger.warn({ err }, 'translate_description: failed');
+    return null;
+  }
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -509,6 +603,8 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
       const type = query['type'] ?? 'all';
       const hasTaxonomy = query['hasTaxonomy'] ?? 'all';
       const hasTranslation = query['hasTranslation'] ?? 'all';
+      const hasDescription = query['hasDescription'] ?? 'all';
+      const hasImage = query['hasImage'] ?? 'all';
       const menuLevel = query['menuLevel'] ?? 'all';
       const menuAiState = query['menuAiState'] ?? 'all';
       const sortBy = query['sortBy'] ?? 'synced_at';
@@ -546,6 +642,16 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           conditions.push(`sc.title_en IS NOT NULL AND sc.title_en <> ''`);
         } else if (hasTranslation === 'false') {
           conditions.push(`(sc.title_en IS NULL OR sc.title_en = '')`);
+        }
+        if (hasDescription === 'true') {
+          conditions.push(`sc.description IS NOT NULL AND sc.description <> ''`);
+        } else if (hasDescription === 'false') {
+          conditions.push(`(sc.description IS NULL OR sc.description = '')`);
+        }
+        if (hasImage === 'true') {
+          conditions.push(`sc.image_url IS NOT NULL AND sc.image_url <> ''`);
+        } else if (hasImage === 'false') {
+          conditions.push(`(sc.image_url IS NULL OR sc.image_url = '')`);
         }
         if (menuLevel === 'none') {
           conditions.push(`sc.menu_level IS NULL`);
@@ -615,6 +721,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           synced_at: string | null;
           description: string | null;
           description_html: string | null;
+          description_en: string | null;
           title_en: string | null;
           image_url: string | null;
           parent_collection_id: string | null;
@@ -638,6 +745,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                   sc.synced_at::text,
                   sc.description,
                   sc.description_html,
+                  sc.description_en,
                   sc.image_url,
                   sc.parent_collection_id,
                   parent_sc.title AS parent_title,
@@ -668,7 +776,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
            WHERE ${whereClause}
            GROUP BY sc.id, sc.shopify_gid, sc.legacy_resource_id, sc.title, sc.title_en, sc.handle,
                     sc.collection_type, sc.products_count, sc.synced_at, sc.description,
-                    sc.description_html, sc.image_url, sc.parent_collection_id, parent_sc.title,
+                    sc.description_html, sc.description_en, sc.image_url, sc.parent_collection_id, parent_sc.title,
                     sc.menu_level, sc.menu_path, sc.updated_at
            ORDER BY ${orderColumn} ${sortDir}
            LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
@@ -695,6 +803,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
         synced_at: r.synced_at,
         description: r.description,
         description_html: r.description_html,
+        description_en: r.description_en,
         image_url: r.image_url,
         parent_collection_id: r.parent_collection_id,
         parent_title: r.parent_title,
@@ -738,6 +847,8 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
       const type = query['type'] ?? 'all';
       const hasTaxonomy = query['hasTaxonomy'] ?? 'all';
       const hasTranslation = query['hasTranslation'] ?? 'all';
+      const hasDescription = query['hasDescription'] ?? 'all';
+      const hasImage = query['hasImage'] ?? 'all';
       const menuLevel = query['menuLevel'] ?? 'all';
       const menuAiState = query['menuAiState'] ?? 'all';
 
@@ -769,6 +880,16 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           conditions.push(`title_en IS NOT NULL AND title_en <> ''`);
         } else if (hasTranslation === 'false') {
           conditions.push(`(title_en IS NULL OR title_en = '')`);
+        }
+        if (hasDescription === 'true') {
+          conditions.push(`description IS NOT NULL AND description <> ''`);
+        } else if (hasDescription === 'false') {
+          conditions.push(`(description IS NULL OR description = '')`);
+        }
+        if (hasImage === 'true') {
+          conditions.push(`image_url IS NOT NULL AND image_url <> ''`);
+        } else if (hasImage === 'false') {
+          conditions.push(`(image_url IS NULL OR image_url = '')`);
         }
         if (menuLevel === 'none') {
           conditions.push(`menu_level IS NULL`);
@@ -842,6 +963,8 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           smart: number;
           with_taxonomy: number;
           translated: number;
+          with_description: number;
+          with_image: number;
           in_menu: number;
           roots: number;
           not_in_menu: number;
@@ -856,6 +979,8 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                     WHERE m.collection_id = sc.id AND m.shop_id = sc.shop_id
                   ))::int AS with_taxonomy,
                   COUNT(*) FILTER (WHERE title_en IS NOT NULL AND title_en <> '')::int AS translated,
+                  COUNT(*) FILTER (WHERE description IS NOT NULL AND description <> '')::int AS with_description,
+                  COUNT(*) FILTER (WHERE image_url IS NOT NULL AND image_url <> '')::int AS with_image,
                   COUNT(*) FILTER (WHERE menu_level IS NOT NULL)::int AS in_menu,
                   COUNT(*) FILTER (WHERE menu_level = 0)::int AS roots,
                   COUNT(*) FILTER (WHERE menu_level IS NULL)::int AS not_in_menu,
@@ -876,6 +1001,8 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
             smart: 0,
             withTaxonomy: 0,
             translated: 0,
+            withDescription: 0,
+            withImage: 0,
             inMenu: 0,
             roots: 0,
             notInMenu: 0,
@@ -892,6 +1019,8 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           smart: statsRow.smart,
           withTaxonomy: statsRow.with_taxonomy,
           translated: statsRow.translated,
+          withDescription: statsRow.with_description,
+          withImage: statsRow.with_image,
           inMenu: statsRow.in_menu,
           roots: statsRow.roots,
           notInMenu: statsRow.not_in_menu,
@@ -936,6 +1065,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           synced_at: string | null;
           description: string | null;
           description_html: string | null;
+          description_en: string | null;
           image_url: string | null;
           parent_collection_id: string | null;
           parent_title: string | null;
@@ -957,6 +1087,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                   sc.synced_at::text,
                   sc.description,
                   sc.description_html,
+                  sc.description_en,
                   sc.image_url,
                   sc.parent_collection_id,
                   parent_sc.title AS parent_title,
@@ -987,7 +1118,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
              AND sc.id = $2
            GROUP BY sc.id, sc.shopify_gid, sc.legacy_resource_id, sc.title, sc.title_en,
                     sc.handle, sc.collection_type, sc.products_count, sc.synced_at,
-                    sc.description, sc.description_html, sc.image_url,
+                    sc.description, sc.description_html, sc.description_en, sc.image_url,
                     sc.parent_collection_id, parent_sc.title, sc.menu_level, sc.menu_path
            LIMIT 1`,
           [session.shopId, collectionId]
@@ -1017,6 +1148,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
             synced_at: row.synced_at,
             description: row.description,
             description_html: row.description_html,
+            description_en: row.description_en,
             image_url: row.image_url,
             parent_collection_id: row.parent_collection_id,
             parent_title: row.parent_title,
@@ -1027,6 +1159,201 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           },
         })
       );
+    }
+  );
+
+  server.patch(
+    '/collections/:id',
+    {
+      preHandler: [requireAdminSession],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      const collectionId = (request.params as { id?: string }).id;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      if (!collectionId) {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing collection id'));
+      }
+
+      const body = request.body as Record<string, unknown> | null;
+      if (!body || typeof body !== 'object') {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing body'));
+      }
+
+      const allowedFields: Record<string, 'title' | 'title_en' | 'description' | 'description_en'> =
+        {
+          title: 'title',
+          title_en: 'title_en',
+          description: 'description',
+          description_en: 'description_en',
+        };
+      const source = parsePendingSource(body['source'], 'manual');
+
+      const setClauses: string[] = [];
+      const values: unknown[] = [session.shopId, collectionId];
+      let paramIdx = 3;
+      const pendingFieldUpdates: {
+        fieldName: 'title' | 'description';
+        newValue: string | null;
+      }[] = [];
+
+      for (const [jsonKey, dbColumn] of Object.entries(allowedFields)) {
+        if (jsonKey in body) {
+          const val = body[jsonKey];
+          if (val !== null && typeof val !== 'string') continue;
+          const normalizedValue = val === '' ? null : val;
+          setClauses.push(`${dbColumn} = $${paramIdx}`);
+          values.push(normalizedValue);
+          if (dbColumn === 'title' || dbColumn === 'description') {
+            pendingFieldUpdates.push({
+              fieldName: dbColumn,
+              newValue: normalizedValue,
+            });
+          }
+          paramIdx += 1;
+        }
+      }
+
+      if (setClauses.length === 0) {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'No updatable fields provided'));
+      }
+
+      setClauses.push('updated_at = now()');
+
+      await withTenantContext(session.shopId, async (client) => {
+        const snapshot = await loadCollectionFieldSnapshot({
+          shopId: session.shopId,
+          collectionId,
+        });
+        await client.query(
+          `UPDATE shopify_collections
+              SET ${setClauses.join(', ')}
+            WHERE shop_id = $1 AND id = $2`,
+          values
+        );
+        for (const fieldUpdate of pendingFieldUpdates) {
+          await upsertFieldUpdatePendingChange(client, {
+            shopId: session.shopId,
+            collectionId,
+            fieldName: fieldUpdate.fieldName,
+            oldValue: fieldUpdate.fieldName === 'title' ? snapshot.title : snapshot.description,
+            newValue: fieldUpdate.newValue,
+            source,
+          });
+        }
+      });
+
+      const pending = await getPendingCollectionChangeCounts(session.shopId);
+      return reply.send(successEnvelope(request.id, { updated: true, pendingChanges: pending }));
+    }
+  );
+
+  server.get(
+    '/collections/pending-changes',
+    {
+      preHandler: [requireAdminSession],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+
+      const pending = await listPendingCollectionChanges(session.shopId);
+      return reply.send(successEnvelope(request.id, pending));
+    }
+  );
+
+  server.get(
+    '/collections/pending-changes/count',
+    {
+      preHandler: [requireAdminSession],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+
+      const counts = await getPendingCollectionChangeCounts(session.shopId);
+      return reply.send(successEnvelope(request.id, counts));
+    }
+  );
+
+  server.post(
+    '/collections/pending-changes/approve',
+    {
+      preHandler: [requireAdminSession],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+
+      const approved = await approvePendingCollectionChanges(session.shopId);
+      for (const change of approved) {
+        await enqueueCollectionShopifySyncJob({
+          shopId: change.shopId,
+          changeId: change.id,
+          collectionId: change.collectionId,
+          changeType: change.changeType,
+          fieldName: change.fieldName,
+          newValue: change.newValue,
+          metadata: change.metadata,
+          shopifyMutation: change.shopifyMutation,
+        });
+      }
+      const pending = await getPendingCollectionChangeCounts(session.shopId);
+      return reply.send(
+        successEnvelope(request.id, { approved: approved.length, queued: approved.length, pending })
+      );
+    }
+  );
+
+  server.post(
+    '/collections/pending-changes/:id/reject',
+    {
+      preHandler: [requireAdminSession],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      const changeId = (request.params as { id?: string }).id;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      if (!changeId?.trim()) {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing pending change id'));
+      }
+
+      const rejected = await rejectPendingCollectionChange(session.shopId, changeId);
+      if (!rejected) {
+        return reply
+          .status(404)
+          .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Pending change not found'));
+      }
+      const pending = await getPendingCollectionChangeCounts(session.shopId);
+      return reply.send(successEnvelope(request.id, { rejected: true, pending }));
     }
   );
 
@@ -1360,6 +1687,22 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
             .status(404)
             .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Assignment not found'));
         }
+        const pendingMetadata = await buildMenuAssignPendingMetadata({
+          shopId: session.shopId,
+          collectionId,
+          assignmentId,
+        });
+        if (pendingMetadata) {
+          await withTenantContext(session.shopId, async (client) => {
+            await upsertMenuAssignPendingChange(client, {
+              shopId: session.shopId,
+              collectionId,
+              assignmentId,
+              metadata: pendingMetadata,
+              source: 'ai_menu',
+            });
+          });
+        }
         const status = await getMenuAssignmentStatus({ shopId: session.shopId, collectionId });
         return reply.send(successEnvelope(request.id, { updated: true, status }));
       } catch (error) {
@@ -1494,6 +1837,11 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           );
       }
 
+      const pendingMetadata = await buildMenuAssignPendingMetadata({
+        shopId: session.shopId,
+        collectionId,
+        assignmentId,
+      });
       const removed = await deleteMenuAssignment({
         shopId: session.shopId,
         collectionId,
@@ -1504,6 +1852,20 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
         return reply
           .status(404)
           .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Assignment not found'));
+      }
+      if (pendingMetadata) {
+        await withTenantContext(session.shopId, async (client) => {
+          await upsertMenuAssignPendingChange(client, {
+            shopId: session.shopId,
+            collectionId,
+            assignmentId,
+            metadata: {
+              ...pendingMetadata,
+              action: 'remove',
+            },
+            source: 'manual',
+          });
+        });
       }
       const status = await getMenuAssignmentStatus({ shopId: session.shopId, collectionId });
       return reply.send(successEnvelope(request.id, { removed: true, status }));
@@ -1523,7 +1885,11 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
       }
 
-      const body = (request.body ?? {}) as { collectionIds?: unknown; mode?: unknown };
+      const body = (request.body ?? {}) as {
+        collectionIds?: unknown;
+        mode?: unknown;
+        source?: unknown;
+      };
       const rawIds = Array.isArray(body.collectionIds) ? body.collectionIds : [];
       const collectionIds = rawIds
         .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
@@ -1532,6 +1898,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
         body.mode === 'add_secondary'
           ? 'add_secondary'
           : ('replace' as 'replace' | 'add_secondary');
+      const source = parsePendingSource(body.source, 'ai_taxonomy');
       if (collectionIds.length === 0) {
         return reply
           .status(400)
@@ -1555,11 +1922,12 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
       };
 
       try {
-        const provider = await resolveEmbeddingsProvider({
+        const providers = await resolveDualEmbeddingsProviders({
           shopId: session.shopId,
           env: options.env,
           logger: options.logger,
         });
+        const provider = providers.primary;
 
         emit({ type: 'bulk_start', total: collectionIds.length });
 
@@ -1614,11 +1982,19 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                 message: `${progress} Șterg taxonomia veche: „${existingMappings[0]?.name}"...`,
               });
               for (const row of existingMappings) {
-                await deleteCollectionMetafieldsForTaxonomy({
+                const metadata = await buildTaxonomyUnassignPendingMetadata({
                   shopId: session.shopId,
                   collectionId,
                   taxonomyId: row.taxonomy_id,
-                  logger: options.logger,
+                  taxonomyName: row.name,
+                });
+                await withTenantContext(session.shopId, async (client) => {
+                  await upsertTaxonomyUnassignPendingChange(client, {
+                    shopId: session.shopId,
+                    collectionId,
+                    metadata,
+                    source,
+                  });
                 });
               }
               await withTenantContext(session.shopId, async (client) => {
@@ -1740,20 +2116,19 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
               title: collectionRow.title,
               titleEn: effectiveTitleEn,
               description: collectionRow.description,
+              descriptionEn: collectionRow.descriptionEn,
               menuPath: collectionRow.menuPath,
               parentTitle: collectionRow.parentTitle,
             });
-            const [embedding] = await provider.embedTexts([embeddingText.trim()]);
-            if (!embedding || embedding.length === 0) {
-              emit({
-                type: 'collection_result',
-                collectionId,
-                collectionTitle: collectionRow.title,
-                status: 'error',
-                message: 'Nu s-a putut genera embedding-ul.',
-              });
-              continue;
-            }
+            const dualResult = await generateDualEmbeddings({
+              shopId: session.shopId,
+              env: options.env,
+              logger: options.logger,
+              text: embeddingText.trim(),
+              primary: providers.primary,
+              secondary: providers.secondary,
+            });
+            const embedding = dualResult.primaryEmbedding;
             emit({
               type: 'collection_progress',
               collectionId,
@@ -1774,7 +2149,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
               .map((t) => t.trim().toLowerCase())
               .filter((t) => t.length >= 3);
             const bkTokens = filterKeywordTokens(bkAllTokens);
-            const [bkVecRes, bkKwRes] = await Promise.all([
+            const [bkVecRes, bkSecondaryRes, bkKwRes, bkExactRes] = await Promise.all([
               withTenantContext(session.shopId, async (client) => {
                 const vec = toPgVectorLiteral(embedding);
                 return (
@@ -1784,6 +2159,17 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                   )
                 ).rows;
               }),
+              dualResult.secondaryEmbedding
+                ? withTenantContext(session.shopId, async (client) => {
+                    const vec = toPgVectorLiteral(dualResult.secondaryEmbedding!);
+                    return (
+                      await client.query<{ id: string; name: string; similarity: number }>(
+                        `SELECT id, name, (1 - (embedding_secondary <=> $1::vector(2000)))::float AS similarity FROM prod_taxonomy WHERE is_active = true AND embedding_secondary IS NOT NULL AND model_version_secondary = $3 ORDER BY embedding_secondary <=> $1::vector(2000) LIMIT $2`,
+                        [vec, VECTOR_CANDIDATES, dualResult.secondaryModel!]
+                      )
+                    ).rows;
+                  })
+                : Promise.resolve([] as { id: string; name: string; similarity: number }[]),
               bkTokens.length > 0
                 ? withTenantContext(session.shopId, async (client) => {
                     const likeConds = bkTokens
@@ -1797,8 +2183,36 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                     ).rows;
                   })
                 : Promise.resolve([]),
+              withTenantContext(session.shopId, async (client) => {
+                return (
+                  await client.query<{ id: string; name: string }>(
+                    `SELECT id, name FROM prod_taxonomy
+                     WHERE is_active = true AND embedding IS NOT NULL
+                       AND (LOWER($1) LIKE '%' || LOWER(name) || '%'
+                            OR LOWER(name) LIKE '%' || LOWER($1) || '%')
+                     LIMIT 15`,
+                    [bkSearchTitle]
+                  )
+                ).rows;
+              }),
             ]);
-            const bkSeen = new Set(bkVecRes.map((r) => r.id));
+            const mergedVec = mergeMultiModelCandidates(bkVecRes, bkSecondaryRes, 'prod_taxonomy');
+            const bkSeen = new Set(mergedVec.map((r) => r.id));
+
+            for (const exact of bkExactRes) {
+              if (!bkSeen.has(exact.id)) {
+                const exactScore = scoreExactNameMatch(exact.name, bkSearchTitle);
+                mergedVec.push({ id: exact.id, name: exact.name, similarity: exactScore });
+                bkSeen.add(exact.id);
+              } else {
+                const existing = mergedVec.find((r) => r.id === exact.id);
+                if (existing) {
+                  const exactScore = scoreExactNameMatch(exact.name, bkSearchTitle);
+                  existing.similarity = Math.max(existing.similarity, exactScore);
+                }
+              }
+            }
+
             const bkBoosts: { id: string; name: string; similarity: number }[] = [];
             for (const kw of bkKwRes) {
               if (!bkSeen.has(kw.id)) {
@@ -1807,7 +2221,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                 bkSeen.add(kw.id);
               }
             }
-            const vectorCandidates = [...bkBoosts, ...bkVecRes].sort(
+            const vectorCandidates = [...bkBoosts, ...mergedVec].sort(
               (a, b) => b.similarity - a.similarity
             );
 
@@ -1913,17 +2327,27 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                 [session.shopId, classification.taxonomyId, collectionId]
               );
             });
-            void enqueueCollectionMetafieldPushJob({
+            const assignMetadata = await buildTaxonomyAssignPendingMetadata({
               shopId: session.shopId,
               collectionId,
-              trigger: 'category_classifier',
+              taxonomyId: classification.taxonomyId,
+              previousTaxonomyId: existingMappings[0]?.taxonomy_id ?? null,
+              previousTaxonomyName: existingMappings[0]?.name ?? null,
+            });
+            await withTenantContext(session.shopId, async (client) => {
+              await upsertTaxonomyAssignPendingChange(client, {
+                shopId: session.shopId,
+                collectionId,
+                metadata: assignMetadata,
+                source,
+              });
             });
             emit({
               type: 'collection_progress',
               collectionId,
               step: 'persist',
               status: 'done',
-              message: `${progress} Taxonomie atribuită.`,
+              message: `${progress} Taxonomie atribuită și adăugată în coada HITL.`,
             });
 
             emit({
@@ -1976,8 +2400,10 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
       }
       const { collectionId } = request.params as { collectionId: string };
-      const bodyTx = (request.body ?? {}) as { force?: boolean };
+      const bodyTx = (request.body ?? {}) as { force?: boolean; field?: string };
       const forceRetranslate = bodyTx.force === true;
+      const translateField =
+        bodyTx.field === 'title_en' || bodyTx.field === 'description_en' ? bodyTx.field : null;
 
       reply.hijack();
       const raw = reply.raw;
@@ -2006,7 +2432,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           return;
         }
 
-        if (collectionRow.titleEn && !forceRetranslate) {
+        if (collectionRow.titleEn && !forceRetranslate && translateField !== 'description_en') {
           emit({
             type: 'progress',
             step: 'skip',
@@ -2018,7 +2444,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           return;
         }
 
-        if (collectionRow.titleEn && forceRetranslate) {
+        if (collectionRow.titleEn && forceRetranslate && translateField !== 'description_en') {
           emit({
             type: 'progress',
             step: 'clear',
@@ -2039,78 +2465,366 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           return;
         }
 
-        emit({ type: 'progress', step: 'sample', message: 'Eșantionez produse din colecție...' });
+        let titleEnResult: string | null = null;
+        let descriptionEnResult: string | null = null;
+        let consensusMethod: string | null = null;
+        let consensusScore: number | null = null;
+
+        if (translateField === 'description_en' && collectionRow.titleEn) {
+          titleEnResult = collectionRow.titleEn;
+        } else {
+          emit({ type: 'progress', step: 'sample', message: 'Eșantionez produse din colecție...' });
+          const samples = await sampleProductNames({
+            shopId: session.shopId,
+            collectionId,
+            limit: 5,
+          });
+          emit({
+            type: 'progress',
+            step: 'sample',
+            status: 'done',
+            message: `${samples.length} produse eșantionate.`,
+          });
+
+          emit({
+            type: 'progress',
+            step: 'translate',
+            message: `Traduc „${collectionRow.title}" cu AI...`,
+          });
+          const translated = await translateTitleToEnglish({
+            shopId: session.shopId,
+            title: collectionRow.title,
+            description: collectionRow.description,
+            menuPath: collectionRow.menuPath,
+            menuLevel: collectionRow.menuLevel,
+            parentTitle: collectionRow.parentTitle,
+            env: options.env,
+            productSamples: samples,
+            ...(txCreds.apiKey ? { apiKey: txCreds.apiKey } : {}),
+            baseUrl: txCreds.baseUrl,
+            model: txCreds.model,
+            timeoutMs: 30_000,
+            logger: options.logger,
+            onConsensusProgress: (event) =>
+              emit({
+                type: 'progress',
+                step: event.step,
+                message: event.message,
+                ...(event.status ? { status: event.status } : {}),
+              }),
+          });
+          if (!translated) {
+            emit({
+              type: 'progress',
+              step: 'translate',
+              status: 'error',
+              message: 'Traducerea nu a reușit.',
+            });
+            emit({ type: 'result', status: 'error', message: 'Traducerea nu a reușit.' });
+            raw.end();
+            return;
+          }
+          consensusMethod = translated.consensusMethod ?? null;
+          consensusScore = translated.consensusScore ?? null;
+
+          if (translateField !== 'description_en') {
+            titleEnResult = translated.categoryEn;
+            await withTenantContext(session.shopId, async (client) => {
+              await client.query(
+                `UPDATE shopify_collections SET title_en = $1, updated_at = now() WHERE id = $2 AND shop_id = $3`,
+                [titleEnResult, collectionId, session.shopId]
+              );
+            });
+            emit({
+              type: 'progress',
+              step: 'translate',
+              status: 'done',
+              message: `Traducere titlu: „${titleEnResult}"`,
+            });
+          } else {
+            titleEnResult = translated.categoryEn;
+          }
+        }
+
+        if (
+          translateField !== 'title_en' &&
+          collectionRow.description &&
+          collectionRow.description.trim().length > 0
+        ) {
+          emit({
+            type: 'progress',
+            step: 'translate_description',
+            message: 'Traduc descrierea colecției...',
+          });
+          const contextTitleEn = titleEnResult ?? collectionRow.titleEn ?? collectionRow.title;
+          const descResult = await translateDescriptionToEnglish({
+            shopId: session.shopId,
+            title: collectionRow.title,
+            titleEn: contextTitleEn,
+            description: collectionRow.description,
+            env: options.env,
+            logger: options.logger,
+            onConsensusProgress: (event) =>
+              emit({
+                type: 'progress',
+                step: event.step,
+                message: event.message,
+                ...(event.status ? { status: event.status } : {}),
+              }),
+          });
+          if (descResult) {
+            descriptionEnResult = descResult.descriptionEn;
+            await withTenantContext(session.shopId, async (client) => {
+              await client.query(
+                `UPDATE shopify_collections SET description_en = $1, updated_at = now() WHERE id = $2 AND shop_id = $3`,
+                [descriptionEnResult, collectionId, session.shopId]
+              );
+            });
+            emit({
+              type: 'progress',
+              step: 'translate_description',
+              status: 'done',
+              message: `Descriere tradusă: „${descResult.descriptionEn.slice(0, 80)}${descResult.descriptionEn.length > 80 ? '...' : ''}"`,
+            });
+          } else {
+            emit({
+              type: 'progress',
+              step: 'translate_description',
+              status: 'error',
+              message: 'Traducerea descrierii nu a reușit.',
+            });
+          }
+        }
+
+        emit({
+          type: 'result',
+          status: 'translated',
+          field: translateField,
+          titleEn: titleEnResult,
+          descriptionEn: descriptionEnResult,
+          consensusMethod,
+          consensusScore,
+        });
+      } catch (err) {
+        options.logger.error({ err, collectionId }, 'Single collection translate failed');
+        emit({ type: 'error', message: err instanceof Error ? err.message : 'Eroare internă.' });
+      } finally {
+        raw.end();
+      }
+    }
+  );
+
+  server.post(
+    '/collections/:collectionId/generate-ro',
+    {
+      preHandler: [requireAdminSession],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      const { collectionId } = request.params as { collectionId: string };
+      const bodyGen = (request.body ?? {}) as {
+        field?: 'title' | 'description';
+        source?: CollectionPendingChangeSource;
+      };
+      const field = bodyGen.field ?? 'title';
+      const source = parsePendingSource(bodyGen.source, 'ai_generate');
+
+      reply.hijack();
+      const raw = reply.raw;
+      raw.writeHead(200, {
+        'Content-Type': 'application/x-ndjson',
+        'Cache-Control': 'no-cache',
+        'X-Content-Type-Options': 'nosniff',
+      });
+      const emit = (event: Record<string, unknown>) => {
+        try {
+          raw.write(JSON.stringify(event) + '\n');
+        } catch {
+          /* closed */
+        }
+      };
+
+      try {
+        const ctx = await getCollectionAiContext({ shopId: session.shopId, collectionId });
+        if (!ctx) {
+          emit({ type: 'error', message: 'Colecția nu a fost găsită.' });
+          raw.end();
+          return;
+        }
+
+        emit({ type: 'progress', step: 'context', message: 'Încarc contextul colecției...' });
+
         const samples = await sampleProductNames({
           shopId: session.shopId,
           collectionId,
-          limit: 5,
+          limit: 10,
         });
+
         emit({
           type: 'progress',
-          step: 'sample',
+          step: 'context',
           status: 'done',
           message: `${samples.length} produse eșantionate.`,
         });
 
-        emit({
-          type: 'progress',
-          step: 'translate',
-          message: `Traduc „${collectionRow.title}" cu AI...`,
-        });
-        const translated = await translateTitleToEnglish({
-          shopId: session.shopId,
-          title: collectionRow.title,
-          description: collectionRow.description,
-          menuPath: collectionRow.menuPath,
-          menuLevel: collectionRow.menuLevel,
-          parentTitle: collectionRow.parentTitle,
-          env: options.env,
-          productSamples: samples,
-          ...(txCreds.apiKey ? { apiKey: txCreds.apiKey } : {}),
-          baseUrl: txCreds.baseUrl,
-          model: txCreds.model,
-          timeoutMs: 30_000,
-          logger: options.logger,
-          onConsensusProgress: (event) =>
+        const contextLines = [
+          `Handle: ${ctx.title.toLowerCase().replace(/\s+/g, '-')}`,
+          ctx.menuPath ? `Poziție în meniu: ${ctx.menuPath}` : null,
+          ctx.parentTitle ? `Categorie părinte: ${ctx.parentTitle}` : null,
+          ctx.titleEn ? `Titlu EN existent: ${ctx.titleEn}` : null,
+          ctx.description ? `Descriere actuală: ${ctx.description}` : null,
+          samples.length > 0
+            ? `Produse din colecție:\n${samples.map((s, i) => `  ${i + 1}. ${s}`).join('\n')}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join('\n');
+
+        if (field === 'title') {
+          emit({ type: 'progress', step: 'generate', message: 'Generez titlu optimizat cu AI...' });
+
+          const consensus = await consensusChatCompletion<{ title: string }>({
+            shopId: session.shopId,
+            env: options.env,
+            logger: options.logger,
+            taskType: 'translation',
+            systemPrompt: `Ești specialist SEO și merchandising pentru un magazin online românesc de bricolaj, materiale de construcții, grădinărit și agricultură (neanelu.ro).
+
+SARCINĂ: Generează un titlu optimizat ÎN ROMÂNĂ pentru o colecție/categorie de produse.
+
+REGULI:
+1. Titlul trebuie să fie concis (2-5 cuvinte), clar și descriptiv.
+2. Folosește terminologia corectă din domeniul bricolaj/construcții/grădinărit/agricultură în limba română.
+3. Titlul trebuie să reflecte fidel conținutul colecției pe baza produselor și poziției în meniu.
+4. Nu inventa categorii — bazează-te strict pe contextul furnizat.
+5. Dacă titlul curent este deja bun, îmbunătățește-l minimal.
+
+Returnează JSON: { "title": "..." }`,
+            userPrompt: `Titlu curent: "${ctx.title}"\n\nContext:\n${contextLines}`,
+            responseFormat: { type: 'json_object' },
+            maxTokens: 100,
+            keyField: 'title',
+            onProgress: (event) =>
+              emit({
+                type: 'progress',
+                step: event.step,
+                message: event.message,
+                ...(event.status ? { status: event.status } : {}),
+              }),
+          });
+
+          const newTitle = consensus.result.title?.trim();
+          if (newTitle) {
+            await withTenantContext(session.shopId, async (client) => {
+              await client.query(
+                `UPDATE shopify_collections SET title = $1, updated_at = now() WHERE id = $2 AND shop_id = $3`,
+                [newTitle, collectionId, session.shopId]
+              );
+              await upsertFieldUpdatePendingChange(client, {
+                shopId: session.shopId,
+                collectionId,
+                fieldName: 'title',
+                oldValue: ctx.title,
+                newValue: newTitle,
+                source,
+              });
+            });
             emit({
               type: 'progress',
-              step: event.step,
-              message: event.message,
-              ...(event.status ? { status: event.status } : {}),
-            }),
-        });
-
-        if (translated) {
-          await withTenantContext(session.shopId, async (client) => {
-            await client.query(
-              `UPDATE shopify_collections SET title_en = $1, updated_at = now() WHERE id = $2 AND shop_id = $3`,
-              [translated.categoryEn, collectionId, session.shopId]
-            );
-          });
-          emit({
-            type: 'progress',
-            step: 'translate',
-            status: 'done',
-            message: `Traducere: „${translated.categoryEn}"`,
-          });
-          emit({
-            type: 'result',
-            status: 'translated',
-            titleEn: translated.categoryEn,
-            consensusMethod: translated.consensusMethod,
-            consensusScore: translated.consensusScore,
-          });
+              step: 'generate',
+              status: 'done',
+              message: `Titlu generat: „${newTitle}"`,
+            });
+            emit({
+              type: 'result',
+              status: 'generated',
+              field: 'title',
+              value: newTitle,
+              consensusMethod: consensus.method,
+              consensusScore: consensus.consensusScore,
+            });
+          } else {
+            emit({ type: 'error', message: 'Generarea titlului nu a produs rezultat.' });
+          }
         } else {
           emit({
             type: 'progress',
-            step: 'translate',
-            status: 'error',
-            message: 'Traducerea nu a reușit.',
+            step: 'generate',
+            message: 'Generez descriere optimizată cu AI...',
           });
-          emit({ type: 'result', status: 'error', message: 'Traducerea nu a reușit.' });
+
+          const consensus = await consensusChatCompletion<{ description: string }>({
+            shopId: session.shopId,
+            env: options.env,
+            logger: options.logger,
+            taskType: 'translation',
+            systemPrompt: `Ești specialist SEO și copywriter pentru un magazin online românesc de bricolaj, materiale de construcții, grădinărit și agricultură (neanelu.ro).
+
+SARCINĂ: Generează o descriere optimizată ÎN ROMÂNĂ pentru o colecție/categorie de produse.
+
+REGULI:
+1. Descrierea trebuie să aibă 2-4 propoziții, concisă și informativă.
+2. Menționează tipurile de produse din colecție și utilizarea lor principală.
+3. Folosește terminologia corectă din domeniu în limba română.
+4. Tonul trebuie să fie profesional, orientat spre client.
+5. Include cuvinte cheie relevante pentru SEO.
+6. Nu inventa detalii — bazează-te strict pe contextul furnizat.
+
+Returnează JSON: { "description": "..." }`,
+            userPrompt: `Colecție: "${ctx.title}"\n\nContext:\n${contextLines}`,
+            responseFormat: { type: 'json_object' },
+            maxTokens: 300,
+            keyField: 'description',
+            onProgress: (event) =>
+              emit({
+                type: 'progress',
+                step: event.step,
+                message: event.message,
+                ...(event.status ? { status: event.status } : {}),
+              }),
+          });
+
+          const newDesc = consensus.result.description?.trim();
+          if (newDesc) {
+            await withTenantContext(session.shopId, async (client) => {
+              await client.query(
+                `UPDATE shopify_collections SET description = $1, updated_at = now() WHERE id = $2 AND shop_id = $3`,
+                [newDesc, collectionId, session.shopId]
+              );
+              await upsertFieldUpdatePendingChange(client, {
+                shopId: session.shopId,
+                collectionId,
+                fieldName: 'description',
+                oldValue: ctx.description,
+                newValue: newDesc,
+                source,
+              });
+            });
+            emit({
+              type: 'progress',
+              step: 'generate',
+              status: 'done',
+              message: `Descriere generată: „${newDesc.slice(0, 80)}${newDesc.length > 80 ? '...' : ''}"`,
+            });
+            emit({
+              type: 'result',
+              status: 'generated',
+              field: 'description',
+              value: newDesc,
+              consensusMethod: consensus.method,
+              consensusScore: consensus.consensusScore,
+            });
+          } else {
+            emit({ type: 'error', message: 'Generarea descrierii nu a produs rezultat.' });
+          }
         }
       } catch (err) {
-        options.logger.error({ err, collectionId }, 'Single collection translate failed');
+        options.logger.error({ err, collectionId }, 'Generate RO failed');
         emit({ type: 'error', message: err instanceof Error ? err.message : 'Eroare internă.' });
       } finally {
         raw.end();
@@ -2132,6 +2846,8 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
       }
 
       const { collectionId } = request.params as { collectionId: string };
+      const bodyAssign = (request.body ?? {}) as { source?: unknown };
+      const source = parsePendingSource(bodyAssign.source, 'ai_taxonomy');
       if (!collectionId?.trim()) {
         return reply
           .status(400)
@@ -2184,11 +2900,19 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
             message: `Șterg taxonomia veche: „${existingMappings[0]?.name}"...`,
           });
           for (const row of existingMappings) {
-            await deleteCollectionMetafieldsForTaxonomy({
+            const metadata = await buildTaxonomyUnassignPendingMetadata({
               shopId: session.shopId,
               collectionId,
               taxonomyId: row.taxonomy_id,
-              logger: options.logger,
+              taxonomyName: row.name,
+            });
+            await withTenantContext(session.shopId, async (client) => {
+              await upsertTaxonomyUnassignPendingChange(client, {
+                shopId: session.shopId,
+                collectionId,
+                metadata,
+                source,
+              });
             });
           }
           await withTenantContext(session.shopId, async (client) => {
@@ -2296,24 +3020,29 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
         }
 
         emit({ type: 'progress', step: 'embed', message: 'Generez embedding pentru căutare...' });
-        const provider = await resolveEmbeddingsProvider({
+        const singleProviders = await resolveDualEmbeddingsProviders({
           shopId: session.shopId,
           env: options.env,
           logger: options.logger,
         });
+        const provider = singleProviders.primary;
         const embeddingText = buildCollectionEmbeddingText({
           title: collectionRow.title,
           titleEn: effectiveTitleEn,
           description: collectionRow.description,
+          descriptionEn: collectionRow.descriptionEn,
           menuPath: collectionRow.menuPath,
           parentTitle: collectionRow.parentTitle,
         });
-        const [embedding] = await provider.embedTexts([embeddingText.trim()]);
-        if (!embedding || embedding.length === 0) {
-          emit({ type: 'error', message: 'Nu s-a putut genera embedding-ul.' });
-          raw.end();
-          return;
-        }
+        const singleDual = await generateDualEmbeddings({
+          shopId: session.shopId,
+          env: options.env,
+          logger: options.logger,
+          text: embeddingText.trim(),
+          primary: singleProviders.primary,
+          secondary: singleProviders.secondary,
+        });
+        const embedding = singleDual.primaryEmbedding;
         emit({ type: 'progress', step: 'embed', status: 'done', message: 'Embedding generat.' });
 
         emit({
@@ -2329,11 +3058,12 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           .filter((t) => t.length >= 3);
         const keywordTokens = filterKeywordTokens(allKeywordTokens);
 
-        const [vectorResults, keywordResults] = await Promise.all([
-          withTenantContext(session.shopId, async (client) => {
-            const vec = toPgVectorLiteral(embedding);
-            const res = await client.query<{ id: string; name: string; similarity: number }>(
-              `SELECT id, name,
+        const [vectorResults, secondaryVectorResults, keywordResults, exactNameResults] =
+          await Promise.all([
+            withTenantContext(session.shopId, async (client) => {
+              const vec = toPgVectorLiteral(embedding);
+              const res = await client.query<{ id: string; name: string; similarity: number }>(
+                `SELECT id, name,
                       (1 - (embedding <=> $1::vector(2000)))::float AS similarity
                FROM prod_taxonomy
                WHERE is_active = true
@@ -2341,30 +3071,78 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                  AND (model_version IS NULL OR model_version = $3)
                ORDER BY embedding <=> $1::vector(2000)
                LIMIT $2`,
-              [vec, VECTOR_CANDIDATES, provider.model.name]
-            );
-            return res.rows;
-          }),
-          keywordTokens.length > 0
-            ? withTenantContext(session.shopId, async (client) => {
-                const likeConditions = keywordTokens
-                  .map((_, i) => `LOWER(name) LIKE $${i + 1}`)
-                  .join(' OR ');
-                const likeParams = keywordTokens.map((t) => `%${t}%`);
-                const res = await client.query<{ id: string; name: string }>(
-                  `SELECT id, name FROM prod_taxonomy
+                [vec, VECTOR_CANDIDATES, provider.model.name]
+              );
+              return res.rows;
+            }),
+            singleDual.secondaryEmbedding
+              ? withTenantContext(session.shopId, async (client) => {
+                  const vec = toPgVectorLiteral(singleDual.secondaryEmbedding!);
+                  const res = await client.query<{ id: string; name: string; similarity: number }>(
+                    `SELECT id, name,
+                          (1 - (embedding_secondary <=> $1::vector(2000)))::float AS similarity
+                   FROM prod_taxonomy
+                   WHERE is_active = true
+                     AND embedding_secondary IS NOT NULL
+                     AND model_version_secondary = $3
+                   ORDER BY embedding_secondary <=> $1::vector(2000)
+                   LIMIT $2`,
+                    [vec, VECTOR_CANDIDATES, singleDual.secondaryModel!]
+                  );
+                  return res.rows;
+                })
+              : Promise.resolve([] as { id: string; name: string; similarity: number }[]),
+            keywordTokens.length > 0
+              ? withTenantContext(session.shopId, async (client) => {
+                  const likeConditions = keywordTokens
+                    .map((_, i) => `LOWER(name) LIKE $${i + 1}`)
+                    .join(' OR ');
+                  const likeParams = keywordTokens.map((t) => `%${t}%`);
+                  const res = await client.query<{ id: string; name: string }>(
+                    `SELECT id, name FROM prod_taxonomy
                    WHERE is_active = true AND embedding IS NOT NULL
                      AND model_version = '${provider.model.name}'
                      AND (${likeConditions})
                    LIMIT 20`,
-                  likeParams
-                );
-                return res.rows;
-              })
-            : Promise.resolve([]),
-        ]);
+                    likeParams
+                  );
+                  return res.rows;
+                })
+              : Promise.resolve([]),
+            withTenantContext(session.shopId, async (client) => {
+              const res = await client.query<{ id: string; name: string }>(
+                `SELECT id, name FROM prod_taxonomy
+               WHERE is_active = true AND embedding IS NOT NULL
+                 AND (LOWER($1) LIKE '%' || LOWER(name) || '%'
+                      OR LOWER(name) LIKE '%' || LOWER($1) || '%')
+               LIMIT 15`,
+                [searchTitle]
+              );
+              return res.rows;
+            }),
+          ]);
 
-        const seenIds = new Set(vectorResults.map((r) => r.id));
+        const mergedResults = mergeMultiModelCandidates(
+          vectorResults,
+          secondaryVectorResults,
+          'prod_taxonomy'
+        );
+        const seenIds = new Set(mergedResults.map((r) => r.id));
+
+        for (const exact of exactNameResults) {
+          if (!seenIds.has(exact.id)) {
+            const exactScore = scoreExactNameMatch(exact.name, searchTitle);
+            mergedResults.push({ id: exact.id, name: exact.name, similarity: exactScore });
+            seenIds.add(exact.id);
+          } else {
+            const existing = mergedResults.find((r) => r.id === exact.id);
+            if (existing) {
+              const exactScore = scoreExactNameMatch(exact.name, searchTitle);
+              existing.similarity = Math.max(existing.similarity, exactScore);
+            }
+          }
+        }
+
         const keywordBoosts: { id: string; name: string; similarity: number }[] = [];
         for (const kw of keywordResults) {
           if (!seenIds.has(kw.id)) {
@@ -2374,7 +3152,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           }
         }
 
-        const vectorCandidates = [...keywordBoosts, ...vectorResults].sort(
+        const vectorCandidates = [...keywordBoosts, ...mergedResults].sort(
           (a, b) => b.similarity - a.similarity
         );
 
@@ -2481,6 +3259,21 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
             [session.shopId, classification.taxonomyId, collectionId]
           );
         });
+        const assignMetadata = await buildTaxonomyAssignPendingMetadata({
+          shopId: session.shopId,
+          collectionId,
+          taxonomyId: classification.taxonomyId,
+          previousTaxonomyId: existingMappings[0]?.taxonomy_id ?? null,
+          previousTaxonomyName: existingMappings[0]?.name ?? null,
+        });
+        await withTenantContext(session.shopId, async (client) => {
+          await upsertTaxonomyAssignPendingChange(client, {
+            shopId: session.shopId,
+            collectionId,
+            metadata: assignMetadata,
+            source,
+          });
+        });
         emit({
           type: 'progress',
           step: 'persist',
@@ -2491,18 +3284,13 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
         emit({
           type: 'progress',
           step: 'metafield_push',
-          message: 'Programez sincronizarea metafields...',
-        });
-        void enqueueCollectionMetafieldPushJob({
-          shopId: session.shopId,
-          collectionId,
-          trigger: 'category_classifier',
+          message: 'Adaug sincronizarea metafields în coada HITL...',
         });
         emit({
           type: 'progress',
           step: 'metafield_push',
           status: 'done',
-          message: 'Sincronizare metafields programată.',
+          message: 'Sincronizare metafields adăugată în coada HITL.',
         });
 
         emit({
@@ -2554,17 +3342,38 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing or invalid collectionIds'));
       }
 
+      let queued = 0;
       for (const collectionId of collectionIds) {
-        await enqueueCollectionMetafieldPushJob({
+        const primaryMapping = await withTenantContext(session.shopId, async (client) => {
+          const result = await client.query<{ taxonomy_id: string }>(
+            `SELECT taxonomy_id
+               FROM pim_taxonomy_collection_map
+              WHERE shop_id = $1
+                AND collection_id = $2
+              ORDER BY is_primary DESC, created_at ASC
+              LIMIT 1`,
+            [session.shopId, collectionId]
+          );
+          return result.rows[0] ?? null;
+        });
+        if (!primaryMapping?.taxonomy_id) continue;
+        const metadata = await buildTaxonomyAssignPendingMetadata({
           shopId: session.shopId,
           collectionId,
-          trigger: 'manual',
+          taxonomyId: primaryMapping.taxonomy_id,
         });
+        await withTenantContext(session.shopId, async (client) => {
+          await upsertTaxonomyAssignPendingChange(client, {
+            shopId: session.shopId,
+            collectionId,
+            metadata,
+            source: 'manual',
+          });
+        });
+        queued += 1;
       }
 
-      return reply.send(
-        successEnvelope(request.id, { queued: true, jobCount: collectionIds.length })
-      );
+      return reply.send(successEnvelope(request.id, { queued: true, jobCount: queued }));
     }
   );
 
@@ -2756,12 +3565,64 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                 status: 'done',
                 message: `${progress} „${translatedTitle.categoryEn}"`,
               });
+
+              let descriptionEn: string | null = null;
+              if (col.description && col.description.trim().length > 0) {
+                emit({
+                  type: 'translate_progress',
+                  collectionId: col.id,
+                  step: 'translate_description',
+                  message: `${progress} Traduc descrierea...`,
+                });
+                const descResult = await translateDescriptionToEnglish({
+                  shopId: session.shopId,
+                  title: col.title,
+                  titleEn: translatedTitle.categoryEn,
+                  description: col.description,
+                  env: options.env,
+                  logger: options.logger,
+                  onConsensusProgress: (event) =>
+                    emit({
+                      type: 'translate_progress',
+                      collectionId: col.id,
+                      step: event.step,
+                      message: `${progress} ${event.message}`,
+                      ...(event.status ? { status: event.status } : {}),
+                    }),
+                });
+                if (descResult) {
+                  descriptionEn = descResult.descriptionEn;
+                  await withTenantContext(session.shopId, async (client) => {
+                    await client.query(
+                      `UPDATE shopify_collections SET description_en = $1, updated_at = now() WHERE id = $2 AND shop_id = $3`,
+                      [descriptionEn, col.id, session.shopId]
+                    );
+                  });
+                  emit({
+                    type: 'translate_progress',
+                    collectionId: col.id,
+                    step: 'translate_description',
+                    status: 'done',
+                    message: `${progress} Descriere tradusă.`,
+                  });
+                } else {
+                  emit({
+                    type: 'translate_progress',
+                    collectionId: col.id,
+                    step: 'translate_description',
+                    status: 'error',
+                    message: `${progress} Traducerea descrierii nu a reușit.`,
+                  });
+                }
+              }
+
               emit({
                 type: 'translate_collection_result',
                 collectionId: col.id,
                 collectionTitle: col.title,
                 status: 'translated',
                 titleEn: translatedTitle.categoryEn,
+                descriptionEn,
                 consensusMethod: translatedTitle.consensusMethod,
                 consensusScore: translatedTitle.consensusScore,
               });
@@ -3157,12 +4018,14 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
         taxonomyId?: unknown;
         isPrimary?: unknown;
         mode?: unknown;
+        source?: unknown;
       };
       const taxonomyId =
         typeof body.taxonomyId === 'string' && body.taxonomyId.trim().length > 0
           ? body.taxonomyId.trim()
           : null;
       const isPrimary = body.isPrimary === undefined ? true : Boolean(body.isPrimary);
+      const source = parsePendingSource(body.source, 'manual');
       const mode =
         body.mode === 'add_secondary'
           ? 'add_secondary'
@@ -3193,11 +4056,18 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
 
       if (mode === 'replace' && existingMappings.length > 0) {
         for (const row of existingMappings) {
-          await deleteCollectionMetafieldsForTaxonomy({
+          const metadata = await buildTaxonomyUnassignPendingMetadata({
             shopId: session.shopId,
             collectionId,
             taxonomyId: row.taxonomy_id,
-            logger: options.logger,
+          });
+          await withTenantContext(session.shopId, async (client) => {
+            await upsertTaxonomyUnassignPendingChange(client, {
+              shopId: session.shopId,
+              collectionId,
+              metadata,
+              source,
+            });
           });
         }
       }
@@ -3252,17 +4122,25 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           [session.shopId, taxonomyId, collectionId, isPrimary]
         );
       });
-
-      const jobId = await enqueueCollectionMetafieldPushJob({
+      const assignMetadata = await buildTaxonomyAssignPendingMetadata({
         shopId: session.shopId,
         collectionId,
-        trigger: 'category_classifier',
+        taxonomyId,
+        previousTaxonomyId: existingMappings[0]?.taxonomy_id ?? null,
+      });
+      await withTenantContext(session.shopId, async (client) => {
+        await upsertTaxonomyAssignPendingChange(client, {
+          shopId: session.shopId,
+          collectionId,
+          metadata: assignMetadata,
+          source,
+        });
       });
 
       return reply.send(
         successEnvelope(request.id, {
           assigned: true,
-          metafieldsPushJobId: jobId,
+          queuedForApproval: true,
           mode,
           namespaceCollisionWarning:
             namespaceCollisionCount != null && namespaceCollisionCount > 0
@@ -3351,19 +4229,34 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
             errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing collectionId or taxonomyId')
           );
       }
-      await deleteCollectionMetafieldsForTaxonomy({
+      const taxonomyMeta = await withTenantContext(session.shopId, async (client) => {
+        const r = await client.query<{ ns: string; k: string; taxonomy_name: string }>(
+          `SELECT s.shopify_namespace AS ns,
+                  s.shopify_key AS k,
+                  pt.name AS taxonomy_name
+             FROM pim_taxonomy_metafield_schema s
+             JOIN prod_taxonomy pt ON pt.id = s.taxonomy_id
+            WHERE s.taxonomy_id = $1`,
+          [taxonomyId]
+        );
+        return {
+          keys: r.rows.map((row) => `${row.ns}.${row.k}`),
+          taxonomyName: r.rows[0]?.taxonomy_name ?? null,
+        };
+      });
+      const unassignMetadata = await buildTaxonomyUnassignPendingMetadata({
         shopId: session.shopId,
         collectionId,
         taxonomyId,
-        logger: options.logger,
+        taxonomyName: taxonomyMeta.taxonomyName,
       });
-      const keysToRemove = await withTenantContext(session.shopId, async (client) => {
-        const r = await client.query<{ ns: string; k: string }>(
-          `SELECT shopify_namespace AS ns, shopify_key AS k
-           FROM pim_taxonomy_metafield_schema WHERE taxonomy_id = $1`,
-          [taxonomyId]
-        );
-        return r.rows.map((row) => `${row.ns}.${row.k}`);
+      await withTenantContext(session.shopId, async (client) => {
+        await upsertTaxonomyUnassignPendingChange(client, {
+          shopId: session.shopId,
+          collectionId,
+          metadata: unassignMetadata,
+          source: 'manual',
+        });
       });
 
       const wasPromoted = await withTenantContext(session.shopId, async (client) => {
@@ -3391,14 +4284,14 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
         return false;
       });
 
-      if (keysToRemove.length > 0) {
+      if (taxonomyMeta.keys.length > 0) {
         await withTenantContext(session.shopId, async (client) => {
           await client.query(
             `UPDATE shopify_collections
-             SET metafields = metafields ${keysToRemove.map((_, i) => `- $${i + 3}`).join(' ')},
+             SET metafields = metafields ${taxonomyMeta.keys.map((_, i) => `- $${i + 3}`).join(' ')},
                  updated_at = now()
              WHERE id = $1 AND shop_id = $2`,
-            [collectionId, session.shopId, ...keysToRemove]
+            [collectionId, session.shopId, ...taxonomyMeta.keys]
           );
         });
       }
@@ -3430,13 +4323,39 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           .status(400)
           .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing collection id'));
       }
-
-      const jobId = await enqueueCollectionMetafieldPushJob({
+      const primaryMapping = await withTenantContext(session.shopId, async (client) => {
+        const result = await client.query<{ taxonomy_id: string }>(
+          `SELECT taxonomy_id
+             FROM pim_taxonomy_collection_map
+            WHERE shop_id = $1
+              AND collection_id = $2
+            ORDER BY is_primary DESC, created_at ASC
+            LIMIT 1`,
+          [session.shopId, collectionId]
+        );
+        return result.rows[0] ?? null;
+      });
+      if (!primaryMapping?.taxonomy_id) {
+        return reply
+          .status(400)
+          .send(
+            errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Collection has no taxonomy mapping')
+          );
+      }
+      const metadata = await buildTaxonomyAssignPendingMetadata({
         shopId: session.shopId,
         collectionId,
-        trigger: 'manual',
+        taxonomyId: primaryMapping.taxonomy_id,
       });
-      return reply.status(202).send(successEnvelope(request.id, { queued: true, jobId }));
+      await withTenantContext(session.shopId, async (client) => {
+        await upsertTaxonomyAssignPendingChange(client, {
+          shopId: session.shopId,
+          collectionId,
+          metadata,
+          source: 'manual',
+        });
+      });
+      return reply.status(202).send(successEnvelope(request.id, { queued: true }));
     }
   );
 
