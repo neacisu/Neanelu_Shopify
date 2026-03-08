@@ -758,6 +758,51 @@ export const aiProviderRoutingTotal: Counter = meter.createCounter('ai_provider_
   description: 'Routing decisions for AI providers',
 });
 
+export const consensusCallsTotal: Counter = meter.createCounter('consensus.calls.total', {
+  description: 'Total consensus chat completion calls',
+});
+
+export const consensusArbitrationNeededTotal: Counter = meter.createCounter(
+  'consensus.arbitration_needed',
+  {
+    description: 'Total consensus requests that required arbitration',
+  }
+);
+
+export const consensusCircuitBreakerTripsTotal: Counter = meter.createCounter(
+  'consensus.circuit_breaker_trips',
+  {
+    description: 'Total consensus circuit breaker open events',
+  }
+);
+
+export const consensusFallbackToSingleTotal: Counter = meter.createCounter(
+  'consensus.fallback_to_single',
+  {
+    description: 'Total consensus requests that degraded to a single response',
+  }
+);
+
+export const consensusDurationMs: Histogram = meter.createHistogram('consensus.duration_ms', {
+  description: 'Consensus execution duration',
+  unit: 'ms',
+});
+
+export const consensusScore: Histogram = meter.createHistogram('consensus.score', {
+  description: 'Consensus score distribution',
+});
+
+export const consensusParticipants: Histogram = meter.createHistogram('consensus.participants', {
+  description: 'Number of valid participants in a consensus run',
+});
+
+export const embeddingMultiModelCandidatesAdded: Histogram = meter.createHistogram(
+  'embedding.multi_model.candidates_added',
+  {
+    description: 'Extra merged candidates added by the secondary embedding model',
+  }
+);
+
 export const vllmTimeToFirstTokenSeconds: Histogram = meter.createHistogram(
   'vllm_time_to_first_token_seconds',
   {
@@ -934,6 +979,38 @@ export function recordAiProviderRouting(params: {
     taskType: params.taskType,
     outcome: params.outcome,
   });
+}
+
+export function recordConsensusMetrics(params: {
+  taskType: 'translation' | 'classification' | 'extraction' | 'audit';
+  method: 'unanimous' | 'majority' | 'arbitration' | 'single_fallback';
+  durationMs: number;
+  score: number;
+  participants: number;
+  arbitrationNeeded?: boolean;
+  fallbackReason?: string;
+}): void {
+  consensusCallsTotal.add(1, { taskType: params.taskType, method: params.method });
+  consensusDurationMs.record(Math.max(0, params.durationMs), { taskType: params.taskType });
+  consensusScore.record(Math.max(0, params.score), { taskType: params.taskType });
+  consensusParticipants.record(Math.max(0, params.participants), { taskType: params.taskType });
+  if (params.arbitrationNeeded) {
+    consensusArbitrationNeededTotal.add(1, { taskType: params.taskType });
+  }
+  if (params.method === 'single_fallback') {
+    consensusFallbackToSingleTotal.add(1, {
+      taskType: params.taskType,
+      reason: params.fallbackReason ?? 'unknown',
+    });
+  }
+}
+
+export function recordConsensusCircuitBreakerTrip(endpointId: string): void {
+  consensusCircuitBreakerTripsTotal.add(1, { endpointId: endpointId.trim() || 'unknown' });
+}
+
+export function recordEmbeddingMultiModelCandidatesAdded(count: number, table: string): void {
+  embeddingMultiModelCandidatesAdded.record(Math.max(0, count), { table });
 }
 
 export function setVllmInferenceMetrics(params: {

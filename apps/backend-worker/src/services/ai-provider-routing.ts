@@ -16,7 +16,17 @@ import {
 import { loadSelfHostedCredentials } from './selfhosted-credentials.js';
 import { loadXAICredentials } from './xai-credentials.js';
 
-type ChatTaskType = 'extraction' | 'audit' | 'classification' | 'translation';
+export type ChatTaskType = 'extraction' | 'audit' | 'classification' | 'translation';
+
+export interface ConsensusChatModelConfig extends ChatModelCredentials {
+  endpointId: string;
+  timeoutMs: number;
+}
+
+export interface ConsensusCredentialSet {
+  calls: ConsensusChatModelConfig[];
+  arbitration: ConsensusChatModelConfig;
+}
 
 type RoutingRow = Readonly<{
   modelExtraction: string | null;
@@ -55,7 +65,7 @@ interface RoutingContext {
 
 const DEFAULT_CHAT_MODELS: Record<ChatTaskType, string> = {
   classification: 'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
-  translation: 'selfhosted:Qwen/QwQ-32B-AWQ',
+  translation: 'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
   extraction: 'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
   audit: 'selfhosted:Qwen/QwQ-32B-AWQ',
 };
@@ -493,6 +503,291 @@ export async function resolveChatTaskCredentials(params: {
     return null;
   }
   return await resolveProviderRoute(parsedRoute, 'none', params);
+}
+
+function consensusCbKeys(
+  redisPrefix: string,
+  endpointId: string
+): {
+  failures: string;
+  state: string;
+  lastOpen: string;
+} {
+  const prefix = normalizeRedisPrefix(redisPrefix);
+  return {
+    failures: `${prefix}consensus:cb:${endpointId}:failures`,
+    state: `${prefix}consensus:cb:${endpointId}:state`,
+    lastOpen: `${prefix}consensus:cb:${endpointId}:last_open`,
+  };
+}
+
+const CONSENSUS_CIRCUIT_BREAKER_OPEN_TIMEOUT_MS = 60_000;
+const CONSENSUS_CIRCUIT_BREAKER_KEY_TTL_MS = 120_000;
+const CONSENSUS_CIRCUIT_BREAKER_FAILURE_THRESHOLD = 3;
+
+async function getConsensusCircuitBreakerState(params: {
+  redis: Redis;
+  redisPrefix: string;
+  endpointId: string;
+}): Promise<'CLOSED' | 'OPEN' | 'HALF_OPEN'> {
+  const keys = consensusCbKeys(params.redisPrefix, params.endpointId);
+  const rawState = await params.redis.get(keys.state);
+  const state: 'CLOSED' | 'OPEN' | 'HALF_OPEN' =
+    rawState === 'OPEN' || rawState === 'HALF_OPEN' ? rawState : 'CLOSED';
+  if (state !== 'OPEN') {
+    return state;
+  }
+  const lastOpenRaw = await params.redis.get(keys.lastOpen);
+  const lastOpen = Number(lastOpenRaw ?? '0');
+  if (!Number.isFinite(lastOpen) || lastOpen <= 0) {
+    return 'OPEN';
+  }
+  if (Date.now() - lastOpen < CONSENSUS_CIRCUIT_BREAKER_OPEN_TIMEOUT_MS) {
+    return 'OPEN';
+  }
+  await params.redis.set(keys.state, 'HALF_OPEN', 'PX', CONSENSUS_CIRCUIT_BREAKER_KEY_TTL_MS);
+  await params.redis.set(keys.failures, '0', 'PX', CONSENSUS_CIRCUIT_BREAKER_KEY_TTL_MS);
+  return 'HALF_OPEN';
+}
+
+export async function recordConsensusCircuitBreakerFailure(params: {
+  redis: Redis;
+  redisPrefix: string;
+  endpointId: string;
+}): Promise<boolean> {
+  const keys = consensusCbKeys(params.redisPrefix, params.endpointId);
+  const currentState = await params.redis.get(keys.state);
+  if (currentState === 'HALF_OPEN') {
+    await params.redis.set(keys.state, 'OPEN', 'PX', CONSENSUS_CIRCUIT_BREAKER_KEY_TTL_MS);
+    await params.redis.set(
+      keys.lastOpen,
+      String(Date.now()),
+      'PX',
+      CONSENSUS_CIRCUIT_BREAKER_KEY_TTL_MS
+    );
+    await params.redis.set(keys.failures, '0', 'PX', CONSENSUS_CIRCUIT_BREAKER_KEY_TTL_MS);
+    return true;
+  }
+
+  const failures = await params.redis.incr(keys.failures);
+  await params.redis.pexpire(keys.failures, CONSENSUS_CIRCUIT_BREAKER_KEY_TTL_MS);
+  if (failures >= CONSENSUS_CIRCUIT_BREAKER_FAILURE_THRESHOLD) {
+    await params.redis.set(keys.state, 'OPEN', 'PX', CONSENSUS_CIRCUIT_BREAKER_KEY_TTL_MS);
+    await params.redis.set(
+      keys.lastOpen,
+      String(Date.now()),
+      'PX',
+      CONSENSUS_CIRCUIT_BREAKER_KEY_TTL_MS
+    );
+    await params.redis.set(keys.failures, '0', 'PX', CONSENSUS_CIRCUIT_BREAKER_KEY_TTL_MS);
+    return true;
+  }
+  await params.redis.set(keys.state, 'CLOSED', 'PX', CONSENSUS_CIRCUIT_BREAKER_KEY_TTL_MS);
+  return false;
+}
+
+export async function recordConsensusCircuitBreakerSuccess(params: {
+  redis: Redis;
+  redisPrefix: string;
+  endpointId: string;
+}): Promise<void> {
+  const keys = consensusCbKeys(params.redisPrefix, params.endpointId);
+  await params.redis.del(keys.failures);
+  await params.redis.del(keys.lastOpen);
+  await params.redis.set(keys.state, 'CLOSED', 'PX', CONSENSUS_CIRCUIT_BREAKER_KEY_TTL_MS);
+}
+
+export function getAiRoutingRedis(env: AppEnv): Redis {
+  return getRoutingRedis(env);
+}
+
+function toConsensusConfig(params: {
+  credentials: ChatModelCredentials;
+  endpointId: string;
+  temperature: number;
+  timeoutMs: number;
+}): ConsensusChatModelConfig {
+  return {
+    ...params.credentials,
+    endpointId: params.endpointId,
+    temperature: params.temperature,
+    timeoutMs: params.timeoutMs,
+  };
+}
+
+async function buildFallbackConsensusSet(params: {
+  taskType: ChatTaskType;
+  env: AppEnv;
+  logger: Logger;
+  shopId: string;
+}): Promise<ConsensusCredentialSet | null> {
+  const ctx: RoutingContext = {
+    shopId: params.shopId,
+    taskType: params.taskType,
+    env: params.env,
+    logger: params.logger,
+  };
+  const fallbackRoute = parseProviderRoute(FALLBACK_CHAT_MODELS[params.taskType]);
+  const secondaryRoute = parseProviderRoute(SECONDARY_FALLBACK_CHAT_MODELS[params.taskType]);
+  const fallbackCredentials = fallbackRoute
+    ? await resolveProviderRoute(fallbackRoute, 'none', ctx)
+    : null;
+  const credentials =
+    fallbackCredentials ??
+    (secondaryRoute ? await resolveProviderRoute(secondaryRoute, 'secondary', ctx) : null);
+  if (!credentials) return null;
+  const endpointId = `${credentials.provider}:${credentials.model}`;
+  return {
+    calls: [0.1, 0.2, 0.3, 0.4].map((temperature) =>
+      toConsensusConfig({
+        credentials,
+        endpointId,
+        temperature,
+        timeoutMs: params.env.openAiTimeoutMs,
+      })
+    ),
+    arbitration: toConsensusConfig({
+      credentials,
+      endpointId,
+      temperature: 0,
+      timeoutMs: Math.max(params.env.openAiTimeoutMs, 45_000),
+    }),
+  };
+}
+
+export async function resolveConsensusCredentials(params: {
+  shopId: string;
+  taskType: ChatTaskType;
+  env: AppEnv;
+  logger: Logger;
+}): Promise<ConsensusCredentialSet | null> {
+  const enabled = await isFeatureFlagEnabled({
+    shopId: params.shopId,
+    flagKey: 'selfhosted_llm_enabled',
+    fallback: false,
+  });
+  if (!enabled) {
+    return await buildFallbackConsensusSet(params);
+  }
+
+  const selfHosted = await loadSelfHostedCredentials({
+    shopId: params.shopId,
+    encryptionKeyHex: params.env.encryptionKeyHex,
+    allowDisabled: true,
+  }).catch(() => null);
+  if (
+    !selfHosted?.enabled ||
+    selfHosted.connectionStatus === 'error' ||
+    selfHosted.connectionStatus === 'unreachable'
+  ) {
+    return await buildFallbackConsensusSet(params);
+  }
+
+  const redis = getRoutingRedis(params.env);
+  const chatEndpoints = selfHosted.endpoints.filter(
+    (endpoint) => endpoint.enabled && (endpoint.type === 'chat' || endpoint.type === 'both')
+  );
+  const qwenEndpoint = chatEndpoints.find(
+    (endpoint) =>
+      endpoint.id === 'selfhosted-chat-fast' || endpoint.modelId === 'Qwen/Qwen2.5-14B-Instruct-AWQ'
+  );
+  const qwqEndpoint = chatEndpoints.find(
+    (endpoint) =>
+      endpoint.id === 'selfhosted-chat-reasoning' || endpoint.modelId === 'Qwen/QwQ-32B-AWQ'
+  );
+
+  const qwenOpen =
+    qwenEndpoint == null
+      ? false
+      : (await getConsensusCircuitBreakerState({
+          redis,
+          redisPrefix: params.env.redisPrefix,
+          endpointId: qwenEndpoint.id,
+        })) === 'OPEN';
+  const qwqOpen =
+    qwqEndpoint == null
+      ? false
+      : (await getConsensusCircuitBreakerState({
+          redis,
+          redisPrefix: params.env.redisPrefix,
+          endpointId: qwqEndpoint.id,
+        })) === 'OPEN';
+
+  const bearerToken = selfHosted.bearerToken ?? undefined;
+  const buildSelfhostedCreds = (
+    endpoint: (typeof chatEndpoints)[number]
+  ): ChatModelCredentials => ({
+    provider: 'selfhosted',
+    ...(bearerToken ? { apiKey: bearerToken } : {}),
+    baseUrl: endpoint.baseUrl,
+    model: endpoint.modelId,
+    temperature: 0.1,
+    maxTokensPerRequest: 4000,
+    rateLimitPerMinute: 0,
+  });
+
+  if (qwqEndpoint && qwenEndpoint && !qwqOpen && !qwenOpen) {
+    const qwqCreds = buildSelfhostedCreds(qwqEndpoint);
+    const qwenCreds = buildSelfhostedCreds(qwenEndpoint);
+    return {
+      calls: [
+        toConsensusConfig({
+          credentials: qwqCreds,
+          endpointId: qwqEndpoint.id,
+          temperature: 0.1,
+          timeoutMs: qwqEndpoint.timeoutMs,
+        }),
+        toConsensusConfig({
+          credentials: qwqCreds,
+          endpointId: qwqEndpoint.id,
+          temperature: 0.3,
+          timeoutMs: qwqEndpoint.timeoutMs,
+        }),
+        toConsensusConfig({
+          credentials: qwenCreds,
+          endpointId: qwenEndpoint.id,
+          temperature: 0.2,
+          timeoutMs: qwenEndpoint.timeoutMs,
+        }),
+        toConsensusConfig({
+          credentials: qwenCreds,
+          endpointId: qwenEndpoint.id,
+          temperature: 0.4,
+          timeoutMs: qwenEndpoint.timeoutMs,
+        }),
+      ],
+      arbitration: toConsensusConfig({
+        credentials: qwqCreds,
+        endpointId: qwqEndpoint.id,
+        temperature: 0,
+        timeoutMs: Math.max(qwqEndpoint.timeoutMs, 45_000),
+      }),
+    };
+  }
+
+  const singleEndpoint =
+    qwqEndpoint && !qwqOpen ? qwqEndpoint : qwenEndpoint && !qwenOpen ? qwenEndpoint : null;
+  if (singleEndpoint) {
+    const creds = buildSelfhostedCreds(singleEndpoint);
+    return {
+      calls: [0.1, 0.2, 0.3, 0.4].map((temperature) =>
+        toConsensusConfig({
+          credentials: creds,
+          endpointId: singleEndpoint.id,
+          temperature,
+          timeoutMs: singleEndpoint.timeoutMs,
+        })
+      ),
+      arbitration: toConsensusConfig({
+        credentials: creds,
+        endpointId: singleEndpoint.id,
+        temperature: 0,
+        timeoutMs: Math.max(singleEndpoint.timeoutMs, 45_000),
+      }),
+    };
+  }
+
+  return await buildFallbackConsensusSet(params);
 }
 
 const DEFAULT_EMBEDDING_ROUTE = 'selfhosted:qwen3-embedding-8b-q5km';

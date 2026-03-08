@@ -171,6 +171,29 @@ export function createApiClient(options: ApiClientOptions = {}) {
     });
   }
 
+  async function patchApi<TResponse, TBody extends object>(
+    path: string,
+    body: TBody,
+    init: RequestInit = {}
+  ): Promise<TResponse> {
+    return getApi<TResponse>(path, {
+      ...init,
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(init.headers ?? {}),
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  async function deleteApi<TResponse>(path: string, init: RequestInit = {}): Promise<TResponse> {
+    return getApi<TResponse>(path, {
+      ...init,
+      method: 'DELETE',
+    });
+  }
+
   async function streamPost<TBody extends Record<string, unknown>>(
     path: string,
     body: TBody,
@@ -225,6 +248,8 @@ export function createApiClient(options: ApiClientOptions = {}) {
     getApi,
     postApi,
     putApi,
+    patchApi,
+    deleteApi,
     streamPost,
   };
 }

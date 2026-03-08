@@ -1,7 +1,11 @@
 import { loadEnv } from '@app/config';
 import { withTenantContext } from '@app/database';
 import { createLogger } from '@app/logger';
-import { resolveEmbeddingsProvider } from '../services/ai-provider-routing.js';
+import { toPgVectorLiteral } from '../processors/bulk-operations/pim/vector.js';
+import {
+  generateDualEmbeddingsBatch,
+  resolveDualEmbeddingsProviders,
+} from '../services/multi-model-embedding.js';
 
 type TaxonomyRow = Readonly<{
   id: string;
@@ -46,8 +50,8 @@ async function main(): Promise<void> {
   });
   const { shopId } = parseArgs();
 
-  const provider = await resolveEmbeddingsProvider({ shopId, env, logger });
-  if (!provider.isAvailable()) {
+  const providers = await resolveDualEmbeddingsProviders({ shopId, env, logger });
+  if (!providers.primary.isAvailable()) {
     throw new Error('Embeddings provider not available');
   }
 
@@ -59,32 +63,51 @@ async function main(): Promise<void> {
         `SELECT id, name, breadcrumbs
          FROM prod_taxonomy
          WHERE is_active = true
-           AND embedding IS NULL
+           AND (
+                 embedding IS NULL
+              OR ($1::text IS NOT NULL AND embedding_secondary IS NULL)
+           )
          ORDER BY id
-         LIMIT $1 OFFSET $2`,
-        [BATCH_SIZE, offset]
+         LIMIT $2 OFFSET $3`,
+        [providers.secondary?.model.name ?? null, BATCH_SIZE, offset]
       );
       return res.rows;
     });
     if (rows.length === 0) break;
 
     const texts = rows.map((row) => `${row.name} ${toBreadcrumbText(row.breadcrumbs)}`.trim());
-    const embeddings = await provider.embedTexts(texts);
-    if (embeddings.length !== rows.length) {
+    const embeddings = await generateDualEmbeddingsBatch({
+      shopId,
+      env,
+      logger,
+      texts,
+      primary: providers.primary,
+      secondary: providers.secondary,
+    });
+    if (embeddings.primaryEmbeddings.length !== rows.length) {
       throw new Error('Unexpected embeddings size mismatch');
     }
 
     await withTenantContext(shopId, async (client) => {
       for (let i = 0; i < rows.length; i += 1) {
-        const embedding = embeddings[i];
+        const embedding = embeddings.primaryEmbeddings[i];
+        const secondaryEmbedding = embeddings.secondaryEmbeddings[i] ?? null;
         if (!embedding || embedding.length === 0) continue;
         await client.query(
           `UPDATE prod_taxonomy
               SET embedding = $1::vector(2000),
                   model_version = $3,
+                  embedding_secondary = $4::vector(2000),
+                  model_version_secondary = $5,
                   updated_at = now()
             WHERE id = $2`,
-          [`[${embedding.join(',')}]`, rows[i]?.id, provider.model.name]
+          [
+            toPgVectorLiteral(embedding),
+            rows[i]?.id,
+            providers.primary.model.name,
+            secondaryEmbedding ? toPgVectorLiteral(secondaryEmbedding) : null,
+            embeddings.secondaryModel,
+          ]
         );
       }
     });

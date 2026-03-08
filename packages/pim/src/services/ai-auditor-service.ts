@@ -5,6 +5,7 @@ import { enforceBudget } from './budget-guard.js';
 import {
   buildChatCompletionsUrl,
   estimateChatCost,
+  type ChatApiProvider,
   type ChatModelCredentials,
 } from './llm-credentials.js';
 
@@ -40,7 +41,27 @@ export type AIAuditParams = Readonly<{
     sourcePrice?: string | number | null;
     sourceCurrency?: string | null;
   };
+  completionRunner?: AIAuditCompletionRunner;
 }>;
+
+export interface AIAuditCompletionRunnerParams {
+  credentials: ChatModelCredentials;
+  systemPrompt: string;
+  userPrompt: string;
+}
+
+export interface AIAuditCompletionRunnerResult {
+  content: string;
+  httpStatus?: number;
+  tokensInput?: number;
+  tokensOutput?: number;
+  modelUsed?: string;
+  providerUsed?: ChatApiProvider;
+}
+
+export type AIAuditCompletionRunner = (
+  params: AIAuditCompletionRunnerParams
+) => Promise<AIAuditCompletionRunnerResult>;
 
 export class AIAuditorService {
   async auditMatch(params: AIAuditParams): Promise<AIAuditResult> {
@@ -53,42 +74,55 @@ export class AIAuditorService {
     });
 
     const prompt = buildAuditPrompt(params);
+    const systemPrompt =
+      'Esti un auditor expert pentru match-uri de produse. Raspunde strict in JSON valid.';
     const startTime = Date.now();
     let httpStatus = 0;
     let tokensInput = 0;
     let tokensOutput = 0;
 
     try {
-      const response = await fetch(buildChatCompletionsUrl(params.credentials.baseUrl), {
-        method: 'POST',
-        headers: {
-          ...(params.credentials.apiKey
-            ? { Authorization: `Bearer ${params.credentials.apiKey}` }
-            : {}),
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: params.credentials.model,
-          temperature: params.credentials.temperature,
-          response_format: { type: 'json_object' },
-          messages: [
-            {
-              role: 'system',
-              content:
-                'Esti un auditor expert pentru match-uri de produse. Raspunde strict in JSON valid.',
-            },
-            { role: 'user', content: prompt },
-          ],
-        }),
-      });
-
-      httpStatus = response.status;
-      const data = (await response.json()) as {
-        choices?: { message?: { content?: string } }[];
-        usage?: { prompt_tokens?: number; completion_tokens?: number };
-      };
-      tokensInput = data.usage?.prompt_tokens ?? 0;
-      tokensOutput = data.usage?.completion_tokens ?? 0;
+      const data: AIAuditCompletionRunnerResult = params.completionRunner
+        ? await params.completionRunner({
+            credentials: params.credentials,
+            systemPrompt,
+            userPrompt: prompt,
+          })
+        : await (async () => {
+            const response = await fetch(buildChatCompletionsUrl(params.credentials.baseUrl), {
+              method: 'POST',
+              headers: {
+                ...(params.credentials.apiKey
+                  ? { Authorization: `Bearer ${params.credentials.apiKey}` }
+                  : {}),
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: params.credentials.model,
+                temperature: params.credentials.temperature,
+                response_format: { type: 'json_object' },
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: prompt },
+                ],
+              }),
+            });
+            const payload = (await response.json()) as {
+              choices?: { message?: { content?: string } }[];
+              usage?: { prompt_tokens?: number; completion_tokens?: number };
+            };
+            return {
+              content: payload.choices?.[0]?.message?.content ?? '',
+              httpStatus: response.status,
+              tokensInput: payload.usage?.prompt_tokens ?? 0,
+              tokensOutput: payload.usage?.completion_tokens ?? 0,
+              modelUsed: params.credentials.model,
+              providerUsed: params.credentials.provider,
+            };
+          })();
+      httpStatus = data.httpStatus ?? 200;
+      tokensInput = data.tokensInput ?? 0;
+      tokensOutput = data.tokensOutput ?? 0;
 
       await trackCost({
         provider: params.credentials.provider,
@@ -106,13 +140,11 @@ export class AIAuditorService {
         responseTimeMs: Date.now() - startTime,
       });
 
-      if (!response.ok) {
-        throw new Error(
-          `${params.credentials.provider} audit failed: ${response.status} ${response.statusText}`
-        );
+      if (httpStatus >= 400) {
+        throw new Error(`${params.credentials.provider} audit failed: ${String(httpStatus)}`);
       }
 
-      const content = data.choices?.[0]?.message?.content;
+      const content = data.content;
       if (!content) {
         throw new Error(`${params.credentials.provider} audit response missing content`);
       }
@@ -128,7 +160,7 @@ export class AIAuditorService {
         usableForEnrichment: parsed.usableForEnrichment !== 'no',
         isSameProduct: parsed.isSameProduct,
         auditedAt: nowIso,
-        modelUsed: params.credentials.model,
+        modelUsed: data.modelUsed ?? params.credentials.model,
       };
     } catch (error) {
       await trackCost({

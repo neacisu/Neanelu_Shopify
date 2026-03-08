@@ -10,7 +10,16 @@ import {
   resolveChatTaskCredentials,
   resolveEmbeddingsProvider,
 } from '../services/ai-provider-routing.js';
-import { scanInput, scanOutput } from '../services/guardrails.js';
+import { consensusChatCompletion } from '../services/consensus-engine.js';
+import {
+  approveMenuAssignment,
+  deleteMenuAssignment,
+  executeMenuAssignmentForCollection,
+  getMenuAssignmentStatus,
+  rejectMenuAssignment,
+  setPrimaryMenuAssignment,
+} from '../services/menu-assignment-engine.js';
+import { syncMenuItemEmbeddings } from '../services/menu-ai.js';
 import {
   enqueueCollectionsSyncJob,
   PIM_COLLECTIONS_SYNC_QUEUE_NAME,
@@ -38,6 +47,8 @@ interface TaxonomyClassification {
   reasoning: string;
   translatedQuery: string;
   detectedLanguage: string;
+  consensusMethod?: 'unanimous' | 'majority' | 'arbitration' | 'single_fallback';
+  consensusScore?: number;
 }
 
 interface CollectionAiContext {
@@ -47,6 +58,13 @@ interface CollectionAiContext {
   parentTitle: string | null;
   menuLevel: number | null;
   menuPath: string | null;
+}
+
+interface CollectionTitleTranslation {
+  categoryEn: string;
+  reasoning: string;
+  consensusMethod?: 'unanimous' | 'majority' | 'arbitration' | 'single_fallback';
+  consensusScore?: number;
 }
 
 function parseHierarchySegments(menuPath: string | null): string[] {
@@ -134,6 +152,53 @@ async function getCollectionAiContext(params: {
   });
 }
 
+const TAXONOMY_KEYWORD_STOP_WORDS = new Set([
+  'and',
+  'the',
+  'for',
+  'with',
+  'from',
+  'other',
+  'more',
+  'set',
+  'sets',
+  'kit',
+  'kits',
+  'type',
+  'types',
+  'parts',
+  'part',
+  'accessories',
+  'accessory',
+  'supplies',
+  'supply',
+  'products',
+  'product',
+  'items',
+  'item',
+  'general',
+  'misc',
+  'various',
+  'tools',
+  'tool',
+  'equipment',
+]);
+
+function filterKeywordTokens(tokens: string[]): string[] {
+  return tokens.filter((t) => t.length >= 3 && !TAXONOMY_KEYWORD_STOP_WORDS.has(t));
+}
+
+function scoreKeywordMatch(taxonomyName: string, queryTokens: string[]): number {
+  if (queryTokens.length === 0) return 0;
+  const lowerName = taxonomyName.toLowerCase();
+  let matched = 0;
+  for (const token of queryTokens) {
+    if (lowerName.includes(token)) matched++;
+  }
+  const ratio = matched / queryTokens.length;
+  return 0.45 + ratio * 0.35;
+}
+
 async function classifyWithLLM(params: {
   shopId: string;
   env: AppEnv;
@@ -150,13 +215,13 @@ async function classifyWithLLM(params: {
   model?: string;
   timeoutMs?: number;
   logger: Logger;
+  onConsensusProgress?: (event: {
+    step: string;
+    message: string;
+    status?: 'done' | 'error';
+  }) => void;
 }): Promise<TaxonomyClassification | null> {
   if (params.candidates.length === 0) return null;
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), params.timeoutMs ?? 20_000);
-  const baseRaw = (params.baseUrl ?? 'https://api.openai.com').replace(/\/$/, '');
-  const base = baseRaw.endsWith('/v1') ? baseRaw : `${baseRaw}/v1`;
 
   const topCandidatesForLLM = params.candidates.slice(0, 12);
   const candidateList = topCandidatesForLLM
@@ -181,36 +246,21 @@ async function classifyWithLLM(params: {
   });
 
   const userPrompt = `Collection: ${collectionText}${hierarchySection ? `\n\n${hierarchySection}` : ''}${productSection}\n\nCandidate categories (ranked by vector relevance):\n${candidateList}`;
-  const inputScan = await scanInput({
-    shopId: params.shopId,
-    text: userPrompt,
-    env: params.env,
-    logger: params.logger,
-  });
-  if (!inputScan.isValid) {
-    params.logger.warn(
-      { shopId: params.shopId, reason: inputScan.reason, scanners: inputScan.detectedScanners },
-      'guardrails_blocked_taxonomy_classification_input'
-    );
-    return null;
-  }
 
   try {
-    const res = await fetch(`${base}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        ...(params.apiKey ? { authorization: `Bearer ${params.apiKey}` } : {}),
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: params.model,
-        temperature: 0,
-        max_tokens: 300,
-        response_format: { type: 'json_object' },
-        messages: [
-          {
-            role: 'system',
-            content: `You are an expert product taxonomy classifier for a Romanian home improvement / hardware / garden e-commerce store on Shopify.
+    const consensus = await consensusChatCompletion<{
+      selectedId?: string;
+      selectedName?: string;
+      confidence?: number;
+      reasoning?: string;
+      translatedQuery?: string;
+      language?: string;
+    }>({
+      shopId: params.shopId,
+      env: params.env,
+      logger: params.logger,
+      taskType: 'classification',
+      systemPrompt: `You are an expert product taxonomy classifier for a Romanian home improvement / hardware / garden e-commerce store on Shopify.
 
 TASK: Given a product collection name, sample product names from the collection, and a ranked list of candidate Google Product Taxonomy categories, select the BEST matching category.
 
@@ -236,50 +286,13 @@ CRITICAL RULES:
 7. If NONE of the candidates is a genuine match for the products, set confidence below 0.3.
 8. Do NOT inflate confidence. A 95% confidence means you are absolutely certain — use it only when the category name is essentially identical to what the products are.
 9. Candidates ranked higher (by relevance %) are statistically more likely but NOT always correct. Override the ranking if a lower-ranked candidate is a clearly better product domain match.`,
-          },
-          {
-            role: 'user',
-            content: inputScan.sanitizedText,
-          },
-        ],
-      }),
-      signal: controller.signal,
+      userPrompt,
+      responseFormat: { type: 'json_object' },
+      maxTokens: 300,
+      keyField: 'selectedId',
+      ...(params.onConsensusProgress ? { onProgress: params.onConsensusProgress } : {}),
     });
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      params.logger.warn({ status: res.status, body }, 'Taxonomy classification API error');
-      return null;
-    }
-
-    const json = (await res.json()) as {
-      choices?: { message?: { content?: string } }[];
-    };
-    const contentRaw = json.choices?.[0]?.message?.content ?? '';
-    const outputScan = await scanOutput({
-      shopId: params.shopId,
-      prompt: inputScan.sanitizedText,
-      output: contentRaw,
-      env: params.env,
-      logger: params.logger,
-    });
-    if (!outputScan.isValid) {
-      params.logger.warn(
-        { shopId: params.shopId, reason: outputScan.reason, scanners: outputScan.detectedScanners },
-        'guardrails_blocked_taxonomy_classification_output'
-      );
-      return null;
-    }
-    const content = outputScan.sanitizedText;
-    const parsed = JSON.parse(content) as {
-      selectedId?: string;
-      selectedName?: string;
-      confidence?: number;
-      reasoning?: string;
-      translatedQuery?: string;
-      language?: string;
-    };
-
+    const parsed = consensus.result;
     if (!parsed.selectedId || typeof parsed.confidence !== 'number') {
       params.logger.warn({ parsed }, 'Invalid LLM classification response');
       return null;
@@ -299,12 +312,12 @@ CRITICAL RULES:
       reasoning: parsed.reasoning ?? '',
       translatedQuery: parsed.translatedQuery ?? params.collectionTitle,
       detectedLanguage: (parsed.language ?? 'unknown').toLowerCase(),
+      consensusMethod: consensus.method,
+      consensusScore: consensus.consensusScore,
     };
   } catch (err) {
     params.logger.warn({ err }, 'Taxonomy classification LLM call failed');
     return null;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
@@ -328,23 +341,25 @@ async function sampleProductNames(params: {
 }
 
 async function translateTitleToEnglish(params: {
+  shopId: string;
   title: string;
   description: string | null;
   menuPath: string | null;
   menuLevel: number | null;
   parentTitle: string | null;
+  env: AppEnv;
   productSamples?: string[];
   apiKey?: string;
   baseUrl?: string;
   model?: string;
   timeoutMs?: number;
   logger: Logger;
-}): Promise<string | null> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), params.timeoutMs ?? 30_000);
-  const baseRaw = (params.baseUrl ?? 'https://api.openai.com').replace(/\/$/, '');
-  const base = baseRaw.endsWith('/v1') ? baseRaw : `${baseRaw}/v1`;
-
+  onConsensusProgress?: (event: {
+    step: string;
+    message: string;
+    status?: 'done' | 'error';
+  }) => void;
+}): Promise<CollectionTitleTranslation | null> {
   const hasProducts = params.productSamples && params.productSamples.length > 0;
   const productSection = hasProducts
     ? `\n\nSample products sold in this collection:\n${params.productSamples!.map((p, i) => `${i + 1}. ${p}`).join('\n')}`
@@ -357,21 +372,15 @@ async function translateTitleToEnglish(params: {
   });
 
   try {
-    const res = await fetch(`${base}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        ...(params.apiKey ? { authorization: `Bearer ${params.apiKey}` } : {}),
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: params.model,
-        temperature: 0,
-        max_tokens: 300,
-        response_format: { type: 'json_object' },
-        messages: [
-          {
-            role: 'system',
-            content: `You translate Romanian product collection names into English product category names for a home improvement / hardware / garden e-commerce store.
+    const consensus = await consensusChatCompletion<{
+      reasoning?: string;
+      categoryEn?: string;
+    }>({
+      shopId: params.shopId,
+      env: params.env,
+      logger: params.logger,
+      taskType: 'translation',
+      systemPrompt: `You translate Romanian product collection names into English product category names for a home improvement / hardware / garden e-commerce store.
 
 RULE 1 — THE COLLECTION NAME IS THE CATEGORY NAME.
 Your job is to translate the COLLECTION NAME into English. The collection name defines the category. Products inside the collection are ONLY used to help you understand unfamiliar Romanian words — they do NOT define the category name.
@@ -406,32 +415,17 @@ EXAMPLES (follow these exactly):
 - "Centrale termice" → { "reasoning": "Centrale termice = central heating boilers.", "categoryEn": "Central Heating Boilers" }
 
 Return JSON: { "reasoning": "...", "categoryEn": "..." }`,
-          },
-          {
-            role: 'user',
-            content: `Collection name: "${params.title}"${params.description ? `\nDescription: ${params.description}` : ''}${hierarchySection ? `\n\n${hierarchySection}` : ''}${productSection}`,
-          },
-        ],
-      }),
-      signal: controller.signal,
+      userPrompt: `Collection name: "${params.title}"${params.description ? `\nDescription: ${params.description}` : ''}${hierarchySection ? `\n\n${hierarchySection}` : ''}${productSection}`,
+      responseFormat: { type: 'json_object' },
+      maxTokens: 300,
+      keyField: 'categoryEn',
+      ...(params.onConsensusProgress ? { onProgress: params.onConsensusProgress } : {}),
     });
 
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      params.logger.warn({ status: res.status, body }, 'taxonomy_assign: translation API error');
-      return null;
-    }
-
-    const json = (await res.json()) as {
-      choices?: { message?: { content?: string } }[];
-    };
-    const raw = json.choices?.[0]?.message?.content?.trim();
-    if (!raw) return null;
-
-    const parsed = JSON.parse(raw) as { reasoning?: string; categoryEn?: string };
+    const parsed = consensus.result;
     const categoryEn = parsed.categoryEn?.trim();
     if (!categoryEn) {
-      params.logger.warn({ raw, parsed }, 'taxonomy_assign: translation returned no categoryEn');
+      params.logger.warn({ parsed }, 'taxonomy_assign: translation returned no categoryEn');
       return null;
     }
 
@@ -439,12 +433,15 @@ Return JSON: { "reasoning": "...", "categoryEn": "..." }`,
       { original: params.title, translated: categoryEn, reasoning: parsed.reasoning, hasProducts },
       'taxonomy_assign: translated collection title to English'
     );
-    return categoryEn;
+    return {
+      categoryEn,
+      reasoning: parsed.reasoning ?? '',
+      consensusMethod: consensus.method,
+      consensusScore: consensus.consensusScore,
+    };
   } catch (err) {
     params.logger.warn({ err, title: params.title }, 'taxonomy_assign: translation failed');
     return null;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
@@ -513,6 +510,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
       const hasTaxonomy = query['hasTaxonomy'] ?? 'all';
       const hasTranslation = query['hasTranslation'] ?? 'all';
       const menuLevel = query['menuLevel'] ?? 'all';
+      const menuAiState = query['menuAiState'] ?? 'all';
       const sortBy = query['sortBy'] ?? 'synced_at';
       const sortDir = (query['sortDir'] ?? 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
       const minProducts = query['minProducts'] != null ? parseInt(query['minProducts'], 10) : null;
@@ -561,6 +559,35 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
             paramIdx += 1;
           }
         }
+        if (menuAiState === 'has_assignments') {
+          conditions.push(
+            `EXISTS (
+               SELECT 1
+                 FROM shopify_collection_menu_assignments sma
+                WHERE sma.shop_id = sc.shop_id
+                  AND sma.collection_id = sc.id
+                  AND sma.status IN ('active', 'approved')
+             )`
+          );
+        } else if (menuAiState === 'review_required') {
+          conditions.push(
+            `EXISTS (
+               SELECT 1
+                 FROM shopify_collection_menu_assignments sma
+                WHERE sma.shop_id = sc.shop_id
+                  AND sma.collection_id = sc.id
+                  AND sma.status = 'proposed'
+             )`
+          );
+        } else if (menuAiState === 'multiparent') {
+          conditions.push(
+            `(SELECT COUNT(*)
+                FROM shopify_collection_menu_assignments sma
+               WHERE sma.shop_id = sc.shop_id
+                 AND sma.collection_id = sc.id
+                 AND sma.status IN ('active', 'approved')) > 1`
+          );
+        }
         if (minProducts != null && !Number.isNaN(minProducts)) {
           conditions.push(`sc.products_count >= $${paramIdx}`);
           params.push(minProducts);
@@ -594,6 +621,8 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           parent_title: string | null;
           menu_level: number | null;
           menu_path: string | null;
+          menu_assignment_count: number;
+          menu_review_count: number;
           total_count: string;
         }>(
           `SELECT sc.id,
@@ -614,6 +643,20 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                   parent_sc.title AS parent_title,
                   sc.menu_level,
                   sc.menu_path,
+                  COALESCE((
+                    SELECT COUNT(*)::int
+                      FROM shopify_collection_menu_assignments sma
+                     WHERE sma.shop_id = sc.shop_id
+                       AND sma.collection_id = sc.id
+                       AND sma.status IN ('active', 'approved')
+                  ), 0) AS menu_assignment_count,
+                  COALESCE((
+                    SELECT COUNT(*)::int
+                      FROM shopify_collection_menu_assignments sma
+                     WHERE sma.shop_id = sc.shop_id
+                       AND sma.collection_id = sc.id
+                       AND sma.status = 'proposed'
+                  ), 0) AS menu_review_count,
                   COUNT(*) OVER()::text AS total_count
            FROM shopify_collections sc
            LEFT JOIN shopify_collections parent_sc
@@ -657,6 +700,8 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
         parent_title: r.parent_title,
         menu_level: r.menu_level,
         menu_path: r.menu_path,
+        menu_assignment_count: r.menu_assignment_count,
+        menu_review_count: r.menu_review_count,
       }));
 
       return reply.send(
@@ -694,6 +739,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
       const hasTaxonomy = query['hasTaxonomy'] ?? 'all';
       const hasTranslation = query['hasTranslation'] ?? 'all';
       const menuLevel = query['menuLevel'] ?? 'all';
+      const menuAiState = query['menuAiState'] ?? 'all';
 
       const ids = await withTenantContext(session.shopId, async (client) => {
         const params: unknown[] = [session.shopId];
@@ -734,6 +780,35 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
             conditions.push(`menu_level = $${paramIdx}`);
             params.push(parsedMenuLevel);
           }
+        }
+        if (menuAiState === 'has_assignments') {
+          conditions.push(
+            `EXISTS (
+               SELECT 1
+                 FROM shopify_collection_menu_assignments m
+                WHERE m.collection_id = shopify_collections.id
+                  AND m.shop_id = shopify_collections.shop_id
+                  AND m.status IN ('active', 'approved')
+             )`
+          );
+        } else if (menuAiState === 'review_required') {
+          conditions.push(
+            `EXISTS (
+               SELECT 1
+                 FROM shopify_collection_menu_assignments m
+                WHERE m.collection_id = shopify_collections.id
+                  AND m.shop_id = shopify_collections.shop_id
+                  AND m.status = 'proposed'
+             )`
+          );
+        } else if (menuAiState === 'multiparent') {
+          conditions.push(
+            `(SELECT COUNT(*)
+                FROM shopify_collection_menu_assignments m
+               WHERE m.collection_id = shopify_collections.id
+                 AND m.shop_id = shopify_collections.shop_id
+                 AND m.status IN ('active', 'approved')) > 1`
+          );
         }
 
         const r = await client.query<{ id: string }>(
@@ -866,6 +941,8 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           parent_title: string | null;
           menu_level: number | null;
           menu_path: string | null;
+          menu_assignment_count: number;
+          menu_review_count: number;
         }>(
           `SELECT sc.id,
                   sc.shopify_gid,
@@ -884,7 +961,21 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                   sc.parent_collection_id,
                   parent_sc.title AS parent_title,
                   sc.menu_level,
-                  sc.menu_path
+                  sc.menu_path,
+                  COALESCE((
+                    SELECT COUNT(*)::int
+                      FROM shopify_collection_menu_assignments sma
+                     WHERE sma.shop_id = sc.shop_id
+                       AND sma.collection_id = sc.id
+                       AND sma.status IN ('active', 'approved')
+                  ), 0) AS menu_assignment_count,
+                  COALESCE((
+                    SELECT COUNT(*)::int
+                      FROM shopify_collection_menu_assignments sma
+                     WHERE sma.shop_id = sc.shop_id
+                       AND sma.collection_id = sc.id
+                       AND sma.status = 'proposed'
+                  ), 0) AS menu_review_count
            FROM shopify_collections sc
            LEFT JOIN shopify_collections parent_sc
              ON parent_sc.id = sc.parent_collection_id
@@ -931,9 +1022,491 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
             parent_title: row.parent_title,
             menu_level: row.menu_level,
             menu_path: row.menu_path,
+            menu_assignment_count: row.menu_assignment_count,
+            menu_review_count: row.menu_review_count,
           },
         })
       );
+    }
+  );
+
+  server.post(
+    '/collections/menu-items/regenerate-embeddings',
+    {
+      preHandler: [requireAdminSession],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+
+      try {
+        const result = await syncMenuItemEmbeddings({
+          shopId: session.shopId,
+          env: options.env,
+          logger: options.logger,
+          force: true,
+        });
+        return reply.send(
+          successEnvelope(request.id, {
+            embedded: result.embedded,
+            total: result.total,
+            errors: result.errors,
+          })
+        );
+      } catch (error) {
+        return reply
+          .status(400)
+          .send(
+            errorEnvelope(
+              request.id,
+              400,
+              'BAD_REQUEST',
+              error instanceof Error ? error.message : 'Regenerarea embedding-urilor a eșuat.'
+            )
+          );
+      }
+    }
+  );
+
+  server.get(
+    '/collections/:id/menu-assignment-status',
+    {
+      preHandler: [requireAdminSession],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      const collectionId = (request.params as { id?: string }).id;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      if (!collectionId?.trim()) {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing collection id'));
+      }
+
+      const status = await getMenuAssignmentStatus({
+        shopId: session.shopId,
+        collectionId,
+      });
+      if (!status) {
+        return reply
+          .status(404)
+          .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Collection not found'));
+      }
+
+      return reply.send(successEnvelope(request.id, status));
+    }
+  );
+
+  server.post(
+    '/collections/:id/assign-menu-ai',
+    {
+      preHandler: [requireAdminSession],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      const collectionId = (request.params as { id?: string }).id;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      if (!collectionId?.trim()) {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing collection id'));
+      }
+
+      reply.hijack();
+      const raw = reply.raw;
+      raw.writeHead(200, {
+        'Content-Type': 'application/x-ndjson',
+        'Cache-Control': 'no-cache',
+        'X-Content-Type-Options': 'nosniff',
+      });
+
+      const emit = (event: Record<string, unknown>) => {
+        try {
+          raw.write(JSON.stringify(event) + '\n');
+        } catch {
+          /* closed */
+        }
+      };
+
+      try {
+        const collectionRow = await getCollectionAiContext({
+          shopId: session.shopId,
+          collectionId,
+        });
+        if (!collectionRow?.title) {
+          emit({ type: 'error', message: 'Colecția nu a fost găsită.' });
+          return;
+        }
+
+        emit({ type: 'menu_assign_start', total: 1 });
+        emit({
+          type: 'menu_assign_collection_start',
+          collectionId,
+          collectionTitle: collectionRow.title,
+          index: 0,
+          total: 1,
+        });
+
+        const result = await executeMenuAssignmentForCollection({
+          shopId: session.shopId,
+          collectionId,
+          env: options.env,
+          logger: options.logger,
+          onProgress: (step, message, status) => {
+            emit({
+              type: 'menu_assign_progress',
+              collectionId,
+              step,
+              message,
+              ...(status ? { status } : {}),
+            });
+          },
+        });
+
+        emit({
+          type: 'menu_assign_collection_result',
+          collectionId,
+          collectionTitle: collectionRow.title,
+          status: result.status,
+          assignments: result.assignments,
+          reviewRequired: result.reviewRequired,
+          message: result.message,
+          primaryCount: result.primaryCount,
+          secondaryCount: result.secondaryCount,
+          proposedCount: result.proposedCount,
+          missingPathProposal: result.missingPathProposal,
+          consensusMethod: result.consensusMethod ?? null,
+          consensusScore: result.consensusScore ?? null,
+        });
+        emit({ type: 'menu_assign_done' });
+      } catch (error) {
+        options.logger.error({ err: error, collectionId }, 'Single menu assignment failed');
+        emit({
+          type: 'error',
+          message:
+            error instanceof Error ? error.message : 'Eroare internă la asignarea categoriilor AI.',
+        });
+      } finally {
+        raw.end();
+      }
+    }
+  );
+
+  server.post(
+    '/collections/bulk/assign-menu-ai',
+    {
+      preHandler: [requireAdminSession],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+
+      const body = (request.body ?? {}) as { collectionIds?: unknown };
+      const rawIds = Array.isArray(body.collectionIds) ? body.collectionIds : [];
+      const collectionIds = rawIds
+        .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+        .slice(0, 50);
+      if (collectionIds.length === 0) {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing or invalid collectionIds'));
+      }
+
+      reply.hijack();
+      const raw = reply.raw;
+      raw.writeHead(200, {
+        'Content-Type': 'application/x-ndjson',
+        'Cache-Control': 'no-cache',
+        'X-Content-Type-Options': 'nosniff',
+      });
+
+      const emit = (event: Record<string, unknown>) => {
+        try {
+          raw.write(JSON.stringify(event) + '\n');
+        } catch {
+          /* closed */
+        }
+      };
+
+      try {
+        emit({ type: 'menu_assign_start', total: collectionIds.length });
+        for (let index = 0; index < collectionIds.length; index += 1) {
+          const collectionId = collectionIds[index]!;
+          const collectionRow = await getCollectionAiContext({
+            shopId: session.shopId,
+            collectionId,
+          });
+          const collectionTitle = collectionRow?.title ?? collectionId;
+
+          emit({
+            type: 'menu_assign_collection_start',
+            collectionId,
+            collectionTitle,
+            index,
+            total: collectionIds.length,
+          });
+
+          try {
+            const result = await executeMenuAssignmentForCollection({
+              shopId: session.shopId,
+              collectionId,
+              env: options.env,
+              logger: options.logger,
+              onProgress: (step, message, status) => {
+                emit({
+                  type: 'menu_assign_progress',
+                  collectionId,
+                  step,
+                  message,
+                  ...(status ? { status } : {}),
+                });
+              },
+            });
+
+            emit({
+              type: 'menu_assign_collection_result',
+              collectionId,
+              collectionTitle,
+              status: result.status,
+              assignments: result.assignments,
+              reviewRequired: result.reviewRequired,
+              message: result.message,
+              primaryCount: result.primaryCount,
+              secondaryCount: result.secondaryCount,
+              proposedCount: result.proposedCount,
+              missingPathProposal: result.missingPathProposal,
+              consensusMethod: result.consensusMethod ?? null,
+              consensusScore: result.consensusScore ?? null,
+            });
+          } catch (error) {
+            options.logger.error({ err: error, collectionId }, 'Bulk menu assignment failed');
+            emit({
+              type: 'menu_assign_collection_result',
+              collectionId,
+              collectionTitle,
+              status: 'error',
+              assignments: [],
+              reviewRequired: false,
+              message: error instanceof Error ? error.message : 'Eroare internă.',
+              primaryCount: 0,
+              secondaryCount: 0,
+              proposedCount: 0,
+              missingPathProposal: null,
+            });
+          }
+        }
+        emit({ type: 'menu_assign_done' });
+      } catch (error) {
+        options.logger.error({ err: error }, 'Bulk menu assignment stream failed');
+        emit({
+          type: 'error',
+          message: error instanceof Error ? error.message : 'Eroare internă la bulk menu AI.',
+        });
+      } finally {
+        raw.end();
+      }
+    }
+  );
+
+  server.post(
+    '/collections/:id/menu-assignments/:assignmentId/approve',
+    {
+      preHandler: [requireAdminSession],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      const { id: collectionId, assignmentId } = request.params as {
+        id?: string;
+        assignmentId?: string;
+      };
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      if (!collectionId?.trim() || !assignmentId?.trim()) {
+        return reply
+          .status(400)
+          .send(
+            errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing collection or assignment id')
+          );
+      }
+
+      try {
+        const updated = await approveMenuAssignment({
+          shopId: session.shopId,
+          collectionId,
+          assignmentId,
+          actor: 'admin-ui',
+        });
+        if (!updated) {
+          return reply
+            .status(404)
+            .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Assignment not found'));
+        }
+        const status = await getMenuAssignmentStatus({ shopId: session.shopId, collectionId });
+        return reply.send(successEnvelope(request.id, { updated: true, status }));
+      } catch (error) {
+        return reply
+          .status(400)
+          .send(
+            errorEnvelope(
+              request.id,
+              400,
+              'BAD_REQUEST',
+              error instanceof Error ? error.message : 'Aprobarea a eșuat.'
+            )
+          );
+      }
+    }
+  );
+
+  server.post(
+    '/collections/:id/menu-assignments/:assignmentId/reject',
+    {
+      preHandler: [requireAdminSession],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      const { id: collectionId, assignmentId } = request.params as {
+        id?: string;
+        assignmentId?: string;
+      };
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      if (!collectionId?.trim() || !assignmentId?.trim()) {
+        return reply
+          .status(400)
+          .send(
+            errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing collection or assignment id')
+          );
+      }
+
+      const updated = await rejectMenuAssignment({
+        shopId: session.shopId,
+        collectionId,
+        assignmentId,
+        actor: 'admin-ui',
+      });
+      if (!updated) {
+        return reply
+          .status(404)
+          .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Assignment not found'));
+      }
+      const status = await getMenuAssignmentStatus({ shopId: session.shopId, collectionId });
+      return reply.send(successEnvelope(request.id, { updated: true, status }));
+    }
+  );
+
+  server.patch(
+    '/collections/:id/menu-assignments/:assignmentId/primary',
+    {
+      preHandler: [requireAdminSession],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      const { id: collectionId, assignmentId } = request.params as {
+        id?: string;
+        assignmentId?: string;
+      };
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      if (!collectionId?.trim() || !assignmentId?.trim()) {
+        return reply
+          .status(400)
+          .send(
+            errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing collection or assignment id')
+          );
+      }
+
+      try {
+        const updated = await setPrimaryMenuAssignment({
+          shopId: session.shopId,
+          collectionId,
+          assignmentId,
+          actor: 'admin-ui',
+        });
+        if (!updated) {
+          return reply
+            .status(404)
+            .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Assignment not found'));
+        }
+        const status = await getMenuAssignmentStatus({ shopId: session.shopId, collectionId });
+        return reply.send(successEnvelope(request.id, { updated: true, status }));
+      } catch (error) {
+        return reply
+          .status(400)
+          .send(
+            errorEnvelope(
+              request.id,
+              400,
+              'BAD_REQUEST',
+              error instanceof Error ? error.message : 'Setarea primarei a eșuat.'
+            )
+          );
+      }
+    }
+  );
+
+  server.delete(
+    '/collections/:id/menu-assignments/:assignmentId',
+    {
+      preHandler: [requireAdminSession],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      const { id: collectionId, assignmentId } = request.params as {
+        id?: string;
+        assignmentId?: string;
+      };
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      if (!collectionId?.trim() || !assignmentId?.trim()) {
+        return reply
+          .status(400)
+          .send(
+            errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing collection or assignment id')
+          );
+      }
+
+      const removed = await deleteMenuAssignment({
+        shopId: session.shopId,
+        collectionId,
+        assignmentId,
+        actor: 'admin-ui',
+      });
+      if (!removed) {
+        return reply
+          .status(404)
+          .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Assignment not found'));
+      }
+      const status = await getMenuAssignmentStatus({ shopId: session.shopId, collectionId });
+      return reply.send(successEnvelope(request.id, { removed: true, status }));
     }
   );
 
@@ -1108,19 +1681,30 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                 step: 'translate',
                 message: `${progress} Traduc „${collectionRow.title}"...`,
               });
-              effectiveTitleEn = await translateTitleToEnglish({
+              const translatedTitle = await translateTitleToEnglish({
+                shopId: session.shopId,
                 title: collectionRow.title,
                 description: collectionRow.description,
                 menuPath: collectionRow.menuPath,
                 menuLevel: collectionRow.menuLevel,
                 parentTitle: collectionRow.parentTitle,
+                env: options.env,
                 productSamples,
                 ...(txCreds.apiKey ? { apiKey: txCreds.apiKey } : {}),
                 ...(txBaseUrl != null ? { baseUrl: txBaseUrl } : {}),
                 model: txCreds.model,
                 timeoutMs: 30_000,
                 logger: options.logger,
+                onConsensusProgress: (event) =>
+                  emit({
+                    type: 'collection_progress',
+                    collectionId,
+                    step: event.step,
+                    message: `${progress} ${event.message}`,
+                    ...(event.status ? { status: event.status } : {}),
+                  }),
               });
+              effectiveTitleEn = translatedTitle?.categoryEn ?? null;
               if (effectiveTitleEn) {
                 await withTenantContext(session.shopId, async (client) => {
                   await client.query(
@@ -1185,10 +1769,11 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
               message: `${progress} Caut taxonomii compatibile...`,
             });
             const bkSearchTitle = effectiveTitleEn ?? collectionRow.title;
-            const bkTokens = bkSearchTitle
+            const bkAllTokens = bkSearchTitle
               .split(/[\s,\-—–]+/)
               .map((t) => t.trim().toLowerCase())
               .filter((t) => t.length >= 3);
+            const bkTokens = filterKeywordTokens(bkAllTokens);
             const [bkVecRes, bkKwRes] = await Promise.all([
               withTenantContext(session.shopId, async (client) => {
                 const vec = toPgVectorLiteral(embedding);
@@ -1217,7 +1802,8 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
             const bkBoosts: { id: string; name: string; similarity: number }[] = [];
             for (const kw of bkKwRes) {
               if (!bkSeen.has(kw.id)) {
-                bkBoosts.push({ id: kw.id, name: kw.name, similarity: 0.85 });
+                const kwScore = scoreKeywordMatch(kw.name, bkTokens);
+                bkBoosts.push({ id: kw.id, name: kw.name, similarity: kwScore });
                 bkSeen.add(kw.id);
               }
             }
@@ -1265,6 +1851,14 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
               model: classificationCreds.model,
               timeoutMs: options.env.openAiTimeoutMs,
               logger: options.logger,
+              onConsensusProgress: (event) =>
+                emit({
+                  type: 'collection_progress',
+                  collectionId,
+                  step: event.step,
+                  message: `${progress} ${event.message}`,
+                  ...(event.status ? { status: event.status } : {}),
+                }),
             });
 
             if (!classification || classification.confidence < CONFIDENCE_THRESHOLD) {
@@ -1283,6 +1877,8 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                 status: 'low_confidence',
                 taxonomyName: classification?.taxonomyName ?? vectorCandidates[0]?.name ?? null,
                 confidence: classification?.confidence ?? null,
+                consensusMethod: classification?.consensusMethod ?? null,
+                consensusScore: classification?.consensusScore ?? null,
                 message: `Confidență scăzută (${pct}%): „${classification?.taxonomyName ?? 'N/A'}"`,
               });
               continue;
@@ -1338,6 +1934,8 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
               taxonomyId: classification.taxonomyId,
               taxonomyName: classification.taxonomyName,
               confidence: classification.confidence,
+              consensusMethod: classification.consensusMethod ?? null,
+              consensusScore: classification.consensusScore ?? null,
               message: `„${classification.taxonomyName}" — ${pct}% confidență`,
             });
           } catch (err) {
@@ -1460,33 +2058,48 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           message: `Traduc „${collectionRow.title}" cu AI...`,
         });
         const translated = await translateTitleToEnglish({
+          shopId: session.shopId,
           title: collectionRow.title,
           description: collectionRow.description,
           menuPath: collectionRow.menuPath,
           menuLevel: collectionRow.menuLevel,
           parentTitle: collectionRow.parentTitle,
+          env: options.env,
           productSamples: samples,
           ...(txCreds.apiKey ? { apiKey: txCreds.apiKey } : {}),
           baseUrl: txCreds.baseUrl,
           model: txCreds.model,
           timeoutMs: 30_000,
           logger: options.logger,
+          onConsensusProgress: (event) =>
+            emit({
+              type: 'progress',
+              step: event.step,
+              message: event.message,
+              ...(event.status ? { status: event.status } : {}),
+            }),
         });
 
         if (translated) {
           await withTenantContext(session.shopId, async (client) => {
             await client.query(
               `UPDATE shopify_collections SET title_en = $1, updated_at = now() WHERE id = $2 AND shop_id = $3`,
-              [translated, collectionId, session.shopId]
+              [translated.categoryEn, collectionId, session.shopId]
             );
           });
           emit({
             type: 'progress',
             step: 'translate',
             status: 'done',
-            message: `Traducere: „${translated}"`,
+            message: `Traducere: „${translated.categoryEn}"`,
           });
-          emit({ type: 'result', status: 'translated', titleEn: translated });
+          emit({
+            type: 'result',
+            status: 'translated',
+            titleEn: translated.categoryEn,
+            consensusMethod: translated.consensusMethod,
+            consensusScore: translated.consensusScore,
+          });
         } else {
           emit({
             type: 'progress',
@@ -1635,19 +2248,29 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
             step: 'translate',
             message: `Traduc „${collectionRow.title}" în engleză...`,
           });
-          effectiveTitleEn = await translateTitleToEnglish({
+          const translatedTitle = await translateTitleToEnglish({
+            shopId: session.shopId,
             title: collectionRow.title,
             description: collectionRow.description,
             menuPath: collectionRow.menuPath,
             menuLevel: collectionRow.menuLevel,
             parentTitle: collectionRow.parentTitle,
+            env: options.env,
             productSamples: singleProductSamples,
             ...(txCreds.apiKey ? { apiKey: txCreds.apiKey } : {}),
             ...(txBaseUrl != null ? { baseUrl: txBaseUrl } : {}),
             model: txCreds.model,
             timeoutMs: 30_000,
             logger: options.logger,
+            onConsensusProgress: (event) =>
+              emit({
+                type: 'progress',
+                step: event.step,
+                message: event.message,
+                ...(event.status ? { status: event.status } : {}),
+              }),
           });
+          effectiveTitleEn = translatedTitle?.categoryEn ?? null;
           if (effectiveTitleEn) {
             await withTenantContext(session.shopId, async (client) => {
               await client.query(
@@ -1700,10 +2323,11 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
         });
         const VECTOR_CANDIDATES = 40;
         const searchTitle = effectiveTitleEn ?? collectionRow.title;
-        const keywordTokens = searchTitle
+        const allKeywordTokens = searchTitle
           .split(/[\s,\-—–]+/)
           .map((t) => t.trim().toLowerCase())
           .filter((t) => t.length >= 3);
+        const keywordTokens = filterKeywordTokens(allKeywordTokens);
 
         const [vectorResults, keywordResults] = await Promise.all([
           withTenantContext(session.shopId, async (client) => {
@@ -1744,7 +2368,8 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
         const keywordBoosts: { id: string; name: string; similarity: number }[] = [];
         for (const kw of keywordResults) {
           if (!seenIds.has(kw.id)) {
-            keywordBoosts.push({ id: kw.id, name: kw.name, similarity: 0.85 });
+            const kwScore = scoreKeywordMatch(kw.name, keywordTokens);
+            keywordBoosts.push({ id: kw.id, name: kw.name, similarity: kwScore });
             seenIds.add(kw.id);
           }
         }
@@ -1787,6 +2412,13 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           model: classificationCreds.model,
           timeoutMs: options.env.openAiTimeoutMs,
           logger: options.logger,
+          onConsensusProgress: (event) =>
+            emit({
+              type: 'progress',
+              step: event.step,
+              message: event.message,
+              ...(event.status ? { status: event.status } : {}),
+            }),
         });
 
         options.logger.info(
@@ -1821,6 +2453,8 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
             status: 'low_confidence',
             taxonomyName: classification?.taxonomyName ?? vectorCandidates[0]?.name ?? null,
             confidence: classification?.confidence ?? null,
+            consensusMethod: classification?.consensusMethod ?? null,
+            consensusScore: classification?.consensusScore ?? null,
             message: `Confidență scăzută (${pct}%): „${classification?.taxonomyName ?? 'N/A'}". Atribuiți manual.`,
             reasoning: classification?.reasoning ?? null,
             candidates: topCandidates,
@@ -1877,6 +2511,8 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           taxonomyId: classification.taxonomyId,
           taxonomyName: classification.taxonomyName,
           confidence: classification.confidence,
+          consensusMethod: classification.consensusMethod ?? null,
+          consensusScore: classification.consensusScore ?? null,
           reasoning: classification.reasoning,
           translatedText: classification.translatedQuery,
           detectedLanguage: classification.detectedLanguage,
@@ -2082,24 +2718,34 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
               message: `${progress} Traduc „${col.title}"...`,
             });
             const translatedTitle = await translateTitleToEnglish({
+              shopId: session.shopId,
               title: col.title,
               description: col.description,
               menuPath: col.menuPath,
               menuLevel: col.menuLevel,
               parentTitle: col.parentTitle,
+              env: options.env,
               productSamples: samples,
               ...(translateCreds.apiKey ? { apiKey: translateCreds.apiKey } : {}),
               baseUrl: translateCreds.baseUrl,
               model: translateCreds.model,
               timeoutMs: 30_000,
               logger: options.logger,
+              onConsensusProgress: (event) =>
+                emit({
+                  type: 'translate_progress',
+                  collectionId: col.id,
+                  step: event.step,
+                  message: `${progress} ${event.message}`,
+                  ...(event.status ? { status: event.status } : {}),
+                }),
             });
 
             if (translatedTitle) {
               await withTenantContext(session.shopId, async (client) => {
                 await client.query(
                   `UPDATE shopify_collections SET title_en = $1, updated_at = now() WHERE id = $2 AND shop_id = $3`,
-                  [translatedTitle, col.id, session.shopId]
+                  [translatedTitle.categoryEn, col.id, session.shopId]
                 );
               });
               translated++;
@@ -2108,14 +2754,16 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                 collectionId: col.id,
                 step: 'translate',
                 status: 'done',
-                message: `${progress} „${translatedTitle}"`,
+                message: `${progress} „${translatedTitle.categoryEn}"`,
               });
               emit({
                 type: 'translate_collection_result',
                 collectionId: col.id,
                 collectionTitle: col.title,
                 status: 'translated',
-                titleEn: translatedTitle,
+                titleEn: translatedTitle.categoryEn,
+                consensusMethod: translatedTitle.consensusMethod,
+                consensusScore: translatedTitle.consensusScore,
               });
             } else {
               emit({

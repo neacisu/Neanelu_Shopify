@@ -8,11 +8,8 @@ import {
   PIM_CATEGORY_CLASSIFIER_QUEUE_NAME,
 } from '../../queue/category-classifier-queue.js';
 import { enqueueCollectionMetafieldPushJob } from '../../queue/collection-metafield-push-queue.js';
-import {
-  resolveChatTaskCredentials,
-  resolveEmbeddingsProvider,
-} from '../../services/ai-provider-routing.js';
-import { scanInput, scanOutput } from '../../services/guardrails.js';
+import { resolveEmbeddingsProvider } from '../../services/ai-provider-routing.js';
+import { consensusChatCompletion } from '../../services/consensus-engine.js';
 import { normalizeText, toPgVectorLiteral } from '../bulk-operations/pim/vector.js';
 
 type CategoryClassifierPayload = Readonly<{
@@ -33,14 +30,6 @@ type ProductContext = Readonly<{
   canonical_title: string | null;
   brand: string | null;
   specs: Record<string, unknown> | null;
-}>;
-
-type XaiResponse = Readonly<{
-  choices?: readonly Readonly<{
-    message?: Readonly<{
-      content?: string | null;
-    }> | null;
-  }>[];
 }>;
 
 const EMBEDDING_CONFIDENCE_THRESHOLD = 0.82;
@@ -263,13 +252,6 @@ async function classifyWithLLMFallback(params: {
   logger: Logger;
 }): Promise<{ taxonomyId: string; confidence: number } | null> {
   if (params.options.length === 0) return null;
-  const creds = await resolveChatTaskCredentials({
-    shopId: params.shopId,
-    taskType: 'classification',
-    env: params.env,
-    logger: params.logger,
-  });
-  if (!creds) return null;
 
   const optionsBlock = params.options.map((o) => `- ${o.id} | ${o.name} | ${o.slug}`).join('\n');
   const prompt = [
@@ -281,53 +263,23 @@ async function classifyWithLLMFallback(params: {
     'Optiuni:',
     optionsBlock,
   ].join('\n');
-  const inputScan = await scanInput({
+  const consensus = await consensusChatCompletion<{
+    taxonomyId?: string;
+    confidence?: number;
+  }>({
     shopId: params.shopId,
-    text: prompt,
     env: params.env,
     logger: params.logger,
-  });
-  if (!inputScan.isValid) return null;
+    taskType: 'classification',
+    systemPrompt: 'Esti un clasificator de taxonomie produse. Raspunzi doar JSON valid.',
+    userPrompt: prompt,
+    responseFormat: { type: 'json_object' },
+    keyField: 'taxonomyId',
+    maxTokens: 300,
+  }).catch(() => null);
+  if (!consensus) return null;
 
-  const normalizedBase = creds.baseUrl.replace(/\/$/, '');
-  const completionsUrl = normalizedBase.endsWith('/v1')
-    ? `${normalizedBase}/chat/completions`
-    : `${normalizedBase}/v1/chat/completions`;
-
-  const response = await fetch(completionsUrl, {
-    method: 'POST',
-    headers: {
-      ...(creds.apiKey ? { Authorization: `Bearer ${creds.apiKey}` } : {}),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: creds.model,
-      temperature: creds.temperature,
-      max_tokens: Math.max(200, Math.min(creds.maxTokensPerRequest, 1200)),
-      messages: [
-        {
-          role: 'system',
-          content: 'Esti un clasificator de taxonomie produse. Raspunzi doar JSON valid.',
-        },
-        {
-          role: 'user',
-          content: inputScan.sanitizedText,
-        },
-      ],
-    }),
-  });
-  if (!response.ok) return null;
-
-  const payload = (await response.json()) as XaiResponse;
-  const outputRaw = payload.choices?.[0]?.message?.content?.trim() ?? '';
-  const outputScan = await scanOutput({
-    shopId: params.shopId,
-    prompt: inputScan.sanitizedText,
-    output: outputRaw,
-    env: params.env,
-    logger: params.logger,
-  });
-  const raw = outputScan.sanitizedText.trim();
+  const raw = JSON.stringify(consensus.result).trim();
   if (!raw) return null;
 
   const extracted = extractJsonObject(raw);

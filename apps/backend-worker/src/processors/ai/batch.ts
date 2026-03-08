@@ -15,7 +15,11 @@ import type {
   AiEmbeddingType,
 } from '@app/types';
 import { getShopOpenAiConfig } from '../../runtime/openai-config.js';
-import { resolveEmbeddingsProvider } from '../../services/ai-provider-routing.js';
+import type { resolveEmbeddingsProvider } from '../../services/ai-provider-routing.js';
+import {
+  generateDualEmbeddingsBatch,
+  resolveDualEmbeddingsProviders,
+} from '../../services/multi-model-embedding.js';
 
 import { normalizeText, toPgVectorLiteral } from '../bulk-operations/pim/vector.js';
 import { classifyEmbeddingError } from './error-classifier.js';
@@ -46,6 +50,8 @@ export type ExistingEmbeddingRow = Readonly<{
   status: string | null;
   retryCount: number | null;
   errorMessage: string | null;
+  secondaryModelVersion?: string | null;
+  hasSecondaryEmbedding?: boolean;
 }>;
 
 function extractProductIds(payload: unknown): string[] | null {
@@ -176,6 +182,7 @@ export function computeEmbeddingCandidates(params: {
   existing: ReadonlyMap<string, ExistingEmbeddingRow>;
   embeddingType: string;
   maxRetries: number;
+  requiredSecondaryModel?: string | null;
 }): CandidateSummary {
   const candidates: EmbeddingCandidate[] = [];
   let unchanged = 0;
@@ -223,7 +230,14 @@ export function computeEmbeddingCandidates(params: {
       continue;
     }
 
-    if (existing?.contentHash === contentHash) {
+    const needsSecondaryRefresh = Boolean(
+      existing?.contentHash === contentHash &&
+      params.requiredSecondaryModel &&
+      (!existing?.hasSecondaryEmbedding ||
+        existing.secondaryModelVersion !== params.requiredSecondaryModel)
+    );
+
+    if (existing?.contentHash === contentHash && !needsSecondaryRefresh) {
       unchanged += 1;
       continue;
     }
@@ -391,11 +405,13 @@ async function writeJsonlTempFile(params: {
 
 export async function runSelfhostedEmbeddingSync(params: {
   shopId: string;
+  env: ReturnType<typeof loadEnv>;
   embeddingType: string;
   model: string;
   dimensions: number;
   candidates: readonly EmbeddingCandidate[];
-  provider: Awaited<ReturnType<typeof resolveEmbeddingsProvider>>;
+  primaryProvider: Awaited<ReturnType<typeof resolveEmbeddingsProvider>>;
+  secondaryProvider: Awaited<ReturnType<typeof resolveDualEmbeddingsProviders>>['secondary'];
   logger: Logger;
 }): Promise<{ completedItems: number; failedItems: number }> {
   const CHUNK_SIZE = 10;
@@ -406,10 +422,18 @@ export async function runSelfhostedEmbeddingSync(params: {
       const chunk = params.candidates.slice(i, i + CHUNK_SIZE);
       const texts = chunk.map((candidate) => candidate.content);
       try {
-        const embeddings = await params.provider.embedTexts(texts);
+        const embeddings = await generateDualEmbeddingsBatch({
+          shopId: params.shopId,
+          env: params.env,
+          logger: params.logger,
+          texts,
+          primary: params.primaryProvider,
+          secondary: params.secondaryProvider,
+        });
         for (let j = 0; j < chunk.length; j += 1) {
           const candidate = chunk[j];
-          const embedding = embeddings[j];
+          const embedding = embeddings.primaryEmbeddings[j];
+          const secondaryEmbedding = embeddings.secondaryEmbeddings[j] ?? null;
           if (!candidate || embedding?.length !== params.dimensions) {
             failedItems += 1;
             continue;
@@ -423,6 +447,8 @@ export async function runSelfhostedEmbeddingSync(params: {
                embedding,
                content_hash,
                model_version,
+               embedding_secondary,
+               model_version_secondary,
                dimensions,
                quality_level,
                source,
@@ -433,11 +459,13 @@ export async function runSelfhostedEmbeddingSync(params: {
                created_at,
                updated_at
              )
-             VALUES ($1, $2, $3, $4::vector(2000), $5, $6, $7, 'bronze', 'shopify', 'ro', 'ready', NULL, now(), now(), now())
+             VALUES ($1, $2, $3, $4::vector(2000), $5, $6, $7::vector(2000), $8, $9, 'bronze', 'shopify', 'ro', 'ready', NULL, now(), now(), now())
              ON CONFLICT (shop_id, product_id, content_hash, embedding_type, model_version)
              DO UPDATE SET
                embedding = EXCLUDED.embedding,
                content_hash = EXCLUDED.content_hash,
+               embedding_secondary = EXCLUDED.embedding_secondary,
+               model_version_secondary = EXCLUDED.model_version_secondary,
                dimensions = EXCLUDED.dimensions,
                quality_level = EXCLUDED.quality_level,
                source = EXCLUDED.source,
@@ -453,6 +481,8 @@ export async function runSelfhostedEmbeddingSync(params: {
               vec,
               candidate.contentHash,
               params.model,
+              secondaryEmbedding ? toPgVectorLiteral(secondaryEmbedding) : null,
+              embeddings.secondaryModel,
               params.dimensions,
             ]
           );
@@ -477,65 +507,69 @@ export async function runAiBatchOrchestrator(params: {
     { 'ai.shop_id': payload.shopId, 'ai.embedding_type': payload.embeddingType },
     async () => {
       const env = loadEnv();
-      const provider = await resolveEmbeddingsProvider({
+      const providers = await resolveDualEmbeddingsProviders({
         shopId: payload.shopId,
         env,
         logger,
       });
+      const provider = providers.primary;
 
       const model = payload.model ?? provider.model.name;
       const dimensions =
         payload.dimensions ?? env.openAiEmbeddingDimensions ?? provider.model.dimensions;
       const maxItems = payload.maxItems ?? env.openAiBatchMaxItems;
 
-      const existingBatch = await withTenantContext(payload.shopId, async (client) => {
-        const res = await client.query<{
-          id: string;
-          openaiBatchId: string | null;
-        }>(
-          `SELECT id,
-                  openai_batch_id as "openaiBatchId"
-             FROM embedding_batches
-            WHERE shop_id = $1
-              AND batch_type = $2
-              AND model = $3
-              AND status IN ('pending', 'submitted', 'processing')
-            ORDER BY created_at DESC
-            LIMIT 1`,
-          [payload.shopId, payload.batchType, model]
-        );
-        return res.rows[0] ?? null;
-      });
+      if (provider.kind !== 'selfhosted') {
+        const existingBatch = await withTenantContext(payload.shopId, async (client) => {
+          const res = await client.query<{
+            id: string;
+            openaiBatchId: string | null;
+          }>(
+            `SELECT id,
+                    openai_batch_id as "openaiBatchId"
+               FROM embedding_batches
+              WHERE shop_id = $1
+                AND batch_type = $2
+                AND model = $3
+                AND status IN ('pending', 'submitted', 'processing')
+              ORDER BY created_at DESC
+              LIMIT 1`,
+            [payload.shopId, payload.batchType, model]
+          );
+          return res.rows[0] ?? null;
+        });
 
-      const openAiBatchId = existingBatch?.openaiBatchId ?? null;
-      if (existingBatch && openAiBatchId) {
-        logger.info(
-          { shopId: payload.shopId, embeddingBatchId: existingBatch.id },
-          'Existing embedding batch in progress; skipping new batch creation'
-        );
-        await withAiSpan(
-          AI_SPAN_NAMES.ENQUEUE,
-          { 'ai.shop_id': payload.shopId, 'ai.batch_id': existingBatch.id },
-          async () =>
-            enqueueAiBatchPollerJob({
-              shopId: payload.shopId,
-              embeddingBatchId: existingBatch.id,
-              openAiBatchId,
-              requestedAt: Date.now(),
-              triggeredBy: payload.triggeredBy,
-              pollAttempt: 0,
-            })
-        );
-        return;
-      }
+        const openAiBatchId = existingBatch?.openaiBatchId ?? null;
+        if (existingBatch && openAiBatchId) {
+          const currentBatch = existingBatch;
+          logger.info(
+            { shopId: payload.shopId, embeddingBatchId: currentBatch.id },
+            'Existing embedding batch in progress; skipping new batch creation'
+          );
+          await withAiSpan(
+            AI_SPAN_NAMES.ENQUEUE,
+            { 'ai.shop_id': payload.shopId, 'ai.batch_id': currentBatch.id },
+            async () =>
+              enqueueAiBatchPollerJob({
+                shopId: payload.shopId,
+                embeddingBatchId: currentBatch.id,
+                openAiBatchId,
+                requestedAt: Date.now(),
+                triggeredBy: payload.triggeredBy,
+                pollAttempt: 0,
+              })
+          );
+          return;
+        }
 
-      const activeBatches = await countActiveEmbeddingBatches();
-      if (activeBatches >= env.openAiBatchMaxGlobal) {
-        logger.info(
-          { shopId: payload.shopId, activeBatches, maxGlobal: env.openAiBatchMaxGlobal },
-          'Max global batches reached; skipping new batch creation'
-        );
-        return;
+        const activeBatches = await countActiveEmbeddingBatches();
+        if (activeBatches >= env.openAiBatchMaxGlobal) {
+          logger.info(
+            { shopId: payload.shopId, activeBatches, maxGlobal: env.openAiBatchMaxGlobal },
+            'Max global batches reached; skipping new batch creation'
+          );
+          return;
+        }
       }
 
       const selection = await withAiSpan(
@@ -561,6 +595,8 @@ export async function runAiBatchOrchestrator(params: {
                         status,
                         retry_count,
                         error_message,
+                       model_version_secondary as "secondaryModelVersion",
+                       (embedding_secondary IS NOT NULL) as "hasSecondaryEmbedding",
                         generated_at
                    FROM shop_product_embeddings
                   WHERE shop_id = $1
@@ -611,6 +647,8 @@ export async function runAiBatchOrchestrator(params: {
                   status: row.status ?? null,
                   retryCount: row.retryCount ?? null,
                   errorMessage: row.errorMessage ?? null,
+                  secondaryModelVersion: row.secondaryModelVersion ?? null,
+                  hasSecondaryEmbedding: Boolean(row.hasSecondaryEmbedding),
                 });
               }
             }
@@ -620,6 +658,7 @@ export async function runAiBatchOrchestrator(params: {
               existing: existingMap,
               embeddingType: payload.embeddingType,
               maxRetries: env.openAiEmbeddingMaxRetries,
+              requiredSecondaryModel: providers.secondary?.model.name ?? null,
             });
           })
       );
@@ -661,11 +700,13 @@ export async function runAiBatchOrchestrator(params: {
       if (provider.kind === 'selfhosted') {
         const syncResult = await runSelfhostedEmbeddingSync({
           shopId: payload.shopId,
+          env,
           embeddingType: payload.embeddingType,
           model,
           dimensions,
           candidates,
-          provider,
+          primaryProvider: provider,
+          secondaryProvider: providers.secondary,
           logger,
         });
         recordAiItemsProcessed(syncResult.completedItems);

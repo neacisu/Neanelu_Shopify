@@ -170,6 +170,12 @@ export type AppEnv = Readonly<{
   bulkSemanticDedupEnabled: boolean;
   bulkConsensusEnabled: boolean;
   bulkExternalConsensusEnabled: boolean;
+  consensusEnabled: boolean;
+  consensusN: number;
+  consensusTimeoutMultiplier: number;
+  consensusSkipThreshold: number;
+  consensusEmbeddingSecondaryEnabled: boolean;
+  consensusMaxRetries: number;
 
   /** Similarity thresholds; can be overridden per shop via settings. */
   bulkDedupeHighThreshold: number;
@@ -638,6 +644,20 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     'BULK_EXTERNAL_CONSENSUS_ENABLED',
     false
   );
+  const consensusEnabled = parseBooleanWithDefault(env, 'CONSENSUS_ENABLED', true);
+  const consensusN = parsePositiveIntWithDefault(env, 'CONSENSUS_N', 4);
+  const consensusTimeoutMultiplier = parsePositiveIntWithDefault(
+    env,
+    'CONSENSUS_TIMEOUT_MULTIPLIER',
+    3
+  );
+  const consensusSkipThreshold = parseFloatWithDefault(env, 'CONSENSUS_SKIP_THRESHOLD', 0.75);
+  const consensusEmbeddingSecondaryEnabled = parseBooleanWithDefault(
+    env,
+    'CONSENSUS_EMBEDDING_SECONDARY_ENABLED',
+    true
+  );
+  const consensusMaxRetries = parsePositiveIntWithDefault(env, 'CONSENSUS_MAX_RETRIES', 1);
 
   const bulkDedupeHighThreshold = parseSimilarityThreshold(env, 'BULK_DEDUPE_HIGH_THRESHOLD', 0.95);
   const bulkDedupeSuspiciousThreshold = parseSimilarityThreshold(
@@ -665,6 +685,16 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
       `Invalid BULK_DEDUPE_HIGH_THRESHOLD: expected >= BULK_DEDUPE_SUSPICIOUS_THRESHOLD (${String(
         bulkDedupeSuspiciousThreshold
       )}), got ${String(bulkDedupeHighThreshold)}`
+    );
+  }
+  if (consensusN < 1 || consensusN > 8) {
+    throw new Error(`Invalid CONSENSUS_N: expected between 1 and 8, got ${String(consensusN)}`);
+  }
+  if (consensusSkipThreshold < 0.5 || consensusSkipThreshold > 1) {
+    throw new Error(
+      `Invalid CONSENSUS_SKIP_THRESHOLD: expected between 0.5 and 1, got ${String(
+        consensusSkipThreshold
+      )}`
     );
   }
 
@@ -751,6 +781,12 @@ export function loadEnv(env: EnvSource = process.env): AppEnv {
     bulkSemanticDedupEnabled,
     bulkConsensusEnabled,
     bulkExternalConsensusEnabled,
+    consensusEnabled,
+    consensusN,
+    consensusTimeoutMultiplier,
+    consensusSkipThreshold,
+    consensusEmbeddingSecondaryEnabled,
+    consensusMaxRetries,
     bulkDedupeHighThreshold,
     bulkDedupeSuspiciousThreshold,
     bulkDedupeNeedsReviewThreshold,

@@ -10,7 +10,10 @@ import { enqueueAiBatchPollerJob } from '@app/queue-manager';
 import { BudgetExceededError, enforceBudget } from '@app/pim';
 
 import { getShopOpenAiConfig } from '../../runtime/openai-config.js';
-import { resolveEmbeddingsProvider } from '../../services/ai-provider-routing.js';
+import {
+  generateDualEmbeddingsBatch,
+  resolveDualEmbeddingsProviders,
+} from '../../services/multi-model-embedding.js';
 import { toPgVectorLiteral } from '../bulk-operations/pim/vector.js';
 import { parseBatchOutputLines, parseBatchErrorLines } from './batch.js';
 
@@ -86,9 +89,85 @@ export async function runTaxonomyBatchOrchestrator(params: {
   const { shopId, logger } = params;
   const env = loadEnv();
 
-  const embeddingProvider = await resolveEmbeddingsProvider({ shopId, env, logger });
+  const providers = await resolveDualEmbeddingsProviders({ shopId, env, logger });
+  const embeddingProvider = providers.primary;
   const model = embeddingProvider.model.name;
   const dimensions = embeddingProvider.model.dimensions;
+
+  const rows = await withTenantContext(shopId, async (client) => {
+    const res = await client.query<TaxonomyRow>(
+      `SELECT id, name, breadcrumbs
+         FROM prod_taxonomy
+        WHERE is_active = true
+          AND (
+                embedding IS NULL
+             OR ($1::text IS NOT NULL AND embedding_secondary IS NULL)
+          )
+        ORDER BY id`,
+      [providers.secondary?.model.name ?? null]
+    );
+    return res.rows;
+  });
+
+  if (rows.length === 0) {
+    logger.info({ shopId }, 'All taxonomy entries already have embeddings');
+    return { alreadyRunning: false, embeddingBatchId: null, totalItems: 0 };
+  }
+
+  if (embeddingProvider.kind === 'selfhosted') {
+    const CHUNK_SIZE = 20;
+    let processed = 0;
+    await withTenantContext(shopId, async (client) => {
+      for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+        const chunk = rows.slice(i, i + CHUNK_SIZE);
+        const texts = chunk.map((row) => buildTaxonomyText(row));
+        const embeddings = await generateDualEmbeddingsBatch({
+          shopId,
+          env,
+          logger,
+          texts,
+          primary: providers.primary,
+          secondary: providers.secondary,
+        });
+        for (let j = 0; j < chunk.length; j += 1) {
+          const row = chunk[j];
+          const embedding = embeddings.primaryEmbeddings[j];
+          const secondaryEmbedding = embeddings.secondaryEmbeddings[j] ?? null;
+          if (!row || !embedding) continue;
+          const vec = toPgVectorLiteral(embedding);
+          await client.query(
+            `UPDATE prod_taxonomy
+                SET embedding = $1::vector(2000),
+                    model_version = $3,
+                    embedding_secondary = $4::vector(2000),
+                    model_version_secondary = $5,
+                    updated_at = now()
+              WHERE id = $2`,
+            [
+              vec,
+              row.id,
+              embeddingProvider.model.name,
+              secondaryEmbedding ? toPgVectorLiteral(secondaryEmbedding) : null,
+              embeddings.secondaryModel,
+            ]
+          );
+          processed += 1;
+        }
+      }
+    });
+    logger.info(
+      {
+        shopId,
+        totalItems: rows.length,
+        completedItems: processed,
+        model: providers.secondary?.isAvailable()
+          ? `${embeddingProvider.model.name} + ${providers.secondary.model.name}`
+          : embeddingProvider.model.name,
+      },
+      'Taxonomy embeddings generated synchronously via selfhosted provider'
+    );
+    return { alreadyRunning: false, embeddingBatchId: null, totalItems: rows.length };
+  }
 
   const existingBatch = await withTenantContext(shopId, async (client) => {
     const res = await client.query<{
@@ -128,60 +207,6 @@ export async function runTaxonomyBatchOrchestrator(params: {
       'Max global batches reached; skipping taxonomy batch creation'
     );
     return { alreadyRunning: false, embeddingBatchId: null, totalItems: 0 };
-  }
-
-  const rows = await withTenantContext(shopId, async (client) => {
-    const res = await client.query<TaxonomyRow>(
-      `SELECT id, name, breadcrumbs
-         FROM prod_taxonomy
-        WHERE is_active = true
-          AND embedding IS NULL
-        ORDER BY id`,
-      []
-    );
-    return res.rows;
-  });
-
-  if (rows.length === 0) {
-    logger.info({ shopId }, 'All taxonomy entries already have embeddings');
-    return { alreadyRunning: false, embeddingBatchId: null, totalItems: 0 };
-  }
-
-  if (embeddingProvider.kind === 'selfhosted') {
-    const CHUNK_SIZE = 20;
-    let processed = 0;
-    await withTenantContext(shopId, async (client) => {
-      for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
-        const chunk = rows.slice(i, i + CHUNK_SIZE);
-        const texts = chunk.map((row) => buildTaxonomyText(row));
-        const embeddings = await embeddingProvider.embedTexts(texts);
-        for (let j = 0; j < chunk.length; j += 1) {
-          const row = chunk[j];
-          const embedding = embeddings[j];
-          if (!row || !embedding) continue;
-          const vec = toPgVectorLiteral(embedding);
-          await client.query(
-            `UPDATE prod_taxonomy
-                SET embedding = $1::vector(2000),
-                    model_version = $3,
-                    updated_at = now()
-              WHERE id = $2`,
-            [vec, row.id, embeddingProvider.model.name]
-          );
-          processed += 1;
-        }
-      }
-    });
-    logger.info(
-      {
-        shopId,
-        totalItems: rows.length,
-        completedItems: processed,
-        model: embeddingProvider.model.name,
-      },
-      'Taxonomy embeddings generated synchronously via selfhosted provider'
-    );
-    return { alreadyRunning: false, embeddingBatchId: null, totalItems: rows.length };
   }
 
   try {

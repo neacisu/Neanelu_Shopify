@@ -22,11 +22,15 @@ import {
   vectorSearchCacheMissTotal,
   vectorSearchLatencySeconds,
 } from '../otel/metrics.js';
-import { generateQueryEmbedding, searchSimilarProducts } from '../processors/ai/search.js';
+import { searchSimilarProducts, searchSimilarProductsSecondary } from '../processors/ai/search.js';
 import { getCachedSearchResult, setCachedSearchResult } from '../processors/ai/cache.js';
 import { AI_SPAN_NAMES, withAiSpan } from '../processors/ai/otel/spans.js';
 import { getShopOpenAiConfig } from '../runtime/openai-config.js';
-import { resolveEmbeddingsProvider } from '../services/ai-provider-routing.js';
+import {
+  generateDualEmbeddings,
+  mergeMultiModelCandidates,
+  resolveDualEmbeddingsProviders,
+} from '../services/multi-model-embedding.js';
 import { scanInput } from '../services/guardrails.js';
 
 const DEFAULT_LIMIT = 20;
@@ -732,7 +736,20 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           return;
         }
 
-        if (await isOpenAiBudgetExceeded(session.shopId)) {
+        const providers = await resolveDualEmbeddingsProviders({
+          shopId: session.shopId,
+          env,
+          logger,
+        });
+        const secondaryBudgetExceeded =
+          providers.primary.kind === 'selfhosted'
+            ? await isOpenAiBudgetExceeded(session.shopId)
+            : false;
+
+        if (
+          providers.primary.kind !== 'selfhosted' &&
+          (await isOpenAiBudgetExceeded(session.shopId))
+        ) {
           void reply
             .status(429)
             .send(
@@ -746,23 +763,22 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           return;
         }
 
-        const provider = await resolveEmbeddingsProvider({
-          shopId: session.shopId,
-          env,
-          logger,
-        });
-
-        const rateLimit = await gateOpenAiEmbeddingRequest({
-          redis,
-          redisPrefix,
-          shopId: session.shopId,
-          estimatedTokens: estimateTokens(rawText),
-          config: {
-            maxTokensPerMinute: env.openAiEmbedRateLimitTokensPerMinute,
-            maxRequestsPerMinute: env.openAiEmbedRateLimitRequestsPerMinute,
-            bucketTtlMs: env.openAiEmbedRateLimitBucketTtlMs,
-          },
-        });
+        const shouldGateOpenAi =
+          providers.primary.kind !== 'selfhosted' ||
+          (providers.secondary?.isAvailable() && !secondaryBudgetExceeded);
+        const rateLimit = shouldGateOpenAi
+          ? await gateOpenAiEmbeddingRequest({
+              redis,
+              redisPrefix,
+              shopId: session.shopId,
+              estimatedTokens: estimateTokens(rawText),
+              config: {
+                maxTokensPerMinute: env.openAiEmbedRateLimitTokensPerMinute,
+                maxRequestsPerMinute: env.openAiEmbedRateLimitRequestsPerMinute,
+                bucketTtlMs: env.openAiEmbedRateLimitBucketTtlMs,
+              },
+            })
+          : { allowed: true, delayMs: 0 };
 
         if (!rateLimit.allowed) {
           openaiEmbedRateLimitDenied.add(1);
@@ -800,24 +816,36 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           });
           const guardrailsText = inputScan.sanitizedText;
           const embedStartedAt = Date.now();
-          const embedding = await (async () => {
+          const embeddings = await (async () => {
             try {
-              const value = await generateQueryEmbedding({
-                text: guardrailsText,
-                provider,
+              const value = await generateDualEmbeddings({
+                shopId: session.shopId,
+                env,
                 logger,
+                text: guardrailsText,
+                primary: providers.primary,
+                secondary:
+                  secondaryBudgetExceeded || !rateLimit.allowed ? null : providers.secondary,
               });
-              if (provider.kind === 'selfhosted') {
+              if (providers.primary.kind === 'selfhosted') {
                 const durationSeconds = (Date.now() - embedStartedAt) / 1000;
                 recordSelfhostedRequest(durationSeconds, false);
-                recordSelfhostedEmbeddingRequest(durationSeconds, false, provider.model.name);
+                recordSelfhostedEmbeddingRequest(
+                  durationSeconds,
+                  false,
+                  providers.primary.model.name
+                );
               }
               return value;
             } catch (error) {
-              if (provider.kind === 'selfhosted') {
+              if (providers.primary.kind === 'selfhosted') {
                 const durationSeconds = (Date.now() - embedStartedAt) / 1000;
                 recordSelfhostedRequest(durationSeconds, true);
-                recordSelfhostedEmbeddingRequest(durationSeconds, true, provider.model.name);
+                recordSelfhostedEmbeddingRequest(
+                  durationSeconds,
+                  true,
+                  providers.primary.model.name
+                );
               }
               throw error;
             }
@@ -841,11 +869,11 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           };
 
           const searchResult = await withTenantContext(session.shopId, async (client) => {
-            const [vectorRows, textResult] = await Promise.all([
+            const [vectorRows, textResult, secondaryVectorRows] = await Promise.all([
               searchSimilarProducts({
                 client,
                 shopId: session.shopId,
-                embedding,
+                embedding: embeddings.primaryEmbedding,
                 limit: hybridFetchLimit,
                 threshold: vectorThresholdForHybrid,
                 vendors: filterParams.vendors,
@@ -856,7 +884,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
                 collectionIds: filterParams.collectionIds,
                 minSimilarity: decodedCursor?.lastSimilarity ?? null,
                 excludeProductIds: filterParams.excludeProductIds,
-                modelVersion: provider.model.name,
+                modelVersion: embeddings.primaryModel,
                 queryTimeoutMs: env.vectorSearchQueryTimeoutMs,
                 logger,
               }),
@@ -873,9 +901,34 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
                 collectionIds: filterParams.collectionIds,
                 excludeProductIds: filterParams.excludeProductIds,
               }),
+              embeddings.secondaryEmbedding && embeddings.secondaryModel
+                ? searchSimilarProductsSecondary({
+                    client,
+                    shopId: session.shopId,
+                    embedding: embeddings.secondaryEmbedding,
+                    limit: hybridFetchLimit,
+                    threshold: vectorThresholdForHybrid,
+                    vendors: filterParams.vendors,
+                    productTypes: filterParams.productTypes,
+                    priceMin: filterParams.priceMin,
+                    priceMax: filterParams.priceMax,
+                    categoryId: filterParams.categoryId,
+                    collectionIds: filterParams.collectionIds,
+                    minSimilarity: decodedCursor?.lastSimilarity ?? null,
+                    excludeProductIds: filterParams.excludeProductIds,
+                    modelVersion: embeddings.secondaryModel,
+                    queryTimeoutMs: env.vectorSearchQueryTimeoutMs,
+                    logger,
+                  })
+                : Promise.resolve([]),
             ]);
 
-            const vectorAsText: TextSearchRow[] = vectorRows.map((row) => ({
+            const vectorMerged = mergeMultiModelCandidates(
+              vectorRows.map((row) => ({ ...row, id: row.productId })),
+              secondaryVectorRows.map((row) => ({ ...row, id: row.productId })),
+              'shop_product_embeddings'
+            );
+            const vectorAsText: TextSearchRow[] = vectorMerged.map((row) => ({
               productId: row.productId,
               title: row.title,
               featuredImageUrl: row.featuredImageUrl,
@@ -886,7 +939,7 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
             }));
 
             const merged = rrfMerge(textResult.rows, vectorAsText, limit, rawText);
-            return { merged, textCount: textResult.total, vectorCount: vectorRows.length };
+            return { merged, textCount: textResult.total, vectorCount: vectorMerged.length };
           });
 
           results = searchResult.merged.map((row) => ({
@@ -1187,7 +1240,20 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
     void (async () => {
       await saveExportJob(redis, redisPrefix, { ...initial, status: 'processing', progress: 10 });
       try {
-        if (await isOpenAiBudgetExceeded(session.shopId)) {
+        const providers = await resolveDualEmbeddingsProviders({
+          shopId: session.shopId,
+          env,
+          logger,
+        });
+        const secondaryBudgetExceeded =
+          providers.primary.kind === 'selfhosted'
+            ? await isOpenAiBudgetExceeded(session.shopId)
+            : false;
+
+        if (
+          providers.primary.kind !== 'selfhosted' &&
+          (await isOpenAiBudgetExceeded(session.shopId))
+        ) {
           await saveExportJob(redis, redisPrefix, {
             ...initial,
             status: 'failed',
@@ -1197,12 +1263,6 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
           return;
         }
 
-        const provider = await resolveEmbeddingsProvider({
-          shopId: session.shopId,
-          env,
-          logger,
-        });
-
         const inputScan = await scanInput({
           shopId: session.shopId,
           text: rawText,
@@ -1211,20 +1271,31 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
         });
         const guardrailsText = inputScan.sanitizedText;
         const embedStartedAt = Date.now();
-        const embedding = await (async () => {
+        const embeddings = await (async () => {
           try {
-            const value = await generateQueryEmbedding({ text: guardrailsText, provider, logger });
-            if (provider.kind === 'selfhosted') {
+            const value = await generateDualEmbeddings({
+              shopId: session.shopId,
+              env,
+              logger,
+              text: guardrailsText,
+              primary: providers.primary,
+              secondary: secondaryBudgetExceeded ? null : providers.secondary,
+            });
+            if (providers.primary.kind === 'selfhosted') {
               const durationSeconds = (Date.now() - embedStartedAt) / 1000;
               recordSelfhostedRequest(durationSeconds, false);
-              recordSelfhostedEmbeddingRequest(durationSeconds, false, provider.model.name);
+              recordSelfhostedEmbeddingRequest(
+                durationSeconds,
+                false,
+                providers.primary.model.name
+              );
             }
             return value;
           } catch (error) {
-            if (provider.kind === 'selfhosted') {
+            if (providers.primary.kind === 'selfhosted') {
               const durationSeconds = (Date.now() - embedStartedAt) / 1000;
               recordSelfhostedRequest(durationSeconds, true);
-              recordSelfhostedEmbeddingRequest(durationSeconds, true, provider.model.name);
+              recordSelfhostedEmbeddingRequest(durationSeconds, true, providers.primary.model.name);
             }
             throw error;
           }
@@ -1238,21 +1309,45 @@ export const searchRoutes: FastifyPluginAsync<SearchRoutesOptions> = (
         });
 
         const searchRows = await withTenantContext(session.shopId, async (client) => {
-          return searchSimilarProducts({
-            client,
-            shopId: session.shopId,
-            embedding,
-            limit,
-            threshold,
-            vendors: vendors.length ? vendors : null,
-            productTypes: productTypes.length ? productTypes : null,
-            priceMin: Number.isFinite(priceMin) ? priceMin : null,
-            priceMax: Number.isFinite(priceMax) ? priceMax : null,
-            categoryId: categoryId || null,
-            modelVersion: provider.model.name,
-            queryTimeoutMs: env.vectorSearchQueryTimeoutMs,
-            logger,
-          });
+          const [primaryRows, secondaryRows] = await Promise.all([
+            searchSimilarProducts({
+              client,
+              shopId: session.shopId,
+              embedding: embeddings.primaryEmbedding,
+              limit,
+              threshold,
+              vendors: vendors.length ? vendors : null,
+              productTypes: productTypes.length ? productTypes : null,
+              priceMin: Number.isFinite(priceMin) ? priceMin : null,
+              priceMax: Number.isFinite(priceMax) ? priceMax : null,
+              categoryId: categoryId || null,
+              modelVersion: embeddings.primaryModel,
+              queryTimeoutMs: env.vectorSearchQueryTimeoutMs,
+              logger,
+            }),
+            embeddings.secondaryEmbedding && embeddings.secondaryModel
+              ? searchSimilarProductsSecondary({
+                  client,
+                  shopId: session.shopId,
+                  embedding: embeddings.secondaryEmbedding,
+                  limit,
+                  threshold,
+                  vendors: vendors.length ? vendors : null,
+                  productTypes: productTypes.length ? productTypes : null,
+                  priceMin: Number.isFinite(priceMin) ? priceMin : null,
+                  priceMax: Number.isFinite(priceMax) ? priceMax : null,
+                  categoryId: categoryId || null,
+                  modelVersion: embeddings.secondaryModel,
+                  queryTimeoutMs: env.vectorSearchQueryTimeoutMs,
+                  logger,
+                })
+              : Promise.resolve([]),
+          ]);
+          return mergeMultiModelCandidates(
+            primaryRows.map((row) => ({ ...row, id: row.productId })),
+            secondaryRows.map((row) => ({ ...row, id: row.productId })),
+            'shop_product_embeddings'
+          ).map(({ id: _id, ...row }) => row);
         });
 
         await saveExportJob(redis, redisPrefix, { ...initial, status: 'processing', progress: 70 });

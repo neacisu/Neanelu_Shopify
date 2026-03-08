@@ -1,7 +1,4 @@
-import { loadEnv } from '@app/config';
 import type { Logger } from '@app/logger';
-
-import { getShopOpenAiConfig } from '../runtime/openai-config.js';
 import {
   runTaxonomyBatchOrchestrator,
   type TaxonomyBatchOrchestratorResult,
@@ -19,14 +16,6 @@ export async function triggerTaxonomyEmbeddings(params: {
   logger: Logger;
 }): Promise<TriggerTaxonomyEmbeddingsResult> {
   const { shopId, logger } = params;
-  const env = loadEnv();
-
-  const openAiConfig = await getShopOpenAiConfig({ shopId, env, logger });
-  if (!openAiConfig.enabled || !openAiConfig.openAiApiKey) {
-    logger.warn({ shopId }, 'OpenAI not configured; skipping taxonomy embeddings trigger');
-    return { alreadyRunning: false, embeddingBatchId: null, totalItems: 0 };
-  }
-
   const result = await runTaxonomyBatchOrchestrator({ shopId, logger });
 
   if (result.alreadyRunning) {

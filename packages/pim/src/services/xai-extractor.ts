@@ -7,6 +7,7 @@ import { enforceBudget } from './budget-guard.js';
 import {
   buildChatCompletionsUrl,
   estimateChatCost,
+  type ChatApiProvider,
   type ChatModelCredentials,
 } from './llm-credentials.js';
 
@@ -20,6 +21,7 @@ export type ExtractionParams = Readonly<{
   credentials: ChatModelCredentials;
   matchId?: string;
   productId?: string;
+  completionRunner?: ExtractionCompletionRunner;
 }>;
 
 export type ExtractionResult = Readonly<{
@@ -54,12 +56,65 @@ interface TrackExtractionCostParams {
   errorMessage?: string | undefined;
 }
 
+export interface ExtractionCompletionRunnerParams {
+  credentials: ChatModelCredentials;
+  sourceUrl: string;
+  html: string;
+  systemPrompt: string;
+  userPrompt: string;
+}
+
+export interface ExtractionCompletionRunnerResult {
+  content: string;
+  httpStatus?: number;
+  tokensInput?: number;
+  tokensOutput?: number;
+  modelUsed?: string;
+  providerUsed?: ChatApiProvider;
+}
+
+export type ExtractionCompletionRunner = (
+  params: ExtractionCompletionRunnerParams
+) => Promise<ExtractionCompletionRunnerResult>;
+
 async function callLLMExtraction(
   credentials: ChatModelCredentials,
   sourceUrl: string,
-  html: string
+  html: string,
+  completionRunner?: ExtractionCompletionRunner
 ): Promise<LLMExtractionResponse> {
   const truncatedHtml = html.slice(0, 50000);
+  const systemPrompt =
+    'Esti un expert in extractia structurata a datelor despre produse din pagini web.\n' +
+    'REGULI STRICTE:\n' +
+    '- Extrage DOAR informatii care apar explicit in HTML\n' +
+    '- NU inventa sau presupune valori\n' +
+    '- Daca un camp nu exista, lasa-l undefined\n' +
+    '- Pentru GTIN/EAN/UPC verifica 8-14 cifre\n' +
+    '- Extrage descrierea completa a produsului in campul description\n' +
+    '- Descrierea trebuie sa fie in romana si sa aiba minimum 100 cuvinte\n' +
+    '- Daca nu exista descriere clara, lasa description undefined\n' +
+    '- Confidence < 0.8 daca informatiile sunt ambigue\n' +
+    '- Adauga in fieldsUncertain toate campurile nesigure';
+  const userPrompt = `Extrage informatiile despre produs din acest HTML.\n\nURL sursa: ${sourceUrl}\n\nHTML:\n${truncatedHtml}`;
+
+  if (completionRunner) {
+    const result = await completionRunner({
+      credentials,
+      sourceUrl,
+      html: truncatedHtml,
+      systemPrompt,
+      userPrompt,
+    });
+    const parsed = ExtractedProductSchema.parse(safeJsonParse(result.content));
+    return {
+      httpStatus: result.httpStatus ?? 200,
+      tokensInput: result.tokensInput ?? 0,
+      tokensOutput: result.tokensOutput ?? 0,
+      parsed,
+    };
+  }
+
   const response = await fetch(buildChatCompletionsUrl(credentials.baseUrl), {
     method: 'POST',
     headers: {
@@ -74,22 +129,11 @@ async function callLLMExtraction(
       messages: [
         {
           role: 'system',
-          content:
-            'Esti un expert in extractia structurata a datelor despre produse din pagini web.\n' +
-            'REGULI STRICTE:\n' +
-            '- Extrage DOAR informatii care apar explicit in HTML\n' +
-            '- NU inventa sau presupune valori\n' +
-            '- Daca un camp nu exista, lasa-l undefined\n' +
-            '- Pentru GTIN/EAN/UPC verifica 8-14 cifre\n' +
-            '- Extrage descrierea completa a produsului in campul description\n' +
-            '- Descrierea trebuie sa fie in romana si sa aiba minimum 100 cuvinte\n' +
-            '- Daca nu exista descriere clara, lasa description undefined\n' +
-            '- Confidence < 0.8 daca informatiile sunt ambigue\n' +
-            '- Adauga in fieldsUncertain toate campurile nesigure',
+          content: systemPrompt,
         },
         {
           role: 'user',
-          content: `Extrage informatiile despre produs din acest HTML.\n\nURL sursa: ${sourceUrl}\n\nHTML:\n${truncatedHtml}`,
+          content: userPrompt,
         },
       ],
     }),
@@ -187,7 +231,12 @@ export class XaiExtractorService {
     let httpStatus = 0;
 
     try {
-      const llmResult = await callLLMExtraction(credentials, sourceUrl, html);
+      const llmResult = await callLLMExtraction(
+        credentials,
+        sourceUrl,
+        html,
+        params.completionRunner
+      );
       httpStatus = llmResult.httpStatus;
       tokensInput = llmResult.tokensInput;
       tokensOutput = llmResult.tokensOutput;

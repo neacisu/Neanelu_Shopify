@@ -49,6 +49,8 @@ interface CollectionRow {
   parent_title: string | null;
   menu_level: number | null;
   menu_path: string | null;
+  menu_assignment_count: number;
+  menu_review_count: number;
 }
 
 interface CollectionsPagination {
@@ -83,6 +85,10 @@ interface SyncProgressPayload {
   current?: number;
   menuItems?: number;
   correlated?: number;
+  menuItemsEmbedded?: number;
+  menuItemsTotal?: number;
+  embeddingErrors?: number;
+  embeddingError?: boolean;
   hierarchyError?: boolean;
   status?: string;
 }
@@ -104,6 +110,34 @@ interface SyncStepItem {
   detail: string;
   status: SyncStepStatus;
 }
+
+interface MenuAssignmentItem {
+  id: string;
+  menuItemId: string | null;
+  menuItemTitle: string;
+  menuItemPath: string;
+  menuItemLevel: number | null;
+  assignmentSource: string;
+  isPrimary: boolean;
+  confidence: number | null;
+  reasoning: string | null;
+  translatedQuery: string | null;
+  proposedPath: string | null;
+  status: string;
+  createdAt: string;
+  approvedAt: string | null;
+}
+
+interface MenuAssignmentStatusResponse {
+  activeAssignments: MenuAssignmentItem[];
+  proposedAssignments: MenuAssignmentItem[];
+  rejectedAssignments: MenuAssignmentItem[];
+  primaryAssignment: MenuAssignmentItem | null;
+  collectionMenuPath: string | null;
+  canRunAi: boolean;
+}
+
+type ConsensusMethod = 'unanimous' | 'majority' | 'arbitration' | 'single_fallback';
 
 type SelectAllMode = 'page' | 'all' | null;
 
@@ -148,6 +182,50 @@ function parseMenuPath(menuPath: string | null): string[] {
     .filter((segment) => segment.length > 0);
 }
 
+function formatConfidence(value: number | null): string {
+  if (value == null || Number.isNaN(value)) return '—';
+  return `${Math.round(value * 100)}%`;
+}
+
+function formatConsensusScore(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return '—';
+  return value.toFixed(2);
+}
+
+function consensusBadgeTone(
+  value: number | null | undefined
+): 'success' | 'warning' | 'critical' | 'neutral' {
+  if (value == null || Number.isNaN(value)) return 'neutral';
+  if (value >= 0.75) return 'success';
+  if (value >= 0.5) return 'warning';
+  return 'critical';
+}
+
+function formatConsensusMethod(value: ConsensusMethod | null | undefined): string {
+  if (!value) return 'n/a';
+  if (value === 'unanimous') return 'unanim 4/4';
+  if (value === 'majority') return 'majority 3/4';
+  if (value === 'arbitration') return 'arbitrare QwQ-32B';
+  return 'fallback single';
+}
+
+function buildConsensusTooltip(
+  method: ConsensusMethod | null | undefined,
+  score: number | null | undefined
+): string {
+  return `Metoda: ${formatConsensusMethod(method)} · scor: ${formatConsensusScore(score)}`;
+}
+
+function buildMenuAssignmentSummary(collection: CollectionRow): string {
+  if (collection.menu_assignment_count <= 0 && collection.menu_review_count <= 0) {
+    return '—';
+  }
+  if (collection.menu_review_count > 0) {
+    return `${collection.menu_assignment_count} active / ${collection.menu_review_count} review`;
+  }
+  return `${collection.menu_assignment_count} active`;
+}
+
 function isRunningSyncStatus(status: SyncStatus): boolean {
   return status === 'active' || status === 'waiting' || status === 'delayed';
 }
@@ -170,18 +248,28 @@ function buildSyncSteps(syncState: SyncProgress): SyncStepItem[] {
     currentStepIndex = 2;
   } else if (phase === 'hierarchy') {
     currentStepIndex = 3;
-  } else if (phase === 'done' || syncState.status === 'completed') {
+  } else if (phase === 'embedding_menu_items') {
     currentStepIndex = 4;
+  } else if (phase === 'done' || syncState.status === 'completed') {
+    currentStepIndex = 5;
   } else if (syncState.status === 'failed') {
     currentStepIndex =
-      phase === 'hierarchy' ? 3 : phase === 'menus' ? 2 : phase === 'collections' ? 1 : 0;
+      phase === 'embedding_menu_items'
+        ? 4
+        : phase === 'hierarchy'
+          ? 3
+          : phase === 'menus'
+            ? 2
+            : phase === 'collections'
+              ? 1
+              : 0;
   }
 
   const resolveStepStatus = (index: number): SyncStepStatus => {
     if (syncState.status === 'completed' || currentStepIndex > index) return 'done';
     if (syncState.status === 'failed' && currentStepIndex === index) return 'error';
     if (currentStepIndex === index && isRunningSyncStatus(syncState.status)) return 'active';
-    if (currentStepIndex === 4 && index <= 4) return 'done';
+    if (currentStepIndex === 5 && index <= 5) return 'done';
     return 'pending';
   };
 
@@ -190,6 +278,8 @@ function buildSyncSteps(syncState: SyncProgress): SyncStepItem[] {
   const fetched = payload?.fetched ?? null;
   const menuItems = payload?.menuItems ?? null;
   const correlated = payload?.correlated ?? null;
+  const menuItemsEmbedded = payload?.menuItemsEmbedded ?? null;
+  const menuItemsTotal = payload?.menuItemsTotal ?? null;
 
   return [
     {
@@ -234,13 +324,25 @@ function buildSyncSteps(syncState: SyncProgress): SyncStepItem[] {
           : resolveStepStatus(3),
     },
     {
+      key: 'embedding_menu_items',
+      label: 'Generare embeddings meniu',
+      detail:
+        menuItemsEmbedded != null && menuItemsTotal != null
+          ? `${menuItemsEmbedded.toLocaleString('ro-RO')}/${menuItemsTotal.toLocaleString('ro-RO')} embeddings`
+          : 'Se pregătesc embeddings pentru itemii de meniu.',
+      status:
+        payload?.embeddingError === true && syncState.status !== 'completed'
+          ? 'error'
+          : resolveStepStatus(4),
+    },
+    {
       key: 'done',
       label: 'Finalizare și refresh UI',
       detail:
         syncState.finishedOn != null
           ? `Terminat la ${formatAbsoluteDateTime(syncState.finishedOn)}`
           : 'Se actualizează datele din interfață.',
-      status: resolveStepStatus(4),
+      status: resolveStepStatus(5),
     },
   ];
 }
@@ -311,6 +413,7 @@ export default function CollectionsPage() {
   const hasTaxonomy = searchParams.get('hasTaxonomy') ?? 'all';
   const hasTranslation = searchParams.get('hasTranslation') ?? 'all';
   const menuLevel = searchParams.get('menuLevel') ?? 'all';
+  const menuAiState = searchParams.get('menuAiState') ?? 'all';
   const sortBy = searchParams.get('sortBy') ?? 'synced_at';
   const sortDir = searchParams.get('sortDir') ?? 'desc';
 
@@ -349,12 +452,23 @@ export default function CollectionsPage() {
     collectionId: string;
     collectionTitle: string;
     steps: BulkCollectionStep[];
-    finalStatus: 'running' | 'assigned' | 'low_confidence' | 'error';
+    finalStatus:
+      | 'running'
+      | 'assigned'
+      | 'low_confidence'
+      | 'proposed'
+      | 'review_required'
+      | 'error';
     resultMessage: string | null;
     expanded: boolean;
+    consensusMethod?: ConsensusMethod | null;
+    consensusScore?: number | null;
   }
   const [bulkProgress, setBulkProgress] = useState<BulkCollectionEntry[]>([]);
   const [bulkRunning, setBulkRunning] = useState(false);
+
+  const [bulkMenuProgress, setBulkMenuProgress] = useState<BulkCollectionEntry[]>([]);
+  const [bulkMenuRunning, setBulkMenuRunning] = useState(false);
 
   const [translateProgress, setTranslateProgress] = useState<BulkCollectionEntry[]>([]);
   const [translateRunning, setTranslateRunning] = useState(false);
@@ -378,6 +492,7 @@ export default function CollectionsPage() {
       if (hasTaxonomy !== 'all') params.set('hasTaxonomy', hasTaxonomy);
       if (hasTranslation !== 'all') params.set('hasTranslation', hasTranslation);
       if (menuLevel !== 'all') params.set('menuLevel', menuLevel);
+      if (menuAiState !== 'all') params.set('menuAiState', menuAiState);
       params.set('sortBy', sortBy);
       params.set('sortDir', sortDir);
 
@@ -393,7 +508,19 @@ export default function CollectionsPage() {
     } finally {
       setCollectionsLoading(false);
     }
-  }, [api, page, limit, search, type, hasTaxonomy, hasTranslation, menuLevel, sortBy, sortDir]);
+  }, [
+    api,
+    page,
+    limit,
+    search,
+    type,
+    hasTaxonomy,
+    hasTranslation,
+    menuLevel,
+    menuAiState,
+    sortBy,
+    sortDir,
+  ]);
 
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
@@ -573,6 +700,7 @@ export default function CollectionsPage() {
       if (hasTaxonomy !== 'all') params.set('hasTaxonomy', hasTaxonomy);
       if (hasTranslation !== 'all') params.set('hasTranslation', hasTranslation);
       if (menuLevel !== 'all') params.set('menuLevel', menuLevel);
+      if (menuAiState !== 'all') params.set('menuAiState', menuAiState);
 
       const result = await api.getApi<{ ids: string[]; total: number }>(
         `/collections/all-ids?${params.toString()}`
@@ -582,7 +710,7 @@ export default function CollectionsPage() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Eroare la extinderea selecției');
     }
-  }, [api, search, type, hasTaxonomy, hasTranslation, menuLevel]);
+  }, [api, search, type, hasTaxonomy, hasTranslation, menuLevel, menuAiState]);
 
   const handleClearSelection = useCallback(() => {
     setSelectedIds([]);
@@ -614,6 +742,8 @@ export default function CollectionsPage() {
                 finalStatus: 'running',
                 resultMessage: null,
                 expanded: true,
+                consensusMethod: null,
+                consensusScore: null,
               },
             ]);
           }
@@ -642,12 +772,22 @@ export default function CollectionsPage() {
             const cTitle = event['collectionTitle'] as string;
             const status = event['status'] as 'assigned' | 'low_confidence' | 'error';
             const message = (event['message'] as string) ?? '';
+            const consensusMethod = (event['consensusMethod'] as ConsensusMethod | null) ?? null;
+            const consensusScore =
+              typeof event['consensusScore'] === 'number' ? event['consensusScore'] : null;
             setBulkProgress((prev) => {
               const exists = prev.find((e) => e.collectionId === cId);
               if (exists) {
                 return prev.map((e) =>
                   e.collectionId === cId
-                    ? { ...e, finalStatus: status, resultMessage: message, expanded: false }
+                    ? {
+                        ...e,
+                        finalStatus: status,
+                        resultMessage: message,
+                        expanded: false,
+                        consensusMethod,
+                        consensusScore,
+                      }
                     : e
                 );
               }
@@ -660,6 +800,8 @@ export default function CollectionsPage() {
                   finalStatus: status,
                   resultMessage: message,
                   expanded: false,
+                  consensusMethod,
+                  consensusScore,
                 },
               ];
             });
@@ -675,6 +817,116 @@ export default function CollectionsPage() {
     } finally {
       setBulkTaxonomyLoading(false);
       setBulkRunning(false);
+      setSelectedIds([]);
+      setSelectAllMode(null);
+      void loadCollections();
+      void loadStats();
+    }
+  }, [api, selectedIds, loadCollections, loadStats]);
+
+  const handleBulkAssignMenu = useCallback(async () => {
+    if (selectedIds.length === 0) return;
+    setBulkMenuRunning(true);
+    setBulkMenuProgress([]);
+
+    try {
+      await api.streamPost(
+        '/collections/bulk/assign-menu-ai',
+        { collectionIds: selectedIds },
+        (event) => {
+          const type = event['type'] as string;
+
+          if (type === 'menu_assign_collection_start') {
+            const cId = event['collectionId'] as string;
+            const cTitle = event['collectionTitle'] as string;
+            setBulkMenuProgress((prev) => [
+              ...prev.map((entry) =>
+                entry.finalStatus === 'running' ? { ...entry, expanded: false } : entry
+              ),
+              {
+                collectionId: cId,
+                collectionTitle: cTitle,
+                steps: [],
+                finalStatus: 'running',
+                resultMessage: null,
+                expanded: true,
+                consensusMethod: null,
+                consensusScore: null,
+              },
+            ]);
+          }
+
+          if (type === 'menu_assign_progress') {
+            const cId = event['collectionId'] as string;
+            const step = event['step'] as string;
+            const message = event['message'] as string;
+            const status: 'in_progress' | 'done' | 'error' =
+              (event['status'] as string) === 'done'
+                ? 'done'
+                : (event['status'] as string) === 'error'
+                  ? 'error'
+                  : 'in_progress';
+            setBulkMenuProgress((prev) =>
+              prev.map((entry) => {
+                if (entry.collectionId !== cId) return entry;
+                const existing = entry.steps.findIndex((s) => s.step === step);
+                if (existing >= 0) {
+                  const updated = [...entry.steps];
+                  updated[existing] = { step, message, status };
+                  return { ...entry, steps: updated };
+                }
+                return { ...entry, steps: [...entry.steps, { step, message, status }] };
+              })
+            );
+          }
+
+          if (type === 'menu_assign_collection_result') {
+            const cId = event['collectionId'] as string;
+            const cTitle = event['collectionTitle'] as string;
+            const rawStatus = event['status'] as
+              | 'assigned'
+              | 'proposed'
+              | 'review_required'
+              | 'error';
+            const primaryCount = Number(event['primaryCount'] ?? 0);
+            const secondaryCount = Number(event['secondaryCount'] ?? 0);
+            const message =
+              (event['message'] as string) ??
+              (rawStatus === 'assigned'
+                ? `${primaryCount} primară, ${secondaryCount} secundare`
+                : 'review necesar');
+            const consensusMethod = (event['consensusMethod'] as ConsensusMethod | null) ?? null;
+            const consensusScore =
+              typeof event['consensusScore'] === 'number' ? event['consensusScore'] : null;
+
+            setBulkMenuProgress((prev) => {
+              const exists = prev.find((entry) => entry.collectionId === cId);
+              const nextEntry: BulkCollectionEntry = {
+                collectionId: cId,
+                collectionTitle: cTitle,
+                steps: exists?.steps ?? [],
+                finalStatus: rawStatus,
+                resultMessage: message,
+                expanded: false,
+                consensusMethod,
+                consensusScore,
+              };
+              if (exists) {
+                return prev.map((entry) => (entry.collectionId === cId ? nextEntry : entry));
+              }
+              return [...prev, nextEntry];
+            });
+          }
+
+          if (type === 'menu_assign_done') {
+            setBulkMenuRunning(false);
+          }
+        }
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Eroare la asignarea categoriilor AI');
+    } finally {
+      setBulkMenuRunning(false);
       setSelectedIds([]);
       setSelectAllMode(null);
       void loadCollections();
@@ -719,6 +971,8 @@ export default function CollectionsPage() {
                 finalStatus: 'running',
                 resultMessage: null,
                 expanded: true,
+                consensusMethod: null,
+                consensusScore: null,
               },
             ]);
           }
@@ -755,12 +1009,22 @@ export default function CollectionsPage() {
             const msg = titleEn ? `→ „${titleEn}"` : ((event['message'] as string) ?? 'Eroare');
             const finalStatus: 'assigned' | 'error' =
               status === 'translated' ? 'assigned' : 'error';
+            const consensusMethod = (event['consensusMethod'] as ConsensusMethod | null) ?? null;
+            const consensusScore =
+              typeof event['consensusScore'] === 'number' ? event['consensusScore'] : null;
             setTranslateProgress((prev) => {
               const exists = prev.find((e) => e.collectionId === cId);
               if (exists) {
                 return prev.map((e) =>
                   e.collectionId === cId
-                    ? { ...e, finalStatus, resultMessage: msg, expanded: false }
+                    ? {
+                        ...e,
+                        finalStatus,
+                        resultMessage: msg,
+                        expanded: false,
+                        consensusMethod,
+                        consensusScore,
+                      }
                     : e
                 );
               }
@@ -773,6 +1037,8 @@ export default function CollectionsPage() {
                   finalStatus,
                   resultMessage: msg,
                   expanded: false,
+                  consensusMethod,
+                  consensusScore,
                 },
               ];
             });
@@ -867,6 +1133,11 @@ export default function CollectionsPage() {
       return syncPayload.status === 'completed'
         ? 'Corelare ierarhie finalizată'
         : 'Corelare ierarhie...';
+    }
+    if (syncPayload.phase === 'embedding_menu_items') {
+      return syncPayload.menuItemsEmbedded != null && syncPayload.menuItemsTotal != null
+        ? `Generare embeddings meniu... (${syncPayload.menuItemsEmbedded}/${syncPayload.menuItemsTotal})`
+        : 'Generare embeddings meniu...';
     }
     if (syncPayload.phase === 'done') {
       return 'Sincronizare finalizată';
@@ -1096,7 +1367,8 @@ export default function CollectionsPage() {
             type === 'all' &&
             hasTaxonomy === 'all' &&
             hasTranslation === 'all' &&
-            menuLevel === 'all') ||
+            menuLevel === 'all' &&
+            menuAiState === 'all') ||
           (filterKey === 'manual' && type === 'MANUAL') ||
           (filterKey === 'smart' && type === 'SMART') ||
           (filterKey === 'withTaxonomy' && hasTaxonomy === 'true') ||
@@ -1112,6 +1384,7 @@ export default function CollectionsPage() {
           next.delete('hasTaxonomy');
           next.delete('hasTranslation');
           next.delete('menuLevel');
+          next.delete('menuAiState');
           next.set('page', '1');
           if (filterParam && filterValue) next.set(filterParam, filterValue);
           setSearchParams(next);
@@ -1306,7 +1579,7 @@ export default function CollectionsPage() {
             <ProgressBar progress={syncProgress} />
           </div>
 
-          <div className="mt-4 grid gap-2 md:grid-cols-3">
+          <div className="mt-4 grid gap-2 md:grid-cols-4">
             <div className="rounded-lg border border-white/60 bg-white/70 px-3 py-2 text-xs dark:border-slate-800/80 dark:bg-slate-900/60">
               <div className="text-slate-500 dark:text-slate-400">Colecții importate</div>
               <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">
@@ -1326,6 +1599,14 @@ export default function CollectionsPage() {
               <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">
                 {syncPayload?.correlated != null
                   ? syncPayload.correlated.toLocaleString('ro-RO')
+                  : '—'}
+              </div>
+            </div>
+            <div className="rounded-lg border border-white/60 bg-white/70 px-3 py-2 text-xs dark:border-slate-800/80 dark:bg-slate-900/60">
+              <div className="text-slate-500 dark:text-slate-400">Embeddings meniu</div>
+              <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">
+                {syncPayload?.menuItemsEmbedded != null && syncPayload?.menuItemsTotal != null
+                  ? `${syncPayload.menuItemsEmbedded.toLocaleString('ro-RO')}/${syncPayload.menuItemsTotal.toLocaleString('ro-RO')}`
                   : '—'}
               </div>
             </div>
@@ -1400,6 +1681,16 @@ export default function CollectionsPage() {
         </select>
         <select
           className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+          value={menuAiState}
+          onChange={(e) => updateSearchParam('menuAiState', e.target.value)}
+        >
+          <option value="all">Orice status menu AI</option>
+          <option value="has_assignments">Cu asocieri AI</option>
+          <option value="review_required">Cu propuneri în review</option>
+          <option value="multiparent">Multiparent AI</option>
+        </select>
+        <select
+          className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
           value={limit}
           onChange={(e) => updateSearchParam('limit', e.target.value)}
         >
@@ -1421,7 +1712,7 @@ export default function CollectionsPage() {
             <Button
               variant="secondary"
               onClick={() => void handleBulkAssignTaxonomy()}
-              disabled={bulkTaxonomyLoading}
+              disabled={bulkTaxonomyLoading || bulkMenuRunning}
             >
               {bulkRunning
                 ? `Se atribuie (${bulkProgress.filter((e) => e.finalStatus !== 'running').length}/${bulkProgress.length})...`
@@ -1429,8 +1720,17 @@ export default function CollectionsPage() {
             </Button>
             <Button
               variant="secondary"
+              onClick={() => void handleBulkAssignMenu()}
+              disabled={bulkMenuRunning || bulkRunning || bulkTranslateLoading}
+            >
+              {bulkMenuRunning
+                ? `Categorii AI (${bulkMenuProgress.filter((e) => e.finalStatus !== 'running').length}/${bulkMenuProgress.length})...`
+                : 'Categorii/meniu AI'}
+            </Button>
+            <Button
+              variant="secondary"
               onClick={() => void handleBulkTranslateSelected()}
-              disabled={bulkTranslateLoading}
+              disabled={bulkTranslateLoading || bulkMenuRunning}
             >
               <Languages className={`mr-1.5 size-3.5 ${translateRunning ? 'animate-pulse' : ''}`} />
               {translateRunning
@@ -1539,6 +1839,16 @@ export default function CollectionsPage() {
                   <span className="flex-1 truncate font-medium text-slate-700 dark:text-slate-300">
                     {entry.collectionTitle}
                   </span>
+                  {entry.consensusScore != null && (
+                    <InfoTooltip
+                      title={buildConsensusTooltip(entry.consensusMethod, entry.consensusScore)}
+                      side="bottom"
+                    >
+                      <Badge tone={consensusBadgeTone(entry.consensusScore)}>
+                        {formatConsensusScore(entry.consensusScore)}
+                      </Badge>
+                    </InfoTooltip>
+                  )}
                   {entry.resultMessage && !entry.expanded && (
                     <span
                       className={`truncate text-xs ${entry.finalStatus === 'assigned' ? 'text-green-600 dark:text-green-400' : entry.finalStatus === 'error' ? 'text-red-500' : 'text-amber-600 dark:text-amber-400'}`}
@@ -1588,6 +1898,158 @@ export default function CollectionsPage() {
                           className={`mt-1 text-xs font-medium ${entry.finalStatus === 'assigned' ? 'text-green-700 dark:text-green-400' : entry.finalStatus === 'error' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'}`}
                         >
                           {entry.resultMessage}
+                        </li>
+                      )}
+                      {entry.consensusScore != null && (
+                        <li className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                          Consens: {formatConsensusMethod(entry.consensusMethod)} · scor{' '}
+                          {formatConsensusScore(entry.consensusScore)}
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Menu AI Progress Panel */}
+      {bulkMenuProgress.length > 0 && (
+        <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+              {bulkMenuRunning
+                ? 'Asignare categorii/meniu AI în curs...'
+                : `Asignare completă — ${bulkMenuProgress.filter((e) => e.finalStatus === 'assigned').length} atribuite, ${bulkMenuProgress.filter((e) => e.finalStatus === 'proposed' || e.finalStatus === 'review_required').length} propuse, ${bulkMenuProgress.filter((e) => e.finalStatus === 'error').length} erori`}
+            </h3>
+            {!bulkMenuRunning && (
+              <button
+                onClick={() => setBulkMenuProgress([])}
+                className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+              >
+                Închide
+              </button>
+            )}
+          </div>
+          <div className="space-y-1.5 max-h-[400px] overflow-y-auto">
+            {bulkMenuProgress.map((entry) => (
+              <div
+                key={entry.collectionId}
+                className="rounded border border-slate-100 dark:border-slate-800"
+              >
+                <button
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                  onClick={() =>
+                    setBulkMenuProgress((prev) =>
+                      prev.map((e) =>
+                        e.collectionId === entry.collectionId ? { ...e, expanded: !e.expanded } : e
+                      )
+                    )
+                  }
+                >
+                  <span className="flex-shrink-0">
+                    {entry.finalStatus === 'running' && (
+                      <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+                    )}
+                    {entry.finalStatus === 'assigned' && (
+                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-green-500 text-[9px] text-white">
+                        &#10003;
+                      </span>
+                    )}
+                    {(entry.finalStatus === 'proposed' ||
+                      entry.finalStatus === 'review_required') && (
+                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-amber-500 text-[9px] text-white">
+                        !
+                      </span>
+                    )}
+                    {entry.finalStatus === 'error' && (
+                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[9px] text-white">
+                        &#10007;
+                      </span>
+                    )}
+                  </span>
+                  <span className="flex-1 truncate font-medium text-slate-700 dark:text-slate-300">
+                    {entry.collectionTitle}
+                  </span>
+                  {entry.consensusScore != null && (
+                    <InfoTooltip
+                      title={buildConsensusTooltip(entry.consensusMethod, entry.consensusScore)}
+                      side="bottom"
+                    >
+                      <Badge tone={consensusBadgeTone(entry.consensusScore)}>
+                        {formatConsensusScore(entry.consensusScore)}
+                      </Badge>
+                    </InfoTooltip>
+                  )}
+                  {entry.resultMessage && !entry.expanded && (
+                    <span
+                      className={`truncate text-xs ${
+                        entry.finalStatus === 'assigned'
+                          ? 'text-green-600 dark:text-green-400'
+                          : entry.finalStatus === 'error'
+                            ? 'text-red-500'
+                            : 'text-amber-600 dark:text-amber-400'
+                      }`}
+                    >
+                      {entry.resultMessage}
+                    </span>
+                  )}
+                  <span
+                    className={`text-xs text-slate-400 transition-transform ${entry.expanded ? 'rotate-180' : ''}`}
+                  >
+                    &#9660;
+                  </span>
+                </button>
+                {entry.expanded && entry.steps.length > 0 && (
+                  <div className="border-t border-slate-100 bg-slate-50/50 px-3 py-2 dark:border-slate-800 dark:bg-slate-800/30">
+                    <ul className="space-y-1">
+                      {entry.steps.map((s, si) => (
+                        <li key={`${s.step}-${si}`} className="flex items-start gap-1.5 text-xs">
+                          <span className="mt-0.5 flex-shrink-0">
+                            {s.status === 'in_progress' && (
+                              <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-blue-500 border-t-transparent" />
+                            )}
+                            {s.status === 'done' && (
+                              <span className="inline-flex h-3 w-3 items-center justify-center rounded-full bg-green-500 text-[8px] text-white">
+                                &#10003;
+                              </span>
+                            )}
+                            {s.status === 'error' && (
+                              <span className="inline-flex h-3 w-3 items-center justify-center rounded-full bg-red-500 text-[8px] text-white">
+                                &#10007;
+                              </span>
+                            )}
+                          </span>
+                          <span
+                            className={
+                              s.status === 'error'
+                                ? 'text-red-600 dark:text-red-400'
+                                : 'text-slate-600 dark:text-slate-400'
+                            }
+                          >
+                            {s.message}
+                          </span>
+                        </li>
+                      ))}
+                      {entry.resultMessage && (
+                        <li
+                          className={`mt-1 text-xs font-medium ${
+                            entry.finalStatus === 'assigned'
+                              ? 'text-green-700 dark:text-green-400'
+                              : entry.finalStatus === 'error'
+                                ? 'text-red-600 dark:text-red-400'
+                                : 'text-amber-600 dark:text-amber-400'
+                          }`}
+                        >
+                          {entry.resultMessage}
+                        </li>
+                      )}
+                      {entry.consensusScore != null && (
+                        <li className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                          Consens: {formatConsensusMethod(entry.consensusMethod)} · scor{' '}
+                          {formatConsensusScore(entry.consensusScore)}
                         </li>
                       )}
                     </ul>
@@ -1651,6 +2113,16 @@ export default function CollectionsPage() {
                   <span className="flex-1 truncate font-medium text-slate-700 dark:text-slate-300">
                     {entry.collectionTitle}
                   </span>
+                  {entry.consensusScore != null && (
+                    <InfoTooltip
+                      title={buildConsensusTooltip(entry.consensusMethod, entry.consensusScore)}
+                      side="bottom"
+                    >
+                      <Badge tone={consensusBadgeTone(entry.consensusScore)}>
+                        {formatConsensusScore(entry.consensusScore)}
+                      </Badge>
+                    </InfoTooltip>
+                  )}
                   {entry.resultMessage && !entry.expanded && (
                     <span
                       className={`truncate text-xs ${entry.finalStatus === 'assigned' ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}
@@ -1702,6 +2174,12 @@ export default function CollectionsPage() {
                           {entry.resultMessage}
                         </li>
                       )}
+                      {entry.consensusScore != null && (
+                        <li className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                          Consens: {formatConsensusMethod(entry.consensusMethod)} · scor{' '}
+                          {formatConsensusScore(entry.consensusScore)}
+                        </li>
+                      )}
                     </ul>
                   </div>
                 )}
@@ -1736,6 +2214,7 @@ export default function CollectionsPage() {
                   { key: 'products_count', label: 'Produse' },
                   { key: 'menu_level', label: 'Nivel' },
                   { key: '', label: 'Categorii' },
+                  { key: '', label: 'Asocieri meniu AI' },
                   { key: '', label: 'Taxonomie' },
                   { key: 'synced_at', label: 'Sincronizat' },
                 ].map((col) => (
@@ -1762,7 +2241,7 @@ export default function CollectionsPage() {
               {collectionsLoading
                 ? Array.from({ length: 5 }).map((_, i) => (
                     <tr key={`skel-${i}`}>
-                      {Array.from({ length: 8 }).map((__, j) => (
+                      {Array.from({ length: 9 }).map((__, j) => (
                         <td key={j} className="px-3 py-3">
                           <div className="h-4 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
                         </td>
@@ -1827,6 +2306,22 @@ export default function CollectionsPage() {
                       </td>
                       <td className="px-3 py-3">
                         <CategoryTreeCell menuPath={c.menu_path} currentTitle={c.title} />
+                      </td>
+                      <td className="px-3 py-3">
+                        {c.menu_assignment_count > 0 || c.menu_review_count > 0 ? (
+                          <div className="space-y-1">
+                            <span className="block text-xs text-slate-700 dark:text-slate-300">
+                              {buildMenuAssignmentSummary(c)}
+                            </span>
+                            {c.menu_review_count > 0 && (
+                              <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                {c.menu_review_count} review
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 dark:text-slate-500">—</span>
+                        )}
                       </td>
                       <td className="px-3 py-3">
                         {c.taxonomy_name ? (
@@ -1919,7 +2414,9 @@ function CollectionDetailDrawerInline({
   onClose,
   onRefresh,
 }: DrawerProps) {
-  const [activeTab, setActiveTab] = useState<'products' | 'taxonomy' | 'metafields'>('products');
+  const [activeTab, setActiveTab] = useState<'products' | 'taxonomy' | 'metafields' | 'menuAi'>(
+    'products'
+  );
   const [products, setProducts] = useState<
     { id: string; title: string; products_count?: number; quality_level?: string }[]
   >([]);
@@ -1963,6 +2460,20 @@ function CollectionDetailDrawerInline({
     }
   }, [api, collection.id]);
 
+  const loadMenuAssignments = useCallback(async () => {
+    setLoadingMenuAssignments(true);
+    try {
+      const result = await api.getApi<MenuAssignmentStatusResponse>(
+        `/collections/${collection.id}/menu-assignment-status`
+      );
+      setMenuAssignments(result);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Eroare la încărcarea asignărilor AI');
+    } finally {
+      setLoadingMenuAssignments(false);
+    }
+  }, [api, collection.id]);
+
   const handleOpenParent = useCallback(async () => {
     if (!collection.parent_collection_id) return;
     try {
@@ -1978,7 +2489,8 @@ function CollectionDetailDrawerInline({
   useEffect(() => {
     if (activeTab === 'products') void loadProducts();
     if (activeTab === 'metafields') void loadMetafields();
-  }, [activeTab, loadProducts, loadMetafields]);
+    if (activeTab === 'menuAi') void loadMenuAssignments();
+  }, [activeTab, loadProducts, loadMetafields, loadMenuAssignments]);
 
   interface ProgressStep {
     step: string;
@@ -1991,10 +2503,18 @@ function CollectionDetailDrawerInline({
   const [titleEn, setTitleEn] = useState<string | null>(collection.title_en ?? null);
   const [translateRunningLocal, setTranslateRunningLocal] = useState(false);
   const [translateSteps, setTranslateSteps] = useState<ProgressStep[]>([]);
+  const [menuAssignments, setMenuAssignments] = useState<MenuAssignmentStatusResponse | null>(null);
+  const [loadingMenuAssignments, setLoadingMenuAssignments] = useState(false);
+  const [menuAssignRunning, setMenuAssignRunning] = useState(false);
+  const [menuAssignSteps, setMenuAssignSteps] = useState<ProgressStep[]>([]);
+  const [menuActionBusyId, setMenuActionBusyId] = useState<string | null>(null);
 
   useEffect(() => {
     setTitleEn(collection.title_en ?? null);
     setTranslateSteps([]);
+    setMenuAssignments(null);
+    setMenuAssignSteps([]);
+    setMenuActionBusyId(null);
   }, [collection.id, collection.title_en]);
 
   const handleTranslateSingle = useCallback(async () => {
@@ -2029,12 +2549,24 @@ function CollectionDetailDrawerInline({
 
           if (type === 'result') {
             const resultStatus = event['status'] as string;
+            const consensusMethod = (event['consensusMethod'] as ConsensusMethod | null) ?? null;
+            const consensusScore =
+              typeof event['consensusScore'] === 'number' ? event['consensusScore'] : null;
             if (resultStatus === 'translated') {
               const translated = event['titleEn'] as string;
               setTitleEn(translated);
               setTranslateSteps((prev) => [
                 ...prev,
                 { step: 'done', message: `Traducere finalizată: „${translated}"`, status: 'done' },
+                ...(consensusScore != null
+                  ? [
+                      {
+                        step: 'consensus_result',
+                        message: `Consens: ${formatConsensusMethod(consensusMethod)} · scor ${formatConsensusScore(consensusScore)}`,
+                        status: 'done' as const,
+                      },
+                    ]
+                  : []),
               ]);
               onRefresh();
             } else if (resultStatus === 'already_translated') {
@@ -2105,6 +2637,9 @@ function CollectionDetailDrawerInline({
 
         if (type === 'result') {
           const resultStatus = event['status'] as string;
+          const consensusMethod = (event['consensusMethod'] as ConsensusMethod | null) ?? null;
+          const consensusScore =
+            typeof event['consensusScore'] === 'number' ? event['consensusScore'] : null;
           if (resultStatus === 'assigned') {
             const name = event['taxonomyName'] as string;
             const pct = Math.round(((event['confidence'] as number) ?? 0) * 100);
@@ -2116,6 +2651,15 @@ function CollectionDetailDrawerInline({
                 message: `Taxonomie atribuită: „${name}" — ${pct}% confidență`,
                 status: 'done',
               },
+              ...(consensusScore != null
+                ? [
+                    {
+                      step: 'consensus_result',
+                      message: `Consens: ${formatConsensusMethod(consensusMethod)} · scor ${formatConsensusScore(consensusScore)}`,
+                      status: 'done' as const,
+                    },
+                  ]
+                : []),
             ]);
             onRefresh();
           } else {
@@ -2145,6 +2689,118 @@ function CollectionDetailDrawerInline({
       setAssignRunning(false);
     }
   }, [api, collection.id, taxonomyName, onRefresh]);
+
+  const handleAssignMenuAi = useCallback(async () => {
+    setMenuAssignRunning(true);
+    setMenuAssignSteps([]);
+    try {
+      await api.streamPost(`/collections/${collection.id}/assign-menu-ai`, {}, (event) => {
+        const type = event['type'] as string;
+
+        if (type === 'menu_assign_progress') {
+          const step = event['step'] as string;
+          const message = event['message'] as string;
+          const status: 'in_progress' | 'done' | 'error' =
+            (event['status'] as string) === 'done'
+              ? 'done'
+              : (event['status'] as string) === 'error'
+                ? 'error'
+                : 'in_progress';
+          setMenuAssignSteps((prev) => {
+            const existing = prev.findIndex((entry) => entry.step === step);
+            if (existing >= 0) {
+              const updated = [...prev];
+              updated[existing] = { step, message, status };
+              return updated;
+            }
+            return [...prev, { step, message, status }];
+          });
+        }
+
+        if (type === 'menu_assign_collection_result') {
+          const resultStatus = event['status'] as string;
+          const resultMessage = (event['message'] as string) ?? 'Proces finalizat.';
+          const consensusMethod = (event['consensusMethod'] as ConsensusMethod | null) ?? null;
+          const consensusScore =
+            typeof event['consensusScore'] === 'number' ? event['consensusScore'] : null;
+          setMenuAssignSteps((prev) => [
+            ...prev,
+            {
+              step: 'result',
+              message: resultMessage,
+              status: resultStatus === 'error' ? 'error' : 'done',
+            },
+            ...(consensusScore != null
+              ? [
+                  {
+                    step: 'consensus_result',
+                    message: `Consens: ${formatConsensusMethod(consensusMethod)} · scor ${formatConsensusScore(consensusScore)}`,
+                    status: 'done' as const,
+                  },
+                ]
+              : []),
+          ]);
+          void loadMenuAssignments();
+          onRefresh();
+        }
+
+        if (type === 'error') {
+          setMenuAssignSteps((prev) => [
+            ...prev,
+            {
+              step: 'error',
+              message: (event['message'] as string) ?? 'Eroare la asignarea AI.',
+              status: 'error',
+            },
+          ]);
+        }
+      });
+    } catch (err) {
+      setMenuAssignSteps((prev) => [
+        ...prev,
+        {
+          step: 'error',
+          message: err instanceof Error ? err.message : 'Eroare la asignarea AI.',
+          status: 'error',
+        },
+      ]);
+    } finally {
+      setMenuAssignRunning(false);
+    }
+  }, [api, collection.id, loadMenuAssignments, onRefresh]);
+
+  const runMenuAssignmentAction = useCallback(
+    async (assignmentId: string, action: 'approve' | 'reject' | 'primary' | 'delete') => {
+      setMenuActionBusyId(assignmentId);
+      try {
+        if (action === 'approve') {
+          await api.postApi(
+            `/collections/${collection.id}/menu-assignments/${assignmentId}/approve`,
+            {}
+          );
+        } else if (action === 'reject') {
+          await api.postApi(
+            `/collections/${collection.id}/menu-assignments/${assignmentId}/reject`,
+            {}
+          );
+        } else if (action === 'primary') {
+          await api.patchApi(
+            `/collections/${collection.id}/menu-assignments/${assignmentId}/primary`,
+            {}
+          );
+        } else {
+          await api.deleteApi(`/collections/${collection.id}/menu-assignments/${assignmentId}`);
+        }
+        await loadMenuAssignments();
+        onRefresh();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Operația pe asignare a eșuat.');
+      } finally {
+        setMenuActionBusyId(null);
+      }
+    },
+    [api, collection.id, loadMenuAssignments, onRefresh]
+  );
 
   const handlePushMetafields = useCallback(async () => {
     try {
@@ -2212,7 +2868,7 @@ function CollectionDetailDrawerInline({
 
         {/* Tabs */}
         <div className="flex border-b border-slate-200 dark:border-slate-700">
-          {(['products', 'taxonomy', 'metafields'] as const).map((tab) => (
+          {(['products', 'taxonomy', 'menuAi', 'metafields'] as const).map((tab) => (
             <button
               key={tab}
               className={`flex-1 px-4 py-2.5 text-sm font-medium transition-colors ${
@@ -2222,7 +2878,13 @@ function CollectionDetailDrawerInline({
               }`}
               onClick={() => setActiveTab(tab)}
             >
-              {tab === 'products' ? 'Produse' : tab === 'taxonomy' ? 'Taxonomie' : 'Metafields'}
+              {tab === 'products'
+                ? 'Produse'
+                : tab === 'taxonomy'
+                  ? 'Taxonomie'
+                  : tab === 'menuAi'
+                    ? 'Categorii AI'
+                    : 'Metafields'}
             </button>
           ))}
         </div>
@@ -2313,7 +2975,7 @@ function CollectionDetailDrawerInline({
                   <Button
                     variant="secondary"
                     onClick={() => void handleTranslateSingle()}
-                    disabled={translateRunningLocal || assignRunning}
+                    disabled={translateRunningLocal || assignRunning || menuAssignRunning}
                   >
                     <Languages
                       className={`mr-1.5 size-3.5 ${translateRunningLocal ? 'animate-pulse' : ''}`}
@@ -2386,7 +3048,7 @@ function CollectionDetailDrawerInline({
                 <Button
                   variant="secondary"
                   onClick={() => void handleAssignTaxonomyAi()}
-                  disabled={assignRunning}
+                  disabled={assignRunning || menuAssignRunning}
                 >
                   {assignRunning
                     ? 'Se procesează...'
@@ -2401,6 +3063,280 @@ function CollectionDetailDrawerInline({
                 >
                   Push metafields
                 </Button>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'menuAi' && (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                      Asignare categorii/meniu AI
+                    </h3>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      AI propune poziții existente în arborele Shopify și semnalează path-uri noi
+                      doar pentru review uman.
+                    </p>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    onClick={() => void handleAssignMenuAi()}
+                    disabled={menuAssignRunning || loadingMenuAssignments}
+                  >
+                    {menuAssignRunning
+                      ? 'Se procesează...'
+                      : (menuAssignments?.activeAssignments.length ?? 0) > 0 ||
+                          (menuAssignments?.proposedAssignments.length ?? 0) > 0
+                        ? 'Reasignează cu AI'
+                        : 'Asignează cu AI pe categorii'}
+                  </Button>
+                </div>
+              </div>
+
+              {menuAssignSteps.length > 0 && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/50">
+                  <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Progres asignare AI
+                  </h4>
+                  <ul className="space-y-2">
+                    {menuAssignSteps.map((step, index) => (
+                      <li key={`${step.step}-${index}`} className="flex items-start gap-2 text-sm">
+                        <span className="mt-0.5 flex-shrink-0">
+                          {step.status === 'in_progress' && (
+                            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+                          )}
+                          {step.status === 'done' && (
+                            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-green-500 text-[10px] text-white">
+                              &#10003;
+                            </span>
+                          )}
+                          {step.status === 'error' && (
+                            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">
+                              &#10007;
+                            </span>
+                          )}
+                        </span>
+                        <span
+                          className={
+                            step.status === 'error'
+                              ? 'text-red-600 dark:text-red-400'
+                              : step.status === 'done'
+                                ? 'text-green-700 dark:text-green-400'
+                                : 'text-slate-700 dark:text-slate-300'
+                          }
+                        >
+                          {step.message}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+                <h3 className="mb-3 text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Asocieri active
+                </h3>
+                {loadingMenuAssignments ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <div
+                        key={i}
+                        className="h-16 animate-pulse rounded bg-slate-200 dark:bg-slate-700"
+                      />
+                    ))}
+                  </div>
+                ) : (menuAssignments?.activeAssignments.length ?? 0) === 0 ? (
+                  <p className="text-sm text-slate-400">Nu există asocieri active.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {menuAssignments?.activeAssignments.map((assignment) => (
+                      <div
+                        key={assignment.id}
+                        className="rounded-lg border border-slate-200 p-3 dark:border-slate-700"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              {parseMenuPath(assignment.menuItemPath).map((segment, index) => (
+                                <span
+                                  key={`${segment}-${index}`}
+                                  className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                                >
+                                  {segment}
+                                </span>
+                              ))}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                              <Badge tone={assignment.isPrimary ? 'info' : 'neutral'}>
+                                {assignment.isPrimary ? 'Primary' : 'Secondary'}
+                              </Badge>
+                              <span>Confidență: {formatConfidence(assignment.confidence)}</span>
+                              <span>Sursă: {assignment.assignmentSource}</span>
+                            </div>
+                            {assignment.reasoning && (
+                              <p className="text-xs text-slate-500 dark:text-slate-400">
+                                {assignment.reasoning}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {!assignment.isPrimary && (
+                              <Button
+                                variant="secondary"
+                                onClick={() =>
+                                  void runMenuAssignmentAction(assignment.id, 'primary')
+                                }
+                                disabled={menuActionBusyId === assignment.id}
+                              >
+                                Setează ca primară
+                              </Button>
+                            )}
+                            <Button
+                              variant="secondary"
+                              onClick={() => void runMenuAssignmentAction(assignment.id, 'delete')}
+                              disabled={menuActionBusyId === assignment.id}
+                            >
+                              Șterge
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+                <h3 className="mb-3 text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Propuneri AI
+                </h3>
+                {(menuAssignments?.proposedAssignments.filter(
+                  (assignment) => !assignment.proposedPath
+                ).length ?? 0) === 0 ? (
+                  <p className="text-sm text-slate-400">Nu există propuneri AI pentru review.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {menuAssignments?.proposedAssignments
+                      .filter((assignment) => !assignment.proposedPath)
+                      .map((assignment) => (
+                        <div
+                          key={assignment.id}
+                          className="rounded-lg border border-amber-200 bg-amber-50/70 p-3 dark:border-amber-800 dark:bg-amber-950/30"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="space-y-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                {parseMenuPath(assignment.menuItemPath).map((segment, index) => (
+                                  <span
+                                    key={`${segment}-${index}`}
+                                    className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-slate-900 dark:text-amber-300"
+                                  >
+                                    {segment}
+                                  </span>
+                                ))}
+                              </div>
+                              <div className="text-xs text-amber-700 dark:text-amber-300">
+                                Confidență: {formatConfidence(assignment.confidence)}
+                              </div>
+                              {assignment.reasoning && (
+                                <p className="text-xs text-amber-700 dark:text-amber-300">
+                                  {assignment.reasoning}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                variant="secondary"
+                                onClick={() =>
+                                  void runMenuAssignmentAction(assignment.id, 'approve')
+                                }
+                                disabled={menuActionBusyId === assignment.id}
+                              >
+                                Aprobă
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                onClick={() =>
+                                  void runMenuAssignmentAction(assignment.id, 'reject')
+                                }
+                                disabled={menuActionBusyId === assignment.id}
+                              >
+                                Respinge
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+                <h3 className="mb-3 text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Propuneri path nou
+                </h3>
+                {(menuAssignments?.proposedAssignments.filter(
+                  (assignment) => assignment.proposedPath
+                ).length ?? 0) === 0 ? (
+                  <p className="text-sm text-slate-400">Nu există path-uri noi propuse.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {menuAssignments?.proposedAssignments
+                      .filter((assignment) => assignment.proposedPath)
+                      .map((assignment) => (
+                        <div
+                          key={assignment.id}
+                          className="rounded-lg border border-amber-200 bg-amber-50/70 p-3 dark:border-amber-800 dark:bg-amber-950/30"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="space-y-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                {parseMenuPath(assignment.proposedPath).map((segment, index) => (
+                                  <span
+                                    key={`${segment}-${index}`}
+                                    className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-slate-900 dark:text-amber-300"
+                                  >
+                                    {segment}
+                                  </span>
+                                ))}
+                              </div>
+                              <div className="text-xs text-amber-700 dark:text-amber-300">
+                                Confidență: {formatConfidence(assignment.confidence)}
+                              </div>
+                              {assignment.reasoning && (
+                                <p className="text-xs text-amber-700 dark:text-amber-300">
+                                  {assignment.reasoning}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                variant="secondary"
+                                onClick={() =>
+                                  void runMenuAssignmentAction(assignment.id, 'approve')
+                                }
+                                disabled={menuActionBusyId === assignment.id}
+                              >
+                                Aprobă
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                onClick={() =>
+                                  void runMenuAssignmentAction(assignment.id, 'reject')
+                                }
+                                disabled={menuActionBusyId === assignment.id}
+                              >
+                                Respinge
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
               </div>
             </div>
           )}

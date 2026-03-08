@@ -263,6 +263,12 @@ const env = {
   bulkDedupeNeedsReviewThreshold: 0.85,
   bulkDedupeMaxResults: 10,
   bulkDedupeSuspiciousThreshold: 0.7,
+  consensusEnabled: true,
+  consensusN: 4,
+  consensusTimeoutMultiplier: 3,
+  consensusSkipThreshold: 0.75,
+  consensusEmbeddingSecondaryEnabled: true,
+  consensusMaxRetries: 1,
 } as AppEnv;
 
 const logger = {

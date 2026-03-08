@@ -11,6 +11,7 @@ import type { AiBatchBackfillJobPayload } from '@app/types';
 import { BudgetExceededError, enforceBudget } from '@app/pim';
 import { getShopOpenAiConfig } from '../../runtime/openai-config.js';
 import { resolveEmbeddingsProvider } from '../../services/ai-provider-routing.js';
+import { resolveDualEmbeddingsProviders } from '../../services/multi-model-embedding.js';
 
 import {
   buildBatchJsonlLines,
@@ -343,13 +344,20 @@ export async function runAiBatchBackfill(params: {
         Math.min(chunkSize, budget.remaining)
       );
       if (provider.kind === 'selfhosted') {
+        const providers = await resolveDualEmbeddingsProviders({
+          shopId: payload.shopId,
+          env,
+          logger,
+        });
         const syncResult = await runSelfhostedEmbeddingSync({
           shopId: payload.shopId,
+          env,
           embeddingType: 'combined',
           model: provider.model.name,
           dimensions,
           candidates,
-          provider,
+          primaryProvider: provider,
+          secondaryProvider: providers.secondary,
           logger,
         });
         await withTenantContext(payload.shopId, async (client) => {

@@ -16,6 +16,7 @@ import {
 import { scrapeProductPage, extractJsonLd } from '@app/scraper';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
 import { resolveChatTaskCredentials } from '../../services/ai-provider-routing.js';
+import { consensusChatCompletion } from '../../services/consensus-engine.js';
 import { scanInput, scanOutput } from '../../services/guardrails.js';
 import { enqueueConsensusJob } from '../../queue/consensus-queue.js';
 import {
@@ -55,6 +56,14 @@ interface Extractor {
     credentials: ChatModelCredentials;
     matchId?: string;
     productId?: string;
+    completionRunner?: (params: { systemPrompt: string; userPrompt: string }) => Promise<{
+      content: string;
+      httpStatus?: number;
+      tokensInput?: number;
+      tokensOutput?: number;
+      modelUsed?: string;
+      providerUsed?: string;
+    }>;
   }) => Promise<ExtractionResult>;
 }
 
@@ -635,6 +644,27 @@ async function runExtractionAndPersist(params: RunExtractionParams): Promise<voi
     sourceUrl,
     shopId,
     credentials,
+    completionRunner: async ({ systemPrompt, userPrompt }) => {
+      const consensus = await consensusChatCompletion<Record<string, unknown>>({
+        shopId,
+        env,
+        logger,
+        taskType: 'extraction',
+        systemPrompt,
+        userPrompt,
+        responseFormat: { type: 'json_object' },
+        keyField: 'title',
+        maxTokens: Math.max(400, Math.min(credentials.maxTokensPerRequest, 2000)),
+      });
+      return {
+        content: JSON.stringify(consensus.result),
+        httpStatus: 200,
+        tokensInput: 0,
+        tokensOutput: 0,
+        modelUsed: consensus.models.join(', '),
+        providerUsed: credentials.provider,
+      };
+    },
     ...(matchId ? { matchId } : {}),
     ...(productId ? { productId } : {}),
   });

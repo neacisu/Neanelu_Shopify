@@ -4,6 +4,7 @@ import { configFromEnv, createWorker, withJobTelemetryContext } from '@app/queue
 import { withTenantContext } from '@app/database';
 import { AIAuditorService } from '@app/pim';
 import { resolveChatTaskCredentials } from '../../services/ai-provider-routing.js';
+import { consensusChatCompletion } from '../../services/consensus-engine.js';
 import { scanInput, scanOutput } from '../../services/guardrails.js';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
 import { enqueueExtractionJob } from '../../queue/similarity-queues.js';
@@ -158,6 +159,27 @@ export function startAIAuditWorker(logger: Logger): AIAuditWorkerHandle {
             const auditResult = await auditor.auditMatch({
               shopId: payload.shopId,
               credentials,
+              completionRunner: async ({ systemPrompt, userPrompt }) => {
+                const consensus = await consensusChatCompletion<Record<string, unknown>>({
+                  shopId: payload.shopId,
+                  env,
+                  logger,
+                  taskType: 'audit',
+                  systemPrompt,
+                  userPrompt,
+                  responseFormat: { type: 'json_object' },
+                  keyField: 'recommendation',
+                  maxTokens: Math.max(300, Math.min(credentials.maxTokensPerRequest, 1200)),
+                });
+                return {
+                  content: JSON.stringify(consensus.result),
+                  httpStatus: 200,
+                  tokensInput: 0,
+                  tokensOutput: 0,
+                  modelUsed: consensus.models.join(', '),
+                  providerUsed: credentials.provider,
+                };
+              },
               localProduct: {
                 title: data.title,
                 brand: data.brand,

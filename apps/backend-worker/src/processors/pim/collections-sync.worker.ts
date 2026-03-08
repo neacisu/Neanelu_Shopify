@@ -3,6 +3,7 @@ import { withTenantContext } from '@app/database';
 import type { Logger } from '@app/logger';
 import { configFromEnv, createWorker, withJobTelemetryContext } from '@app/queue-manager';
 import { withTokenRetry } from '../../auth/token-lifecycle.js';
+import { syncMenuItemEmbeddings } from '../../services/menu-ai.js';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
 import { shopifyApi } from '../../shopify/client.js';
 import {
@@ -52,12 +53,56 @@ export function startCollectionsSyncWorker(logger: Logger): CollectionsSyncWorke
             const fetched = await syncCollections(payload, logger, job);
             try {
               const hierarchy = await syncMenuHierarchy(payload, logger, job);
+              let embeddings = {
+                embedded: 0,
+                completed: 0,
+                total: 0,
+                errors: 0,
+                model: '',
+                dimensions: 0,
+              };
+              let embeddingError = false;
+              try {
+                embeddings = await syncMenuItemEmbeddings({
+                  shopId: payload.shopId,
+                  env,
+                  logger,
+                  onProgress: (progress) => {
+                    const percent =
+                      progress.total > 0
+                        ? Math.min(
+                            99,
+                            Math.max(92, Math.round(92 + (progress.completed / progress.total) * 7))
+                          )
+                        : 99;
+                    safeUpdateProgress(job, {
+                      phase: 'embedding_menu_items',
+                      menuItems: hierarchy.items,
+                      correlated: hierarchy.correlated,
+                      menuItemsEmbedded: progress.completed,
+                      menuItemsTotal: progress.total,
+                      embeddingErrors: progress.errors,
+                      percent,
+                    });
+                  },
+                });
+              } catch (embeddingErr) {
+                embeddingError = true;
+                logger.error(
+                  { err: embeddingErr, shopId: payload.shopId },
+                  'Menu item embedding sync failed after hierarchy correlation'
+                );
+              }
               safeUpdateProgress(job, {
                 phase: 'done',
                 fetched,
                 menus: hierarchy.menus,
                 menuItems: hierarchy.items,
                 correlated: hierarchy.correlated,
+                menuItemsEmbedded: embeddings.completed,
+                menuItemsTotal: embeddings.total,
+                embeddingErrors: embeddings.errors,
+                embeddingError,
                 percent: 100,
               });
             } catch (err) {
@@ -410,265 +455,374 @@ async function syncMenuHierarchy(
   );
 
   await withTenantContext(payload.shopId, async (client) => {
-    for (let menuIndex = 0; menuIndex < menuHeads.length; menuIndex += 1) {
-      const menuHead = menuHeads[menuIndex];
-      if (!menuHead?.id) continue;
-
-      safeUpdateProgress(job, {
-        phase: 'menus',
-        current: menuIndex + 1,
-        total: menuHeads.length,
-        percent:
-          menuHeads.length > 0 ? Math.round(60 + ((menuIndex + 1) / menuHeads.length) * 25) : 85,
-      });
-
-      const detailsResponse = await withTokenRetry(
-        payload.shopId,
-        encryptionKey,
-        logger,
-        async (token, domain) => {
-          const shopifyClient = shopifyApi.createClient({
-            shopDomain: domain,
-            accessToken: token,
-          });
-          return await shopifyClient.request<ShopifyMenuDetailsResponse>(menuDetailsQuery, {
-            id: menuHead.id,
-          });
-        }
+    await client.query('BEGIN');
+    try {
+      const previousMenuItemRows = await client.query<{
+        id: string;
+        title: string;
+        path: string[] | null;
+      }>(
+        `SELECT id, title, path
+           FROM shopify_menu_items
+          WHERE shop_id = $1`,
+        [payload.shopId]
       );
-
-      const menu = detailsResponse.data?.menu;
-      if (!menu?.id) continue;
-
-      seenMenuGids.add(menu.id);
-      const isPrimaryHierarchyMenu = menu.handle === PRIMARY_COLLECTIONS_MENU_HANDLE;
-      const itemCount = countMenuItems(menu.items);
-      const menuRow = await client.query<{ id: string }>(
-        `INSERT INTO shopify_menus (
-           shop_id,
-           shopify_gid,
-           title,
-           handle,
-           items_count,
-           synced_at,
-           updated_at
-         )
-         VALUES ($1, $2, $3, $4, $5, now(), now())
-         ON CONFLICT (shop_id, shopify_gid) DO UPDATE SET
-           title = EXCLUDED.title,
-           handle = EXCLUDED.handle,
-           items_count = EXCLUDED.items_count,
-           synced_at = now(),
-           updated_at = now()
-         RETURNING id`,
-        [payload.shopId, menu.id, menu.title, menu.handle, itemCount]
+      const previousMenuRows = await client.query<{ id: string }>(
+        `SELECT id
+           FROM shopify_menus
+          WHERE shop_id = $1`,
+        [payload.shopId]
       );
-      const menuDbId = menuRow.rows[0]?.id;
-      if (!menuDbId) continue;
+      const currentMenuDbIds = new Set<string>();
+      const currentMenuItemDbIds = new Set<string>();
 
-      const seenItemGids = new Set<string>();
+      for (let menuIndex = 0; menuIndex < menuHeads.length; menuIndex += 1) {
+        const menuHead = menuHeads[menuIndex];
+        if (!menuHead?.id) continue;
 
-      const persistItems = async (
-        items: readonly ShopifyMenuItemNode[] | null | undefined,
-        parentItemId: string | null,
-        parentShopifyGid: string | null,
-        level: number,
-        pathSegments: readonly string[]
-      ): Promise<void> => {
-        if (!items?.length) return;
+        safeUpdateProgress(job, {
+          phase: 'menus',
+          current: menuIndex + 1,
+          total: menuHeads.length,
+          percent:
+            menuHeads.length > 0 ? Math.round(60 + ((menuIndex + 1) / menuHeads.length) * 20) : 80,
+        });
 
-        for (let index = 0; index < items.length; index += 1) {
-          const item = items[index];
-          if (!item?.id) continue;
-
-          seenItemGids.add(item.id);
-          const nextPath = [...pathSegments, item.title];
-          const itemRow = await client.query<{ id: string }>(
-            `INSERT INTO shopify_menu_items (
-               shop_id,
-               menu_id,
-               shopify_gid,
-               parent_item_id,
-               title,
-               url,
-               item_type,
-               resource_id,
-               position,
-               level,
-               path
-             )
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::text[])
-             ON CONFLICT (shop_id, shopify_gid) DO UPDATE SET
-               menu_id = EXCLUDED.menu_id,
-               parent_item_id = EXCLUDED.parent_item_id,
-               title = EXCLUDED.title,
-               url = EXCLUDED.url,
-               item_type = EXCLUDED.item_type,
-               resource_id = EXCLUDED.resource_id,
-               position = EXCLUDED.position,
-               level = EXCLUDED.level,
-               path = EXCLUDED.path,
-               updated_at = now()
-             RETURNING id`,
-            [
-              payload.shopId,
-              menuDbId,
-              item.id,
-              parentItemId,
-              item.title,
-              item.url,
-              item.type,
-              item.resourceId,
-              index,
-              level,
-              nextPath,
-            ]
-          );
-          const itemDbId = itemRow.rows[0]?.id;
-          if (!itemDbId) continue;
-
-          totalMenuItems += 1;
-          if (isPrimaryHierarchyMenu) {
-            hierarchyMenuItems.push({
-              shopifyGid: item.id,
-              parentShopifyGid,
-              itemType: item.type,
-              resourceId: item.resourceId,
-              level,
-              pathSegments: nextPath,
+        const detailsResponse = await withTokenRetry(
+          payload.shopId,
+          encryptionKey,
+          logger,
+          async (token, domain) => {
+            const shopifyClient = shopifyApi.createClient({
+              shopDomain: domain,
+              accessToken: token,
+            });
+            return await shopifyClient.request<ShopifyMenuDetailsResponse>(menuDetailsQuery, {
+              id: menuHead.id,
             });
           }
-
-          await persistItems(item.items, itemDbId, item.id, level + 1, nextPath);
-        }
-      };
-
-      await persistItems(menu.items, null, null, 1, []);
-
-      if (seenItemGids.size === 0) {
-        await client.query(`DELETE FROM shopify_menu_items WHERE shop_id = $1 AND menu_id = $2`, [
-          payload.shopId,
-          menuDbId,
-        ]);
-      } else {
-        await client.query(
-          `DELETE FROM shopify_menu_items
-           WHERE shop_id = $1
-             AND menu_id = $2
-             AND NOT (shopify_gid = ANY($3::varchar[]))`,
-          [payload.shopId, menuDbId, Array.from(seenItemGids)]
         );
+
+        const menu = detailsResponse.data?.menu;
+        if (!menu?.id) continue;
+
+        seenMenuGids.add(menu.id);
+        const isPrimaryHierarchyMenu = menu.handle === PRIMARY_COLLECTIONS_MENU_HANDLE;
+        const itemCount = countMenuItems(menu.items);
+        const menuRow = await client.query<{ id: string }>(
+          `INSERT INTO shopify_menus (
+             shop_id,
+             shopify_gid,
+             title,
+             handle,
+             items_count,
+             synced_at,
+             updated_at
+           )
+           VALUES ($1, $2, $3, $4, $5, now(), now())
+           ON CONFLICT (shop_id, shopify_gid) DO UPDATE SET
+             title = EXCLUDED.title,
+             handle = EXCLUDED.handle,
+             items_count = EXCLUDED.items_count,
+             synced_at = now(),
+             updated_at = now()
+           RETURNING id`,
+          [payload.shopId, menu.id, menu.title, menu.handle, itemCount]
+        );
+        const menuDbId = menuRow.rows[0]?.id;
+        if (!menuDbId) continue;
+        currentMenuDbIds.add(menuDbId);
+
+        const persistItems = async (
+          items: readonly ShopifyMenuItemNode[] | null | undefined,
+          parentItemId: string | null,
+          parentShopifyGid: string | null,
+          level: number,
+          pathSegments: readonly string[]
+        ): Promise<void> => {
+          if (!items?.length) return;
+
+          for (let index = 0; index < items.length; index += 1) {
+            const item = items[index];
+            if (!item?.id) continue;
+
+            const nextPath = [...pathSegments, item.title];
+            const itemRow = await client.query<{ id: string }>(
+              `INSERT INTO shopify_menu_items (
+                 shop_id,
+                 menu_id,
+                 shopify_gid,
+                 parent_item_id,
+                 title,
+                 url,
+                 item_type,
+                 resource_id,
+                 position,
+                 level,
+                 path
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::text[])
+               ON CONFLICT (shop_id, shopify_gid) DO UPDATE SET
+                 menu_id = EXCLUDED.menu_id,
+                 parent_item_id = EXCLUDED.parent_item_id,
+                 title = EXCLUDED.title,
+                 url = EXCLUDED.url,
+                 item_type = EXCLUDED.item_type,
+                 resource_id = EXCLUDED.resource_id,
+                 position = EXCLUDED.position,
+                 level = EXCLUDED.level,
+                 path = EXCLUDED.path,
+                 updated_at = now()
+               RETURNING id`,
+              [
+                payload.shopId,
+                menuDbId,
+                item.id,
+                parentItemId,
+                item.title,
+                item.url,
+                item.type,
+                item.resourceId,
+                index,
+                level,
+                nextPath,
+              ]
+            );
+            const itemDbId = itemRow.rows[0]?.id;
+            if (!itemDbId) continue;
+
+            currentMenuItemDbIds.add(itemDbId);
+            totalMenuItems += 1;
+            if (isPrimaryHierarchyMenu) {
+              hierarchyMenuItems.push({
+                shopifyGid: item.id,
+                parentShopifyGid,
+                itemType: item.type,
+                resourceId: item.resourceId,
+                level,
+                pathSegments: nextPath,
+              });
+            }
+
+            await persistItems(item.items, itemDbId, item.id, level + 1, nextPath);
+          }
+        };
+
+        await persistItems(menu.items, null, null, 1, []);
       }
-    }
 
-    if (seenMenuGids.size === 0) {
-      await client.query(`DELETE FROM shopify_menus WHERE shop_id = $1`, [payload.shopId]);
-    } else {
-      await client.query(
-        `DELETE FROM shopify_menus
-         WHERE shop_id = $1
-           AND NOT (shopify_gid = ANY($2::varchar[]))`,
-        [payload.shopId, Array.from(seenMenuGids)]
-      );
-    }
+      safeUpdateProgress(job, { phase: 'hierarchy', status: 'correlating', percent: 85 });
 
-    safeUpdateProgress(job, { phase: 'hierarchy', status: 'correlating', percent: 90 });
-
-    if (!primaryMenuHead) {
-      throw new Error(`primary_collections_menu_missing:${PRIMARY_COLLECTIONS_MENU_HANDLE}`);
-    }
-
-    await client.query(
-      `UPDATE shopify_collections
-       SET menu_level = NULL,
-           menu_path = NULL,
-           parent_collection_id = NULL
-       WHERE shop_id = $1`,
-      [payload.shopId]
-    );
-
-    const collectionRows = await client.query<{ id: string; shopify_gid: string }>(
-      `SELECT id, shopify_gid
-       FROM shopify_collections
-       WHERE shop_id = $1`,
-      [payload.shopId]
-    );
-    const collectionIdByGid = new Map(
-      collectionRows.rows.map((row) => [row.shopify_gid, row.id] as const)
-    );
-    const primaryHierarchyItemByShopifyGid = new Map(
-      hierarchyMenuItems.map((item) => [item.shopifyGid, item] as const)
-    );
-    const hierarchyCandidatesByResourceId = new Map<string, HierarchyMenuItem[]>();
-
-    for (const item of hierarchyMenuItems) {
-      if (item.itemType !== 'COLLECTION' || !item.resourceId) continue;
-      const existing = hierarchyCandidatesByResourceId.get(item.resourceId);
-      if (existing) {
-        existing.push(item);
-      } else {
-        hierarchyCandidatesByResourceId.set(item.resourceId, [item]);
-      }
-    }
-
-    for (const [resourceId, candidates] of hierarchyCandidatesByResourceId.entries()) {
-      const canonicalItem = chooseCanonicalHierarchyItem(candidates);
-      if (!canonicalItem) continue;
-
-      const childCollectionId = collectionIdByGid.get(resourceId);
-      if (!childCollectionId) continue;
-
-      let parentMenuItemGid = canonicalItem.parentShopifyGid;
-      let parentCollectionId: string | null = null;
-      while (parentMenuItemGid) {
-        const parentItem = primaryHierarchyItemByShopifyGid.get(parentMenuItemGid);
-        if (!parentItem) break;
-        if (parentItem.itemType === 'COLLECTION' && parentItem.resourceId) {
-          parentCollectionId = collectionIdByGid.get(parentItem.resourceId) ?? null;
-          break;
-        }
-        parentMenuItemGid = parentItem.parentShopifyGid;
+      if (!primaryMenuHead) {
+        throw new Error(`primary_collections_menu_missing:${PRIMARY_COLLECTIONS_MENU_HANDLE}`);
       }
 
       await client.query(
         `UPDATE shopify_collections
-         SET menu_level = $1,
-             menu_path = $2,
-             parent_collection_id = $3
-         WHERE id = $4
-           AND shop_id = $5`,
-        [
-          canonicalItem.level - 1,
-          canonicalItem.pathSegments.join(' > '),
-          parentCollectionId,
-          childCollectionId,
-          payload.shopId,
-        ]
+         SET menu_level = NULL,
+             menu_path = NULL,
+             parent_collection_id = NULL
+         WHERE shop_id = $1`,
+        [payload.shopId]
       );
-      if (parentCollectionId) {
-        correlatedCount += 1;
+
+      const collectionRows = await client.query<{ id: string; shopify_gid: string }>(
+        `SELECT id, shopify_gid
+         FROM shopify_collections
+         WHERE shop_id = $1`,
+        [payload.shopId]
+      );
+      const collectionIdByGid = new Map(
+        collectionRows.rows.map((row) => [row.shopify_gid, row.id] as const)
+      );
+      const primaryHierarchyItemByShopifyGid = new Map(
+        hierarchyMenuItems.map((item) => [item.shopifyGid, item] as const)
+      );
+      const hierarchyCandidatesByResourceId = new Map<string, HierarchyMenuItem[]>();
+
+      for (const item of hierarchyMenuItems) {
+        if (item.itemType !== 'COLLECTION' || !item.resourceId) continue;
+        const existing = hierarchyCandidatesByResourceId.get(item.resourceId);
+        if (existing) {
+          existing.push(item);
+        } else {
+          hierarchyCandidatesByResourceId.set(item.resourceId, [item]);
+        }
       }
+
+      for (const [resourceId, candidates] of hierarchyCandidatesByResourceId.entries()) {
+        const canonicalItem = chooseCanonicalHierarchyItem(candidates);
+        if (!canonicalItem) continue;
+
+        const childCollectionId = collectionIdByGid.get(resourceId);
+        if (!childCollectionId) continue;
+
+        let parentMenuItemGid = canonicalItem.parentShopifyGid;
+        let parentCollectionId: string | null = null;
+        while (parentMenuItemGid) {
+          const parentItem = primaryHierarchyItemByShopifyGid.get(parentMenuItemGid);
+          if (!parentItem) break;
+          if (parentItem.itemType === 'COLLECTION' && parentItem.resourceId) {
+            parentCollectionId = collectionIdByGid.get(parentItem.resourceId) ?? null;
+            break;
+          }
+          parentMenuItemGid = parentItem.parentShopifyGid;
+        }
+
+        await client.query(
+          `UPDATE shopify_collections
+           SET menu_level = $1,
+               menu_path = $2,
+               parent_collection_id = $3
+           WHERE id = $4
+             AND shop_id = $5`,
+          [
+            canonicalItem.level - 1,
+            canonicalItem.pathSegments.join(' > '),
+            parentCollectionId,
+            childCollectionId,
+            payload.shopId,
+          ]
+        );
+        if (parentCollectionId) {
+          correlatedCount += 1;
+        }
+      }
+
+      const staleMenuItemRows = previousMenuItemRows.rows.filter(
+        (row) => !currentMenuItemDbIds.has(row.id)
+      );
+      const menuAssignmentTablesExist = await client.query<{ exists: boolean }>(
+        `SELECT EXISTS(
+           SELECT 1
+             FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name = 'shopify_collection_menu_assignments'
+         ) AS exists`
+      );
+      if (staleMenuItemRows.length > 0 && menuAssignmentTablesExist.rows[0]?.exists) {
+        const staleItemIds = staleMenuItemRows.map((row) => row.id);
+        const staleAssignments = await client.query<{
+          assignment_id: string;
+          collection_id: string;
+          menu_item_id: string;
+          status: string;
+          proposed_path: string | null;
+          menu_title: string;
+          menu_path: string | null;
+        }>(
+          `SELECT a.id AS assignment_id,
+                  a.collection_id,
+                  a.menu_item_id,
+                  a.status,
+                  a.proposed_path,
+                  mi.title AS menu_title,
+                  array_to_string(mi.path, ' > ') AS menu_path
+             FROM shopify_collection_menu_assignments a
+             JOIN shopify_menu_items mi
+               ON mi.id = a.menu_item_id
+              AND mi.shop_id = a.shop_id
+            WHERE a.shop_id = $1
+              AND a.menu_item_id = ANY($2::uuid[])`,
+          [payload.shopId, staleItemIds]
+        );
+
+        for (const assignment of staleAssignments.rows) {
+          const preservedPath =
+            assignment.proposed_path ?? assignment.menu_path ?? assignment.menu_title;
+          await client.query(
+            `UPDATE shopify_collection_menu_assignments
+                SET status = 'proposed',
+                    is_primary = false,
+                    menu_item_id = NULL,
+                    menu_id = NULL,
+                    proposed_path = COALESCE(proposed_path, $3),
+                    updated_at = now()
+              WHERE id = $1
+                AND shop_id = $2`,
+            [assignment.assignment_id, payload.shopId, preservedPath]
+          );
+          await client.query(
+            `INSERT INTO shopify_collection_menu_assignment_audits (
+               shop_id,
+               assignment_id,
+               collection_id,
+               action,
+               input_context,
+               candidate_set,
+               llm_output_raw,
+               guardrails_verdict,
+               models_used,
+               confidence_scores,
+               created_at
+             )
+             VALUES (
+               $1, $2, $3, 'invalidated', $4::jsonb, '[]'::jsonb, NULL, '{}'::jsonb, '{}'::jsonb, $5::jsonb, now()
+             )`,
+            [
+              payload.shopId,
+              assignment.assignment_id,
+              assignment.collection_id,
+              JSON.stringify({
+                staleMenuItemId: assignment.menu_item_id,
+                staleMenuPath: assignment.menu_path,
+                preservedPath,
+              }),
+              JSON.stringify({
+                previousStatus: assignment.status,
+              }),
+            ]
+          );
+        }
+      }
+
+      if (staleMenuItemRows.length > 0) {
+        await client.query(
+          `DELETE FROM shopify_menu_items
+           WHERE shop_id = $1
+             AND id = ANY($2::uuid[])`,
+          [payload.shopId, staleMenuItemRows.map((row) => row.id)]
+        );
+      }
+
+      const staleMenuIds = previousMenuRows.rows
+        .map((row) => row.id)
+        .filter((menuId) => !currentMenuDbIds.has(menuId));
+      if (staleMenuIds.length > 0) {
+        await client.query(
+          `DELETE FROM shopify_menus
+           WHERE shop_id = $1
+             AND id = ANY($2::uuid[])`,
+          [payload.shopId, staleMenuIds]
+        );
+      }
+
+      await client.query('COMMIT');
+
+      logger.info(
+        {
+          shopId: payload.shopId,
+          menuCount: menuHeads.length,
+          itemCount: totalMenuItems,
+          primaryMenuHandle: PRIMARY_COLLECTIONS_MENU_HANDLE,
+          hierarchyCollectionCount: hierarchyCandidatesByResourceId.size,
+          correlatedCount,
+          invalidatedAssignments: staleMenuItemRows.length,
+        },
+        'Collections menu hierarchy sync completed'
+      );
+
+      safeUpdateProgress(job, {
+        phase: 'hierarchy',
+        status: 'completed',
+        menuItems: totalMenuItems,
+        correlated: correlatedCount,
+        percent: 91,
+      });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
     }
-
-    logger.info(
-      {
-        shopId: payload.shopId,
-        menuCount: menuHeads.length,
-        itemCount: totalMenuItems,
-        primaryMenuHandle: PRIMARY_COLLECTIONS_MENU_HANDLE,
-        hierarchyCollectionCount: hierarchyCandidatesByResourceId.size,
-        correlatedCount,
-      },
-      'Collections menu hierarchy sync completed'
-    );
-
-    safeUpdateProgress(job, {
-      phase: 'hierarchy',
-      status: 'completed',
-      menuItems: totalMenuItems,
-      correlated: correlatedCount,
-      percent: 98,
-    });
   });
   return { menus: menuHeads.length, items: totalMenuItems, correlated: correlatedCount };
 }

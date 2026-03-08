@@ -130,19 +130,22 @@ Doar porturile esențiale sunt expuse public prin Traefik reverse proxy:
 
 Toate celelalte servicii comunică pe rețeaua internă Docker (`neanelu_network`).
 
-### Observability exporters (prod/staging)
+### Observability exporters (prod/staging/dev)
 
 Exporterele sunt expuse pentru Prometheus central prin VIP (hz.247) cu porturi dedicate:
 
 - Node exporter:
   - prod: `10.0.1.10:29200` -> CT111:9100
   - staging: `10.0.1.10:19200` -> CT112:9100
+  - dev: `10.0.1.10:39200` -> hz164:9100
 - cAdvisor:
   - prod: `10.0.1.10:29210` -> CT111:65210
   - staging: `10.0.1.10:19210` -> CT112:65210
+  - dev: `10.0.1.10:39210` -> hz164:65210
 - PgBouncer exporter:
   - prod: `10.0.1.10:29211` -> CT111:65211
   - staging: `10.0.1.10:19211` -> CT112:65211
+  - dev: `10.0.1.10:39211` -> hz164:65211
 
 **Network model (standardizat):**
 

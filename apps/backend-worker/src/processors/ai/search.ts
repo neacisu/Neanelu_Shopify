@@ -190,3 +190,124 @@ export async function searchSimilarProducts(params: {
     }));
   });
 }
+
+export async function searchSimilarProductsSecondary(params: {
+  client: PoolClient;
+  shopId: string;
+  embedding: readonly number[];
+  limit: number;
+  threshold: number;
+  vendors?: readonly string[] | null;
+  productTypes?: readonly string[] | null;
+  priceMin?: number | null;
+  priceMax?: number | null;
+  categoryId?: string | null;
+  collectionIds?: readonly string[] | null;
+  minSimilarity?: number | null;
+  excludeProductIds?: readonly string[] | null;
+  modelVersion: string;
+  queryTimeoutMs?: number;
+  logger: Logger;
+}): Promise<SearchResult[]> {
+  return withAiSpan(AI_SPAN_NAMES.SEARCH_QUERY, { 'ai.shop_id': params.shopId }, async () => {
+    const vectorLiteral = toPgVectorLiteral(params.embedding);
+    if (typeof params.queryTimeoutMs === 'number' && Number.isFinite(params.queryTimeoutMs)) {
+      const timeoutMs = Math.max(1, Math.floor(params.queryTimeoutMs));
+      await params.client.query(`SET LOCAL statement_timeout = ${timeoutMs}`);
+    }
+
+    const result = await params.client.query<SearchRow>(
+      `SELECT p.id as "productId",
+              p.title as "title",
+              COALESCE(p.featured_image_url, pm_image.url, pm_image.preview_url, v_image.image_url) as "featuredImageUrl",
+              p.vendor as "vendor",
+              p.product_type as "productType",
+              p.price_range as "priceRange",
+              e.embedding_type as "embeddingType",
+              e.quality_level as "qualityLevel",
+              (1 - (e.embedding_secondary <=> $2::vector(2000)))::float as "similarity"
+         FROM shop_product_embeddings e
+         JOIN shopify_products p
+           ON p.id = e.product_id
+          AND p.shop_id = e.shop_id
+         LEFT JOIN LATERAL (
+           SELECT sm.url, sm.preview_url
+           FROM shopify_product_media spm
+           JOIN shopify_media sm
+             ON sm.media_id = spm.media_id
+            AND sm.shop_id = spm.shop_id
+           WHERE spm.shop_id = p.shop_id
+             AND spm.product_id = p.id
+           ORDER BY spm.is_featured DESC, spm.position ASC
+           LIMIT 1
+         ) pm_image ON true
+         LEFT JOIN LATERAL (
+           SELECT sv.image_url
+           FROM shopify_variants sv
+           WHERE sv.shop_id = p.shop_id
+             AND sv.product_id = p.id
+             AND sv.image_url IS NOT NULL
+           ORDER BY sv.position ASC
+           LIMIT 1
+         ) v_image ON true
+        WHERE e.shop_id = $1
+          AND e.status = 'ready'
+          AND e.embedding_secondary IS NOT NULL
+          AND e.model_version_secondary = $3
+          AND (1 - (e.embedding_secondary <=> $2::vector(2000))) >= $4
+          AND ($5::text[] IS NULL OR p.vendor = ANY($5::text[]))
+          AND ($6::text[] IS NULL OR p.product_type = ANY($6::text[]))
+          AND ($7::numeric IS NULL OR (p.price_range->>'max')::numeric >= $7::numeric)
+          AND ($8::numeric IS NULL OR (p.price_range->>'min')::numeric <= $8::numeric)
+          AND ($9::text IS NULL OR p.category_id = $9::text)
+          AND ($10::numeric IS NULL OR (1 - (e.embedding_secondary <=> $2::vector(2000))) < $10::numeric)
+          AND ($11::uuid[] IS NULL OR p.id <> ALL($11::uuid[]))
+          AND ($12::uuid[] IS NULL OR EXISTS (
+            SELECT 1 FROM shopify_collection_products scp
+             WHERE scp.shop_id = p.shop_id
+               AND scp.product_id = p.id
+               AND scp.collection_id = ANY($12::uuid[])
+          ))
+        ORDER BY "similarity" DESC
+        LIMIT $13`,
+      [
+        params.shopId,
+        vectorLiteral,
+        params.modelVersion,
+        params.threshold,
+        params.vendors?.length ? params.vendors : null,
+        params.productTypes?.length ? params.productTypes : null,
+        params.priceMin ?? null,
+        params.priceMax ?? null,
+        params.categoryId ?? null,
+        params.minSimilarity ?? null,
+        params.excludeProductIds?.length ? params.excludeProductIds : null,
+        params.collectionIds?.length ? params.collectionIds : null,
+        params.limit,
+      ]
+    );
+
+    params.logger.debug(
+      {
+        shopId: params.shopId,
+        limit: params.limit,
+        threshold: params.threshold,
+        rows: result.rowCount ?? 0,
+        modelVersion: params.modelVersion,
+      },
+      'Secondary vector search completed'
+    );
+
+    return result.rows.map((row) => ({
+      productId: row.productId,
+      title: row.title,
+      featuredImageUrl: row.featuredImageUrl,
+      vendor: row.vendor,
+      productType: row.productType,
+      priceRange: row.priceRange,
+      similarity: row.similarity,
+      embeddingType: row.embeddingType,
+      qualityLevel: row.qualityLevel,
+    }));
+  });
+}
