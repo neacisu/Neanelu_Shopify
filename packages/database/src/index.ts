@@ -36,6 +36,7 @@ export {
 } from './credential-watcher.js';
 
 export {
+  createEphemeralRedis,
   createManagedRedis,
   rotateAllManagedRedis,
   registerWorkerRecreator,

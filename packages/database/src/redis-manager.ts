@@ -50,6 +50,21 @@ function createClientProxy(getCurrentClient: () => Redis): Redis {
   });
 }
 
+/**
+ * Creates a disposable Redis client for one-off operations like health probes.
+ * NOT cached — caller is responsible for calling .disconnect() when done.
+ */
+export function createEphemeralRedis(options: RedisOptions = {}): Redis {
+  const redisUrl = getCurrentRedisUrl();
+  return new IORedis(redisUrl, {
+    enableReadyCheck: true,
+    connectTimeout: 5_000,
+    retryStrategy: () => null,
+    maxRetriesPerRequest: 1,
+    ...options,
+  });
+}
+
 export function createManagedRedis(name: string, options: RedisOptions = {}): Redis {
   const cached = managedRedis.get(name);
   if (cached) return cached.proxyClient;

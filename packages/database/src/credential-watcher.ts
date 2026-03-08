@@ -11,7 +11,7 @@ import {
   pool,
 } from './db.js';
 import {
-  createManagedRedis,
+  createEphemeralRedis,
   rotateAllManagedRedis,
   getManagedRedisConnectionsCount,
 } from './redis-manager.js';
@@ -223,18 +223,17 @@ async function runHealthProbe(): Promise<void> {
     }
   }
 
+  let probeClient: Awaited<ReturnType<typeof createEphemeralRedis>> | null = null;
   try {
-    const redis = createManagedRedis('credential-health-probe', {
-      lazyConnect: true,
-      maxRetriesPerRequest: 1,
-      enableOfflineQueue: false,
-    });
-    await redis.ping();
+    probeClient = createEphemeralRedis({ connectTimeout: 3_000, maxRetriesPerRequest: 1 });
+    await probeClient.ping();
   } catch (err) {
     log('warn', 'Redis health probe failed — triggering credential refresh', {
       error: String(err),
     });
     void triggerCredentialRefresh();
+  } finally {
+    probeClient?.disconnect();
   }
 }
 
