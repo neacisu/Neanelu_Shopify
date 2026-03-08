@@ -502,8 +502,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const server = Fastify({
     trustProxy: true,
     bodyLimit: 1 * 1024 * 1024,
-    connectionTimeout: 10_000,
-    requestTimeout: 15_000,
+    connectionTimeout: 120_000,
+    requestTimeout: 120_000,
     requestIdHeader: 'x-request-id',
     genReqId(req) {
       const header = req.headers['x-request-id'];

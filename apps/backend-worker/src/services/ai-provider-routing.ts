@@ -55,7 +55,7 @@ interface RoutingContext {
 
 const DEFAULT_CHAT_MODELS: Record<ChatTaskType, string> = {
   classification: 'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
-  translation: 'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
+  translation: 'selfhosted:Qwen/QwQ-32B-AWQ',
   extraction: 'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
   audit: 'selfhosted:Qwen/QwQ-32B-AWQ',
 };

@@ -46,6 +46,7 @@ async function classifyWithLLM(params: {
   collectionTitle: string;
   collectionTitleEn: string | null;
   collectionDescription: string | null;
+  productSamples?: string[];
   candidates: readonly { id: string; name: string; similarity: number }[];
   apiKey?: string;
   baseUrl?: string;
@@ -60,7 +61,10 @@ async function classifyWithLLM(params: {
   const baseRaw = (params.baseUrl ?? 'https://api.openai.com').replace(/\/$/, '');
   const base = baseRaw.endsWith('/v1') ? baseRaw : `${baseRaw}/v1`;
 
-  const candidateList = params.candidates.map((c, i) => `${i + 1}. [${c.id}] ${c.name}`).join('\n');
+  const topCandidatesForLLM = params.candidates.slice(0, 12);
+  const candidateList = topCandidatesForLLM
+    .map((c, i) => `${i + 1}. [${c.id}] ${c.name} (relevance: ${Math.round(c.similarity * 100)}%)`)
+    .join('\n');
 
   const titlePart = params.collectionTitleEn
     ? `"${params.collectionTitle}" (English: "${params.collectionTitleEn}")`
@@ -68,7 +72,12 @@ async function classifyWithLLM(params: {
   const collectionText = params.collectionDescription
     ? `${titlePart} — ${params.collectionDescription}`
     : titlePart;
-  const userPrompt = `Collection: ${collectionText}\n\nCandidate categories:\n${candidateList}`;
+
+  const productSection = params.productSamples?.length
+    ? `\n\nSample products from this collection:\n${params.productSamples.map((p, i) => `${i + 1}. ${p}`).join('\n')}`
+    : '';
+
+  const userPrompt = `Collection: ${collectionText}${productSection}\n\nCandidate categories (ranked by vector relevance):\n${candidateList}`;
   const inputScan = await scanInput({
     shopId: params.shopId,
     text: userPrompt,
@@ -98,22 +107,31 @@ async function classifyWithLLM(params: {
         messages: [
           {
             role: 'system',
-            content: `You are an expert product taxonomy classifier for Shopify stores. Your task:
+            content: `You are an expert product taxonomy classifier for a Romanian home improvement / hardware / garden e-commerce store on Shopify.
 
-1. The user gives you a product collection name (possibly in a non-English language like Romanian, French, German, etc.) and a numbered list of candidate Shopify taxonomy categories (in English).
-2. You must identify which candidate BEST matches the collection's product domain.
-3. Return a JSON object with:
-   - "selectedId": the [id] of the best matching candidate (exact string from brackets)
-   - "selectedName": the name of the selected candidate
-   - "confidence": a float 0.0–1.0 representing how confident you are (0.9+ = very confident, 0.7–0.89 = confident, 0.5–0.69 = uncertain, <0.5 = poor match)
-   - "reasoning": one sentence explaining WHY this category matches (in English)
-   - "translatedQuery": the English translation of the collection name (for logging)
-   - "language": ISO 639-1 code of the detected source language (e.g. "ro", "en")
+TASK: Given a product collection name, sample product names from the collection, and a ranked list of candidate Google Product Taxonomy categories, select the BEST matching category.
 
-Rules:
-- Match based on PRODUCT DOMAIN, not literal word translation. "Camere supraveghere" = surveillance cameras, not just "cameras".
-- If none of the candidates is a good match, set confidence below 0.3 and pick the least-bad option.
-- Be strict: only give confidence ≥ 0.8 if the match is clearly correct.`,
+RETURN a JSON object with:
+- "selectedId": the UUID from [id] — copy EXACTLY, no brackets
+- "selectedName": name of the selected candidate
+- "confidence": float 0.0–1.0. Be HONEST and STRICT:
+  * 0.9+ = the category name is an obvious, unambiguous match for the products
+  * 0.7–0.89 = strong match with minor ambiguity
+  * 0.5–0.69 = plausible but uncertain
+  * <0.5 = poor match, none of the candidates truly fit
+- "reasoning": one sentence explaining WHY
+- "translatedQuery": English translation of the collection name
+- "language": ISO 639-1 code (e.g. "ro")
+
+CRITICAL RULES:
+1. USE THE SAMPLE PRODUCT NAMES as your PRIMARY signal. They tell you what the collection ACTUALLY sells. The collection title can be ambiguous — products never lie.
+2. Match the category to WHAT IS BEING SOLD, not to superficially similar words.
+3. If sample products are about plants/gardening → pick a plant/garden category, NOT flooring/carpet.
+4. If sample products are about paints → pick a paint category, NOT wipes/cleaning.
+5. If sample products are about heating stoves/fireplaces → pick a fireplace/stove category, NOT generators.
+6. If NONE of the candidates is a genuine match for the products, set confidence below 0.3.
+7. Do NOT inflate confidence. A 95% confidence means you are absolutely certain — use it only when the category name is essentially identical to what the products are.
+8. Candidates ranked higher (by relevance %) are statistically more likely but NOT always correct. Override the ranking if a lower-ranked candidate is a clearly better product domain match.`,
           },
           {
             role: 'user',
@@ -163,7 +181,8 @@ Rules:
       return null;
     }
 
-    const matched = params.candidates.find((c) => c.id === parsed.selectedId);
+    const normalizedId = parsed.selectedId.replace(/^\[|\]$/g, '').trim();
+    const matched = params.candidates.find((c) => c.id === normalizedId);
     if (!matched) {
       params.logger.warn({ selectedId: parsed.selectedId }, 'LLM selected an ID not in candidates');
       return null;
@@ -179,6 +198,134 @@ Rules:
     };
   } catch (err) {
     params.logger.warn({ err }, 'Taxonomy classification LLM call failed');
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function sampleProductNames(params: {
+  shopId: string;
+  collectionId: string;
+  limit: number;
+}): Promise<string[]> {
+  return withTenantContext(params.shopId, async (client) => {
+    const r = await client.query<{ title: string }>(
+      `SELECT p.title
+       FROM shopify_collection_products cp
+       JOIN shopify_products p ON p.id = cp.product_id AND p.shop_id = cp.shop_id
+       WHERE cp.shop_id = $1 AND cp.collection_id = $2
+       ORDER BY cp.position ASC NULLS LAST
+       LIMIT $3`,
+      [params.shopId, params.collectionId, params.limit]
+    );
+    return r.rows.map((row) => row.title);
+  });
+}
+
+async function translateTitleToEnglish(params: {
+  title: string;
+  description: string | null;
+  productSamples?: string[];
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+  timeoutMs?: number;
+  logger: Logger;
+}): Promise<string | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), params.timeoutMs ?? 30_000);
+  const baseRaw = (params.baseUrl ?? 'https://api.openai.com').replace(/\/$/, '');
+  const base = baseRaw.endsWith('/v1') ? baseRaw : `${baseRaw}/v1`;
+
+  const hasProducts = params.productSamples && params.productSamples.length > 0;
+  const productSection = hasProducts
+    ? `\n\nSample products sold in this collection:\n${params.productSamples!.map((p, i) => `${i + 1}. ${p}`).join('\n')}`
+    : '';
+
+  try {
+    const res = await fetch(`${base}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        ...(params.apiKey ? { authorization: `Bearer ${params.apiKey}` } : {}),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: params.model,
+        temperature: 0,
+        max_tokens: 300,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content: `You translate Romanian product collection names into English product category names for a home improvement / hardware / garden e-commerce store.
+
+RULE 1 — THE COLLECTION NAME IS THE CATEGORY NAME.
+Your job is to translate the COLLECTION NAME into English. The collection name defines the category. Products inside the collection are ONLY used to help you understand unfamiliar Romanian words — they do NOT define the category name.
+
+RULE 2 — SCIENTIFIC / INTERNATIONAL TERMS STAY EXACT.
+Words like "acaricide", "fungicide", "herbicide", "insecticide", "nematocide" are international terms. Translate them IDENTICALLY into English. "Acaricide" → "Acaricides" (NOT "Insecticides", NOT "Pesticides").
+
+RULE 3 — USE ROMANCE COGNATES FOR ROMANIAN WORDS.
+Romanian is a Romance language. Use French/Italian/Latin cognates:
+- "bazin/bazine" = French "bassin" = pool, basin, tank (NEVER "barbecue")
+- "butelie" = French "bouteille" = gas bottle/cylinder
+- "semineu" = French "cheminée" = fireplace
+- "lavabil" = French "lavable" = washable
+- "faianta/faianță" = French "faïence" = wall tiles
+- "robinet" = French "robinet" = faucet/tap
+- "irigații" = French "irrigation" = irrigation
+- "mulci" = English "mulch" = garden mulch
+- "gresie" = stoneware floor tiles
+
+RULE 4 — "ACCESORII X" = "X Accessories".
+Always translate X first using Rules 2-3, then append "Accessories".
+Example: "Accesorii Bazine" → "Pool Accessories" (bazine = pools/basins, NOT barbecue).
+
+EXAMPLES (follow these exactly):
+- "Acaricide" → { "reasoning": "Acaricide is an international scientific term meaning mite/tick killers. It must stay exact.", "categoryEn": "Acaricides" }
+- "Accesorii Bazine" → { "reasoning": "Bazine = French bassin = pools/basins/tanks. Accesorii = Accessories.", "categoryEn": "Pool Accessories" }
+- "Accesorii Butelie" → { "reasoning": "Butelie = French bouteille = gas bottle. Accesorii = Accessories.", "categoryEn": "Gas Bottle Accessories" }
+- "Vopsele lavabile" → { "reasoning": "Vopsele = paints, lavabile = washable. This is washable paint.", "categoryEn": "Washable Paints" }
+- "Centrale termice" → { "reasoning": "Centrale termice = central heating boilers.", "categoryEn": "Central Heating Boilers" }
+
+Return JSON: { "reasoning": "...", "categoryEn": "..." }`,
+          },
+          {
+            role: 'user',
+            content: `Collection name: "${params.title}"${params.description ? `\nDescription: ${params.description}` : ''}${productSection}`,
+          },
+        ],
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      params.logger.warn({ status: res.status, body }, 'taxonomy_assign: translation API error');
+      return null;
+    }
+
+    const json = (await res.json()) as {
+      choices?: { message?: { content?: string } }[];
+    };
+    const raw = json.choices?.[0]?.message?.content?.trim();
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as { reasoning?: string; categoryEn?: string };
+    const categoryEn = parsed.categoryEn?.trim();
+    if (!categoryEn) {
+      params.logger.warn({ raw, parsed }, 'taxonomy_assign: translation returned no categoryEn');
+      return null;
+    }
+
+    params.logger.info(
+      { original: params.title, translated: categoryEn, reasoning: parsed.reasoning, hasProducts },
+      'taxonomy_assign: translated collection title to English'
+    );
+    return categoryEn;
+  } catch (err) {
+    params.logger.warn({ err, title: params.title }, 'taxonomy_assign: translation failed');
     return null;
   } finally {
     clearTimeout(timeout);
@@ -224,6 +371,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
     products_count: 'sc.products_count',
     synced_at: 'sc.synced_at',
     collection_type: 'sc.collection_type',
+    menu_level: 'sc.menu_level',
   };
 
   server.get(
@@ -247,6 +395,8 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
       const search = (query['search'] ?? '').trim();
       const type = query['type'] ?? 'all';
       const hasTaxonomy = query['hasTaxonomy'] ?? 'all';
+      const hasTranslation = query['hasTranslation'] ?? 'all';
+      const menuLevel = query['menuLevel'] ?? 'all';
       const sortBy = query['sortBy'] ?? 'synced_at';
       const sortDir = (query['sortDir'] ?? 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
       const minProducts = query['minProducts'] != null ? parseInt(query['minProducts'], 10) : null;
@@ -278,6 +428,23 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
             `NOT EXISTS (SELECT 1 FROM pim_taxonomy_collection_map m WHERE m.collection_id = sc.id AND m.shop_id = sc.shop_id)`
           );
         }
+        if (hasTranslation === 'true') {
+          conditions.push(`sc.title_en IS NOT NULL AND sc.title_en <> ''`);
+        } else if (hasTranslation === 'false') {
+          conditions.push(`(sc.title_en IS NULL OR sc.title_en = '')`);
+        }
+        if (menuLevel === 'none') {
+          conditions.push(`sc.menu_level IS NULL`);
+        } else if (menuLevel === 'in_menu') {
+          conditions.push(`sc.menu_level IS NOT NULL`);
+        } else if (menuLevel !== 'all') {
+          const parsedMenuLevel = parseInt(menuLevel, 10);
+          if (!Number.isNaN(parsedMenuLevel)) {
+            conditions.push(`sc.menu_level = $${paramIdx}`);
+            params.push(parsedMenuLevel);
+            paramIdx += 1;
+          }
+        }
         if (minProducts != null && !Number.isNaN(minProducts)) {
           conditions.push(`sc.products_count >= $${paramIdx}`);
           params.push(minProducts);
@@ -305,13 +472,19 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           synced_at: string | null;
           description: string | null;
           description_html: string | null;
+          title_en: string | null;
           image_url: string | null;
+          parent_collection_id: string | null;
+          parent_title: string | null;
+          menu_level: number | null;
+          menu_path: string | null;
           total_count: string;
         }>(
           `SELECT sc.id,
                   sc.shopify_gid,
                   sc.legacy_resource_id,
                   sc.title,
+                  sc.title_en,
                   sc.handle,
                   sc.collection_type,
                   sc.products_count,
@@ -321,16 +494,23 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                   sc.description,
                   sc.description_html,
                   sc.image_url,
+                  sc.parent_collection_id,
+                  parent_sc.title AS parent_title,
+                  sc.menu_level,
+                  sc.menu_path,
                   COUNT(*) OVER()::text AS total_count
            FROM shopify_collections sc
+           LEFT JOIN shopify_collections parent_sc
+             ON parent_sc.id = sc.parent_collection_id
            LEFT JOIN pim_taxonomy_collection_map ptcm
              ON ptcm.collection_id = sc.id
             AND ptcm.shop_id = sc.shop_id
            LEFT JOIN prod_taxonomy pt ON pt.id = ptcm.taxonomy_id
            WHERE ${whereClause}
-           GROUP BY sc.id, sc.shopify_gid, sc.legacy_resource_id, sc.title, sc.handle,
+           GROUP BY sc.id, sc.shopify_gid, sc.legacy_resource_id, sc.title, sc.title_en, sc.handle,
                     sc.collection_type, sc.products_count, sc.synced_at, sc.description,
-                    sc.description_html, sc.image_url, sc.updated_at
+                    sc.description_html, sc.image_url, sc.parent_collection_id, parent_sc.title,
+                    sc.menu_level, sc.menu_path, sc.updated_at
            ORDER BY ${orderColumn} ${sortDir}
            LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
           params
@@ -347,6 +527,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
         shopify_gid: r.shopify_gid,
         legacy_resource_id: r.legacy_resource_id,
         title: r.title,
+        title_en: r.title_en,
         handle: r.handle,
         collection_type: r.collection_type,
         products_count: r.products_count,
@@ -356,6 +537,10 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
         description: r.description,
         description_html: r.description_html,
         image_url: r.image_url,
+        parent_collection_id: r.parent_collection_id,
+        parent_title: r.parent_title,
+        menu_level: r.menu_level,
+        menu_path: r.menu_path,
       }));
 
       return reply.send(
@@ -391,6 +576,8 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
       const search = (query['search'] ?? '').trim();
       const type = query['type'] ?? 'all';
       const hasTaxonomy = query['hasTaxonomy'] ?? 'all';
+      const hasTranslation = query['hasTranslation'] ?? 'all';
+      const menuLevel = query['menuLevel'] ?? 'all';
 
       const ids = await withTenantContext(session.shopId, async (client) => {
         const params: unknown[] = [session.shopId];
@@ -405,7 +592,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
         if (type === 'MANUAL' || type === 'SMART') {
           conditions.push(`collection_type = $${paramIdx}`);
           params.push(type);
-          paramIdx += 1; // eslint-disable-line no-useless-assignment -- keeps paramIdx in sync for future conditions
+          paramIdx += 1;
         }
         if (hasTaxonomy === 'true') {
           conditions.push(
@@ -415,6 +602,22 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           conditions.push(
             `NOT EXISTS (SELECT 1 FROM pim_taxonomy_collection_map m WHERE m.collection_id = shopify_collections.id AND m.shop_id = shopify_collections.shop_id)`
           );
+        }
+        if (hasTranslation === 'true') {
+          conditions.push(`title_en IS NOT NULL AND title_en <> ''`);
+        } else if (hasTranslation === 'false') {
+          conditions.push(`(title_en IS NULL OR title_en = '')`);
+        }
+        if (menuLevel === 'none') {
+          conditions.push(`menu_level IS NULL`);
+        } else if (menuLevel === 'in_menu') {
+          conditions.push(`menu_level IS NOT NULL`);
+        } else if (menuLevel !== 'all') {
+          const parsedMenuLevel = parseInt(menuLevel, 10);
+          if (!Number.isNaN(parsedMenuLevel)) {
+            conditions.push(`menu_level = $${paramIdx}`);
+            params.push(parsedMenuLevel);
+          }
         }
 
         const r = await client.query<{ id: string }>(
@@ -448,6 +651,9 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           smart: number;
           with_taxonomy: number;
           translated: number;
+          in_menu: number;
+          roots: number;
+          not_in_menu: number;
           total_products: number;
           last_synced_at: string | null;
         }>(
@@ -459,6 +665,9 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                     WHERE m.collection_id = sc.id AND m.shop_id = sc.shop_id
                   ))::int AS with_taxonomy,
                   COUNT(*) FILTER (WHERE title_en IS NOT NULL AND title_en <> '')::int AS translated,
+                  COUNT(*) FILTER (WHERE menu_level IS NOT NULL)::int AS in_menu,
+                  COUNT(*) FILTER (WHERE menu_level = 0)::int AS roots,
+                  COUNT(*) FILTER (WHERE menu_level IS NULL)::int AS not_in_menu,
                   COALESCE(SUM(products_count), 0)::int AS total_products,
                   MAX(synced_at)::text AS last_synced_at
            FROM shopify_collections sc
@@ -476,6 +685,9 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
             smart: 0,
             withTaxonomy: 0,
             translated: 0,
+            inMenu: 0,
+            roots: 0,
+            notInMenu: 0,
             totalProducts: 0,
             lastSyncedAt: null,
           })
@@ -489,8 +701,121 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           smart: statsRow.smart,
           withTaxonomy: statsRow.with_taxonomy,
           translated: statsRow.translated,
+          inMenu: statsRow.in_menu,
+          roots: statsRow.roots,
+          notInMenu: statsRow.not_in_menu,
           totalProducts: statsRow.total_products,
           lastSyncedAt: statsRow.last_synced_at,
+        })
+      );
+    }
+  );
+
+  server.get(
+    '/collections/:id',
+    {
+      preHandler: [requireAdminSession],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      const collectionId = (request.params as { id?: string }).id;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      if (!collectionId) {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing collection id'));
+      }
+
+      const row = await withTenantContext(session.shopId, async (client) => {
+        const result = await client.query<{
+          id: string;
+          shopify_gid: string;
+          legacy_resource_id: number;
+          title: string;
+          title_en: string | null;
+          handle: string;
+          collection_type: string;
+          products_count: number;
+          taxonomy_count: number;
+          taxonomy_name: string | null;
+          synced_at: string | null;
+          description: string | null;
+          description_html: string | null;
+          image_url: string | null;
+          parent_collection_id: string | null;
+          parent_title: string | null;
+          menu_level: number | null;
+          menu_path: string | null;
+        }>(
+          `SELECT sc.id,
+                  sc.shopify_gid,
+                  sc.legacy_resource_id,
+                  sc.title,
+                  sc.title_en,
+                  sc.handle,
+                  sc.collection_type,
+                  sc.products_count,
+                  COALESCE(COUNT(ptcm.taxonomy_id), 0)::int AS taxonomy_count,
+                  MAX(pt.name) AS taxonomy_name,
+                  sc.synced_at::text,
+                  sc.description,
+                  sc.description_html,
+                  sc.image_url,
+                  sc.parent_collection_id,
+                  parent_sc.title AS parent_title,
+                  sc.menu_level,
+                  sc.menu_path
+           FROM shopify_collections sc
+           LEFT JOIN shopify_collections parent_sc
+             ON parent_sc.id = sc.parent_collection_id
+           LEFT JOIN pim_taxonomy_collection_map ptcm
+             ON ptcm.collection_id = sc.id
+            AND ptcm.shop_id = sc.shop_id
+           LEFT JOIN prod_taxonomy pt ON pt.id = ptcm.taxonomy_id
+           WHERE sc.shop_id = $1
+             AND sc.id = $2
+           GROUP BY sc.id, sc.shopify_gid, sc.legacy_resource_id, sc.title, sc.title_en,
+                    sc.handle, sc.collection_type, sc.products_count, sc.synced_at,
+                    sc.description, sc.description_html, sc.image_url,
+                    sc.parent_collection_id, parent_sc.title, sc.menu_level, sc.menu_path
+           LIMIT 1`,
+          [session.shopId, collectionId]
+        );
+        return result.rows[0] ?? null;
+      });
+
+      if (!row) {
+        return reply
+          .status(404)
+          .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Collection not found'));
+      }
+
+      return reply.send(
+        successEnvelope(request.id, {
+          collection: {
+            id: row.id,
+            shopify_gid: row.shopify_gid,
+            legacy_resource_id: row.legacy_resource_id,
+            title: row.title,
+            title_en: row.title_en,
+            handle: row.handle,
+            collection_type: row.collection_type,
+            products_count: row.products_count,
+            taxonomy_count: row.taxonomy_count,
+            taxonomy_name: row.taxonomy_name,
+            synced_at: row.synced_at,
+            description: row.description,
+            description_html: row.description_html,
+            image_url: row.image_url,
+            parent_collection_id: row.parent_collection_id,
+            parent_title: row.parent_title,
+            menu_level: row.menu_level,
+            menu_path: row.menu_path,
+          },
         })
       );
     }
@@ -524,109 +849,751 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing or invalid collectionIds'));
       }
 
-      const provider = await resolveEmbeddingsProvider({
-        shopId: session.shopId,
-        env: options.env,
-        logger: options.logger,
+      reply.hijack();
+      const raw = reply.raw;
+      raw.writeHead(200, {
+        'Content-Type': 'application/x-ndjson',
+        'Cache-Control': 'no-cache',
+        'X-Content-Type-Options': 'nosniff',
       });
-      const hasEmbeddings = await withTenantContext(session.shopId, async (client) => {
-        const r = await client.query<{ count: string }>(
-          `SELECT COUNT(*)::text AS count
-             FROM prod_taxonomy
-            WHERE is_active = true
-              AND embedding IS NOT NULL
-              AND (model_version IS NULL OR model_version = $1)`,
-          [provider.model.name]
-        );
-        return parseInt(r.rows[0]?.count ?? '0', 10);
+
+      const emit = (event: Record<string, unknown>) => {
+        try {
+          raw.write(JSON.stringify(event) + '\n');
+        } catch {
+          /* closed */
+        }
+      };
+
+      try {
+        const provider = await resolveEmbeddingsProvider({
+          shopId: session.shopId,
+          env: options.env,
+          logger: options.logger,
+        });
+
+        emit({ type: 'bulk_start', total: collectionIds.length });
+
+        const CONFIDENCE_THRESHOLD = 0.65;
+        const VECTOR_CANDIDATES = 40;
+
+        for (let idx = 0; idx < collectionIds.length; idx++) {
+          const collectionId = collectionIds[idx]!;
+          const progress = `[${idx + 1}/${collectionIds.length}]`;
+
+          try {
+            const collectionRow = await withTenantContext(session.shopId, async (client) => {
+              const r = await client.query<{
+                title: string;
+                description: string | null;
+                titleEn: string | null;
+              }>(
+                `SELECT title, description, title_en AS "titleEn"
+                 FROM shopify_collections WHERE shop_id = $1 AND id = $2 LIMIT 1`,
+                [session.shopId, collectionId]
+              );
+              return r.rows[0] ?? null;
+            });
+
+            if (!collectionRow?.title) {
+              emit({
+                type: 'collection_result',
+                collectionId,
+                collectionTitle: collectionId,
+                status: 'error',
+                message: 'Colecția nu a fost găsită.',
+              });
+              continue;
+            }
+
+            emit({
+              type: 'collection_start',
+              collectionId,
+              collectionTitle: collectionRow.title,
+              index: idx,
+              total: collectionIds.length,
+            });
+
+            const existingMappings = await withTenantContext(session.shopId, async (client) => {
+              const r = await client.query<{ taxonomy_id: string; name: string }>(
+                `SELECT m.taxonomy_id, pt.name
+                 FROM pim_taxonomy_collection_map m
+                 JOIN prod_taxonomy pt ON pt.id = m.taxonomy_id
+                 WHERE m.shop_id = $1 AND m.collection_id = $2`,
+                [session.shopId, collectionId]
+              );
+              return r.rows;
+            });
+
+            if (mode === 'replace' && existingMappings.length > 0) {
+              emit({
+                type: 'collection_progress',
+                collectionId,
+                step: 'delete_old',
+                message: `${progress} Șterg taxonomia veche: „${existingMappings[0]?.name}"...`,
+              });
+              for (const row of existingMappings) {
+                await deleteCollectionMetafieldsForTaxonomy({
+                  shopId: session.shopId,
+                  collectionId,
+                  taxonomyId: row.taxonomy_id,
+                  logger: options.logger,
+                });
+              }
+              await withTenantContext(session.shopId, async (client) => {
+                await client.query(
+                  `DELETE FROM pim_taxonomy_collection_map WHERE shop_id = $1 AND collection_id = $2`,
+                  [session.shopId, collectionId]
+                );
+                await client.query(
+                  `UPDATE shopify_collections SET metafields = '{}'::jsonb, updated_at = now() WHERE id = $1 AND shop_id = $2`,
+                  [collectionId, session.shopId]
+                );
+              });
+              emit({
+                type: 'collection_progress',
+                collectionId,
+                step: 'delete_old',
+                status: 'done',
+                message: `${progress} Taxonomia veche ștearsă.`,
+              });
+            }
+
+            const classificationCreds = await resolveChatTaskCredentials({
+              shopId: session.shopId,
+              taskType: 'classification',
+              env: options.env,
+              logger: options.logger,
+            });
+            if (!classificationCreds) {
+              emit({
+                type: 'collection_result',
+                collectionId,
+                collectionTitle: collectionRow.title,
+                status: 'error',
+                message: 'Nu s-au putut rezolva credențialele AI.',
+              });
+              continue;
+            }
+            const resolvedBaseUrl = classificationCreds.baseUrl;
+
+            const productSamples = await sampleProductNames({
+              shopId: session.shopId,
+              collectionId,
+              limit: 5,
+            });
+
+            const translationCreds = await resolveChatTaskCredentials({
+              shopId: session.shopId,
+              taskType: 'translation',
+              env: options.env,
+              logger: options.logger,
+            });
+
+            let effectiveTitleEn = collectionRow.titleEn;
+            if (!effectiveTitleEn) {
+              const txCreds = translationCreds ?? classificationCreds;
+              const txBaseUrl = txCreds.baseUrl;
+              emit({
+                type: 'collection_progress',
+                collectionId,
+                step: 'translate',
+                message: `${progress} Traduc „${collectionRow.title}"...`,
+              });
+              effectiveTitleEn = await translateTitleToEnglish({
+                title: collectionRow.title,
+                description: collectionRow.description,
+                productSamples,
+                ...(txCreds.apiKey ? { apiKey: txCreds.apiKey } : {}),
+                ...(txBaseUrl != null ? { baseUrl: txBaseUrl } : {}),
+                model: txCreds.model,
+                timeoutMs: 30_000,
+                logger: options.logger,
+              });
+              if (effectiveTitleEn) {
+                await withTenantContext(session.shopId, async (client) => {
+                  await client.query(
+                    `UPDATE shopify_collections SET title_en = $1, updated_at = now() WHERE id = $2 AND shop_id = $3 AND (title_en IS NULL OR title_en = '')`,
+                    [effectiveTitleEn, collectionId, session.shopId]
+                  );
+                });
+                emit({
+                  type: 'collection_progress',
+                  collectionId,
+                  step: 'translate',
+                  status: 'done',
+                  message: `${progress} Traducere: „${effectiveTitleEn}"`,
+                });
+              } else {
+                emit({
+                  type: 'collection_progress',
+                  collectionId,
+                  step: 'translate',
+                  status: 'done',
+                  message: `${progress} Traducerea nu a reușit, folosesc titlul original.`,
+                });
+              }
+            }
+
+            emit({
+              type: 'collection_progress',
+              collectionId,
+              step: 'embed',
+              message: `${progress} Generez embedding...`,
+            });
+            const embeddingText =
+              (effectiveTitleEn ?? collectionRow.title) +
+              (collectionRow.description ? ` — ${collectionRow.description}` : '');
+            const [embedding] = await provider.embedTexts([embeddingText.trim()]);
+            if (!embedding || embedding.length === 0) {
+              emit({
+                type: 'collection_result',
+                collectionId,
+                collectionTitle: collectionRow.title,
+                status: 'error',
+                message: 'Nu s-a putut genera embedding-ul.',
+              });
+              continue;
+            }
+            emit({
+              type: 'collection_progress',
+              collectionId,
+              step: 'embed',
+              status: 'done',
+              message: `${progress} Embedding generat.`,
+            });
+
+            emit({
+              type: 'collection_progress',
+              collectionId,
+              step: 'search',
+              message: `${progress} Caut taxonomii compatibile...`,
+            });
+            const bkSearchTitle = effectiveTitleEn ?? collectionRow.title;
+            const bkTokens = bkSearchTitle
+              .split(/[\s,\-—–]+/)
+              .map((t) => t.trim().toLowerCase())
+              .filter((t) => t.length >= 3);
+            const [bkVecRes, bkKwRes] = await Promise.all([
+              withTenantContext(session.shopId, async (client) => {
+                const vec = toPgVectorLiteral(embedding);
+                return (
+                  await client.query<{ id: string; name: string; similarity: number }>(
+                    `SELECT id, name, (1 - (embedding <=> $1::vector(2000)))::float AS similarity FROM prod_taxonomy WHERE is_active = true AND embedding IS NOT NULL AND (model_version IS NULL OR model_version = $3) ORDER BY embedding <=> $1::vector(2000) LIMIT $2`,
+                    [vec, VECTOR_CANDIDATES, provider.model.name]
+                  )
+                ).rows;
+              }),
+              bkTokens.length > 0
+                ? withTenantContext(session.shopId, async (client) => {
+                    const likeConds = bkTokens
+                      .map((_, i) => `LOWER(name) LIKE $${i + 1}`)
+                      .join(' OR ');
+                    return (
+                      await client.query<{ id: string; name: string }>(
+                        `SELECT id, name FROM prod_taxonomy WHERE is_active = true AND embedding IS NOT NULL AND model_version = '${provider.model.name}' AND (${likeConds}) LIMIT 20`,
+                        bkTokens.map((t) => `%${t}%`)
+                      )
+                    ).rows;
+                  })
+                : Promise.resolve([]),
+            ]);
+            const bkSeen = new Set(bkVecRes.map((r) => r.id));
+            const bkBoosts: { id: string; name: string; similarity: number }[] = [];
+            for (const kw of bkKwRes) {
+              if (!bkSeen.has(kw.id)) {
+                bkBoosts.push({ id: kw.id, name: kw.name, similarity: 0.85 });
+                bkSeen.add(kw.id);
+              }
+            }
+            const vectorCandidates = [...bkBoosts, ...bkVecRes].sort(
+              (a, b) => b.similarity - a.similarity
+            );
+
+            if (vectorCandidates.length === 0) {
+              emit({
+                type: 'collection_result',
+                collectionId,
+                collectionTitle: collectionRow.title,
+                status: 'error',
+                message: 'Nu s-au găsit taxonomii compatibile.',
+              });
+              continue;
+            }
+            emit({
+              type: 'collection_progress',
+              collectionId,
+              step: 'search',
+              status: 'done',
+              message: `${progress} Găsit ${vectorCandidates.length} candidați.`,
+            });
+
+            emit({
+              type: 'collection_progress',
+              collectionId,
+              step: 'classify',
+              message: `${progress} Clasific cu AI...`,
+            });
+            const classification = await classifyWithLLM({
+              shopId: session.shopId,
+              env: options.env,
+              collectionTitle: collectionRow.title,
+              collectionTitleEn: effectiveTitleEn,
+              collectionDescription: collectionRow.description,
+              productSamples,
+              candidates: vectorCandidates,
+              ...(classificationCreds.apiKey ? { apiKey: classificationCreds.apiKey } : {}),
+              ...(resolvedBaseUrl != null ? { baseUrl: resolvedBaseUrl } : {}),
+              model: classificationCreds.model,
+              timeoutMs: options.env.openAiTimeoutMs,
+              logger: options.logger,
+            });
+
+            if (!classification || classification.confidence < CONFIDENCE_THRESHOLD) {
+              const pct = Math.round((classification?.confidence ?? 0) * 100);
+              emit({
+                type: 'collection_progress',
+                collectionId,
+                step: 'classify',
+                status: 'done',
+                message: `${progress} Clasificare: „${classification?.taxonomyName ?? 'N/A'}" — ${pct}%`,
+              });
+              emit({
+                type: 'collection_result',
+                collectionId,
+                collectionTitle: collectionRow.title,
+                status: 'low_confidence',
+                taxonomyName: classification?.taxonomyName ?? vectorCandidates[0]?.name ?? null,
+                confidence: classification?.confidence ?? null,
+                message: `Confidență scăzută (${pct}%): „${classification?.taxonomyName ?? 'N/A'}"`,
+              });
+              continue;
+            }
+
+            const pct = Math.round(classification.confidence * 100);
+            emit({
+              type: 'collection_progress',
+              collectionId,
+              step: 'classify',
+              status: 'done',
+              message: `${progress} „${classification.taxonomyName}" — ${pct}%`,
+            });
+
+            emit({
+              type: 'collection_progress',
+              collectionId,
+              step: 'persist',
+              message: `${progress} Atribui taxonomia...`,
+            });
+            if (mode !== 'replace') {
+              await withTenantContext(session.shopId, async (client) => {
+                await client.query(
+                  `UPDATE pim_taxonomy_collection_map SET is_primary = false WHERE shop_id = $1 AND collection_id = $2`,
+                  [session.shopId, collectionId]
+                );
+              });
+            }
+            await withTenantContext(session.shopId, async (client) => {
+              await client.query(
+                `INSERT INTO pim_taxonomy_collection_map (shop_id, taxonomy_id, collection_id, is_primary, created_at) VALUES ($1, $2, $3, true, now()) ON CONFLICT (shop_id, taxonomy_id, collection_id) DO UPDATE SET is_primary = EXCLUDED.is_primary`,
+                [session.shopId, classification.taxonomyId, collectionId]
+              );
+            });
+            void enqueueCollectionMetafieldPushJob({
+              shopId: session.shopId,
+              collectionId,
+              trigger: 'category_classifier',
+            });
+            emit({
+              type: 'collection_progress',
+              collectionId,
+              step: 'persist',
+              status: 'done',
+              message: `${progress} Taxonomie atribuită.`,
+            });
+
+            emit({
+              type: 'collection_result',
+              collectionId,
+              collectionTitle: collectionRow.title,
+              status: 'assigned',
+              taxonomyId: classification.taxonomyId,
+              taxonomyName: classification.taxonomyName,
+              confidence: classification.confidence,
+              message: `„${classification.taxonomyName}" — ${pct}% confidență`,
+            });
+          } catch (err) {
+            options.logger.error(
+              { err, collectionId },
+              'bulk taxonomy assignment failed for collection'
+            );
+            emit({
+              type: 'collection_result',
+              collectionId,
+              collectionTitle: collectionId,
+              status: 'error',
+              message: 'Eroare internă.',
+            });
+          }
+        }
+
+        emit({ type: 'bulk_done' });
+      } catch (err) {
+        options.logger.error({ err }, 'bulk taxonomy assignment failed');
+        emit({ type: 'error', message: err instanceof Error ? err.message : 'Eroare internă.' });
+      } finally {
+        raw.end();
+      }
+    }
+  );
+
+  server.post(
+    '/collections/:collectionId/translate',
+    {
+      preHandler: [requireAdminSession],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      const { collectionId } = request.params as { collectionId: string };
+      const bodyTx = (request.body ?? {}) as { force?: boolean };
+      const forceRetranslate = bodyTx.force === true;
+
+      reply.hijack();
+      const raw = reply.raw;
+      raw.writeHead(200, {
+        'Content-Type': 'application/x-ndjson',
+        'Cache-Control': 'no-cache',
+        'X-Content-Type-Options': 'nosniff',
       });
-      if (hasEmbeddings === 0) {
+      const emit = (event: Record<string, unknown>) => {
+        try {
+          raw.write(JSON.stringify(event) + '\n');
+        } catch {
+          /* closed */
+        }
+      };
+
+      try {
+        const collectionRow = await withTenantContext(session.shopId, async (client) => {
+          const r = await client.query<{
+            title: string;
+            description: string | null;
+            titleEn: string | null;
+          }>(
+            `SELECT title, description, title_en AS "titleEn" FROM shopify_collections WHERE shop_id = $1 AND id = $2 LIMIT 1`,
+            [session.shopId, collectionId]
+          );
+          return r.rows[0] ?? null;
+        });
+
+        if (!collectionRow) {
+          emit({ type: 'error', message: 'Colecția nu a fost găsită.' });
+          raw.end();
+          return;
+        }
+
+        if (collectionRow.titleEn && !forceRetranslate) {
+          emit({
+            type: 'progress',
+            step: 'skip',
+            status: 'done',
+            message: `Deja tradusă: „${collectionRow.titleEn}"`,
+          });
+          emit({ type: 'result', status: 'already_translated', titleEn: collectionRow.titleEn });
+          raw.end();
+          return;
+        }
+
+        if (collectionRow.titleEn && forceRetranslate) {
+          emit({
+            type: 'progress',
+            step: 'clear',
+            status: 'done',
+            message: `Șterg traducerea veche: „${collectionRow.titleEn}"`,
+          });
+        }
+
+        const txCreds = await resolveChatTaskCredentials({
+          shopId: session.shopId,
+          taskType: 'translation',
+          env: options.env,
+          logger: options.logger,
+        });
+        if (!txCreds) {
+          emit({ type: 'error', message: 'Credențialele AI nu sunt configurate.' });
+          raw.end();
+          return;
+        }
+
+        emit({ type: 'progress', step: 'sample', message: 'Eșantionez produse din colecție...' });
+        const samples = await sampleProductNames({
+          shopId: session.shopId,
+          collectionId,
+          limit: 5,
+        });
+        emit({
+          type: 'progress',
+          step: 'sample',
+          status: 'done',
+          message: `${samples.length} produse eșantionate.`,
+        });
+
+        emit({
+          type: 'progress',
+          step: 'translate',
+          message: `Traduc „${collectionRow.title}" cu AI...`,
+        });
+        const translated = await translateTitleToEnglish({
+          title: collectionRow.title,
+          description: collectionRow.description,
+          productSamples: samples,
+          ...(txCreds.apiKey ? { apiKey: txCreds.apiKey } : {}),
+          baseUrl: txCreds.baseUrl,
+          model: txCreds.model,
+          timeoutMs: 30_000,
+          logger: options.logger,
+        });
+
+        if (translated) {
+          await withTenantContext(session.shopId, async (client) => {
+            await client.query(
+              `UPDATE shopify_collections SET title_en = $1, updated_at = now() WHERE id = $2 AND shop_id = $3`,
+              [translated, collectionId, session.shopId]
+            );
+          });
+          emit({
+            type: 'progress',
+            step: 'translate',
+            status: 'done',
+            message: `Traducere: „${translated}"`,
+          });
+          emit({ type: 'result', status: 'translated', titleEn: translated });
+        } else {
+          emit({
+            type: 'progress',
+            step: 'translate',
+            status: 'error',
+            message: 'Traducerea nu a reușit.',
+          });
+          emit({ type: 'result', status: 'error', message: 'Traducerea nu a reușit.' });
+        }
+      } catch (err) {
+        options.logger.error({ err, collectionId }, 'Single collection translate failed');
+        emit({ type: 'error', message: err instanceof Error ? err.message : 'Eroare internă.' });
+      } finally {
+        raw.end();
+      }
+    }
+  );
+
+  server.post(
+    '/collections/:collectionId/assign-taxonomy-ai',
+    {
+      preHandler: [requireAdminSession],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+
+      const { collectionId } = request.params as { collectionId: string };
+      if (!collectionId?.trim()) {
         return reply
           .status(400)
-          .send(
-            errorEnvelope(
-              request.id,
-              400,
-              'BAD_REQUEST',
-              `Taxonomia nu are embedding-uri pentru modelul ${provider.model.name}.`
-            )
-          );
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing collectionId'));
       }
 
-      const CONFIDENCE_THRESHOLD = 0.65;
-      const VECTOR_CANDIDATES = 40;
-      interface ResultItem {
-        collectionId: string;
-        taxonomyId: string | null;
-        taxonomyName: string | null;
-        confidence: number | null;
-        status: 'assigned' | 'low_confidence' | 'error';
-        translatedText?: string | undefined;
-        detectedLanguage?: string | undefined;
-        reasoning?: string | undefined;
-        candidates?: { name: string; similarity: number }[] | undefined;
-      }
-      const results: ResultItem[] = [];
+      reply.hijack();
+      const raw = reply.raw;
+      raw.writeHead(200, {
+        'Content-Type': 'application/x-ndjson',
+        'Cache-Control': 'no-cache',
+        'X-Content-Type-Options': 'nosniff',
+      });
 
-      for (const collectionId of collectionIds) {
+      const emit = (event: Record<string, unknown>) => {
         try {
-          const collectionRow = await withTenantContext(session.shopId, async (client) => {
-            const r = await client.query<{
-              title: string;
-              description: string | null;
-              titleEn: string | null;
-            }>(
-              `SELECT title, description, title_en AS "titleEn"
-               FROM shopify_collections WHERE shop_id = $1 AND id = $2 LIMIT 1`,
+          raw.write(JSON.stringify(event) + '\n');
+        } catch {
+          /* connection already closed */
+        }
+      };
+
+      try {
+        const collectionRow = await withTenantContext(session.shopId, async (client) => {
+          const r = await client.query<{
+            title: string;
+            description: string | null;
+            titleEn: string | null;
+          }>(
+            `SELECT title, description, title_en AS "titleEn"
+             FROM shopify_collections WHERE shop_id = $1 AND id = $2 LIMIT 1`,
+            [session.shopId, collectionId]
+          );
+          return r.rows[0] ?? null;
+        });
+
+        if (!collectionRow?.title) {
+          emit({ type: 'error', message: 'Colecția nu a fost găsită.' });
+          raw.end();
+          return;
+        }
+
+        const existingMappings = await withTenantContext(session.shopId, async (client) => {
+          const r = await client.query<{ taxonomy_id: string; name: string }>(
+            `SELECT m.taxonomy_id, pt.name
+             FROM pim_taxonomy_collection_map m
+             JOIN prod_taxonomy pt ON pt.id = m.taxonomy_id
+             WHERE m.shop_id = $1 AND m.collection_id = $2`,
+            [session.shopId, collectionId]
+          );
+          return r.rows;
+        });
+
+        if (existingMappings.length > 0) {
+          emit({
+            type: 'progress',
+            step: 'delete_old',
+            message: `Șterg taxonomia veche: „${existingMappings[0]?.name}"...`,
+          });
+          for (const row of existingMappings) {
+            await deleteCollectionMetafieldsForTaxonomy({
+              shopId: session.shopId,
+              collectionId,
+              taxonomyId: row.taxonomy_id,
+              logger: options.logger,
+            });
+          }
+          await withTenantContext(session.shopId, async (client) => {
+            await client.query(
+              `DELETE FROM pim_taxonomy_collection_map WHERE shop_id = $1 AND collection_id = $2`,
               [session.shopId, collectionId]
             );
-            return r.rows[0] ?? null;
+            await client.query(
+              `UPDATE shopify_collections SET metafields = '{}'::jsonb, updated_at = now()
+               WHERE id = $1 AND shop_id = $2`,
+              [collectionId, session.shopId]
+            );
           });
-          if (!collectionRow) {
-            results.push({
-              collectionId,
-              taxonomyId: null,
-              taxonomyName: null,
-              confidence: null,
-              status: 'error',
+          emit({
+            type: 'progress',
+            step: 'delete_old',
+            status: 'done',
+            message: 'Taxonomia veche a fost ștearsă.',
+          });
+        }
+
+        const classificationCreds = await resolveChatTaskCredentials({
+          shopId: session.shopId,
+          taskType: 'classification',
+          env: options.env,
+          logger: options.logger,
+        });
+        if (!classificationCreds) {
+          emit({
+            type: 'error',
+            message: 'Nu s-au putut rezolva credențialele AI. Configurați un provider AI.',
+          });
+          raw.end();
+          return;
+        }
+        const resolvedBaseUrl = classificationCreds.baseUrl;
+
+        const singleProductSamples = await sampleProductNames({
+          shopId: session.shopId,
+          collectionId,
+          limit: 5,
+        });
+
+        const translationCreds = await resolveChatTaskCredentials({
+          shopId: session.shopId,
+          taskType: 'translation',
+          env: options.env,
+          logger: options.logger,
+        });
+
+        let effectiveTitleEn = collectionRow.titleEn;
+        if (!effectiveTitleEn) {
+          const txCreds = translationCreds ?? classificationCreds;
+          const txBaseUrl = txCreds.baseUrl;
+          emit({
+            type: 'progress',
+            step: 'translate',
+            message: `Traduc „${collectionRow.title}" în engleză...`,
+          });
+          effectiveTitleEn = await translateTitleToEnglish({
+            title: collectionRow.title,
+            description: collectionRow.description,
+            productSamples: singleProductSamples,
+            ...(txCreds.apiKey ? { apiKey: txCreds.apiKey } : {}),
+            ...(txBaseUrl != null ? { baseUrl: txBaseUrl } : {}),
+            model: txCreds.model,
+            timeoutMs: 30_000,
+            logger: options.logger,
+          });
+          if (effectiveTitleEn) {
+            await withTenantContext(session.shopId, async (client) => {
+              await client.query(
+                `UPDATE shopify_collections SET title_en = $1, updated_at = now()
+                 WHERE id = $2 AND shop_id = $3 AND (title_en IS NULL OR title_en = '')`,
+                [effectiveTitleEn, collectionId, session.shopId]
+              );
             });
-            continue;
-          }
-
-          if (!collectionRow.title) {
-            results.push({
-              collectionId,
-              taxonomyId: null,
-              taxonomyName: null,
-              confidence: null,
-              status: 'error',
+            emit({
+              type: 'progress',
+              step: 'translate',
+              status: 'done',
+              message: `Traducere: „${effectiveTitleEn}"`,
             });
-            continue;
-          }
-
-          const embeddingText = collectionRow.titleEn
-            ? [collectionRow.titleEn, collectionRow.description ?? '']
-                .filter(Boolean)
-                .join(' — ')
-                .trim()
-            : [collectionRow.title, collectionRow.description ?? '']
-                .filter(Boolean)
-                .join(' — ')
-                .trim();
-
-          const [embedding] = await provider.embedTexts([embeddingText]);
-          if (!embedding || embedding.length === 0) {
-            results.push({
-              collectionId,
-              taxonomyId: null,
-              taxonomyName: null,
-              confidence: null,
-              status: 'error',
+          } else {
+            emit({
+              type: 'progress',
+              step: 'translate',
+              status: 'done',
+              message: 'Traducerea nu a reușit, folosesc titlul original.',
             });
-            continue;
           }
+        }
 
-          const vectorCandidates = await withTenantContext(session.shopId, async (client) => {
+        emit({ type: 'progress', step: 'embed', message: 'Generez embedding pentru căutare...' });
+        const provider = await resolveEmbeddingsProvider({
+          shopId: session.shopId,
+          env: options.env,
+          logger: options.logger,
+        });
+        const embeddingText =
+          (effectiveTitleEn ?? collectionRow.title) +
+          (collectionRow.description ? ` — ${collectionRow.description}` : '');
+        const [embedding] = await provider.embedTexts([embeddingText.trim()]);
+        if (!embedding || embedding.length === 0) {
+          emit({ type: 'error', message: 'Nu s-a putut genera embedding-ul.' });
+          raw.end();
+          return;
+        }
+        emit({ type: 'progress', step: 'embed', status: 'done', message: 'Embedding generat.' });
+
+        emit({
+          type: 'progress',
+          step: 'search',
+          message: 'Caut taxonomiile cele mai compatibile...',
+        });
+        const VECTOR_CANDIDATES = 40;
+        const searchTitle = effectiveTitleEn ?? collectionRow.title;
+        const keywordTokens = searchTitle
+          .split(/[\s,\-—–]+/)
+          .map((t) => t.trim().toLowerCase())
+          .filter((t) => t.length >= 3);
+
+        const [vectorResults, keywordResults] = await Promise.all([
+          withTenantContext(session.shopId, async (client) => {
             const vec = toPgVectorLiteral(embedding);
             const res = await client.query<{ id: string; name: string; similarity: number }>(
               `SELECT id, name,
@@ -640,178 +1607,174 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
               [vec, VECTOR_CANDIDATES, provider.model.name]
             );
             return res.rows;
-          });
+          }),
+          keywordTokens.length > 0
+            ? withTenantContext(session.shopId, async (client) => {
+                const likeConditions = keywordTokens
+                  .map((_, i) => `LOWER(name) LIKE $${i + 1}`)
+                  .join(' OR ');
+                const likeParams = keywordTokens.map((t) => `%${t}%`);
+                const res = await client.query<{ id: string; name: string }>(
+                  `SELECT id, name FROM prod_taxonomy
+                   WHERE is_active = true AND embedding IS NOT NULL
+                     AND model_version = '${provider.model.name}'
+                     AND (${likeConditions})
+                   LIMIT 20`,
+                  likeParams
+                );
+                return res.rows;
+              })
+            : Promise.resolve([]),
+        ]);
 
-          if (vectorCandidates.length === 0) {
-            results.push({
-              collectionId,
-              taxonomyId: null,
-              taxonomyName: null,
-              confidence: null,
-              status: 'error',
-            });
-            continue;
+        const seenIds = new Set(vectorResults.map((r) => r.id));
+        const keywordBoosts: { id: string; name: string; similarity: number }[] = [];
+        for (const kw of keywordResults) {
+          if (!seenIds.has(kw.id)) {
+            keywordBoosts.push({ id: kw.id, name: kw.name, similarity: 0.85 });
+            seenIds.add(kw.id);
           }
+        }
 
-          const classificationCreds = await resolveChatTaskCredentials({
-            shopId: session.shopId,
-            taskType: 'classification',
-            env: options.env,
-            logger: options.logger,
-          });
-          if (!classificationCreds) {
-            results.push({
-              collectionId,
-              taxonomyId: null,
-              taxonomyName: null,
-              confidence: null,
-              status: 'error',
-            });
-            continue;
-          }
+        const vectorCandidates = [...keywordBoosts, ...vectorResults].sort(
+          (a, b) => b.similarity - a.similarity
+        );
 
-          const resolvedBaseUrl = classificationCreds.baseUrl;
-          const classification = await classifyWithLLM({
-            shopId: session.shopId,
-            env: options.env,
+        if (vectorCandidates.length === 0) {
+          emit({ type: 'error', message: 'Nu s-au găsit taxonomii cu embedding-uri compatibile.' });
+          raw.end();
+          return;
+        }
+        const topCandidates = vectorCandidates.slice(0, 5).map((c) => ({
+          name: c.name,
+          similarity: Math.round(c.similarity * 1000) / 1000,
+        }));
+        const keywordHitCount = keywordBoosts.length;
+        emit({
+          type: 'progress',
+          step: 'search',
+          status: 'done',
+          message: `Am găsit ${vectorCandidates.length} candidați (${keywordHitCount} keyword boost). Top: ${topCandidates[0]?.name} (${topCandidates[0]?.similarity})`,
+        });
+
+        emit({ type: 'progress', step: 'classify', message: 'Clasific cu AI...' });
+        const classification = await classifyWithLLM({
+          shopId: session.shopId,
+          env: options.env,
+          collectionTitle: collectionRow.title,
+          collectionTitleEn: effectiveTitleEn,
+          collectionDescription: collectionRow.description,
+          productSamples: singleProductSamples,
+          candidates: vectorCandidates,
+          ...(classificationCreds.apiKey ? { apiKey: classificationCreds.apiKey } : {}),
+          ...(resolvedBaseUrl != null ? { baseUrl: resolvedBaseUrl } : {}),
+          model: classificationCreds.model,
+          timeoutMs: options.env.openAiTimeoutMs,
+          logger: options.logger,
+        });
+
+        options.logger.info(
+          {
+            collectionId,
             collectionTitle: collectionRow.title,
-            collectionTitleEn: collectionRow.titleEn,
-            collectionDescription: collectionRow.description,
-            candidates: vectorCandidates,
-            ...(classificationCreds.apiKey ? { apiKey: classificationCreds.apiKey } : {}),
-            ...(resolvedBaseUrl != null ? { baseUrl: resolvedBaseUrl } : {}),
-            model: classificationCreds.model,
-            timeoutMs: options.env.openAiTimeoutMs,
-            logger: options.logger,
+            titleEn: effectiveTitleEn,
+            classification: classification
+              ? {
+                  taxonomyName: classification.taxonomyName,
+                  confidence: classification.confidence,
+                  reasoning: classification.reasoning,
+                  translatedQuery: classification.translatedQuery,
+                }
+              : null,
+            vectorTop5: topCandidates,
+          },
+          'streaming taxonomy_assign: LLM classification result'
+        );
+
+        const CONFIDENCE_THRESHOLD = 0.65;
+        if (!classification || classification.confidence < CONFIDENCE_THRESHOLD) {
+          const pct = Math.round((classification?.confidence ?? 0) * 100);
+          emit({
+            type: 'progress',
+            step: 'classify',
+            status: 'done',
+            message: `Clasificare: „${classification?.taxonomyName ?? 'N/A'}" — ${pct}% confidență`,
           });
-
-          const topCandidates = vectorCandidates.slice(0, 5).map((c) => ({
-            name: c.name,
-            similarity: Math.round(c.similarity * 1000) / 1000,
-          }));
-
-          if (!classification) {
-            const fallback = vectorCandidates[0];
-            results.push({
-              collectionId,
-              taxonomyId: fallback?.id ?? null,
-              taxonomyName: fallback?.name ?? null,
-              confidence: fallback?.similarity ?? null,
-              status: 'low_confidence',
-              candidates: topCandidates,
-            });
-            continue;
-          }
-
-          options.logger.info(
-            {
-              collectionId,
-              collectionTitle: collectionRow.title,
-              classification: {
-                taxonomyName: classification.taxonomyName,
-                confidence: classification.confidence,
-                reasoning: classification.reasoning,
-                translatedQuery: classification.translatedQuery,
-                detectedLanguage: classification.detectedLanguage,
-              },
-              vectorTop5: topCandidates,
-              threshold: CONFIDENCE_THRESHOLD,
-            },
-            'AI taxonomy assignment: LLM classification result'
-          );
-
-          if (classification.confidence < CONFIDENCE_THRESHOLD) {
-            results.push({
-              collectionId,
-              taxonomyId: classification.taxonomyId,
-              taxonomyName: classification.taxonomyName,
-              confidence: classification.confidence,
-              status: 'low_confidence',
-              translatedText: classification.translatedQuery,
-              detectedLanguage: classification.detectedLanguage,
-              reasoning: classification.reasoning,
-              candidates: topCandidates,
-            });
-            continue;
-          }
-
-          const existingMappingsBulk = await withTenantContext(session.shopId, async (client) => {
-            const r = await client.query<{ taxonomy_id: string }>(
-              `SELECT taxonomy_id FROM pim_taxonomy_collection_map
-               WHERE shop_id = $1 AND collection_id = $2`,
-              [session.shopId, collectionId]
-            );
-            return r.rows;
-          });
-
-          if (mode === 'replace' && existingMappingsBulk.length > 0) {
-            for (const row of existingMappingsBulk) {
-              await deleteCollectionMetafieldsForTaxonomy({
-                shopId: session.shopId,
-                collectionId,
-                taxonomyId: row.taxonomy_id,
-                logger: options.logger,
-              });
-            }
-          }
-
-          await withTenantContext(session.shopId, async (client) => {
-            if (mode === 'replace') {
-              await client.query(
-                `DELETE FROM pim_taxonomy_collection_map
-                 WHERE shop_id = $1 AND collection_id = $2`,
-                [session.shopId, collectionId]
-              );
-              await client.query(
-                `UPDATE shopify_collections SET metafields = '{}'::jsonb, updated_at = now()
-                 WHERE id = $1 AND shop_id = $2`,
-                [collectionId, session.shopId]
-              );
-            } else {
-              await client.query(
-                `UPDATE pim_taxonomy_collection_map SET is_primary = false
-                 WHERE shop_id = $1 AND collection_id = $2`,
-                [session.shopId, collectionId]
-              );
-            }
-            await client.query(
-              `INSERT INTO pim_taxonomy_collection_map
-                 (shop_id, taxonomy_id, collection_id, is_primary, created_at)
-               VALUES ($1, $2, $3, true, now())
-               ON CONFLICT (shop_id, taxonomy_id, collection_id) DO UPDATE SET is_primary = EXCLUDED.is_primary`,
-              [session.shopId, classification.taxonomyId, collectionId]
-            );
-          });
-
-          void enqueueCollectionMetafieldPushJob({
-            shopId: session.shopId,
-            collectionId,
-            trigger: 'category_classifier',
-          });
-
-          results.push({
-            collectionId,
-            taxonomyId: classification.taxonomyId,
-            taxonomyName: classification.taxonomyName,
-            confidence: classification.confidence,
-            status: 'assigned',
-            translatedText: classification.translatedQuery,
-            detectedLanguage: classification.detectedLanguage,
-            reasoning: classification.reasoning,
+          emit({
+            type: 'result',
+            status: 'low_confidence',
+            taxonomyName: classification?.taxonomyName ?? vectorCandidates[0]?.name ?? null,
+            confidence: classification?.confidence ?? null,
+            message: `Confidență scăzută (${pct}%): „${classification?.taxonomyName ?? 'N/A'}". Atribuiți manual.`,
+            reasoning: classification?.reasoning ?? null,
             candidates: topCandidates,
           });
-        } catch {
-          results.push({
-            collectionId,
-            taxonomyId: null,
-            taxonomyName: null,
-            confidence: null,
-            status: 'error',
-          });
+          raw.end();
+          return;
         }
-      }
 
-      return reply.send(successEnvelope(request.id, { results }));
+        emit({
+          type: 'progress',
+          step: 'classify',
+          status: 'done',
+          message: `Clasificare: „${classification.taxonomyName}" — ${Math.round(classification.confidence * 100)}% confidență`,
+        });
+
+        emit({ type: 'progress', step: 'persist', message: 'Atribui noua taxonomie...' });
+        await withTenantContext(session.shopId, async (client) => {
+          await client.query(
+            `INSERT INTO pim_taxonomy_collection_map
+               (shop_id, taxonomy_id, collection_id, is_primary, created_at)
+             VALUES ($1, $2, $3, true, now())
+             ON CONFLICT (shop_id, taxonomy_id, collection_id)
+             DO UPDATE SET is_primary = EXCLUDED.is_primary`,
+            [session.shopId, classification.taxonomyId, collectionId]
+          );
+        });
+        emit({
+          type: 'progress',
+          step: 'persist',
+          status: 'done',
+          message: 'Taxonomie atribuită cu succes.',
+        });
+
+        emit({
+          type: 'progress',
+          step: 'metafield_push',
+          message: 'Programez sincronizarea metafields...',
+        });
+        void enqueueCollectionMetafieldPushJob({
+          shopId: session.shopId,
+          collectionId,
+          trigger: 'category_classifier',
+        });
+        emit({
+          type: 'progress',
+          step: 'metafield_push',
+          status: 'done',
+          message: 'Sincronizare metafields programată.',
+        });
+
+        emit({
+          type: 'result',
+          status: 'assigned',
+          taxonomyId: classification.taxonomyId,
+          taxonomyName: classification.taxonomyName,
+          confidence: classification.confidence,
+          reasoning: classification.reasoning,
+          translatedText: classification.translatedQuery,
+          detectedLanguage: classification.detectedLanguage,
+          candidates: topCandidates,
+        });
+      } catch (err) {
+        options.logger.error({ err, collectionId }, 'Streaming taxonomy assignment failed');
+        emit({
+          type: 'error',
+          message: err instanceof Error ? err.message : 'Eroare internă la atribuirea taxonomiei.',
+        });
+      } finally {
+        raw.end();
+      }
     }
   );
 
@@ -866,170 +1829,190 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
       }
 
-      const body = (request.body ?? {}) as { collectionIds?: unknown };
+      const body = (request.body ?? {}) as { collectionIds?: unknown; force?: unknown };
       const scopeIds = Array.isArray(body.collectionIds)
         ? body.collectionIds.filter(
             (id): id is string => typeof id === 'string' && id.trim().length > 0
           )
         : null;
+      const force = body.force === true;
 
-      const untranslated = await withTenantContext(session.shopId, async (client) => {
-        if (scopeIds && scopeIds.length > 0) {
-          const r = await client.query<{ id: string; title: string }>(
-            `SELECT id, title FROM shopify_collections
-             WHERE shop_id = $1 AND id = ANY($2::uuid[]) AND (title_en IS NULL OR title_en = '')
+      reply.hijack();
+      const raw = reply.raw;
+      raw.writeHead(200, {
+        'Content-Type': 'application/x-ndjson',
+        'Cache-Control': 'no-cache',
+        'X-Content-Type-Options': 'nosniff',
+      });
+      const emit = (event: Record<string, unknown>) => {
+        try {
+          raw.write(JSON.stringify(event) + '\n');
+        } catch {
+          /* closed */
+        }
+      };
+
+      try {
+        const untranslatedFilter = force ? '' : " AND (title_en IS NULL OR title_en = '')";
+        const untranslated = await withTenantContext(session.shopId, async (client) => {
+          if (scopeIds && scopeIds.length > 0) {
+            const r = await client.query<{ id: string; title: string; description: string | null }>(
+              `SELECT id, title, description FROM shopify_collections
+               WHERE shop_id = $1 AND id = ANY($2::uuid[])${untranslatedFilter}
+               ORDER BY title ASC`,
+              [session.shopId, scopeIds]
+            );
+            return r.rows;
+          }
+          const r = await client.query<{ id: string; title: string; description: string | null }>(
+            `SELECT id, title, description FROM shopify_collections
+             WHERE shop_id = $1${untranslatedFilter}
              ORDER BY title ASC`,
-            [session.shopId, scopeIds]
+            [session.shopId]
           );
           return r.rows;
-        }
-        const r = await client.query<{ id: string; title: string }>(
-          `SELECT id, title FROM shopify_collections
-           WHERE shop_id = $1 AND (title_en IS NULL OR title_en = '')
-           ORDER BY title ASC`,
-          [session.shopId]
-        );
-        return r.rows;
-      });
+        });
 
-      if (untranslated.length === 0) {
-        return reply.send(
-          successEnvelope(request.id, {
+        if (untranslated.length === 0) {
+          emit({
+            type: 'translate_done',
             translated: 0,
             total: 0,
-            message: 'Toate colecțiile sunt deja traduse',
-          })
-        );
-      }
+            message: 'Toate colecțiile sunt deja traduse.',
+          });
+          raw.end();
+          return;
+        }
 
-      const BATCH_SIZE = 25;
-      let translated = 0;
-
-      const translateCreds = await resolveChatTaskCredentials({
-        shopId: session.shopId,
-        taskType: 'translation',
-        env: options.env,
-        logger: options.logger,
-      });
-      if (!translateCreds) {
-        return reply
-          .status(400)
-          .send(
-            errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Credențialele AI nu sunt configurate')
-          );
-      }
-      const translateApiKey = translateCreds.apiKey;
-      const translateBaseRaw = translateCreds.baseUrl.replace(/\/$/, '');
-      const translateBase = translateBaseRaw.endsWith('/v1')
-        ? translateBaseRaw
-        : `${translateBaseRaw}/v1`;
-      const translateModel = translateCreds.model;
-
-      for (let i = 0; i < untranslated.length; i += BATCH_SIZE) {
-        const batch = untranslated.slice(i, i + BATCH_SIZE);
-        const numberedList = batch.map((c, idx) => `${idx + 1}. ${c.title}`).join('\n');
-        const inputScan = await scanInput({
+        const translateCreds = await resolveChatTaskCredentials({
           shopId: session.shopId,
-          text: numberedList,
+          taskType: 'translation',
           env: options.env,
           logger: options.logger,
         });
-        if (!inputScan.isValid) {
-          options.logger.warn(
-            { shopId: session.shopId, batchStart: i, reason: inputScan.reason },
-            'guardrails_blocked_bulk_translate_input'
-          );
-          continue;
+        if (!translateCreds) {
+          emit({ type: 'error', message: 'Credențialele AI nu sunt configurate.' });
+          raw.end();
+          return;
         }
 
-        try {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 30_000);
+        emit({ type: 'translate_start', total: untranslated.length });
 
-          const res = await fetch(`${translateBase}/chat/completions`, {
-            method: 'POST',
-            headers: {
-              ...(translateApiKey ? { authorization: `Bearer ${translateApiKey}` } : {}),
-              'content-type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: translateModel,
-              temperature: 0,
-              max_tokens: 2000,
-              response_format: { type: 'json_object' },
-              messages: [
-                {
-                  role: 'system',
-                  content: `You translate product collection names to English for Shopify taxonomy matching. Input: a numbered list of collection names (may be in any language). Output: a JSON object with key "translations" containing an array of objects, each with "index" (1-based) and "en" (English translation). Translate the product category meaning, not marketing text. Keep it concise. If already in English, return unchanged.`,
-                },
-                { role: 'user', content: inputScan.sanitizedText },
-              ],
-            }),
-            signal: controller.signal,
+        let translated = 0;
+        for (let idx = 0; idx < untranslated.length; idx++) {
+          const col = untranslated[idx]!;
+          const progress = `[${idx + 1}/${untranslated.length}]`;
+
+          emit({
+            type: 'translate_collection_start',
+            collectionId: col.id,
+            collectionTitle: col.title,
+            index: idx,
+            total: untranslated.length,
           });
 
-          clearTimeout(timeout);
+          try {
+            emit({
+              type: 'translate_progress',
+              collectionId: col.id,
+              step: 'sample',
+              message: `${progress} Eșantionez produse...`,
+            });
+            const samples = await sampleProductNames({
+              shopId: session.shopId,
+              collectionId: col.id,
+              limit: 5,
+            });
+            emit({
+              type: 'translate_progress',
+              collectionId: col.id,
+              step: 'sample',
+              status: 'done',
+              message: `${progress} ${samples.length} produse eșantionate.`,
+            });
 
-          if (!res.ok) {
-            options.logger.warn({ status: res.status }, 'Bulk translate batch failed');
-            continue;
-          }
+            emit({
+              type: 'translate_progress',
+              collectionId: col.id,
+              step: 'translate',
+              message: `${progress} Traduc „${col.title}"...`,
+            });
+            const translatedTitle = await translateTitleToEnglish({
+              title: col.title,
+              description: col.description,
+              productSamples: samples,
+              ...(translateCreds.apiKey ? { apiKey: translateCreds.apiKey } : {}),
+              baseUrl: translateCreds.baseUrl,
+              model: translateCreds.model,
+              timeoutMs: 30_000,
+              logger: options.logger,
+            });
 
-          const json = (await res.json()) as {
-            choices?: { message?: { content?: string } }[];
-          };
-          const contentRaw = json.choices?.[0]?.message?.content ?? '';
-          const outputScan = await scanOutput({
-            shopId: session.shopId,
-            prompt: inputScan.sanitizedText,
-            output: contentRaw,
-            env: options.env,
-            logger: options.logger,
-          });
-          if (!outputScan.isValid) {
-            options.logger.warn(
-              { shopId: session.shopId, batchStart: i, reason: outputScan.reason },
-              'guardrails_blocked_bulk_translate_output'
-            );
-            continue;
-          }
-          const content = outputScan.sanitizedText;
-          const parsed = JSON.parse(content) as {
-            translations?: { index?: number; en?: string }[];
-          };
-
-          const translations = parsed.translations ?? [];
-
-          await withTenantContext(session.shopId, async (client) => {
-            for (const t of translations) {
-              if (typeof t.index !== 'number' || !t.en) continue;
-              const item = batch[t.index - 1];
-              if (!item) continue;
-              await client.query(
-                `UPDATE shopify_collections SET title_en = $1, updated_at = now()
-                 WHERE id = $2 AND shop_id = $3`,
-                [t.en.trim(), item.id, session.shopId]
-              );
+            if (translatedTitle) {
+              await withTenantContext(session.shopId, async (client) => {
+                await client.query(
+                  `UPDATE shopify_collections SET title_en = $1, updated_at = now() WHERE id = $2 AND shop_id = $3`,
+                  [translatedTitle, col.id, session.shopId]
+                );
+              });
               translated++;
+              emit({
+                type: 'translate_progress',
+                collectionId: col.id,
+                step: 'translate',
+                status: 'done',
+                message: `${progress} „${translatedTitle}"`,
+              });
+              emit({
+                type: 'translate_collection_result',
+                collectionId: col.id,
+                collectionTitle: col.title,
+                status: 'translated',
+                titleEn: translatedTitle,
+              });
+            } else {
+              emit({
+                type: 'translate_progress',
+                collectionId: col.id,
+                step: 'translate',
+                status: 'error',
+                message: `${progress} Traducerea nu a reușit.`,
+              });
+              emit({
+                type: 'translate_collection_result',
+                collectionId: col.id,
+                collectionTitle: col.title,
+                status: 'error',
+                message: 'Traducerea nu a reușit.',
+              });
             }
-          });
-
-          options.logger.info(
-            { batchStart: i, batchSize: batch.length, translated: translations.length },
-            'Bulk translate batch completed'
-          );
-        } catch (err) {
-          options.logger.warn({ err, batchStart: i }, 'Bulk translate batch error');
+          } catch (err) {
+            options.logger.warn(
+              { err, collectionId: col.id },
+              'Bulk translate failed for collection'
+            );
+            emit({
+              type: 'translate_collection_result',
+              collectionId: col.id,
+              collectionTitle: col.title,
+              status: 'error',
+              message: 'Eroare internă.',
+            });
+          }
         }
-      }
 
-      return reply.send(
-        successEnvelope(request.id, {
+        emit({
+          type: 'translate_done',
           translated,
           total: untranslated.length,
-          message: `${translated} din ${untranslated.length} colecții traduse`,
-        })
-      );
+          message: `${translated} din ${untranslated.length} colecții traduse.`,
+        });
+      } catch (err) {
+        options.logger.error({ err }, 'Bulk translate streaming failed');
+        emit({ type: 'error', message: err instanceof Error ? err.message : 'Eroare internă.' });
+      } finally {
+        raw.end();
+      }
     }
   );
 

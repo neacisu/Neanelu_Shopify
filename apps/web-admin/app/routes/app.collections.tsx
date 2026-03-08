@@ -1,4 +1,16 @@
-import { RefreshCw, FolderOpen, Layers, Sparkles, Tag, Package, Languages } from 'lucide-react';
+import {
+  RefreshCw,
+  FolderOpen,
+  Layers,
+  Sparkles,
+  Tag,
+  Package,
+  Languages,
+  CircleOff,
+  GitBranch,
+  ChevronRight,
+  ChevronDown,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -19,6 +31,7 @@ interface CollectionRow {
   shopify_gid: string;
   legacy_resource_id: number;
   title: string;
+  title_en: string | null;
   handle: string;
   collection_type: string;
   products_count: number;
@@ -28,6 +41,10 @@ interface CollectionRow {
   description: string | null;
   description_html: string | null;
   image_url: string | null;
+  parent_collection_id: string | null;
+  parent_title: string | null;
+  menu_level: number | null;
+  menu_path: string | null;
 }
 
 interface CollectionsPagination {
@@ -45,6 +62,9 @@ interface CollectionsStats {
   smart: number;
   withTaxonomy: number;
   translated: number;
+  inMenu: number;
+  roots: number;
+  notInMenu: number;
   totalProducts: number;
   lastSyncedAt: string | null;
 }
@@ -53,7 +73,20 @@ type SyncStatus = 'idle' | 'active' | 'completed' | 'failed' | 'waiting' | 'dela
 
 interface SyncProgress {
   status: SyncStatus;
-  progress: { fetched?: number; total?: number; percent?: number } | number | null;
+  progress:
+    | {
+        fetched?: number;
+        total?: number;
+        percent?: number;
+        phase?: string;
+        current?: number;
+        menuItems?: number;
+        correlated?: number;
+        hierarchyError?: boolean;
+        status?: string;
+      }
+    | number
+    | null;
   createdAt?: string | null;
   processedOn?: string | null;
   finishedOn?: string | null;
@@ -85,6 +118,69 @@ function formatDuration(ms: number): string {
   return `${m}m ${s % 60}s`;
 }
 
+function parseMenuPath(menuPath: string | null): string[] {
+  if (!menuPath) return [];
+  return menuPath
+    .split('>')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+}
+
+function CategoryTreeCell({
+  menuPath,
+  currentTitle,
+}: {
+  menuPath: string | null;
+  currentTitle: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const segments = useMemo(() => parseMenuPath(menuPath), [menuPath]);
+
+  if (segments.length === 0) {
+    return <span className="text-slate-400 dark:text-slate-500">—</span>;
+  }
+
+  if (segments.length === 1) {
+    return <span className="text-xs text-slate-600 dark:text-slate-300">{segments[0]}</span>;
+  }
+
+  const parentLabel = segments[segments.length - 2] ?? segments[0];
+
+  return (
+    <div className="min-w-[180px]" onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 text-left text-xs text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
+        onClick={() => setExpanded((prev) => !prev)}
+      >
+        {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+        <span className="truncate">{expanded ? segments[0] : parentLabel}</span>
+      </button>
+      {expanded && (
+        <div className="mt-2 space-y-1">
+          {segments.map((segment, index) => {
+            const isCurrent = index === segments.length - 1;
+            return (
+              <div
+                key={`${segment}-${index}`}
+                className={`flex items-center gap-1 text-xs ${
+                  isCurrent
+                    ? 'font-semibold text-slate-900 dark:text-slate-100'
+                    : 'text-slate-500 dark:text-slate-400'
+                }`}
+                style={{ paddingLeft: `${index * 12}px` }}
+              >
+                {index > 0 && <span className="text-slate-300 dark:text-slate-600">└─</span>}
+                <span className="truncate">{isCurrent ? currentTitle : segment}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CollectionsPage() {
   const api = useApiClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -94,6 +190,8 @@ export default function CollectionsPage() {
   const search = searchParams.get('search') ?? '';
   const type = searchParams.get('type') ?? 'all';
   const hasTaxonomy = searchParams.get('hasTaxonomy') ?? 'all';
+  const hasTranslation = searchParams.get('hasTranslation') ?? 'all';
+  const menuLevel = searchParams.get('menuLevel') ?? 'all';
   const sortBy = searchParams.get('sortBy') ?? 'synced_at';
   const sortDir = searchParams.get('sortDir') ?? 'desc';
 
@@ -120,6 +218,25 @@ export default function CollectionsPage() {
   const [bulkMetafieldsLoading, setBulkMetafieldsLoading] = useState(false);
   const [bulkTranslateLoading, setBulkTranslateLoading] = useState(false);
 
+  interface BulkCollectionStep {
+    step: string;
+    message: string;
+    status: 'in_progress' | 'done' | 'error';
+  }
+  interface BulkCollectionEntry {
+    collectionId: string;
+    collectionTitle: string;
+    steps: BulkCollectionStep[];
+    finalStatus: 'running' | 'assigned' | 'low_confidence' | 'error';
+    resultMessage: string | null;
+    expanded: boolean;
+  }
+  const [bulkProgress, setBulkProgress] = useState<BulkCollectionEntry[]>([]);
+  const [bulkRunning, setBulkRunning] = useState(false);
+
+  const [translateProgress, setTranslateProgress] = useState<BulkCollectionEntry[]>([]);
+  const [translateRunning, setTranslateRunning] = useState(false);
+
   const isSyncing =
     syncState.status === 'active' ||
     syncState.status === 'waiting' ||
@@ -136,6 +253,8 @@ export default function CollectionsPage() {
       if (search) params.set('search', search);
       if (type !== 'all') params.set('type', type);
       if (hasTaxonomy !== 'all') params.set('hasTaxonomy', hasTaxonomy);
+      if (hasTranslation !== 'all') params.set('hasTranslation', hasTranslation);
+      if (menuLevel !== 'all') params.set('menuLevel', menuLevel);
       params.set('sortBy', sortBy);
       params.set('sortDir', sortDir);
 
@@ -151,7 +270,7 @@ export default function CollectionsPage() {
     } finally {
       setCollectionsLoading(false);
     }
-  }, [api, page, limit, search, type, hasTaxonomy, sortBy, sortDir]);
+  }, [api, page, limit, search, type, hasTaxonomy, hasTranslation, menuLevel, sortBy, sortDir]);
 
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
@@ -274,6 +393,8 @@ export default function CollectionsPage() {
       if (search) params.set('search', search);
       if (type !== 'all') params.set('type', type);
       if (hasTaxonomy !== 'all') params.set('hasTaxonomy', hasTaxonomy);
+      if (hasTranslation !== 'all') params.set('hasTranslation', hasTranslation);
+      if (menuLevel !== 'all') params.set('menuLevel', menuLevel);
 
       const result = await api.getApi<{ ids: string[]; total: number }>(
         `/collections/all-ids?${params.toString()}`
@@ -283,7 +404,7 @@ export default function CollectionsPage() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Eroare la extinderea selecției');
     }
-  }, [api, search, type, hasTaxonomy]);
+  }, [api, search, type, hasTaxonomy, hasTranslation, menuLevel]);
 
   const handleClearSelection = useCallback(() => {
     setSelectedIds([]);
@@ -293,54 +414,93 @@ export default function CollectionsPage() {
   const handleBulkAssignTaxonomy = useCallback(async () => {
     if (selectedIds.length === 0) return;
     setBulkTaxonomyLoading(true);
+    setBulkRunning(true);
+    setBulkProgress([]);
+
     try {
-      const response = await api.postApi<
-        {
-          results: {
-            collectionId: string;
-            taxonomyId: string | null;
-            taxonomyName: string | null;
-            confidence: number | null;
-            status: 'assigned' | 'low_confidence' | 'error';
-            translatedText?: string;
-            detectedLanguage?: string;
-            reasoning?: string;
-            candidates?: { name: string; similarity: number }[];
-          }[];
-        },
-        Record<string, unknown>
-      >('/collections/bulk/assign-taxonomy-ai', { collectionIds: selectedIds });
+      await api.streamPost(
+        '/collections/bulk/assign-taxonomy-ai',
+        { collectionIds: selectedIds },
+        (event) => {
+          const type = event['type'] as string;
 
-      const assigned = response.results.filter((r) => r.status === 'assigned').length;
-      const lowConf = response.results.filter((r) => r.status === 'low_confidence').length;
-      const errors = response.results.filter((r) => r.status === 'error').length;
+          if (type === 'collection_start') {
+            const cId = event['collectionId'] as string;
+            const cTitle = event['collectionTitle'] as string;
+            setBulkProgress((prev) => [
+              ...prev.map((e) => (e.finalStatus === 'running' ? { ...e, expanded: false } : e)),
+              {
+                collectionId: cId,
+                collectionTitle: cTitle,
+                steps: [],
+                finalStatus: 'running',
+                resultMessage: null,
+                expanded: true,
+              },
+            ]);
+          }
 
-      const parts: string[] = [];
-      if (assigned > 0) parts.push(`${assigned} atribuite`);
-      if (lowConf > 0) parts.push(`${lowConf} confidență scăzută`);
-      if (errors > 0) parts.push(`${errors} erori`);
+          if (type === 'collection_progress') {
+            const cId = event['collectionId'] as string;
+            const step = event['step'] as string;
+            const message = event['message'] as string;
+            const status = (event['status'] as string) === 'done' ? 'done' : 'in_progress';
+            setBulkProgress((prev) =>
+              prev.map((entry) => {
+                if (entry.collectionId !== cId) return entry;
+                const existing = entry.steps.findIndex((s) => s.step === step);
+                if (existing >= 0) {
+                  const updated = [...entry.steps];
+                  updated[existing] = { step, message, status };
+                  return { ...entry, steps: updated };
+                }
+                return { ...entry, steps: [...entry.steps, { step, message, status }] };
+              })
+            );
+          }
 
-      if (assigned > 0) {
-        toast.success(`Taxonomie AI: ${parts.join(', ')}`);
-      } else if (lowConf > 0) {
-        const first = response.results.find((r) => r.status === 'low_confidence');
-        const pct = Math.round((first?.confidence ?? 0) * 100);
-        const hint = first?.reasoning ? ` ${first.reasoning}` : '';
-        toast.error(
-          `Confidență scăzută (${pct}%): "${first?.taxonomyName}".${hint} Atribuiți manual.`
-        );
-      } else {
-        toast.error('Eroare la atribuirea taxonomiei AI');
-      }
+          if (type === 'collection_result') {
+            const cId = event['collectionId'] as string;
+            const cTitle = event['collectionTitle'] as string;
+            const status = event['status'] as 'assigned' | 'low_confidence' | 'error';
+            const message = (event['message'] as string) ?? '';
+            setBulkProgress((prev) => {
+              const exists = prev.find((e) => e.collectionId === cId);
+              if (exists) {
+                return prev.map((e) =>
+                  e.collectionId === cId
+                    ? { ...e, finalStatus: status, resultMessage: message, expanded: false }
+                    : e
+                );
+              }
+              return [
+                ...prev,
+                {
+                  collectionId: cId,
+                  collectionTitle: cTitle,
+                  steps: [],
+                  finalStatus: status,
+                  resultMessage: message,
+                  expanded: false,
+                },
+              ];
+            });
+          }
 
-      setSelectedIds([]);
-      setSelectAllMode(null);
-      void loadCollections();
-      void loadStats();
+          if (type === 'bulk_done') {
+            setBulkRunning(false);
+          }
+        }
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Eroare la atribuirea taxonomiei');
     } finally {
       setBulkTaxonomyLoading(false);
+      setBulkRunning(false);
+      setSelectedIds([]);
+      setSelectAllMode(null);
+      void loadCollections();
+      void loadStats();
     }
   }, [api, selectedIds, loadCollections, loadStats]);
 
@@ -359,40 +519,113 @@ export default function CollectionsPage() {
     }
   }, [api, selectedIds]);
 
+  const runTranslateStream = useCallback(
+    async (body: Record<string, unknown>) => {
+      setBulkTranslateLoading(true);
+      setTranslateRunning(true);
+      setTranslateProgress([]);
+
+      try {
+        await api.streamPost('/collections/bulk/translate', body, (event) => {
+          const type = event['type'] as string;
+
+          if (type === 'translate_collection_start') {
+            const cId = event['collectionId'] as string;
+            const cTitle = event['collectionTitle'] as string;
+            setTranslateProgress((prev) => [
+              ...prev.map((e) => (e.finalStatus === 'running' ? { ...e, expanded: false } : e)),
+              {
+                collectionId: cId,
+                collectionTitle: cTitle,
+                steps: [],
+                finalStatus: 'running',
+                resultMessage: null,
+                expanded: true,
+              },
+            ]);
+          }
+
+          if (type === 'translate_progress') {
+            const cId = event['collectionId'] as string;
+            const step = event['step'] as string;
+            const message = event['message'] as string;
+            const status: 'in_progress' | 'done' | 'error' =
+              (event['status'] as string) === 'done'
+                ? 'done'
+                : (event['status'] as string) === 'error'
+                  ? 'error'
+                  : 'in_progress';
+            setTranslateProgress((prev) =>
+              prev.map((entry) => {
+                if (entry.collectionId !== cId) return entry;
+                const existing = entry.steps.findIndex((s) => s.step === step);
+                if (existing >= 0) {
+                  const updated = [...entry.steps];
+                  updated[existing] = { step, message, status };
+                  return { ...entry, steps: updated };
+                }
+                return { ...entry, steps: [...entry.steps, { step, message, status }] };
+              })
+            );
+          }
+
+          if (type === 'translate_collection_result') {
+            const cId = event['collectionId'] as string;
+            const cTitle = event['collectionTitle'] as string;
+            const status = event['status'] as string;
+            const titleEn = event['titleEn'] as string | undefined;
+            const msg = titleEn ? `→ „${titleEn}"` : ((event['message'] as string) ?? 'Eroare');
+            const finalStatus: 'assigned' | 'error' =
+              status === 'translated' ? 'assigned' : 'error';
+            setTranslateProgress((prev) => {
+              const exists = prev.find((e) => e.collectionId === cId);
+              if (exists) {
+                return prev.map((e) =>
+                  e.collectionId === cId
+                    ? { ...e, finalStatus, resultMessage: msg, expanded: false }
+                    : e
+                );
+              }
+              return [
+                ...prev,
+                {
+                  collectionId: cId,
+                  collectionTitle: cTitle,
+                  steps: [],
+                  finalStatus,
+                  resultMessage: msg,
+                  expanded: false,
+                },
+              ];
+            });
+          }
+
+          if (type === 'translate_done') {
+            setTranslateRunning(false);
+          }
+        });
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Eroare la traducere');
+      } finally {
+        setBulkTranslateLoading(false);
+        setTranslateRunning(false);
+        void loadCollections();
+        void loadStats();
+      }
+    },
+    [api, loadCollections, loadStats]
+  );
+
   const handleBulkTranslate = useCallback(async () => {
-    setBulkTranslateLoading(true);
-    try {
-      const response = await api.postApi<
-        { translated: number; total: number; message: string },
-        Record<string, unknown>
-      >('/collections/bulk/translate', {});
-      toast.success(response.message);
-      void loadCollections();
-      void loadStats();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Eroare la traducere');
-    } finally {
-      setBulkTranslateLoading(false);
-    }
-  }, [api, loadCollections, loadStats]);
+    await runTranslateStream({});
+  }, [runTranslateStream]);
 
   const handleBulkTranslateSelected = useCallback(async () => {
     if (selectedIds.length === 0) return;
-    setBulkTranslateLoading(true);
-    try {
-      const response = await api.postApi<
-        { translated: number; total: number; message: string },
-        Record<string, unknown>
-      >('/collections/bulk/translate', { collectionIds: selectedIds });
-      toast.success(response.message);
-      void loadCollections();
-      void loadStats();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Eroare la traducere');
-    } finally {
-      setBulkTranslateLoading(false);
-    }
-  }, [api, selectedIds, loadCollections, loadStats]);
+    await runTranslateStream({ collectionIds: selectedIds, force: true });
+    setSelectedIds([]);
+    setSelectAllMode(null);
+  }, [runTranslateStream, selectedIds]);
 
   const handleSort = useCallback(
     (column: string) => {
@@ -424,6 +657,33 @@ export default function CollectionsPage() {
     return syncState.progress.fetched ?? null;
   }, [syncState.progress]);
 
+  const syncPhaseLabel = useMemo(() => {
+    if (!syncState.progress || typeof syncState.progress === 'number') {
+      return 'Sincronizare în curs...';
+    }
+    if (syncState.progress.phase === 'collections') {
+      return syncFetched != null
+        ? `Sincronizare colecții... (${syncFetched} importate)`
+        : 'Sincronizare colecții...';
+    }
+    if (syncState.progress.phase === 'menus') {
+      const current = syncState.progress.current;
+      const totalMenus = syncState.progress.total;
+      return current != null && totalMenus != null
+        ? `Sincronizare meniuri... (${current}/${totalMenus})`
+        : 'Sincronizare meniuri...';
+    }
+    if (syncState.progress.phase === 'hierarchy') {
+      return syncState.progress.status === 'completed'
+        ? 'Corelare ierarhie finalizată'
+        : 'Corelare ierarhie...';
+    }
+    if (syncState.progress.phase === 'done') {
+      return 'Sincronizare finalizată';
+    }
+    return 'Sincronizare în curs...';
+  }, [syncFetched, syncState.progress]);
+
   const [contentRef, contentVisible] = useScrollReveal<HTMLDivElement>({
     rootMargin: '0px 0px -40px 0px',
   });
@@ -452,8 +712,10 @@ export default function CollectionsPage() {
               onClick={() => void handleBulkTranslate()}
               disabled={bulkTranslateLoading}
             >
-              <Languages className={`mr-2 size-4 ${bulkTranslateLoading ? 'animate-pulse' : ''}`} />
-              {bulkTranslateLoading ? 'Se traduce...' : 'Traduce EN'}
+              <Languages className={`mr-2 size-4 ${translateRunning ? 'animate-pulse' : ''}`} />
+              {translateRunning
+                ? `Se traduce (${translateProgress.filter((e) => e.finalStatus !== 'running').length}/${translateProgress.length})...`
+                : 'Traduce EN'}
             </Button>
             <InfoTooltip title="Sincronizare & traducere" side="bottom">
               Sincronizează colecțiile din Shopify, apoi traduce titlurile în engleză pentru o
@@ -464,73 +726,268 @@ export default function CollectionsPage() {
       />
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        {[
+      {(() => {
+        const simpleCards = [
           {
             label: 'Total colecții',
             value: stats?.total ?? 0,
             icon: FolderOpen,
             delay: 0,
+            filterKey: 'all' as const,
           },
+        ];
+
+        const total = stats?.total ?? 0;
+        const splitPairs: {
+          top: {
+            label: string;
+            value: number;
+            icon: typeof Tag;
+            filterKey: string;
+            filterParam: string;
+            filterValue: string;
+          };
+          bottom: {
+            label: string;
+            value: number;
+            icon: typeof CircleOff;
+            filterKey: string;
+            filterParam: string;
+            filterValue: string;
+          };
+          delay: number;
+        }[] = [
           {
-            label: 'Manuale',
-            value: stats?.manual ?? 0,
-            icon: Layers,
+            top: {
+              label: 'Manuale',
+              value: stats?.manual ?? 0,
+              icon: Layers,
+              filterKey: 'manual',
+              filterParam: 'type',
+              filterValue: 'MANUAL',
+            },
+            bottom: {
+              label: 'Smart',
+              value: stats?.smart ?? 0,
+              icon: Sparkles,
+              filterKey: 'smart',
+              filterParam: 'type',
+              filterValue: 'SMART',
+            },
             delay: 1,
           },
           {
-            label: 'Smart',
-            value: stats?.smart ?? 0,
-            icon: Sparkles,
+            top: {
+              label: 'Cu taxonomie',
+              value: stats?.withTaxonomy ?? 0,
+              icon: Tag,
+              filterKey: 'withTaxonomy',
+              filterParam: 'hasTaxonomy',
+              filterValue: 'true',
+            },
+            bottom: {
+              label: 'Fără taxonomie',
+              value: total - (stats?.withTaxonomy ?? 0),
+              icon: CircleOff,
+              filterKey: 'withoutTaxonomy',
+              filterParam: 'hasTaxonomy',
+              filterValue: 'false',
+            },
             delay: 2,
           },
           {
-            label: 'Cu taxonomie',
-            value: stats?.withTaxonomy ?? 0,
-            icon: Tag,
+            top: {
+              label: 'Traduse EN',
+              value: stats?.translated ?? 0,
+              icon: Languages,
+              filterKey: 'translated',
+              filterParam: 'hasTranslation',
+              filterValue: 'true',
+            },
+            bottom: {
+              label: 'Fără traducere',
+              value: total - (stats?.translated ?? 0),
+              icon: CircleOff,
+              filterKey: 'untranslated',
+              filterParam: 'hasTranslation',
+              filterValue: 'false',
+            },
             delay: 3,
           },
           {
-            label: 'Traduse EN',
-            value: stats?.translated ?? 0,
-            icon: Languages,
+            top: {
+              label: 'În meniu',
+              value: stats?.inMenu ?? 0,
+              icon: GitBranch,
+              filterKey: 'inMenu',
+              filterParam: 'menuLevel',
+              filterValue: 'in_menu',
+            },
+            bottom: {
+              label: 'Neclasificate',
+              value: stats?.notInMenu ?? 0,
+              icon: CircleOff,
+              filterKey: 'notInMenu',
+              filterParam: 'menuLevel',
+              filterValue: 'none',
+            },
             delay: 4,
           },
-        ].map((card) => (
-          <article
-            key={card.label}
-            className="group/kpi overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm transition-all duration-300 ease-out hover:-translate-y-0.5 hover:border-slate-300/80 hover:shadow-[var(--shadow-md)] dark:border-slate-700/90 dark:bg-slate-900/80 dark:hover:border-slate-600/80"
-            style={{
-              animation: statsLoading
-                ? 'none'
-                : `fadeSlideUp 0.4s ease-out ${card.delay * 0.1}s both`,
-            }}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                {card.label}
-              </span>
-              <card.icon className="size-4 text-slate-400 dark:text-slate-500" />
-            </div>
-            <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-50">
-              {statsLoading ? (
-                <span className="inline-block h-7 w-16 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
-              ) : (
-                card.value.toLocaleString('ro-RO')
-              )}
-            </p>
-          </article>
-        ))}
-      </div>
+        ];
+
+        const isCardActive = (filterKey: string) =>
+          (filterKey === 'all' &&
+            type === 'all' &&
+            hasTaxonomy === 'all' &&
+            hasTranslation === 'all' &&
+            menuLevel === 'all') ||
+          (filterKey === 'manual' && type === 'MANUAL') ||
+          (filterKey === 'smart' && type === 'SMART') ||
+          (filterKey === 'withTaxonomy' && hasTaxonomy === 'true') ||
+          (filterKey === 'withoutTaxonomy' && hasTaxonomy === 'false') ||
+          (filterKey === 'translated' && hasTranslation === 'true') ||
+          (filterKey === 'untranslated' && hasTranslation === 'false') ||
+          (filterKey === 'inMenu' && menuLevel === 'in_menu') ||
+          (filterKey === 'notInMenu' && menuLevel === 'none');
+
+        const applyFilter = (filterParam?: string, filterValue?: string) => {
+          const next = new URLSearchParams(searchParams);
+          next.delete('type');
+          next.delete('hasTaxonomy');
+          next.delete('hasTranslation');
+          next.delete('menuLevel');
+          next.set('page', '1');
+          if (filterParam && filterValue) next.set(filterParam, filterValue);
+          setSearchParams(next);
+        };
+
+        const cardBase = (active: boolean) =>
+          `cursor-pointer overflow-hidden rounded-xl border shadow-[var(--shadow-sm)] backdrop-blur-sm transition-all duration-300 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-md)] ${
+            active
+              ? 'border-blue-400 bg-blue-50/80 ring-1 ring-blue-400/30 dark:border-blue-500 dark:bg-blue-950/40 dark:ring-blue-500/20'
+              : 'border-slate-200/90 bg-white/80 hover:border-slate-300/80 dark:border-slate-700/90 dark:bg-slate-900/80 dark:hover:border-slate-600/80'
+          }`;
+
+        const halfCardBase = (active: boolean) =>
+          `cursor-pointer px-4 py-2 transition-colors duration-200 ${
+            active
+              ? 'bg-blue-50/80 dark:bg-blue-950/40'
+              : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+          }`;
+
+        return (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            {simpleCards.map((card) => {
+              const active = isCardActive(card.filterKey);
+              return (
+                <article
+                  key={card.label}
+                  onClick={() => applyFilter()}
+                  className={`${cardBase(active)} p-4`}
+                  style={{
+                    animation: statsLoading
+                      ? 'none'
+                      : `fadeSlideUp 0.4s ease-out ${card.delay * 0.1}s both`,
+                  }}
+                >
+                  <div className="flex items-center justify-between">
+                    <span
+                      className={`text-xs font-medium uppercase tracking-wider ${active ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400'}`}
+                    >
+                      {card.label}
+                    </span>
+                    <card.icon
+                      className={`size-4 ${active ? 'text-blue-500 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500'}`}
+                    />
+                  </div>
+                  <p
+                    className={`mt-2 text-2xl font-bold ${active ? 'text-blue-700 dark:text-blue-300' : 'text-slate-900 dark:text-slate-50'}`}
+                  >
+                    {statsLoading ? (
+                      <span className="inline-block h-7 w-16 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
+                    ) : (
+                      card.value.toLocaleString('ro-RO')
+                    )}
+                  </p>
+                </article>
+              );
+            })}
+
+            {splitPairs.map((pair) => {
+              const topActive = isCardActive(pair.top.filterKey);
+              const bottomActive = isCardActive(pair.bottom.filterKey);
+              const wrapperActive = topActive || bottomActive;
+              return (
+                <div
+                  key={pair.top.filterKey}
+                  className={`${cardBase(wrapperActive)} flex flex-col`}
+                  style={{
+                    animation: statsLoading
+                      ? 'none'
+                      : `fadeSlideUp 0.4s ease-out ${pair.delay * 0.1}s both`,
+                  }}
+                >
+                  <div
+                    className={`${halfCardBase(topActive)} flex-1 rounded-t-xl`}
+                    onClick={() => applyFilter(pair.top.filterParam, pair.top.filterValue)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span
+                        className={`text-[10px] font-medium uppercase tracking-wider ${topActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400'}`}
+                      >
+                        {pair.top.label}
+                      </span>
+                      <pair.top.icon
+                        className={`size-3.5 ${topActive ? 'text-blue-500 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500'}`}
+                      />
+                    </div>
+                    <p
+                      className={`mt-1 text-xl font-bold ${topActive ? 'text-blue-700 dark:text-blue-300' : 'text-slate-900 dark:text-slate-50'}`}
+                    >
+                      {statsLoading ? (
+                        <span className="inline-block h-6 w-12 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
+                      ) : (
+                        pair.top.value.toLocaleString('ro-RO')
+                      )}
+                    </p>
+                  </div>
+                  <div className="border-t border-slate-200/60 dark:border-slate-700/60" />
+                  <div
+                    className={`${halfCardBase(bottomActive)} flex-1 rounded-b-xl`}
+                    onClick={() => applyFilter(pair.bottom.filterParam, pair.bottom.filterValue)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span
+                        className={`text-[10px] font-medium uppercase tracking-wider ${bottomActive ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400 dark:text-slate-500'}`}
+                      >
+                        {pair.bottom.label}
+                      </span>
+                      <pair.bottom.icon
+                        className={`size-3.5 ${bottomActive ? 'text-amber-500 dark:text-amber-400' : 'text-slate-300 dark:text-slate-600'}`}
+                      />
+                    </div>
+                    <p
+                      className={`mt-1 text-xl font-bold ${bottomActive ? 'text-amber-700 dark:text-amber-300' : 'text-slate-600 dark:text-slate-300'}`}
+                    >
+                      {statsLoading ? (
+                        <span className="inline-block h-6 w-12 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
+                      ) : (
+                        pair.bottom.value.toLocaleString('ro-RO')
+                      )}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* Sync Progress */}
       {isSyncing && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950/50">
           <div className="mb-2 flex items-center justify-between text-sm">
-            <span className="font-medium text-blue-700 dark:text-blue-300">
-              Sincronizare în curs...
-              {syncFetched != null && ` (${syncFetched} colecții procesate)`}
-            </span>
+            <span className="font-medium text-blue-700 dark:text-blue-300">{syncPhaseLabel}</span>
             {elapsedRef.current > 0 && (
               <span className="text-blue-600 dark:text-blue-400">
                 {formatDuration(elapsedRef.current)}
@@ -569,6 +1026,18 @@ export default function CollectionsPage() {
         </select>
         <select
           className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+          value={menuLevel}
+          onChange={(e) => updateSearchParam('menuLevel', e.target.value)}
+        >
+          <option value="all">Orice nivel</option>
+          <option value="in_menu">În meniu</option>
+          <option value="0">Root (părinte)</option>
+          <option value="1">Nivel 1</option>
+          <option value="2">Nivel 2</option>
+          <option value="none">Neclasificate</option>
+        </select>
+        <select
+          className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
           value={limit}
           onChange={(e) => updateSearchParam('limit', e.target.value)}
         >
@@ -592,17 +1061,19 @@ export default function CollectionsPage() {
               onClick={() => void handleBulkAssignTaxonomy()}
               disabled={bulkTaxonomyLoading}
             >
-              {bulkTaxonomyLoading ? 'Se atribuie...' : 'Atribuie taxonomie AI'}
+              {bulkRunning
+                ? `Se atribuie (${bulkProgress.filter((e) => e.finalStatus !== 'running').length}/${bulkProgress.length})...`
+                : 'Atribuie taxonomie AI'}
             </Button>
             <Button
               variant="secondary"
               onClick={() => void handleBulkTranslateSelected()}
               disabled={bulkTranslateLoading}
             >
-              <Languages
-                className={`mr-1.5 size-3.5 ${bulkTranslateLoading ? 'animate-pulse' : ''}`}
-              />
-              {bulkTranslateLoading ? 'Se traduce...' : 'Traduce EN'}
+              <Languages className={`mr-1.5 size-3.5 ${translateRunning ? 'animate-pulse' : ''}`} />
+              {translateRunning
+                ? `Se traduce (${translateProgress.filter((e) => e.finalStatus !== 'running').length}/${translateProgress.length})...`
+                : 'Traduce EN'}
             </Button>
             <Button
               variant="secondary"
@@ -649,6 +1120,235 @@ export default function CollectionsPage() {
         </div>
       )}
 
+      {/* Bulk AI Taxonomy Progress Panel */}
+      {bulkProgress.length > 0 && (
+        <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+              {bulkRunning
+                ? 'Atribuire taxonomii AI în curs...'
+                : `Atribuire completă — ${bulkProgress.filter((e) => e.finalStatus === 'assigned').length} atribuite, ${bulkProgress.filter((e) => e.finalStatus === 'low_confidence').length} conf. scăzută, ${bulkProgress.filter((e) => e.finalStatus === 'error').length} erori`}
+            </h3>
+            {!bulkRunning && (
+              <button
+                onClick={() => setBulkProgress([])}
+                className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+              >
+                Închide
+              </button>
+            )}
+          </div>
+          <div className="space-y-1.5 max-h-[400px] overflow-y-auto">
+            {bulkProgress.map((entry) => (
+              <div
+                key={entry.collectionId}
+                className="rounded border border-slate-100 dark:border-slate-800"
+              >
+                <button
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                  onClick={() =>
+                    setBulkProgress((prev) =>
+                      prev.map((e) =>
+                        e.collectionId === entry.collectionId ? { ...e, expanded: !e.expanded } : e
+                      )
+                    )
+                  }
+                >
+                  <span className="flex-shrink-0">
+                    {entry.finalStatus === 'running' && (
+                      <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+                    )}
+                    {entry.finalStatus === 'assigned' && (
+                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-green-500 text-[9px] text-white">
+                        &#10003;
+                      </span>
+                    )}
+                    {entry.finalStatus === 'low_confidence' && (
+                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-amber-500 text-[9px] text-white">
+                        !
+                      </span>
+                    )}
+                    {entry.finalStatus === 'error' && (
+                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[9px] text-white">
+                        &#10007;
+                      </span>
+                    )}
+                  </span>
+                  <span className="flex-1 truncate font-medium text-slate-700 dark:text-slate-300">
+                    {entry.collectionTitle}
+                  </span>
+                  {entry.resultMessage && !entry.expanded && (
+                    <span
+                      className={`truncate text-xs ${entry.finalStatus === 'assigned' ? 'text-green-600 dark:text-green-400' : entry.finalStatus === 'error' ? 'text-red-500' : 'text-amber-600 dark:text-amber-400'}`}
+                    >
+                      {entry.resultMessage}
+                    </span>
+                  )}
+                  <span
+                    className={`text-xs text-slate-400 transition-transform ${entry.expanded ? 'rotate-180' : ''}`}
+                  >
+                    &#9660;
+                  </span>
+                </button>
+                {entry.expanded && entry.steps.length > 0 && (
+                  <div className="border-t border-slate-100 bg-slate-50/50 px-3 py-2 dark:border-slate-800 dark:bg-slate-800/30">
+                    <ul className="space-y-1">
+                      {entry.steps.map((s, si) => (
+                        <li key={`${s.step}-${si}`} className="flex items-start gap-1.5 text-xs">
+                          <span className="mt-0.5 flex-shrink-0">
+                            {s.status === 'in_progress' && (
+                              <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-blue-500 border-t-transparent" />
+                            )}
+                            {s.status === 'done' && (
+                              <span className="inline-flex h-3 w-3 items-center justify-center rounded-full bg-green-500 text-[8px] text-white">
+                                &#10003;
+                              </span>
+                            )}
+                            {s.status === 'error' && (
+                              <span className="inline-flex h-3 w-3 items-center justify-center rounded-full bg-red-500 text-[8px] text-white">
+                                &#10007;
+                              </span>
+                            )}
+                          </span>
+                          <span
+                            className={
+                              s.status === 'error'
+                                ? 'text-red-600 dark:text-red-400'
+                                : 'text-slate-600 dark:text-slate-400'
+                            }
+                          >
+                            {s.message}
+                          </span>
+                        </li>
+                      ))}
+                      {entry.resultMessage && (
+                        <li
+                          className={`mt-1 text-xs font-medium ${entry.finalStatus === 'assigned' ? 'text-green-700 dark:text-green-400' : entry.finalStatus === 'error' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'}`}
+                        >
+                          {entry.resultMessage}
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Translate Progress Panel */}
+      {translateProgress.length > 0 && (
+        <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+              {translateRunning
+                ? 'Traducere în curs...'
+                : `Traducere completă — ${translateProgress.filter((e) => e.finalStatus === 'assigned').length} traduse, ${translateProgress.filter((e) => e.finalStatus === 'error').length} erori`}
+            </h3>
+            {!translateRunning && (
+              <button
+                onClick={() => setTranslateProgress([])}
+                className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+              >
+                Închide
+              </button>
+            )}
+          </div>
+          <div className="space-y-1.5 max-h-[400px] overflow-y-auto">
+            {translateProgress.map((entry) => (
+              <div
+                key={entry.collectionId}
+                className="rounded border border-slate-100 dark:border-slate-800"
+              >
+                <button
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                  onClick={() =>
+                    setTranslateProgress((prev) =>
+                      prev.map((e) =>
+                        e.collectionId === entry.collectionId ? { ...e, expanded: !e.expanded } : e
+                      )
+                    )
+                  }
+                >
+                  <span className="flex-shrink-0">
+                    {entry.finalStatus === 'running' && (
+                      <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+                    )}
+                    {entry.finalStatus === 'assigned' && (
+                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-green-500 text-[9px] text-white">
+                        &#10003;
+                      </span>
+                    )}
+                    {entry.finalStatus === 'error' && (
+                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[9px] text-white">
+                        &#10007;
+                      </span>
+                    )}
+                  </span>
+                  <span className="flex-1 truncate font-medium text-slate-700 dark:text-slate-300">
+                    {entry.collectionTitle}
+                  </span>
+                  {entry.resultMessage && !entry.expanded && (
+                    <span
+                      className={`truncate text-xs ${entry.finalStatus === 'assigned' ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}
+                    >
+                      {entry.resultMessage}
+                    </span>
+                  )}
+                  <span
+                    className={`text-xs text-slate-400 transition-transform ${entry.expanded ? 'rotate-180' : ''}`}
+                  >
+                    &#9660;
+                  </span>
+                </button>
+                {entry.expanded && entry.steps.length > 0 && (
+                  <div className="border-t border-slate-100 bg-slate-50/50 px-3 py-2 dark:border-slate-800 dark:bg-slate-800/30">
+                    <ul className="space-y-1">
+                      {entry.steps.map((s, si) => (
+                        <li key={`${s.step}-${si}`} className="flex items-start gap-1.5 text-xs">
+                          <span className="mt-0.5 flex-shrink-0">
+                            {s.status === 'in_progress' && (
+                              <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-blue-500 border-t-transparent" />
+                            )}
+                            {s.status === 'done' && (
+                              <span className="inline-flex h-3 w-3 items-center justify-center rounded-full bg-green-500 text-[8px] text-white">
+                                &#10003;
+                              </span>
+                            )}
+                            {s.status === 'error' && (
+                              <span className="inline-flex h-3 w-3 items-center justify-center rounded-full bg-red-500 text-[8px] text-white">
+                                &#10007;
+                              </span>
+                            )}
+                          </span>
+                          <span
+                            className={
+                              s.status === 'error'
+                                ? 'text-red-600 dark:text-red-400'
+                                : 'text-slate-600 dark:text-slate-400'
+                            }
+                          >
+                            {s.message}
+                          </span>
+                        </li>
+                      ))}
+                      {entry.resultMessage && (
+                        <li
+                          className={`mt-1 text-xs font-medium ${entry.finalStatus === 'assigned' ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}
+                        >
+                          {entry.resultMessage}
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Collections Table */}
       {collections.length === 0 && !collectionsLoading ? (
         <EmptyState
@@ -672,6 +1372,8 @@ export default function CollectionsPage() {
                   { key: 'title', label: 'Titlu' },
                   { key: 'collection_type', label: 'Tip' },
                   { key: 'products_count', label: 'Produse' },
+                  { key: 'menu_level', label: 'Nivel' },
+                  { key: '', label: 'Categorii' },
                   { key: '', label: 'Taxonomie' },
                   { key: 'synced_at', label: 'Sincronizat' },
                 ].map((col) => (
@@ -698,7 +1400,7 @@ export default function CollectionsPage() {
               {collectionsLoading
                 ? Array.from({ length: 5 }).map((_, i) => (
                     <tr key={`skel-${i}`}>
-                      {Array.from({ length: 6 }).map((__, j) => (
+                      {Array.from({ length: 8 }).map((__, j) => (
                         <td key={j} className="px-3 py-3">
                           <div className="h-4 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
                         </td>
@@ -728,7 +1430,14 @@ export default function CollectionsPage() {
                               <Package className="size-4 text-slate-400" />
                             </div>
                           )}
-                          <span className="truncate">{c.title}</span>
+                          <div className="min-w-0">
+                            <span className="block truncate">{c.title}</span>
+                            {c.title_en && (
+                              <span className="block truncate text-xs font-normal italic text-slate-400 dark:text-slate-500">
+                                {c.title_en}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td className="px-3 py-3">
@@ -738,6 +1447,24 @@ export default function CollectionsPage() {
                       </td>
                       <td className="px-3 py-3 text-slate-600 dark:text-slate-400">
                         {c.products_count.toLocaleString('ro-RO')}
+                      </td>
+                      <td className="px-3 py-3">
+                        {c.menu_level === null ? (
+                          <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                            —
+                          </span>
+                        ) : c.menu_level === 0 ? (
+                          <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                            Root
+                          </span>
+                        ) : (
+                          <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                            Nivel {c.menu_level}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-3">
+                        <CategoryTreeCell menuPath={c.menu_path} currentTitle={c.title} />
                       </td>
                       <td className="px-3 py-3">
                         {c.taxonomy_name ? (
@@ -803,6 +1530,7 @@ export default function CollectionsPage() {
         <CollectionDetailDrawerInline
           collection={selectedCollection}
           api={api}
+          onSelectCollection={setSelectedCollection}
           onClose={() => setSelectedCollection(null)}
           onRefresh={() => {
             void loadCollections();
@@ -817,11 +1545,18 @@ export default function CollectionsPage() {
 interface DrawerProps {
   collection: CollectionRow;
   api: ReturnType<typeof useApiClient>;
+  onSelectCollection: (collection: CollectionRow) => void;
   onClose: () => void;
   onRefresh: () => void;
 }
 
-function CollectionDetailDrawerInline({ collection, api, onClose, onRefresh }: DrawerProps) {
+function CollectionDetailDrawerInline({
+  collection,
+  api,
+  onSelectCollection,
+  onClose,
+  onRefresh,
+}: DrawerProps) {
   const [activeTab, setActiveTab] = useState<'products' | 'taxonomy' | 'metafields'>('products');
   const [products, setProducts] = useState<
     { id: string; title: string; products_count?: number; quality_level?: string }[]
@@ -866,50 +1601,188 @@ function CollectionDetailDrawerInline({ collection, api, onClose, onRefresh }: D
     }
   }, [api, collection.id]);
 
+  const handleOpenParent = useCallback(async () => {
+    if (!collection.parent_collection_id) return;
+    try {
+      const result = await api.getApi<{ collection: CollectionRow }>(
+        `/collections/${collection.parent_collection_id}`
+      );
+      onSelectCollection(result.collection);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Eroare la încărcarea colecției părinte');
+    }
+  }, [api, collection.parent_collection_id, onSelectCollection]);
+
   useEffect(() => {
     if (activeTab === 'products') void loadProducts();
     if (activeTab === 'metafields') void loadMetafields();
   }, [activeTab, loadProducts, loadMetafields]);
 
-  const handleAssignTaxonomyAi = useCallback(async () => {
-    try {
-      const response = await api.postApi<
-        {
-          results: {
-            collectionId: string;
-            taxonomyId: string | null;
-            taxonomyName: string | null;
-            confidence: number | null;
-            status: 'assigned' | 'low_confidence' | 'error';
-            translatedText?: string;
-            detectedLanguage?: string;
-            reasoning?: string;
-            candidates?: { name: string; similarity: number }[];
-          }[];
-        },
-        Record<string, unknown>
-      >('/collections/bulk/assign-taxonomy-ai', {
-        collectionIds: [collection.id],
-      });
+  interface ProgressStep {
+    step: string;
+    message: string;
+    status: 'in_progress' | 'done' | 'error';
+  }
+  const [assignRunning, setAssignRunning] = useState(false);
+  const [progressSteps, setProgressSteps] = useState<ProgressStep[]>([]);
 
-      const result = response.results[0];
-      if (result?.status === 'assigned') {
-        const pct = Math.round((result.confidence ?? 0) * 100);
-        toast.success(`Taxonomie atribuită: ${result.taxonomyName} — ${pct}% confidență`);
-        onRefresh();
-      } else if (result?.status === 'low_confidence') {
-        const pct = Math.round((result.confidence ?? 0) * 100);
-        const reasoningHint = result.reasoning ? ` ${result.reasoning}` : '';
-        toast.error(
-          `Confidență scăzută (${pct}%): "${result.taxonomyName}".${reasoningHint} Atribuiți manual.`
-        );
-      } else {
-        toast.error('Eroare la atribuirea taxonomiei AI');
-      }
+  const [titleEn, setTitleEn] = useState<string | null>(collection.title_en ?? null);
+  const [translateRunningLocal, setTranslateRunningLocal] = useState(false);
+  const [translateSteps, setTranslateSteps] = useState<ProgressStep[]>([]);
+
+  useEffect(() => {
+    setTitleEn(collection.title_en ?? null);
+    setTranslateSteps([]);
+  }, [collection.id, collection.title_en]);
+
+  const handleTranslateSingle = useCallback(async () => {
+    setTranslateRunningLocal(true);
+    setTranslateSteps([]);
+    try {
+      await api.streamPost(
+        `/collections/${collection.id}/translate`,
+        { force: !!titleEn },
+        (event) => {
+          const type = event['type'] as string;
+
+          if (type === 'progress') {
+            const step = event['step'] as string;
+            const message = event['message'] as string;
+            const status: 'in_progress' | 'done' | 'error' =
+              (event['status'] as string) === 'done'
+                ? 'done'
+                : (event['status'] as string) === 'error'
+                  ? 'error'
+                  : 'in_progress';
+            setTranslateSteps((prev) => {
+              const existing = prev.findIndex((s) => s.step === step);
+              if (existing >= 0) {
+                const updated = [...prev];
+                updated[existing] = { step, message, status };
+                return updated;
+              }
+              return [...prev, { step, message, status }];
+            });
+          }
+
+          if (type === 'result') {
+            const resultStatus = event['status'] as string;
+            if (resultStatus === 'translated') {
+              const translated = event['titleEn'] as string;
+              setTitleEn(translated);
+              setTranslateSteps((prev) => [
+                ...prev,
+                { step: 'done', message: `Traducere finalizată: „${translated}"`, status: 'done' },
+              ]);
+              onRefresh();
+            } else if (resultStatus === 'already_translated') {
+              setTitleEn(event['titleEn'] as string);
+            } else {
+              setTranslateSteps((prev) => [
+                ...prev,
+                {
+                  step: 'fail',
+                  message: (event['message'] as string) ?? 'Traducerea nu a reușit.',
+                  status: 'error',
+                },
+              ]);
+            }
+          }
+
+          if (type === 'error') {
+            setTranslateSteps((prev) => [
+              ...prev,
+              {
+                step: 'error',
+                message: (event['message'] as string) ?? 'Eroare la traducere.',
+                status: 'error',
+              },
+            ]);
+          }
+        }
+      );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Eroare la atribuirea taxonomiei');
+      setTranslateSteps((prev) => [
+        ...prev,
+        {
+          step: 'error',
+          message: err instanceof Error ? err.message : 'Eroare la traducere.',
+          status: 'error',
+        },
+      ]);
+    } finally {
+      setTranslateRunningLocal(false);
     }
   }, [api, collection.id, onRefresh]);
+
+  const handleAssignTaxonomyAi = useCallback(async () => {
+    setAssignRunning(true);
+    setProgressSteps([]);
+    if (taxonomyName) {
+      setTaxonomyName(null);
+    }
+
+    try {
+      await api.streamPost(`/collections/${collection.id}/assign-taxonomy-ai`, {}, (event) => {
+        const type = event['type'] as string;
+
+        if (type === 'progress') {
+          const step = event['step'] as string;
+          const message = event['message'] as string;
+          const status = (event['status'] as string) === 'done' ? 'done' : 'in_progress';
+          setProgressSteps((prev) => {
+            const existing = prev.findIndex((s) => s.step === step);
+            if (existing >= 0) {
+              const updated = [...prev];
+              updated[existing] = { step, message, status };
+              return updated;
+            }
+            return [...prev, { step, message, status }];
+          });
+        }
+
+        if (type === 'result') {
+          const resultStatus = event['status'] as string;
+          if (resultStatus === 'assigned') {
+            const name = event['taxonomyName'] as string;
+            const pct = Math.round(((event['confidence'] as number) ?? 0) * 100);
+            setTaxonomyName(name);
+            setProgressSteps((prev) => [
+              ...prev,
+              {
+                step: 'done',
+                message: `Taxonomie atribuită: „${name}" — ${pct}% confidență`,
+                status: 'done',
+              },
+            ]);
+            onRefresh();
+          } else {
+            const msg = (event['message'] as string) ?? 'Confidență scăzută. Atribuiți manual.';
+            setProgressSteps((prev) => [
+              ...prev,
+              { step: 'low_conf', message: msg, status: 'error' },
+            ]);
+          }
+        }
+
+        if (type === 'error') {
+          const msg = (event['message'] as string) ?? 'Eroare la atribuirea taxonomiei.';
+          setProgressSteps((prev) => [...prev, { step: 'error', message: msg, status: 'error' }]);
+        }
+      });
+    } catch (err) {
+      setProgressSteps((prev) => [
+        ...prev,
+        {
+          step: 'error',
+          message: err instanceof Error ? err.message : 'Eroare la atribuirea taxonomiei.',
+          status: 'error',
+        },
+      ]);
+    } finally {
+      setAssignRunning(false);
+    }
+  }, [api, collection.id, taxonomyName, onRefresh]);
 
   const handlePushMetafields = useCallback(async () => {
     try {
@@ -938,6 +1811,34 @@ function CollectionDetailDrawerInline({ collection, api, onClose, onRefresh }: D
             <p className="text-sm text-slate-500 dark:text-slate-400">
               {collection.collection_type} · {collection.products_count} produse
             </p>
+            {collection.menu_path && (
+              <div className="mt-2 flex flex-wrap items-center gap-1 text-xs text-slate-400 dark:text-slate-500">
+                {parseMenuPath(collection.menu_path).map((segment, i, arr) => (
+                  <span key={`${segment}-${i}`} className="inline-flex items-center gap-1">
+                    {i > 0 && <ChevronRight className="size-3" />}
+                    <span
+                      className={
+                        i === arr.length - 1
+                          ? 'font-medium text-slate-600 dark:text-slate-300'
+                          : undefined
+                      }
+                    >
+                      {segment}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            )}
+            {collection.parent_title && collection.parent_collection_id && (
+              <button
+                type="button"
+                className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                onClick={() => void handleOpenParent()}
+              >
+                <ChevronRight className="size-3" />
+                Deschide părintele: {collection.parent_title}
+              </button>
+            )}
           </div>
           <button
             onClick={onClose}
@@ -996,24 +1897,145 @@ function CollectionDetailDrawerInline({ collection, api, onClose, onRefresh }: D
 
           {activeTab === 'taxonomy' && (
             <div className="space-y-4">
+              {/* Traducere EN */}
+              <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+                <h3 className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Traducere EN
+                </h3>
+                {titleEn ? (
+                  <p className="text-sm font-medium text-green-700 dark:text-green-400">
+                    „{titleEn}"
+                  </p>
+                ) : translateRunningLocal ? (
+                  <p className="text-sm text-amber-600 dark:text-amber-400">Se traduce...</p>
+                ) : (
+                  <p className="text-sm text-slate-400">Netradusă</p>
+                )}
+                {translateSteps.length > 0 && (
+                  <div className="mt-3 rounded border border-slate-100 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
+                    <ul className="space-y-1.5">
+                      {translateSteps.map((s, i) => (
+                        <li key={`${s.step}-${i}`} className="flex items-start gap-2 text-xs">
+                          <span className="mt-0.5 flex-shrink-0">
+                            {s.status === 'in_progress' && (
+                              <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+                            )}
+                            {s.status === 'done' && (
+                              <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-green-500 text-[9px] text-white">
+                                &#10003;
+                              </span>
+                            )}
+                            {s.status === 'error' && (
+                              <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[9px] text-white">
+                                &#10007;
+                              </span>
+                            )}
+                          </span>
+                          <span
+                            className={
+                              s.status === 'error'
+                                ? 'text-red-600 dark:text-red-400'
+                                : s.status === 'done'
+                                  ? 'text-green-700 dark:text-green-400'
+                                  : 'text-slate-700 dark:text-slate-300'
+                            }
+                          >
+                            {s.message}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <div className="mt-3">
+                  <Button
+                    variant="secondary"
+                    onClick={() => void handleTranslateSingle()}
+                    disabled={translateRunningLocal || assignRunning}
+                  >
+                    <Languages
+                      className={`mr-1.5 size-3.5 ${translateRunningLocal ? 'animate-pulse' : ''}`}
+                    />
+                    {translateRunningLocal
+                      ? 'Se traduce...'
+                      : titleEn
+                        ? 'Retraduce cu AI'
+                        : 'Traduce cu AI'}
+                  </Button>
+                </div>
+              </div>
+
               <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
                 <h3 className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">
                   Taxonomie atribuită
                 </h3>
                 {taxonomyName ? (
-                  <p className="text-sm text-green-700 dark:text-green-400">{taxonomyName}</p>
+                  <p className="text-sm font-medium text-green-700 dark:text-green-400">
+                    {taxonomyName}
+                  </p>
+                ) : assignRunning ? (
+                  <p className="text-sm text-amber-600 dark:text-amber-400">Se procesează...</p>
                 ) : (
                   <p className="text-sm text-slate-400">Nicio taxonomie atribuită</p>
                 )}
               </div>
+
+              {progressSteps.length > 0 && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/50">
+                  <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Progres operații
+                  </h4>
+                  <ul className="space-y-2">
+                    {progressSteps.map((s, i) => (
+                      <li key={`${s.step}-${i}`} className="flex items-start gap-2 text-sm">
+                        <span className="mt-0.5 flex-shrink-0">
+                          {s.status === 'in_progress' && (
+                            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+                          )}
+                          {s.status === 'done' && (
+                            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-green-500 text-[10px] text-white">
+                              &#10003;
+                            </span>
+                          )}
+                          {s.status === 'error' && (
+                            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">
+                              &#10007;
+                            </span>
+                          )}
+                        </span>
+                        <span
+                          className={
+                            s.status === 'error'
+                              ? 'text-red-600 dark:text-red-400'
+                              : s.status === 'done'
+                                ? 'text-green-700 dark:text-green-400'
+                                : 'text-slate-700 dark:text-slate-300'
+                          }
+                        >
+                          {s.message}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               <div className="flex gap-2">
-                <Button variant="secondary" onClick={() => void handleAssignTaxonomyAi()}>
-                  Atribuie cu AI
+                <Button
+                  variant="secondary"
+                  onClick={() => void handleAssignTaxonomyAi()}
+                  disabled={assignRunning}
+                >
+                  {assignRunning
+                    ? 'Se procesează...'
+                    : taxonomyName
+                      ? 'Reatribuie cu AI'
+                      : 'Atribuie cu AI'}
                 </Button>
                 <Button
                   variant="secondary"
                   onClick={() => void handlePushMetafields()}
-                  disabled={!taxonomyName}
+                  disabled={!taxonomyName || assignRunning}
                 >
                   Push metafields
                 </Button>

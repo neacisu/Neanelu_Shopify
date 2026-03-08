@@ -171,11 +171,60 @@ export function createApiClient(options: ApiClientOptions = {}) {
     });
   }
 
+  async function streamPost<TBody extends Record<string, unknown>>(
+    path: string,
+    body: TBody,
+    onEvent: (event: Record<string, unknown>) => void,
+    init: RequestInit = {}
+  ): Promise<void> {
+    const response = await request(path, {
+      ...init,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(init.headers ?? {}),
+      },
+      body: JSON.stringify(body),
+    });
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new ApiError('Streaming not supported', { status: 0, retryable: false });
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          onEvent(JSON.parse(trimmed) as Record<string, unknown>);
+        } catch {
+          /* skip malformed lines */
+        }
+      }
+    }
+
+    if (buffer.trim()) {
+      try {
+        onEvent(JSON.parse(buffer.trim()) as Record<string, unknown>);
+      } catch {
+        /* skip */
+      }
+    }
+  }
+
   return {
     request,
     getJson,
     getApi,
     postApi,
     putApi,
+    streamPost,
   };
 }
