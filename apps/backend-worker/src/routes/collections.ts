@@ -40,12 +40,109 @@ interface TaxonomyClassification {
   detectedLanguage: string;
 }
 
+interface CollectionAiContext {
+  title: string;
+  description: string | null;
+  titleEn: string | null;
+  parentTitle: string | null;
+  menuLevel: number | null;
+  menuPath: string | null;
+}
+
+function parseHierarchySegments(menuPath: string | null): string[] {
+  if (!menuPath) return [];
+  return menuPath
+    .split('>')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+}
+
+function buildHierarchyPromptContext(context: {
+  collectionTitle: string;
+  menuPath: string | null;
+  menuLevel: number | null;
+  parentTitle: string | null;
+}): string {
+  const segments = parseHierarchySegments(context.menuPath);
+  if (segments.length === 0 && context.parentTitle == null && context.menuLevel == null) return '';
+
+  const parentSegments =
+    segments.length > 1 ? segments.slice(0, -1) : context.parentTitle ? [context.parentTitle] : [];
+  const lines = ['Shopify hierarchy context:'];
+
+  if (context.menuPath) {
+    lines.push(`- full_tree_path: ${context.menuPath}`);
+  }
+  if (parentSegments.length > 0) {
+    lines.push(`- ancestor_categories: ${parentSegments.join(' > ')}`);
+  }
+  if (context.parentTitle) {
+    lines.push(`- direct_parent_category: ${context.parentTitle}`);
+  }
+  if (context.menuLevel != null) {
+    lines.push(`- tree_level: ${context.menuLevel}`);
+  }
+  lines.push(
+    `- current_collection_title: ${context.collectionTitle}`,
+    '- Use this hierarchy ONLY as disambiguation context when the collection title is ambiguous.'
+  );
+
+  return lines.join('\n');
+}
+
+function buildCollectionEmbeddingText(params: {
+  title: string;
+  titleEn: string | null;
+  description: string | null;
+  menuPath: string | null;
+  parentTitle: string | null;
+}): string {
+  const parts = [params.titleEn ?? params.title];
+  if (params.titleEn) {
+    parts.push(`Romanian title: ${params.title}`);
+  }
+  if (params.menuPath) {
+    parts.push(`Shopify tree: ${params.menuPath}`);
+  } else if (params.parentTitle) {
+    parts.push(`Parent category: ${params.parentTitle}`);
+  }
+  if (params.description) {
+    parts.push(params.description);
+  }
+  return parts.join(' — ').trim();
+}
+
+async function getCollectionAiContext(params: {
+  shopId: string;
+  collectionId: string;
+}): Promise<CollectionAiContext | null> {
+  return withTenantContext(params.shopId, async (client) => {
+    const r = await client.query<CollectionAiContext>(
+      `SELECT sc.title,
+              sc.description,
+              sc.title_en AS "titleEn",
+              parent_sc.title AS "parentTitle",
+              sc.menu_level AS "menuLevel",
+              sc.menu_path AS "menuPath"
+       FROM shopify_collections sc
+       LEFT JOIN shopify_collections parent_sc ON parent_sc.id = sc.parent_collection_id
+       WHERE sc.shop_id = $1 AND sc.id = $2
+       LIMIT 1`,
+      [params.shopId, params.collectionId]
+    );
+    return r.rows[0] ?? null;
+  });
+}
+
 async function classifyWithLLM(params: {
   shopId: string;
   env: AppEnv;
   collectionTitle: string;
   collectionTitleEn: string | null;
   collectionDescription: string | null;
+  collectionMenuPath: string | null;
+  collectionMenuLevel: number | null;
+  collectionParentTitle: string | null;
   productSamples?: string[];
   candidates: readonly { id: string; name: string; similarity: number }[];
   apiKey?: string;
@@ -76,8 +173,14 @@ async function classifyWithLLM(params: {
   const productSection = params.productSamples?.length
     ? `\n\nSample products from this collection:\n${params.productSamples.map((p, i) => `${i + 1}. ${p}`).join('\n')}`
     : '';
+  const hierarchySection = buildHierarchyPromptContext({
+    collectionTitle: params.collectionTitle,
+    menuPath: params.collectionMenuPath,
+    menuLevel: params.collectionMenuLevel,
+    parentTitle: params.collectionParentTitle,
+  });
 
-  const userPrompt = `Collection: ${collectionText}${productSection}\n\nCandidate categories (ranked by vector relevance):\n${candidateList}`;
+  const userPrompt = `Collection: ${collectionText}${hierarchySection ? `\n\n${hierarchySection}` : ''}${productSection}\n\nCandidate categories (ranked by vector relevance):\n${candidateList}`;
   const inputScan = await scanInput({
     shopId: params.shopId,
     text: userPrompt,
@@ -129,9 +232,10 @@ CRITICAL RULES:
 3. If sample products are about plants/gardening → pick a plant/garden category, NOT flooring/carpet.
 4. If sample products are about paints → pick a paint category, NOT wipes/cleaning.
 5. If sample products are about heating stoves/fireplaces → pick a fireplace/stove category, NOT generators.
-6. If NONE of the candidates is a genuine match for the products, set confidence below 0.3.
-7. Do NOT inflate confidence. A 95% confidence means you are absolutely certain — use it only when the category name is essentially identical to what the products are.
-8. Candidates ranked higher (by relevance %) are statistically more likely but NOT always correct. Override the ranking if a lower-ranked candidate is a clearly better product domain match.`,
+6. Use the Shopify hierarchy path as SECONDARY context to resolve ambiguous terms. Ancestor categories constrain the domain, but they never override clear product evidence.
+7. If NONE of the candidates is a genuine match for the products, set confidence below 0.3.
+8. Do NOT inflate confidence. A 95% confidence means you are absolutely certain — use it only when the category name is essentially identical to what the products are.
+9. Candidates ranked higher (by relevance %) are statistically more likely but NOT always correct. Override the ranking if a lower-ranked candidate is a clearly better product domain match.`,
           },
           {
             role: 'user',
@@ -226,6 +330,9 @@ async function sampleProductNames(params: {
 async function translateTitleToEnglish(params: {
   title: string;
   description: string | null;
+  menuPath: string | null;
+  menuLevel: number | null;
+  parentTitle: string | null;
   productSamples?: string[];
   apiKey?: string;
   baseUrl?: string;
@@ -242,6 +349,12 @@ async function translateTitleToEnglish(params: {
   const productSection = hasProducts
     ? `\n\nSample products sold in this collection:\n${params.productSamples!.map((p, i) => `${i + 1}. ${p}`).join('\n')}`
     : '';
+  const hierarchySection = buildHierarchyPromptContext({
+    collectionTitle: params.title,
+    menuPath: params.menuPath,
+    menuLevel: params.menuLevel,
+    parentTitle: params.parentTitle,
+  });
 
   try {
     const res = await fetch(`${base}/chat/completions`, {
@@ -282,6 +395,9 @@ RULE 4 — "ACCESORII X" = "X Accessories".
 Always translate X first using Rules 2-3, then append "Accessories".
 Example: "Accesorii Bazine" → "Pool Accessories" (bazine = pools/basins, NOT barbecue).
 
+RULE 5 — USE THE SHOPIFY CATEGORY TREE AS DISAMBIGUATION CONTEXT.
+If the collection title is ambiguous, use the ancestor categories/path to understand the business domain. The hierarchy constrains meaning, but the output must still translate the current collection name itself.
+
 EXAMPLES (follow these exactly):
 - "Acaricide" → { "reasoning": "Acaricide is an international scientific term meaning mite/tick killers. It must stay exact.", "categoryEn": "Acaricides" }
 - "Accesorii Bazine" → { "reasoning": "Bazine = French bassin = pools/basins/tanks. Accesorii = Accessories.", "categoryEn": "Pool Accessories" }
@@ -293,7 +409,7 @@ Return JSON: { "reasoning": "...", "categoryEn": "..." }`,
           },
           {
             role: 'user',
-            content: `Collection name: "${params.title}"${params.description ? `\nDescription: ${params.description}` : ''}${productSection}`,
+            content: `Collection name: "${params.title}"${params.description ? `\nDescription: ${params.description}` : ''}${hierarchySection ? `\n\n${hierarchySection}` : ''}${productSection}`,
           },
         ],
       }),
@@ -882,17 +998,9 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           const progress = `[${idx + 1}/${collectionIds.length}]`;
 
           try {
-            const collectionRow = await withTenantContext(session.shopId, async (client) => {
-              const r = await client.query<{
-                title: string;
-                description: string | null;
-                titleEn: string | null;
-              }>(
-                `SELECT title, description, title_en AS "titleEn"
-                 FROM shopify_collections WHERE shop_id = $1 AND id = $2 LIMIT 1`,
-                [session.shopId, collectionId]
-              );
-              return r.rows[0] ?? null;
+            const collectionRow = await getCollectionAiContext({
+              shopId: session.shopId,
+              collectionId,
             });
 
             if (!collectionRow?.title) {
@@ -1003,6 +1111,9 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
               effectiveTitleEn = await translateTitleToEnglish({
                 title: collectionRow.title,
                 description: collectionRow.description,
+                menuPath: collectionRow.menuPath,
+                menuLevel: collectionRow.menuLevel,
+                parentTitle: collectionRow.parentTitle,
                 productSamples,
                 ...(txCreds.apiKey ? { apiKey: txCreds.apiKey } : {}),
                 ...(txBaseUrl != null ? { baseUrl: txBaseUrl } : {}),
@@ -1041,9 +1152,13 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
               step: 'embed',
               message: `${progress} Generez embedding...`,
             });
-            const embeddingText =
-              (effectiveTitleEn ?? collectionRow.title) +
-              (collectionRow.description ? ` — ${collectionRow.description}` : '');
+            const embeddingText = buildCollectionEmbeddingText({
+              title: collectionRow.title,
+              titleEn: effectiveTitleEn,
+              description: collectionRow.description,
+              menuPath: collectionRow.menuPath,
+              parentTitle: collectionRow.parentTitle,
+            });
             const [embedding] = await provider.embedTexts([embeddingText.trim()]);
             if (!embedding || embedding.length === 0) {
               emit({
@@ -1140,6 +1255,9 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
               collectionTitle: collectionRow.title,
               collectionTitleEn: effectiveTitleEn,
               collectionDescription: collectionRow.description,
+              collectionMenuPath: collectionRow.menuPath,
+              collectionMenuLevel: collectionRow.menuLevel,
+              collectionParentTitle: collectionRow.parentTitle,
               productSamples,
               candidates: vectorCandidates,
               ...(classificationCreds.apiKey ? { apiKey: classificationCreds.apiKey } : {}),
@@ -1279,16 +1397,9 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
       };
 
       try {
-        const collectionRow = await withTenantContext(session.shopId, async (client) => {
-          const r = await client.query<{
-            title: string;
-            description: string | null;
-            titleEn: string | null;
-          }>(
-            `SELECT title, description, title_en AS "titleEn" FROM shopify_collections WHERE shop_id = $1 AND id = $2 LIMIT 1`,
-            [session.shopId, collectionId]
-          );
-          return r.rows[0] ?? null;
+        const collectionRow = await getCollectionAiContext({
+          shopId: session.shopId,
+          collectionId,
         });
 
         if (!collectionRow) {
@@ -1351,6 +1462,9 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
         const translated = await translateTitleToEnglish({
           title: collectionRow.title,
           description: collectionRow.description,
+          menuPath: collectionRow.menuPath,
+          menuLevel: collectionRow.menuLevel,
+          parentTitle: collectionRow.parentTitle,
           productSamples: samples,
           ...(txCreds.apiKey ? { apiKey: txCreds.apiKey } : {}),
           baseUrl: txCreds.baseUrl,
@@ -1428,17 +1542,9 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
       };
 
       try {
-        const collectionRow = await withTenantContext(session.shopId, async (client) => {
-          const r = await client.query<{
-            title: string;
-            description: string | null;
-            titleEn: string | null;
-          }>(
-            `SELECT title, description, title_en AS "titleEn"
-             FROM shopify_collections WHERE shop_id = $1 AND id = $2 LIMIT 1`,
-            [session.shopId, collectionId]
-          );
-          return r.rows[0] ?? null;
+        const collectionRow = await getCollectionAiContext({
+          shopId: session.shopId,
+          collectionId,
         });
 
         if (!collectionRow?.title) {
@@ -1532,6 +1638,9 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           effectiveTitleEn = await translateTitleToEnglish({
             title: collectionRow.title,
             description: collectionRow.description,
+            menuPath: collectionRow.menuPath,
+            menuLevel: collectionRow.menuLevel,
+            parentTitle: collectionRow.parentTitle,
             productSamples: singleProductSamples,
             ...(txCreds.apiKey ? { apiKey: txCreds.apiKey } : {}),
             ...(txBaseUrl != null ? { baseUrl: txBaseUrl } : {}),
@@ -1569,9 +1678,13 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           env: options.env,
           logger: options.logger,
         });
-        const embeddingText =
-          (effectiveTitleEn ?? collectionRow.title) +
-          (collectionRow.description ? ` — ${collectionRow.description}` : '');
+        const embeddingText = buildCollectionEmbeddingText({
+          title: collectionRow.title,
+          titleEn: effectiveTitleEn,
+          description: collectionRow.description,
+          menuPath: collectionRow.menuPath,
+          parentTitle: collectionRow.parentTitle,
+        });
         const [embedding] = await provider.embedTexts([embeddingText.trim()]);
         if (!embedding || embedding.length === 0) {
           emit({ type: 'error', message: 'Nu s-a putut genera embedding-ul.' });
@@ -1664,6 +1777,9 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           collectionTitle: collectionRow.title,
           collectionTitleEn: effectiveTitleEn,
           collectionDescription: collectionRow.description,
+          collectionMenuPath: collectionRow.menuPath,
+          collectionMenuLevel: collectionRow.menuLevel,
+          collectionParentTitle: collectionRow.parentTitle,
           productSamples: singleProductSamples,
           candidates: vectorCandidates,
           ...(classificationCreds.apiKey ? { apiKey: classificationCreds.apiKey } : {}),
@@ -1856,18 +1972,46 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
         const untranslatedFilter = force ? '' : " AND (title_en IS NULL OR title_en = '')";
         const untranslated = await withTenantContext(session.shopId, async (client) => {
           if (scopeIds && scopeIds.length > 0) {
-            const r = await client.query<{ id: string; title: string; description: string | null }>(
-              `SELECT id, title, description FROM shopify_collections
-               WHERE shop_id = $1 AND id = ANY($2::uuid[])${untranslatedFilter}
-               ORDER BY title ASC`,
+            const r = await client.query<{
+              id: string;
+              title: string;
+              description: string | null;
+              parentTitle: string | null;
+              menuLevel: number | null;
+              menuPath: string | null;
+            }>(
+              `SELECT sc.id,
+                      sc.title,
+                      sc.description,
+                      parent_sc.title AS "parentTitle",
+                      sc.menu_level AS "menuLevel",
+                      sc.menu_path AS "menuPath"
+               FROM shopify_collections sc
+               LEFT JOIN shopify_collections parent_sc ON parent_sc.id = sc.parent_collection_id
+               WHERE sc.shop_id = $1 AND sc.id = ANY($2::uuid[])${untranslatedFilter.replaceAll('title_en', 'sc.title_en')}
+               ORDER BY sc.title ASC`,
               [session.shopId, scopeIds]
             );
             return r.rows;
           }
-          const r = await client.query<{ id: string; title: string; description: string | null }>(
-            `SELECT id, title, description FROM shopify_collections
-             WHERE shop_id = $1${untranslatedFilter}
-             ORDER BY title ASC`,
+          const r = await client.query<{
+            id: string;
+            title: string;
+            description: string | null;
+            parentTitle: string | null;
+            menuLevel: number | null;
+            menuPath: string | null;
+          }>(
+            `SELECT sc.id,
+                    sc.title,
+                    sc.description,
+                    parent_sc.title AS "parentTitle",
+                    sc.menu_level AS "menuLevel",
+                    sc.menu_path AS "menuPath"
+             FROM shopify_collections sc
+             LEFT JOIN shopify_collections parent_sc ON parent_sc.id = sc.parent_collection_id
+             WHERE sc.shop_id = $1${untranslatedFilter.replaceAll('title_en', 'sc.title_en')}
+             ORDER BY sc.title ASC`,
             [session.shopId]
           );
           return r.rows;
@@ -1940,6 +2084,9 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
             const translatedTitle = await translateTitleToEnglish({
               title: col.title,
               description: col.description,
+              menuPath: col.menuPath,
+              menuLevel: col.menuLevel,
+              parentTitle: col.parentTitle,
               productSamples: samples,
               ...(translateCreds.apiKey ? { apiKey: translateCreds.apiKey } : {}),
               baseUrl: translateCreds.baseUrl,

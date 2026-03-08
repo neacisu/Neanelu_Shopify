@@ -34,8 +34,20 @@ export async function enqueueCollectionsSyncJob(params: {
   trigger: 'manual' | 'scheduled';
 }) {
   const queue = getCollectionsSyncQueue();
+  const jobId = `pim-collections-sync-${params.shopId}`;
+  const existingJob = await queue.getJob(jobId);
+
+  if (existingJob) {
+    const state = await existingJob.getState();
+    if (state === 'completed' || state === 'failed') {
+      await existingJob.remove();
+    } else {
+      return existingJob.id;
+    }
+  }
+
   const job = await queue.add(PIM_COLLECTIONS_SYNC_JOB, params, {
-    jobId: `pim-collections-sync-${params.shopId}`,
+    jobId,
   });
   return job.id;
 }

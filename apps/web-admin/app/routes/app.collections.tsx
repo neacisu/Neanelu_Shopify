@@ -21,7 +21,6 @@ import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
-import { PageHeader } from '../components/layout/page-header';
 import { InfoTooltip } from '../components/ui/info-tooltip';
 import { Button } from '../components/ui/button';
 import { SearchInput } from '../components/ui/SearchInput';
@@ -934,49 +933,53 @@ export default function CollectionsPage() {
         animation: contentVisible ? 'fadeSlideUp 0.4s ease-out both' : 'none',
       }}
     >
-      <Breadcrumbs items={breadcrumbs} />
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-1">
+          <Breadcrumbs items={breadcrumbs} />
+          <h1 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-slate-100 motion-safe:animate-[fadeSlideUp_0.5s_ease-out_both]">
+            Gestionare Colecții
+          </h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Sincronizează, clasifică și gestionează colecțiile Shopify.
+          </p>
+        </div>
 
-      <PageHeader
-        title="Gestionare Colecții"
-        description="Sincronizează, clasifică și gestionează colecțiile Shopify."
-        actions={
-          <div className="flex flex-col items-end gap-1.5">
-            <span className="inline-flex items-center gap-2">
-              <Button variant="secondary" onClick={() => void startSync()} disabled={isSyncing}>
-                <RefreshCw className={`mr-2 size-4 ${isSyncing ? 'animate-spin' : ''}`} />
-                {isSyncing ? 'Sincronizare...' : 'Sincronizează din Shopify'}
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => void handleBulkTranslate()}
-                disabled={bulkTranslateLoading}
-              >
-                <Languages className={`mr-2 size-4 ${translateRunning ? 'animate-pulse' : ''}`} />
-                {translateRunning
-                  ? `Se traduce (${translateProgress.filter((e) => e.finalStatus !== 'running').length}/${translateProgress.length})...`
-                  : 'Traduce EN'}
-              </Button>
-              <InfoTooltip title="Sincronizare & traducere" side="bottom">
-                Sincronizează colecțiile din Shopify, apoi traduce titlurile în engleză pentru o
-                atribuire precisă a taxonomiei AI. Traducerea se face o singură dată.
-              </InfoTooltip>
-            </span>
-            <button
-              type="button"
-              className={`text-xs ${
-                canRestoreSyncPanel
-                  ? 'text-blue-600 underline decoration-dotted underline-offset-2 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300'
-                  : 'cursor-default text-slate-500 dark:text-slate-400'
-              }`}
-              onClick={() => {
-                if (canRestoreSyncPanel) setSyncPanelHidden(false);
-              }}
+        <div className="flex flex-col items-end gap-1.5">
+          <span className="inline-flex items-center gap-2">
+            <Button variant="secondary" onClick={() => void startSync()} disabled={isSyncing}>
+              <RefreshCw className={`mr-2 size-4 ${isSyncing ? 'animate-spin' : ''}`} />
+              {isSyncing ? 'Sincronizare...' : 'Sincronizează din Shopify'}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => void handleBulkTranslate()}
+              disabled={bulkTranslateLoading}
             >
-              {lastSyncLabel}
-            </button>
-          </div>
-        }
-      />
+              <Languages className={`mr-2 size-4 ${translateRunning ? 'animate-pulse' : ''}`} />
+              {translateRunning
+                ? `Se traduce (${translateProgress.filter((e) => e.finalStatus !== 'running').length}/${translateProgress.length})...`
+                : 'Traduce EN'}
+            </Button>
+            <InfoTooltip title="Sincronizare & traducere" side="bottom">
+              Sincronizează colecțiile din Shopify, apoi traduce titlurile în engleză pentru o
+              atribuire precisă a taxonomiei AI. Traducerea se face o singură dată.
+            </InfoTooltip>
+          </span>
+          <button
+            type="button"
+            className={`text-xs ${
+              canRestoreSyncPanel
+                ? 'text-blue-600 underline decoration-dotted underline-offset-2 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300'
+                : 'cursor-default text-slate-500 dark:text-slate-400'
+            }`}
+            onClick={() => {
+              if (canRestoreSyncPanel) setSyncPanelHidden(false);
+            }}
+          >
+            {lastSyncLabel}
+          </button>
+        </div>
+      </header>
 
       {/* Stats Cards */}
       {(() => {
