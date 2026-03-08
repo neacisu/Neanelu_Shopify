@@ -910,6 +910,18 @@ export default function CollectionsPage() {
     syncState.status,
   ]);
 
+  const syncDurationLabel = useMemo(() => {
+    if (syncElapsedMs > 0) return formatDuration(syncElapsedMs);
+    if (!syncState.processedOn || !syncState.finishedOn) return '—';
+
+    const startedAtMs = new Date(syncState.processedOn).getTime();
+    const finishedAtMs = new Date(syncState.finishedOn).getTime();
+    if (!Number.isFinite(startedAtMs) || !Number.isFinite(finishedAtMs)) return '—';
+
+    const durationMs = Math.max(0, finishedAtMs - startedAtMs);
+    return durationMs > 0 ? formatDuration(durationMs) : '—';
+  }, [syncElapsedMs, syncState.finishedOn, syncState.processedOn]);
+
   const [contentRef, contentVisible] = useScrollReveal<HTMLDivElement>({
     rootMargin: '0px 0px -40px 0px',
   });
@@ -1280,7 +1292,7 @@ export default function CollectionsPage() {
               </div>
               <div className="text-right">
                 <div className="font-semibold text-slate-900 dark:text-slate-100">
-                  {syncElapsedMs > 0 ? formatDuration(syncElapsedMs) : '—'}
+                  {syncDurationLabel}
                 </div>
                 <div className="text-slate-500 dark:text-slate-400">durată</div>
               </div>
