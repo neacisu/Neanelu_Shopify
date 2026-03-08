@@ -10,6 +10,11 @@ import {
   GitBranch,
   ChevronRight,
   ChevronDown,
+  CheckCircle2,
+  AlertTriangle,
+  Clock3,
+  LoaderCircle,
+  X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -71,26 +76,34 @@ interface CollectionsStats {
 
 type SyncStatus = 'idle' | 'active' | 'completed' | 'failed' | 'waiting' | 'delayed';
 
+interface SyncProgressPayload {
+  fetched?: number;
+  total?: number;
+  percent?: number;
+  phase?: string;
+  current?: number;
+  menuItems?: number;
+  correlated?: number;
+  hierarchyError?: boolean;
+  status?: string;
+}
+
 interface SyncProgress {
   status: SyncStatus;
-  progress:
-    | {
-        fetched?: number;
-        total?: number;
-        percent?: number;
-        phase?: string;
-        current?: number;
-        menuItems?: number;
-        correlated?: number;
-        hierarchyError?: boolean;
-        status?: string;
-      }
-    | number
-    | null;
+  progress: SyncProgressPayload | number | null;
   createdAt?: string | null;
   processedOn?: string | null;
   finishedOn?: string | null;
   failedReason?: string | null;
+}
+
+type SyncStepStatus = 'pending' | 'active' | 'done' | 'error';
+
+interface SyncStepItem {
+  key: string;
+  label: string;
+  detail: string;
+  status: SyncStepStatus;
 }
 
 type SelectAllMode = 'page' | 'all' | null;
@@ -110,6 +123,16 @@ function formatRelativeDate(value: string | null): string {
   return rtf.format(diffDays, 'day');
 }
 
+function formatAbsoluteDateTime(value: string | null): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('ro-RO', {
+    dateStyle: 'medium',
+    timeStyle: 'medium',
+  }).format(date);
+}
+
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   const s = Math.floor(ms / 1000);
@@ -124,6 +147,103 @@ function parseMenuPath(menuPath: string | null): string[] {
     .split('>')
     .map((segment) => segment.trim())
     .filter((segment) => segment.length > 0);
+}
+
+function isRunningSyncStatus(status: SyncStatus): boolean {
+  return status === 'active' || status === 'waiting' || status === 'delayed';
+}
+
+function getSyncPayload(progress: SyncProgress['progress']): SyncProgressPayload | null {
+  if (!progress || typeof progress === 'number') return null;
+  return progress;
+}
+
+function buildSyncSteps(syncState: SyncProgress): SyncStepItem[] {
+  const payload = getSyncPayload(syncState.progress);
+  const phase = payload?.phase ?? null;
+
+  let currentStepIndex = -1;
+  if (syncState.status === 'waiting' || syncState.status === 'delayed') {
+    currentStepIndex = 0;
+  } else if (phase === 'collections') {
+    currentStepIndex = 1;
+  } else if (phase === 'menus') {
+    currentStepIndex = 2;
+  } else if (phase === 'hierarchy') {
+    currentStepIndex = 3;
+  } else if (phase === 'done' || syncState.status === 'completed') {
+    currentStepIndex = 4;
+  } else if (syncState.status === 'failed') {
+    currentStepIndex =
+      phase === 'hierarchy' ? 3 : phase === 'menus' ? 2 : phase === 'collections' ? 1 : 0;
+  }
+
+  const resolveStepStatus = (index: number): SyncStepStatus => {
+    if (syncState.status === 'completed' || currentStepIndex > index) return 'done';
+    if (syncState.status === 'failed' && currentStepIndex === index) return 'error';
+    if (currentStepIndex === index && isRunningSyncStatus(syncState.status)) return 'active';
+    if (currentStepIndex === 4 && index <= 4) return 'done';
+    return 'pending';
+  };
+
+  const menuCurrent = payload?.current ?? null;
+  const menuTotal = payload?.total ?? null;
+  const fetched = payload?.fetched ?? null;
+  const menuItems = payload?.menuItems ?? null;
+  const correlated = payload?.correlated ?? null;
+
+  return [
+    {
+      key: 'queued',
+      label: 'Job în coadă',
+      detail:
+        syncState.status === 'delayed'
+          ? 'Job-ul așteaptă resursele worker-ului.'
+          : syncState.createdAt
+            ? `Creat la ${formatAbsoluteDateTime(syncState.createdAt)}`
+            : 'Cererea de sincronizare a fost trimisă.',
+      status: resolveStepStatus(0),
+    },
+    {
+      key: 'collections',
+      label: 'Import colecții',
+      detail:
+        fetched != null
+          ? `${fetched.toLocaleString('ro-RO')} colecții importate`
+          : 'Import paginat din Shopify.',
+      status: resolveStepStatus(1),
+    },
+    {
+      key: 'menus',
+      label: 'Import meniuri Shopify',
+      detail:
+        menuCurrent != null && menuTotal != null
+          ? `Meniu ${menuCurrent}/${menuTotal} procesat`
+          : 'Se importă structura meniurilor.',
+      status: resolveStepStatus(2),
+    },
+    {
+      key: 'hierarchy',
+      label: 'Corelare ierarhie categorii',
+      detail:
+        menuItems != null || correlated != null
+          ? `${menuItems?.toLocaleString('ro-RO') ?? 0} itemi meniu, ${correlated?.toLocaleString('ro-RO') ?? 0} relații părinte-copil`
+          : 'Se leagă colecțiile de structura categorii-produse.',
+      status:
+        payload?.hierarchyError === true && syncState.status !== 'completed'
+          ? 'error'
+          : resolveStepStatus(3),
+    },
+    {
+      key: 'done',
+      label: 'Finalizare și refresh UI',
+      detail:
+        syncState.finishedOn != null
+          ? `Terminat la ${formatAbsoluteDateTime(syncState.finishedOn)}`
+          : 'Se actualizează datele din interfață.',
+      status: resolveStepStatus(4),
+    },
+  ];
 }
 
 function CategoryTreeCell({
@@ -210,9 +330,12 @@ export default function CollectionsPage() {
     status: 'idle',
     progress: null,
   });
+  const [syncPanelHidden, setSyncPanelHidden] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const elapsedRef = useRef(0);
+  const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastSyncStatusRef = useRef<SyncStatus>('idle');
   const syncStartRef = useRef<number | null>(null);
+  const [syncElapsedMs, setSyncElapsedMs] = useState(0);
 
   const [bulkTaxonomyLoading, setBulkTaxonomyLoading] = useState(false);
   const [bulkMetafieldsLoading, setBulkMetafieldsLoading] = useState(false);
@@ -241,6 +364,7 @@ export default function CollectionsPage() {
     syncState.status === 'active' ||
     syncState.status === 'waiting' ||
     syncState.status === 'delayed';
+  const showSyncPanel = syncState.status !== 'idle' && !syncPanelHidden;
 
   const breadcrumbs = useMemo(() => [{ label: 'Acasă', href: '/' }, { label: 'Colecții' }], []);
 
@@ -292,35 +416,83 @@ export default function CollectionsPage() {
     void loadStats();
   }, [loadStats]);
 
+  const stopElapsedTicker = useCallback(() => {
+    if (elapsedTimerRef.current) {
+      clearInterval(elapsedTimerRef.current);
+      elapsedTimerRef.current = null;
+    }
+  }, []);
+
+  const startElapsedTicker = useCallback((startedAtMs: number) => {
+    syncStartRef.current = startedAtMs;
+    setSyncElapsedMs(Math.max(0, Date.now() - startedAtMs));
+    if (elapsedTimerRef.current) return;
+    elapsedTimerRef.current = setInterval(() => {
+      if (syncStartRef.current == null) return;
+      setSyncElapsedMs(Math.max(0, Date.now() - syncStartRef.current));
+    }, 1000);
+  }, []);
+
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
     }
-  }, []);
+    stopElapsedTicker();
+  }, [stopElapsedTicker]);
 
   const pollSyncStatus = useCallback(async () => {
     try {
       const result = await api.getApi<SyncProgress>('/collections/sync/status');
       setSyncState(result);
-      if (syncStartRef.current) {
-        elapsedRef.current = Date.now() - syncStartRef.current;
+
+      const previousStatus = lastSyncStatusRef.current;
+      lastSyncStatusRef.current = result.status;
+
+      if (isRunningSyncStatus(result.status)) {
+        const startedAt =
+          result.processedOn != null
+            ? new Date(result.processedOn).getTime()
+            : result.createdAt != null
+              ? new Date(result.createdAt).getTime()
+              : null;
+        if (startedAt != null && Number.isFinite(startedAt)) {
+          startElapsedTicker(startedAt);
+        } else if (syncStartRef.current != null) {
+          startElapsedTicker(syncStartRef.current);
+        } else {
+          startElapsedTicker(Date.now());
+        }
       }
+
       if (result.status === 'completed') {
         stopPolling();
-        syncStartRef.current = null;
-        toast.success('Sincronizare completă');
-        void loadCollections();
-        void loadStats();
+        if (previousStatus !== 'completed') {
+          void loadCollections();
+          void loadStats();
+        }
+        if (isRunningSyncStatus(previousStatus)) {
+          toast.success('Sincronizare completă');
+        }
       } else if (result.status === 'failed') {
         stopPolling();
-        syncStartRef.current = null;
-        toast.error(result.failedReason ?? 'Sincronizare eșuată');
+        if (isRunningSyncStatus(previousStatus)) {
+          toast.error(result.failedReason ?? 'Sincronizare eșuată');
+        }
       }
+      return result;
     } catch {
       // ignore polling errors
+      return null;
     }
-  }, [api, stopPolling, loadCollections, loadStats]);
+  }, [api, loadCollections, loadStats, startElapsedTicker, stopPolling]);
+
+  const startPollingLoop = useCallback(() => {
+    if (pollRef.current) return;
+    pollRef.current = setInterval(() => {
+      void pollSyncStatus();
+    }, 1500);
+  }, [pollSyncStatus]);
 
   const startSync = useCallback(async () => {
     try {
@@ -329,21 +501,28 @@ export default function CollectionsPage() {
         {}
       );
       setSyncState({ status: 'waiting', progress: null });
-      syncStartRef.current = Date.now();
-      elapsedRef.current = 0;
+      setSyncPanelHidden(false);
+      lastSyncStatusRef.current = 'waiting';
       stopPolling();
-      pollRef.current = setInterval(() => {
-        void pollSyncStatus();
-      }, 2000);
+      startElapsedTicker(Date.now());
+      void pollSyncStatus();
+      startPollingLoop();
       toast.success('Sincronizare pornită');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Eroare la pornirea sincronizării');
     }
-  }, [api, stopPolling, pollSyncStatus]);
+  }, [api, pollSyncStatus, startElapsedTicker, startPollingLoop, stopPolling]);
 
   useEffect(() => {
+    void (async () => {
+      const result = await pollSyncStatus();
+      if (result && isRunningSyncStatus(result.status)) {
+        startPollingLoop();
+      }
+    })();
+
     return () => stopPolling();
-  }, [stopPolling]);
+  }, [pollSyncStatus, startPollingLoop, stopPolling]);
 
   const updateSearchParam = useCallback(
     (key: string, value: string) => {
@@ -646,43 +825,90 @@ export default function CollectionsPage() {
     collections.length > 0 && collections.every((c) => selectedIds.includes(c.id));
   const showExtendBanner = allOnPageSelected && pagination && pagination.total > collections.length;
 
+  const syncPayload = useMemo(() => getSyncPayload(syncState.progress), [syncState.progress]);
+
   const syncProgress = useMemo(() => {
+    if (syncState.status === 'completed') return 100;
     if (!syncState.progress) return 0;
     if (typeof syncState.progress === 'number') return syncState.progress;
     return syncState.progress.percent ?? 0;
-  }, [syncState.progress]);
+  }, [syncState.progress, syncState.status]);
 
-  const syncFetched = useMemo(() => {
-    if (!syncState.progress || typeof syncState.progress === 'number') return null;
-    return syncState.progress.fetched ?? null;
-  }, [syncState.progress]);
+  const syncFetched = useMemo(() => syncPayload?.fetched ?? null, [syncPayload]);
 
   const syncPhaseLabel = useMemo(() => {
-    if (!syncState.progress || typeof syncState.progress === 'number') {
+    if (syncState.status === 'waiting') {
+      return 'Sincronizare pusă în coadă';
+    }
+    if (syncState.status === 'delayed') {
+      return 'Sincronizare întârziată în coadă';
+    }
+    if (syncState.status === 'completed') {
+      return 'Sincronizare Shopify finalizată';
+    }
+    if (syncState.status === 'failed') {
+      return 'Sincronizare Shopify eșuată';
+    }
+    if (!syncPayload) {
       return 'Sincronizare în curs...';
     }
-    if (syncState.progress.phase === 'collections') {
+    if (syncPayload.phase === 'collections') {
       return syncFetched != null
         ? `Sincronizare colecții... (${syncFetched} importate)`
         : 'Sincronizare colecții...';
     }
-    if (syncState.progress.phase === 'menus') {
-      const current = syncState.progress.current;
-      const totalMenus = syncState.progress.total;
+    if (syncPayload.phase === 'menus') {
+      const current = syncPayload.current;
+      const totalMenus = syncPayload.total;
       return current != null && totalMenus != null
         ? `Sincronizare meniuri... (${current}/${totalMenus})`
         : 'Sincronizare meniuri...';
     }
-    if (syncState.progress.phase === 'hierarchy') {
-      return syncState.progress.status === 'completed'
+    if (syncPayload.phase === 'hierarchy') {
+      return syncPayload.status === 'completed'
         ? 'Corelare ierarhie finalizată'
         : 'Corelare ierarhie...';
     }
-    if (syncState.progress.phase === 'done') {
+    if (syncPayload.phase === 'done') {
       return 'Sincronizare finalizată';
     }
     return 'Sincronizare în curs...';
-  }, [syncFetched, syncState.progress]);
+  }, [syncFetched, syncPayload, syncState.status]);
+
+  const syncSteps = useMemo(() => buildSyncSteps(syncState), [syncState]);
+
+  const lastSyncLabel = useMemo(() => {
+    if (!stats?.lastSyncedAt) return 'Ultima sincronizare completă: încă nu există.';
+    return `Ultima sincronizare completă: ${formatAbsoluteDateTime(stats.lastSyncedAt)}`;
+  }, [stats?.lastSyncedAt]);
+
+  const canRestoreSyncPanel = syncState.status !== 'idle' && syncPanelHidden;
+
+  const syncMetaLabel = useMemo(() => {
+    if (syncState.status === 'failed') {
+      return syncState.failedReason ?? 'Worker-ul a raportat o eroare.';
+    }
+    if (syncState.status === 'completed') {
+      return syncState.finishedOn
+        ? `Finalizată la ${formatAbsoluteDateTime(syncState.finishedOn)}`
+        : 'Datele din tabel și KPI au fost reîmprospătate.';
+    }
+    if (syncState.status === 'waiting' || syncState.status === 'delayed') {
+      return syncState.createdAt
+        ? `Job creat la ${formatAbsoluteDateTime(syncState.createdAt)}`
+        : 'Job-ul așteaptă procesarea în worker.';
+    }
+    if (syncPayload?.phase === 'done') {
+      return 'Sincronizarea a intrat în faza finală de închidere.';
+    }
+    return 'Import live din Shopify cu urmărire pe faze.';
+  }, [
+    syncPayload?.phase,
+    syncState.createdAt,
+    syncState.failedReason,
+    syncState.finishedOn,
+    syncState.status,
+  ]);
 
   const [contentRef, contentVisible] = useScrollReveal<HTMLDivElement>({
     rootMargin: '0px 0px -40px 0px',
@@ -702,26 +928,41 @@ export default function CollectionsPage() {
         title="Gestionare Colecții"
         description="Sincronizează, clasifică și gestionează colecțiile Shopify."
         actions={
-          <span className="inline-flex items-center gap-2">
-            <Button variant="secondary" onClick={() => void startSync()} disabled={isSyncing}>
-              <RefreshCw className={`mr-2 size-4 ${isSyncing ? 'animate-spin' : ''}`} />
-              {isSyncing ? 'Sincronizare...' : 'Sincronizează din Shopify'}
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => void handleBulkTranslate()}
-              disabled={bulkTranslateLoading}
+          <div className="flex flex-col items-end gap-1.5">
+            <span className="inline-flex items-center gap-2">
+              <Button variant="secondary" onClick={() => void startSync()} disabled={isSyncing}>
+                <RefreshCw className={`mr-2 size-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                {isSyncing ? 'Sincronizare...' : 'Sincronizează din Shopify'}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => void handleBulkTranslate()}
+                disabled={bulkTranslateLoading}
+              >
+                <Languages className={`mr-2 size-4 ${translateRunning ? 'animate-pulse' : ''}`} />
+                {translateRunning
+                  ? `Se traduce (${translateProgress.filter((e) => e.finalStatus !== 'running').length}/${translateProgress.length})...`
+                  : 'Traduce EN'}
+              </Button>
+              <InfoTooltip title="Sincronizare & traducere" side="bottom">
+                Sincronizează colecțiile din Shopify, apoi traduce titlurile în engleză pentru o
+                atribuire precisă a taxonomiei AI. Traducerea se face o singură dată.
+              </InfoTooltip>
+            </span>
+            <button
+              type="button"
+              className={`text-xs ${
+                canRestoreSyncPanel
+                  ? 'text-blue-600 underline decoration-dotted underline-offset-2 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300'
+                  : 'cursor-default text-slate-500 dark:text-slate-400'
+              }`}
+              onClick={() => {
+                if (canRestoreSyncPanel) setSyncPanelHidden(false);
+              }}
             >
-              <Languages className={`mr-2 size-4 ${translateRunning ? 'animate-pulse' : ''}`} />
-              {translateRunning
-                ? `Se traduce (${translateProgress.filter((e) => e.finalStatus !== 'running').length}/${translateProgress.length})...`
-                : 'Traduce EN'}
-            </Button>
-            <InfoTooltip title="Sincronizare & traducere" side="bottom">
-              Sincronizează colecțiile din Shopify, apoi traduce titlurile în engleză pentru o
-              atribuire precisă a taxonomiei AI. Traducerea se face o singură dată.
-            </InfoTooltip>
-          </span>
+              {lastSyncLabel}
+            </button>
+          </div>
         }
       />
 
@@ -984,17 +1225,123 @@ export default function CollectionsPage() {
       })()}
 
       {/* Sync Progress */}
-      {isSyncing && (
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950/50">
-          <div className="mb-2 flex items-center justify-between text-sm">
-            <span className="font-medium text-blue-700 dark:text-blue-300">{syncPhaseLabel}</span>
-            {elapsedRef.current > 0 && (
-              <span className="text-blue-600 dark:text-blue-400">
-                {formatDuration(elapsedRef.current)}
-              </span>
-            )}
+      {showSyncPanel && (
+        <div
+          className={`rounded-xl border p-4 shadow-sm ${
+            syncState.status === 'failed'
+              ? 'border-rose-200 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/40'
+              : syncState.status === 'completed'
+                ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40'
+                : 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/40'
+          }`}
+        >
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                {syncState.status === 'completed' ? (
+                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
+                ) : syncState.status === 'failed' ? (
+                  <AlertTriangle className="size-4 text-rose-600 dark:text-rose-400" />
+                ) : syncState.status === 'waiting' || syncState.status === 'delayed' ? (
+                  <Clock3 className="size-4 text-blue-600 dark:text-blue-400" />
+                ) : (
+                  <LoaderCircle className="size-4 animate-spin text-blue-600 dark:text-blue-400" />
+                )}
+                <span
+                  className={`text-sm font-semibold ${
+                    syncState.status === 'failed'
+                      ? 'text-rose-700 dark:text-rose-300'
+                      : syncState.status === 'completed'
+                        ? 'text-emerald-700 dark:text-emerald-300'
+                        : 'text-blue-700 dark:text-blue-300'
+                  }`}
+                >
+                  {syncPhaseLabel}
+                </span>
+                <button
+                  type="button"
+                  className="ml-1 inline-flex size-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-white/70 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-900/70 dark:hover:text-slate-200"
+                  onClick={() => setSyncPanelHidden(true)}
+                  aria-label="Ascunde panoul de sincronizare"
+                  title="Ascunde"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{syncMetaLabel}</p>
+            </div>
+
+            <div className="flex items-center gap-4 text-xs">
+              <div className="text-right">
+                <div className="font-semibold text-slate-900 dark:text-slate-100">
+                  {Math.round(syncProgress)}%
+                </div>
+                <div className="text-slate-500 dark:text-slate-400">progres</div>
+              </div>
+              <div className="text-right">
+                <div className="font-semibold text-slate-900 dark:text-slate-100">
+                  {syncElapsedMs > 0 ? formatDuration(syncElapsedMs) : '—'}
+                </div>
+                <div className="text-slate-500 dark:text-slate-400">durată</div>
+              </div>
+            </div>
           </div>
-          <ProgressBar progress={syncProgress} />
+
+          <div className="mt-3">
+            <ProgressBar progress={syncProgress} />
+          </div>
+
+          <div className="mt-4 grid gap-2 md:grid-cols-3">
+            <div className="rounded-lg border border-white/60 bg-white/70 px-3 py-2 text-xs dark:border-slate-800/80 dark:bg-slate-900/60">
+              <div className="text-slate-500 dark:text-slate-400">Colecții importate</div>
+              <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">
+                {syncFetched != null ? syncFetched.toLocaleString('ro-RO') : '—'}
+              </div>
+            </div>
+            <div className="rounded-lg border border-white/60 bg-white/70 px-3 py-2 text-xs dark:border-slate-800/80 dark:bg-slate-900/60">
+              <div className="text-slate-500 dark:text-slate-400">Itemi meniu</div>
+              <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">
+                {syncPayload?.menuItems != null
+                  ? syncPayload.menuItems.toLocaleString('ro-RO')
+                  : '—'}
+              </div>
+            </div>
+            <div className="rounded-lg border border-white/60 bg-white/70 px-3 py-2 text-xs dark:border-slate-800/80 dark:bg-slate-900/60">
+              <div className="text-slate-500 dark:text-slate-400">Relații corelate</div>
+              <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">
+                {syncPayload?.correlated != null
+                  ? syncPayload.correlated.toLocaleString('ro-RO')
+                  : '—'}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-2">
+            {syncSteps.map((step) => (
+              <div
+                key={step.key}
+                className="flex items-start gap-3 rounded-lg border border-white/60 bg-white/70 px-3 py-2 dark:border-slate-800/80 dark:bg-slate-900/60"
+              >
+                <span className="mt-0.5">
+                  {step.status === 'done' ? (
+                    <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
+                  ) : step.status === 'error' ? (
+                    <AlertTriangle className="size-4 text-rose-600 dark:text-rose-400" />
+                  ) : step.status === 'active' ? (
+                    <LoaderCircle className="size-4 animate-spin text-blue-600 dark:text-blue-400" />
+                  ) : (
+                    <Clock3 className="size-4 text-slate-400 dark:text-slate-500" />
+                  )}
+                </span>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                    {step.label}
+                  </div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">{step.detail}</div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
