@@ -883,9 +883,13 @@ export const bulkRoutes: FastifyPluginAsync<BulkRoutesOptions> = (
       return;
     }
 
+    const body = (request.body ?? {}) as { querySet?: unknown };
+    const querySet: 'core' | 'meta' | 'inventory' =
+      body.querySet === 'meta' ? 'meta' : body.querySet === 'inventory' ? 'inventory' : 'core';
+
     await startBulkQueryFromContract(session.shopId, {
       operationType: 'PRODUCTS_EXPORT',
-      querySet: 'core',
+      querySet,
       version: 'v2',
       triggeredBy: 'manual',
       idempotencyKey: `manual-${randomUUID()}`,

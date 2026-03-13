@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 
+import { Button } from '../ui/button';
 import { InfoTooltip } from '../ui/info-tooltip';
+import { Select, type SelectOption } from '../ui/select';
 
 type WebhookTesterProps = Readonly<{
   topics: string[];
@@ -57,32 +59,28 @@ export function WebhookTester({ topics, onTest, disabled }: WebhookTesterProps) 
       </div>
 
       <div className="flex flex-col gap-3 md:flex-row md:items-center">
-        <select
-          value={selectedTopic}
-          onChange={(event) => setSelectedTopic(event.target.value)}
-          disabled={isDisabled}
-          className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body shadow-sm focus:outline-none focus:ring-2 focus:ring-[rgb(var(--color-ring))]/40 md:w-64"
-        >
-          {topics.map((topic) => (
-            <option key={topic} value={topic}>
-              {topic}
-            </option>
-          ))}
-        </select>
+        <div className="md:w-64">
+          <Select
+            label="Topic"
+            options={topics.map((t): SelectOption => ({ value: t, label: t }))}
+            value={selectedTopic}
+            onChange={(e) => setSelectedTopic(e.target.value)}
+            disabled={isDisabled}
+          />
+        </div>
 
-        <button
-          type="button"
+        <Button
+          variant="secondary"
           onClick={() => void handleTest()}
           disabled={isDisabled || !selectedTopic || state === 'loading'}
-          className="inline-flex items-center justify-center rounded-md border border-muted/20 bg-background px-4 py-2 text-sm font-medium shadow-sm transition hover:bg-muted/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--color-ring))]/40 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {state === 'loading' ? 'Se testează…' : 'Testează webhook'}
-        </button>
+        </Button>
       </div>
 
       {message ? (
         <div
-          className={`rounded-md border p-3 text-sm shadow-sm ${
+          className={`rounded-md border p-3 text-sm shadow-[var(--shadow-sm)] ${
             state === 'error'
               ? 'border-error/30 bg-error/10 text-error'
               : 'border-success/30 bg-success/10 text-success'

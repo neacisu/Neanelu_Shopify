@@ -31,6 +31,7 @@ function createTestLogger(): Logger {
 const enqueueExtractionJobMock = mock.fn<(payload: EnqueueExtractionPayload) => Promise<void>>(() =>
   Promise.resolve()
 );
+const maybeEnqueueConsensusAfterAutomationMock = mock.fn(() => Promise.resolve(null));
 const updateQueries: { sql: string; values?: unknown[] }[] = [];
 
 void mock.module('@app/config', {
@@ -99,11 +100,7 @@ void mock.module('@app/database', {
             });
           }
           if (sql.includes('UPDATE prod_similarity_matches')) {
-            if (values) {
-              updateQueries.push({ sql, values });
-            } else {
-              updateQueries.push({ sql });
-            }
+            updateQueries.push(values ? { sql, values } : { sql });
             return Promise.resolve({ rows: [] });
           }
           return Promise.resolve({ rows: [] });
@@ -138,29 +135,44 @@ void mock.module(aiRoutingPath, {
         apiKey: 'token',
         baseUrl: 'http://10.0.1.10:49001/v1',
         model: 'Qwen/QwQ-32B-AWQ',
+        maxTokensPerRequest: 1200,
       }),
   },
 });
 
-void mock.module('../../../services/xai-credentials.js', {
+void mock.module('../../../services/consensus-engine.js', {
   namedExports: {
-    loadXAICredentials: () =>
+    consensusChatCompletion: () =>
       Promise.resolve({
-        apiKey: 'x',
-        baseUrl: 'https://api.x.ai/v1',
-        model: 'grok',
-        temperature: 0.1,
-        maxTokensPerRequest: 1000,
-        rateLimitPerMinute: 60,
-        dailyBudget: 100,
-        budgetAlertThreshold: 0.8,
+        result: { recommendation: 'approve' },
+        rawResponses: [],
+        method: 'majority',
+        consensusScore: 0.9,
+        participantCount: 4,
+        models: ['QwQ', 'Qwen'],
+        durationMs: 10,
       }),
+  },
+});
+
+void mock.module('../../../services/guardrails.js', {
+  namedExports: {
+    scanInput: ({ text }: { text: string }) =>
+      Promise.resolve({ isValid: true, sanitizedText: text, reason: null }),
+    scanOutput: ({ output }: { output: string }) =>
+      Promise.resolve({ isValid: true, sanitizedText: output, reason: null }),
   },
 });
 
 void mock.module('../../../queue/similarity-queues.js', {
   namedExports: {
     enqueueExtractionJob: enqueueExtractionJobMock,
+  },
+});
+
+void mock.module('../../../services/pim-pipeline-state.js', {
+  namedExports: {
+    maybeEnqueueConsensusAfterAutomation: maybeEnqueueConsensusAfterAutomationMock,
   },
 });
 
@@ -176,6 +188,7 @@ void describe('ai-audit worker (unit)', () => {
     decision = 'approve';
     updateQueries.length = 0;
     enqueueExtractionJobMock.mock.resetCalls();
+    maybeEnqueueConsensusAfterAutomationMock.mock.resetCalls();
 
     const { startAIAuditWorker, AI_AUDIT_JOB } = await import('../ai-audit.worker.js');
     startAIAuditWorker(createTestLogger());
@@ -190,12 +203,14 @@ void describe('ai-audit worker (unit)', () => {
     assert.equal(enqueueExtractionJobMock.mock.calls.length, 1);
     assert.equal(updateQueries.length, 1);
     assert.equal(updateQueries[0]?.values?.[0], 'confirmed');
+    assert.equal(maybeEnqueueConsensusAfterAutomationMock.mock.calls.length, 1);
   });
 
-  void it('rejects -> updates match as rejected (no extraction)', async () => {
+  void it('rejects -> updates match as rejected and settles pipeline', async () => {
     decision = 'reject';
     updateQueries.length = 0;
     enqueueExtractionJobMock.mock.resetCalls();
+    maybeEnqueueConsensusAfterAutomationMock.mock.resetCalls();
 
     const { startAIAuditWorker, AI_AUDIT_JOB } = await import('../ai-audit.worker.js');
     startAIAuditWorker(createTestLogger());
@@ -211,5 +226,29 @@ void describe('ai-audit worker (unit)', () => {
     assert.equal(updateQueries.length, 1);
     assert.equal(updateQueries[0]?.values?.[0], 'rejected');
     assert.equal(updateQueries[0]?.values?.[1], 'ai_audit_reject');
+    assert.equal(maybeEnqueueConsensusAfterAutomationMock.mock.calls.length, 1);
+  });
+
+  void it('escalates -> marks match uncertain for human review', async () => {
+    decision = 'escalate';
+    updateQueries.length = 0;
+    enqueueExtractionJobMock.mock.resetCalls();
+    maybeEnqueueConsensusAfterAutomationMock.mock.resetCalls();
+
+    const { startAIAuditWorker, AI_AUDIT_JOB } = await import('../ai-audit.worker.js');
+    startAIAuditWorker(createTestLogger());
+    assert.ok(capturedProcessor, 'expected createWorker mock to capture processor');
+
+    await capturedProcessor({
+      id: 'job-3',
+      name: AI_AUDIT_JOB,
+      data: { shopId: 'shop-1', matchId: 'match-1' },
+    });
+
+    assert.equal(enqueueExtractionJobMock.mock.calls.length, 0);
+    assert.equal(updateQueries.length, 1);
+    assert.equal(updateQueries[0]?.values?.[0], 'uncertain');
+    assert.equal(updateQueries[0]?.values?.[1], null);
+    assert.equal(maybeEnqueueConsensusAfterAutomationMock.mock.calls.length, 1);
   });
 });

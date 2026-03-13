@@ -6,7 +6,7 @@ interface JsonObject {
 export type RedactionMode = 'development' | 'staging' | 'production' | 'test';
 
 const SENSITIVE_KEY_REGEX =
-  /(password|secret|token|authorization|cookie|api[_-]?key|api[_-]?secret|access[_-]?token|refresh[_-]?token)/i;
+  /(password|secret|authorization|cookie|api[_-]?key|api[_-]?secret|access[_-]?token|refresh[_-]?token|bearer[_-]?token|session[_-]?token|csrf[_-]?token|auth[_-]?token|^token$)/i;
 
 export function redactDeep(value: unknown, mode: RedactionMode): unknown {
   return redactDeepInternal(value, mode, undefined);

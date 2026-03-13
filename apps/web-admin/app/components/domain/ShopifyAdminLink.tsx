@@ -125,17 +125,17 @@ function buildAdminUrl(path: string): string | null {
  * ```tsx
  * // Link to products list
  * <ShopifyAdminLink resourceType="products">
- *   View Products
+ * View Products
  * </ShopifyAdminLink>
  *
  * // Link to specific product
  * <ShopifyAdminLink resourceType="products" resourceId="123456789">
- *   View Product
+ * View Product
  * </ShopifyAdminLink>
  *
  * // Link to order edit page
  * <ShopifyAdminLink resourceType="orders" resourceId="987654321" subPath="edit">
- *   Edit Order
+ * Edit Order
  * </ShopifyAdminLink>
  * ```
  */
@@ -192,7 +192,7 @@ export function ShopifyAdminLink(props: ShopifyAdminLinkProps) {
   );
 
   const baseStyles =
-    'inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:text-blue-400 dark:hover:text-blue-300 transition-colors duration-150';
+    'inline-flex items-center gap-1 text-sm font-medium text-primary hover:text-primary/80 hover:underline focus:outline-none focus-ring-standard transition-colors duration-150';
 
   const disabledStyles = disabled
     ? 'opacity-50 cursor-not-allowed pointer-events-none'

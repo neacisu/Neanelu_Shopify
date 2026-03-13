@@ -3,7 +3,15 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { XaiHealthResponse, XaiSettingsResponse, XaiSettingsUpdateRequest } from '@app/types';
 
 import { InfoTooltip } from '../components/ui/info-tooltip';
+import { TextField } from '../components/ui/text-field';
+import { Select, type SelectOption } from '../components/ui/select';
 import { SubmitButton } from '../components/forms/submit-button';
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
+import { Checkbox } from '../components/ui/checkbox';
+import { Slider } from '../components/ui/slider';
+import { LoadingState } from '../components/patterns/loading-state';
+import { ErrorState } from '../components/patterns/error-state';
 import { useApiClient } from '../hooks/use-api';
 
 type XaiConnectionStatus =
@@ -24,12 +32,12 @@ const STATUS_LABELS: Record<XaiConnectionStatus, string> = {
 };
 
 const STATUS_STYLES: Record<XaiConnectionStatus, string> = {
-  unknown: 'bg-muted/20 text-muted dark:bg-slate-700/30 dark:text-slate-400',
-  connected: 'bg-success/15 text-success dark:bg-emerald-900/30 dark:text-emerald-400',
-  error: 'bg-error/15 text-error dark:bg-red-900/30 dark:text-red-400',
-  disabled: 'bg-warning/15 text-warning dark:bg-amber-900/30 dark:text-amber-400',
-  missing_key: 'bg-warning/15 text-warning dark:bg-amber-900/30 dark:text-amber-400',
-  pending: 'bg-blue-500/15 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400',
+  unknown: 'bg-muted/20 text-muted',
+  connected: 'bg-success/15 text-success',
+  error: 'bg-error/15 text-error',
+  disabled: 'bg-warning/15 text-warning',
+  missing_key: 'bg-warning/15 text-warning',
+  pending: 'bg-primary/15 text-primary',
 };
 
 function normalizeStatus(value: XaiSettingsResponse['connectionStatus']): XaiConnectionStatus {
@@ -280,22 +288,14 @@ export default function SettingsXai() {
     }
   };
 
+  if (loading) return <LoadingState label="Se încarcă setările xAI Grok..." />;
+
   return (
     <div className="space-y-4">
-      {loading ? (
-        <div className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-          Se încarcă setările xAI Grok...
-        </div>
-      ) : null}
+      {error ? <ErrorState message={error} /> : null}
 
-      {error ? (
-        <div className="rounded-md border border-error/30 bg-error/10 p-4 text-error shadow-sm dark:border-red-700/50 dark:bg-red-900/20">
-          {error}
-        </div>
-      ) : null}
-
-      <div className="rounded-lg border border-muted/20 bg-background p-4 text-sm dark:border-slate-700 dark:bg-slate-900/80">
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted dark:text-slate-400">
+      <Card className="p-4 text-sm">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
           <span>Status conexiune</span>
           <span className={`rounded-full px-2 py-1 text-xs font-medium ${statusStyle}`}>
             {statusLabel}
@@ -308,46 +308,44 @@ export default function SettingsXai() {
           ) : null}
         </div>
         {lastError ? <div className="mt-1 text-xs text-error">{lastError}</div> : null}
-      </div>
+      </Card>
 
       {todayUsage ? (
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-lg border border-muted/20 p-4 dark:border-slate-700 dark:bg-slate-900/80">
-            <div className="text-sm text-muted dark:text-slate-400">Cereri azi</div>
-            <div className="mt-1 text-2xl font-semibold dark:text-slate-100">
+          <Card className="p-4">
+            <div className="text-sm text-muted">Cereri azi</div>
+            <div className="mt-1 text-2xl font-semibold">
               {todayUsage.requests.toLocaleString('ro-RO')}
             </div>
-          </div>
-          <div className="rounded-lg border border-muted/20 p-4 dark:border-slate-700 dark:bg-slate-900/80">
-            <div className="text-sm text-muted dark:text-slate-400">Tokeni intrare</div>
-            <div className="mt-1 text-2xl font-semibold dark:text-slate-100">
+          </Card>
+          <Card className="p-4">
+            <div className="text-sm text-muted">Tokeni intrare</div>
+            <div className="mt-1 text-2xl font-semibold">
               {todayUsage.inputTokens.toLocaleString('ro-RO')}
             </div>
-          </div>
-          <div className="rounded-lg border border-muted/20 p-4 dark:border-slate-700 dark:bg-slate-900/80">
-            <div className="text-sm text-muted dark:text-slate-400">Buget utilizat</div>
-            <div className="mt-1 text-2xl font-semibold dark:text-slate-100">
+          </Card>
+          <Card className="p-4">
+            <div className="text-sm text-muted">Buget utilizat</div>
+            <div className="mt-1 text-2xl font-semibold">
               {(todayUsage.percentUsed * 100).toLocaleString('ro-RO', {
                 minimumFractionDigits: 1,
                 maximumFractionDigits: 1,
               })}
               %
             </div>
-            <div className="mt-2 h-2 w-full rounded-full bg-muted/10 dark:bg-slate-700/50">
+            <div className="mt-2 h-2 w-full rounded-full bg-muted/10">
               <div
                 className="h-2 rounded-full bg-primary/60"
                 style={{ width: `${budgetPercent * 100}%` }}
               />
             </div>
-          </div>
+          </Card>
         </div>
       ) : null}
 
       <form onSubmit={(event) => void saveSettings(event)} className="space-y-4">
-        <label className="flex items-center gap-2 text-body dark:text-slate-200">
-          <input
-            type="checkbox"
-            className="size-4 accent-primary"
+        <label className="flex items-center gap-2 text-foreground">
+          <Checkbox
             checked={enabled}
             onChange={(event) => {
               setEnabled(event.target.checked);
@@ -360,7 +358,7 @@ export default function SettingsXai() {
 
         <div>
           <label
-            className="text-caption text-muted dark:text-slate-400 inline-flex items-center gap-1"
+            className="text-caption text-muted inline-flex items-center gap-1"
             htmlFor="xai-api-key"
           >
             Cheie API xAI
@@ -370,7 +368,7 @@ export default function SettingsXai() {
               „xai-abc123...". Sfat: cheia e stocată criptat; lăsați câmpul gol dacă e deja salvată.
             </InfoTooltip>
           </label>
-          <input
+          <TextField
             id="xai-api-key"
             type="password"
             value={apiKey}
@@ -381,16 +379,13 @@ export default function SettingsXai() {
               setLastTestedKey(null);
             }}
             placeholder={hasApiKey ? '••••••••' : 'xai-...'}
-            className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
           />
-          <p className="mt-1 text-xs text-muted dark:text-slate-400">
-            Cheia este stocată criptat în baza de date.
-          </p>
+          <p className="mt-1 text-xs text-muted">Cheia este stocată criptat în baza de date.</p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <label className="space-y-1 text-sm">
-            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+          <div className="space-y-1 text-sm">
+            <span className="text-muted inline-flex items-center gap-1">
               Model
               <InfoTooltip title="Model xAI" side="bottom" portalToBody>
                 Modelul Grok folosit pentru AI Auditor și extracția structurată de date din paginile
@@ -399,23 +394,15 @@ export default function SettingsXai() {
                 actualizează după testul conexiunii.
               </InfoTooltip>
             </span>
-            <select
+            <Select
+              options={availableModels.map((item): SelectOption => ({ value: item, label: item }))}
               value={model}
               onChange={(event) => setModel(event.target.value)}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
-            >
-              {availableModels.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-muted dark:text-slate-400">
-              Folosit pentru AI Audit și extracție.
-            </p>
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+            />
+            <p className="text-xs text-muted">Folosit pentru AI Audit și extracție.</p>
+          </div>
+          <div className="space-y-1 text-sm">
+            <span className="text-muted inline-flex items-center gap-1">
               Tokeni max per cerere
               <InfoTooltip title="Tokeni max per cerere" side="bottom" portalToBody>
                 Limita maximă de tokeni pentru răspunsul modelului la o singură cerere. Valori mai
@@ -424,20 +411,19 @@ export default function SettingsXai() {
                 suficient pentru majoritatea produselor.
               </InfoTooltip>
             </span>
-            <input
+            <TextField
               type="number"
               min={256}
               max={8000}
-              value={maxTokens}
+              value={String(maxTokens)}
               onChange={(event) => setMaxTokens(Number(event.target.value))}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
             />
-          </label>
+          </div>
         </div>
 
         <div>
           <label
-            className="text-caption text-muted dark:text-slate-400 inline-flex items-center gap-1"
+            className="text-caption text-muted inline-flex items-center gap-1"
             htmlFor="xai-temperature"
           >
             Temperatură:{' '}
@@ -452,21 +438,21 @@ export default function SettingsXai() {
               același JSON. Sfat: 0,1 e recomandat pentru reproductibilitate.
             </InfoTooltip>
           </label>
-          <input
+          <Slider
             id="xai-temperature"
-            type="range"
             min={0}
             max={1}
             step={0.01}
             value={temperature}
-            onChange={(event) => setTemperature(Number(event.target.value))}
-            className="mt-2 w-full accent-primary"
+            showValue={false}
+            onChange={(val) => setTemperature(val)}
+            className="mt-2"
           />
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
-          <label className="space-y-1 text-sm">
-            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+          <div className="space-y-1 text-sm">
+            <span className="text-muted inline-flex items-center gap-1">
               Limită rată (cereri/min)
               <InfoTooltip title="Limită rată xAI" side="bottom" portalToBody>
                 Câte cereri se pot trimite pe minut către xAI API. Protejează contra depășirii
@@ -475,17 +461,16 @@ export default function SettingsXai() {
                 de procesare.
               </InfoTooltip>
             </span>
-            <input
+            <TextField
               type="number"
               min={1}
               max={1000}
-              value={rateLimit}
+              value={String(rateLimit)}
               onChange={(event) => setRateLimit(Number(event.target.value))}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
             />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+          </div>
+          <div className="space-y-1 text-sm">
+            <span className="text-muted inline-flex items-center gap-1">
               Buget zilnic
               <InfoTooltip title="Buget zilnic xAI" side="bottom" portalToBody>
                 Numărul maxim de cereri către xAI pe zi. La atingerea limitei, procesarea AI Auditor
@@ -493,17 +478,16 @@ export default function SettingsXai() {
                 pagini de produs. Sfat: ajustează în funcție de volumul catalogului tău.
               </InfoTooltip>
             </span>
-            <input
+            <TextField
               type="number"
               min={0}
               max={100000}
-              value={dailyBudget}
+              value={String(dailyBudget)}
               onChange={(event) => setDailyBudget(Number(event.target.value))}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
             />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+          </div>
+          <div className="space-y-1 text-sm">
+            <span className="text-muted inline-flex items-center gap-1">
               Prag alertă buget
               <InfoTooltip title="Prag alertă buget xAI" side="bottom" portalToBody>
                 Procentul din bugetul zilnic la care primești o avertizare vizuală. Te ajută să
@@ -511,21 +495,20 @@ export default function SettingsXai() {
                 1000, alerta apare după 800 cereri. Sfat: setează la 80–90% pentru marjă suficientă.
               </InfoTooltip>
             </span>
-            <input
+            <TextField
               type="number"
               min={0.5}
               max={0.99}
               step={0.01}
-              value={budgetAlertThreshold}
+              value={String(budgetAlertThreshold)}
               onChange={(event) => setBudgetAlertThreshold(Number(event.target.value))}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
             />
-          </label>
+          </div>
         </div>
 
         <div>
           <label
-            className="text-caption text-muted dark:text-slate-400 inline-flex items-center gap-1"
+            className="text-caption text-muted inline-flex items-center gap-1"
             htmlFor="xai-base-url"
           >
             URL bază xAI (opțional)
@@ -536,13 +519,12 @@ export default function SettingsXai() {
               versiune.
             </InfoTooltip>
           </label>
-          <input
+          <TextField
             id="xai-base-url"
             type="text"
             value={baseUrl}
             onChange={(event) => setBaseUrl(event.target.value)}
             placeholder="https://api.x.ai/v1"
-            className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
           />
         </div>
 
@@ -551,23 +533,24 @@ export default function SettingsXai() {
             {isConnected ? 'Conexiune activă' : 'Salvează setări xAI'}
           </SubmitButton>
           {isConnected ? (
-            <button
+            <Button
               type="button"
+              variant="destructive"
               onClick={() => void disconnectConnection()}
               disabled={saving}
-              className="rounded-md border border-error/40 px-4 py-2 text-sm font-medium text-error shadow-sm hover:bg-error/5 disabled:opacity-50 dark:border-red-700/50 dark:text-red-400 dark:hover:bg-red-900/20"
             >
               Deconectează
-            </button>
+            </Button>
           ) : null}
-          <button
+          <Button
             type="button"
+            variant="secondary"
             onClick={() => void testHealth()}
             disabled={!hasApiKey && !apiKeyDirty}
-            className="rounded-md border border-muted/20 px-4 py-2 text-sm font-medium shadow-sm transition-shadow duration-200 hover:bg-muted/10 focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:focus:ring-blue-400/50"
+            loading={healthLoading}
           >
             {healthLoading ? 'Se testează...' : 'Test conexiune'}
-          </button>
+          </Button>
           {healthResult ? (
             <span
               className={`text-xs ${healthResult.status === 'ok' ? 'text-success' : 'text-error'}`}
@@ -584,12 +567,12 @@ export default function SettingsXai() {
         </div>
 
         {!canSave && !isConnected ? (
-          <div className="text-xs text-warning dark:text-amber-400">
+          <div className="text-xs text-warning">
             Pentru a salva conexiunea, testează mai întâi conexiunea xAI.
           </div>
         ) : null}
         {success ? (
-          <div className="rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success shadow-sm dark:border-emerald-700/50 dark:bg-emerald-900/20">
+          <div className="rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success shadow-[var(--shadow-sm)]">
             Setările xAI au fost salvate.
           </div>
         ) : null}

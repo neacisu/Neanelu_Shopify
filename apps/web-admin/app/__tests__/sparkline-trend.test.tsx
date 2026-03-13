@@ -8,7 +8,7 @@ describe('Sparkline – trend arrows', () => {
     render(<Sparkline data={[10, 20, 30, 40, 50]} showChange />);
     const arrow = screen.getByTitle('creștere');
     expect(arrow).toBeInTheDocument();
-    expect(arrow).toHaveStyle({ color: '#16a34a' });
+    expect(arrow).toHaveStyle({ color: 'rgb(var(--color-success))' });
     expect(arrow.textContent).toContain('▲');
   });
 
@@ -16,7 +16,7 @@ describe('Sparkline – trend arrows', () => {
     render(<Sparkline data={[50, 40, 30, 20, 10]} showChange />);
     const arrow = screen.getByTitle('scădere');
     expect(arrow).toBeInTheDocument();
-    expect(arrow).toHaveStyle({ color: '#dc2626' });
+    expect(arrow).toHaveStyle({ color: 'rgb(var(--color-error))' });
     expect(arrow.textContent).toContain('▼');
   });
 
@@ -24,7 +24,7 @@ describe('Sparkline – trend arrows', () => {
     render(<Sparkline data={[30, 30, 30, 30, 30]} showChange />);
     const arrow = screen.getByTitle('constant');
     expect(arrow).toBeInTheDocument();
-    expect(arrow).toHaveStyle({ color: '#64748b' });
+    expect(arrow).toHaveStyle({ color: 'rgb(var(--color-muted))' });
     expect(arrow.textContent).toContain('—');
   });
 

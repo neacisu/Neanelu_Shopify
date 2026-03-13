@@ -1,3 +1,4 @@
+import { useReducedMotion } from '../../hooks/use-reduced-motion';
 import { Button } from '../ui/button';
 import { InfoTooltip } from '../ui/info-tooltip';
 import { ExtractionStatusBadge } from './ExtractionStatusBadge';
@@ -28,6 +29,7 @@ export function SimilarityMatchCard({
   onQuickConfirm,
   onQuickReject,
 }: SimilarityMatchCardProps) {
+  const reducedMotion = useReducedMotion();
   const extractionStatus = extractionStatusOverride ?? getExtractionStatus(match);
   const triage = getTriageDecision(match);
   const status =
@@ -49,8 +51,10 @@ export function SimilarityMatchCard({
           onClick?.();
         }
       }}
-      className="group cursor-pointer rounded-lg border border-slate-200/80 bg-white/80 backdrop-blur-sm p-4 transition-all duration-200 hover:border-blue-300/60 hover:shadow-[var(--shadow-md)] hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-slate-700/60 dark:bg-slate-900/80 dark:hover:border-blue-500/40 dark:hover:bg-slate-800/90 dark:focus-visible:ring-blue-400/50"
-      style={{ animation: `fadeSlideUp 0.35s ease-out ${index * 60}ms both` }}
+      className="group cursor-pointer rounded-lg border border-border bg-card/80 backdrop-blur-sm p-4 transition-all duration-200 hover:border-primary/30 hover:shadow-[var(--shadow-md)] hover:bg-card/90 focus-ring-standard"
+      style={
+        reducedMotion ? undefined : { animation: `fadeSlideUp 0.35s ease-out ${index * 60}ms both` }
+      }
     >
       <div className="flex items-start gap-3">
         {match.product_image ? (
@@ -60,20 +64,20 @@ export function SimilarityMatchCard({
             className="h-12 w-12 shrink-0 rounded-lg object-cover motion-safe:transition-transform motion-safe:duration-200 group-hover:scale-[1.02]"
           />
         ) : (
-          <div className="h-12 w-12 shrink-0 rounded-lg bg-slate-100 dark:bg-slate-800" />
+          <div className="h-12 w-12 shrink-0 rounded-lg bg-subtle" />
         )}
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium text-slate-800 dark:text-slate-100 line-clamp-2">
+          <div className="text-sm font-medium text-foreground line-clamp-2">
             {match.product_title}
           </div>
-          <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400 line-clamp-1">
+          <div className="mt-0.5 text-xs text-muted line-clamp-1">
             {match.source_title ?? match.source_url}
           </div>
         </div>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <span className="flex items-center gap-1 text-sm">
-          <span className="font-medium text-slate-800 dark:text-slate-100">
+          <span className="font-medium text-foreground">
             {Number(match.similarity_score).toFixed(2)}
           </span>
           <InfoTooltip title="Scor similaritate">
@@ -91,6 +95,7 @@ export function SimilarityMatchCard({
         <Button
           size="sm"
           variant="secondary"
+          aria-label={`Confirmă potrivirea pentru ${match.product_title}`}
           onClick={(e) => {
             e.stopPropagation();
             (onQuickConfirm ?? onClick)?.();
@@ -101,6 +106,7 @@ export function SimilarityMatchCard({
         <Button
           size="sm"
           variant="ghost"
+          aria-label={`Respinge potrivirea pentru ${match.product_title}`}
           onClick={(e) => {
             e.stopPropagation();
             (onQuickReject ?? onClick)?.();

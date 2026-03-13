@@ -16,15 +16,16 @@ export function EmptyState({
   onAction?: () => void;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200/90 bg-white/60 p-8 text-center shadow-[var(--shadow-sm)] backdrop-blur-sm transition-all duration-200 dark:border-slate-700/90 dark:bg-slate-800/60">
+    <div className="rounded-xl border border-border bg-card/60 p-8 text-center shadow-[var(--shadow-sm)] backdrop-blur-sm transition-all duration-200">
       {Icon ? (
-        <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-slate-100 shadow-[var(--shadow-sm)] ring-1 ring-slate-200/80 dark:bg-slate-800 dark:ring-slate-600/80">
-          <Icon className="size-7 text-slate-500 dark:text-slate-400" />
+        <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-subtle shadow-[var(--shadow-sm)] ring-1 ring-border/60">
+          <Icon className="size-7 text-muted" />
         </div>
       ) : (
-        <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-800">
+        <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-subtle">
           <svg
-            className="size-7 text-slate-400 dark:text-slate-500"
+            aria-hidden="true"
+            className="size-7 text-muted"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -38,11 +39,9 @@ export function EmptyState({
           </svg>
         </div>
       )}
-      <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200">{title}</h3>
+      <h3 className="text-lg font-semibold text-foreground">{title}</h3>
       {description ? (
-        <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-slate-500 dark:text-slate-400">
-          {description}
-        </p>
+        <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted">{description}</p>
       ) : null}
       {actionLabel && onAction ? (
         <div className="mt-5 flex justify-center">

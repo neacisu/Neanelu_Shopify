@@ -5,12 +5,15 @@ import { RefreshCw, Trophy } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
 import { InfoTooltip } from '../components/ui/info-tooltip';
 import { QualityDistributionChart } from '../components/domain/QualityDistributionChart';
 import { QualityTrendChart } from '../components/domain/QualityTrendChart';
 import { PromotionRateCard } from '../components/domain/PromotionRateCard';
 import { DataFreshnessIndicator } from '../components/domain/DataFreshnessIndicator';
 import { DashboardSkeleton } from '../components/patterns/DashboardSkeleton';
+import { EmptyState } from '../components/patterns/empty-state.js';
+import { LoadingState } from '../components/patterns/loading-state.js';
 import { useApiClient, useApiRequest } from '../hooks/use-api';
 import { useEnrichmentStream } from '../hooks/useEnrichmentStream';
 import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
@@ -180,13 +183,13 @@ export default function QualityProgressPage() {
       </div>
 
       {latestMilestoneEvent?.milestone ? (
-        <div className="flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-600/50 dark:bg-amber-900/20">
-          <Trophy className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+        <div className="flex items-center gap-3 rounded-lg border border-warning/50 bg-warning/5 p-4">
+          <Trophy className="h-6 w-6 text-warning" />
           <div>
-            <div className="text-sm font-semibold text-amber-700 dark:text-amber-300">
+            <div className="text-sm font-semibold text-warning">
               Prag: {latestMilestoneEvent.milestone} Golden Records
             </div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">
+            <div className="text-xs text-muted">
               Atins la{' '}
               {latestMilestoneEvent.createdAt
                 ? new Date(latestMilestoneEvent.createdAt).toLocaleDateString('ro-RO')
@@ -237,8 +240,8 @@ export default function QualityProgressPage() {
         />
       </div>
 
-      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60">
-        <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+      <Card padding="md">
+        <div className="mb-2 flex items-center gap-1.5 text-xs text-primary">
           <span>Sumar nivele de calitate</span>
           <InfoTooltip title="Sumar calitate">
             Sumarul arată numărul de produse și scorul mediu pentru fiecare nivel. De ce contează:
@@ -248,65 +251,53 @@ export default function QualityProgressPage() {
           </InfoTooltip>
         </div>
         <div className="grid gap-4 md:grid-cols-4">
-          <div
-            className="rounded-md border border-muted/20 p-3 dark:border-slate-700 dark:bg-slate-800/50"
-            aria-label="Bronze quality summary"
-          >
-            <div className="text-xs text-slate-500 dark:text-slate-400">Bronze</div>
-            <div className="text-h5 text-slate-800 dark:text-slate-100">{quality.bronze.count}</div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">
+          <Card padding="sm" variant="bordered" aria-label="Bronze quality summary">
+            <div className="text-xs text-muted">Bronze</div>
+            <div className="text-h5 text-foreground">{quality.bronze.count}</div>
+            <div className="text-xs text-muted">
               Medie:{' '}
               {quality.bronze.avgQualityScore != null
                 ? quality.bronze.avgQualityScore.toFixed(2)
                 : 'N/A'}
             </div>
-          </div>
-          <div
-            className="rounded-md border border-muted/20 p-3 dark:border-slate-700 dark:bg-slate-800/50"
-            aria-label="Silver quality summary"
-          >
-            <div className="text-xs text-slate-500 dark:text-slate-400">Silver</div>
-            <div className="text-h5 text-slate-800 dark:text-slate-100">{quality.silver.count}</div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">
+          </Card>
+          <Card padding="sm" variant="bordered" aria-label="Silver quality summary">
+            <div className="text-xs text-muted">Silver</div>
+            <div className="text-h5 text-foreground">{quality.silver.count}</div>
+            <div className="text-xs text-muted">
               Medie:{' '}
               {quality.silver.avgQualityScore != null
                 ? quality.silver.avgQualityScore.toFixed(2)
                 : 'N/A'}
             </div>
-          </div>
-          <div
-            className="rounded-md border border-muted/20 p-3 dark:border-slate-700 dark:bg-slate-800/50"
-            aria-label="Golden quality summary"
-          >
-            <div className="text-xs text-slate-500 dark:text-slate-400">Golden</div>
-            <div className="text-h5 text-slate-800 dark:text-slate-100">{quality.golden.count}</div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">
+          </Card>
+          <Card padding="sm" variant="bordered" aria-label="Golden quality summary">
+            <div className="text-xs text-muted">Golden</div>
+            <div className="text-h5 text-foreground">{quality.golden.count}</div>
+            <div className="text-xs text-muted">
               Medie:{' '}
               {quality.golden.avgQualityScore != null
                 ? quality.golden.avgQualityScore.toFixed(2)
                 : 'N/A'}
             </div>
-          </div>
-          <div
-            className="rounded-md border border-muted/20 p-3 dark:border-slate-700 dark:bg-slate-800/50"
-            aria-label="Review quality summary"
-          >
-            <div className="text-xs text-slate-500 dark:text-slate-400">Review necesar</div>
-            <div className="text-h5 text-slate-800 dark:text-slate-100">{quality.review.count}</div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">
+          </Card>
+          <Card padding="sm" variant="bordered" aria-label="Review quality summary">
+            <div className="text-xs text-muted">Review necesar</div>
+            <div className="text-h5 text-foreground">{quality.review.count}</div>
+            <div className="text-xs text-muted">
               Medie:{' '}
               {quality.review.avgQualityScore != null
                 ? quality.review.avgQualityScore.toFixed(2)
                 : 'N/A'}
             </div>
-          </div>
+          </Card>
         </div>
-      </div>
+      </Card>
 
-      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60">
+      <Card padding="md">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
-            <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+            <div className="flex items-center gap-1.5 text-xs text-primary">
               <span>Detaliere pe nivel de calitate</span>
               <InfoTooltip title="Detaliere calitate">
                 Detaliererea arată produsele dintr-un anumit nivel de calitate. De ce contează: poți
@@ -343,9 +334,9 @@ export default function QualityProgressPage() {
         </div>
 
         {selectedLevel ? (
-          <div className="overflow-hidden rounded-md border border-muted/20 dark:border-slate-700">
+          <div className="overflow-x-auto rounded-md border border-border">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+              <thead className="bg-subtle text-xs text-muted">
                 <tr>
                   <th className="px-3 py-2 text-left font-medium">Produs</th>
                   <th className="px-3 py-2 text-left font-medium">Vendor</th>
@@ -355,18 +346,15 @@ export default function QualityProgressPage() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td
-                      className="px-3 py-3 text-sm text-slate-500 dark:text-slate-400"
-                      colSpan={3}
-                    >
-                      Se încarcă produsele...
+                    <td colSpan={3}>
+                      <LoadingState label="Se încarcă produsele..." />
                     </td>
                   </tr>
                 ) : products?.items.length ? (
                   products.items.map((item) => (
                     <tr
                       key={item.id}
-                      className="border-t border-muted/20 dark:border-slate-700 text-slate-800 dark:text-slate-200"
+                      className="table-row-interactive border-t border-border text-foreground"
                     >
                       <td className="px-3 py-2">
                         <Link className="text-primary" to={`/products/${item.id}`}>
@@ -381,11 +369,11 @@ export default function QualityProgressPage() {
                   ))
                 ) : (
                   <tr>
-                    <td
-                      className="px-3 py-3 text-sm text-slate-500 dark:text-slate-400"
-                      colSpan={3}
-                    >
-                      Nu există produse pentru nivelul selectat.
+                    <td colSpan={3}>
+                      <EmptyState
+                        title="Nu există produse"
+                        description="Nu există produse pentru nivelul selectat."
+                      />
                     </td>
                   </tr>
                 )}
@@ -395,7 +383,7 @@ export default function QualityProgressPage() {
         ) : (
           <div className="text-sm text-muted">Fa click pe un segment pentru a vedea produsele.</div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

@@ -29,7 +29,7 @@ export function WebhookDeliveriesTable(props: {
 
   if (props.loading) {
     return (
-      <div className="rounded-md border border-muted/20 bg-background p-4 text-sm text-muted dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-400">
+      <div className="rounded-md border border-muted/20 bg-background p-4 text-sm text-muted">
         Se încarcă livrările…
       </div>
     );
@@ -37,16 +37,16 @@ export function WebhookDeliveriesTable(props: {
 
   if (props.deliveries.length === 0) {
     return (
-      <div className="rounded-md border border-muted/20 bg-background p-4 text-sm text-muted dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-400">
+      <div className="rounded-md border border-muted/20 bg-background p-4 text-sm text-muted">
         Nicio livrare încă.
       </div>
     );
   }
 
   return (
-    <div className="space-y-2 rounded-md border border-muted/20 bg-background p-4 dark:border-slate-700 dark:bg-slate-900/80">
+    <div className="space-y-2 rounded-md border border-muted/20 bg-background p-4">
       <div className="mb-2 flex items-center gap-2">
-        <span className="text-sm font-medium dark:text-slate-100">Istoric livrări</span>
+        <span className="text-sm font-medium">Istoric livrări</span>
         <InfoTooltip title="Istoric livrări webhook" side="bottom" portalToBody>
           Lista ultimelor notificări trimise către endpoint-ul tău, cu status HTTP, durată și
           numărul încercării. Click pe un rând pentru detalii complete și payload-ul JSON. De
@@ -56,7 +56,7 @@ export function WebhookDeliveriesTable(props: {
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="text-xs text-muted dark:text-slate-400">
+          <thead className="text-xs text-muted">
             <tr>
               <th className="px-2 py-1 text-left">Eveniment</th>
               <th className="px-2 py-1 text-left">Status</th>
@@ -66,13 +66,13 @@ export function WebhookDeliveriesTable(props: {
               <th className="px-2 py-1 text-right">Data</th>
             </tr>
           </thead>
-          <tbody className="dark:text-slate-200">
+          <tbody className="">
             {props.deliveries.map((item) => {
               const failed = !item.httpStatus || item.httpStatus < 200 || item.httpStatus > 299;
               return (
                 <tr
                   key={item.id}
-                  className="cursor-pointer border-t border-muted/20 hover:bg-muted/10 dark:border-slate-700 dark:hover:bg-slate-800/50"
+                  className="table-row-interactive cursor-pointer border-t border-muted/20 hover:bg-muted/10"
                   onClick={() => setExpanded((prev) => (prev === item.id ? null : item.id))}
                 >
                   <td className="px-2 py-2">{item.eventType ?? 'necunoscut'}</td>
@@ -82,7 +82,7 @@ export function WebhookDeliveriesTable(props: {
                   <td className="px-2 py-2 text-right">{item.httpStatus ?? 'n/a'}</td>
                   <td className="px-2 py-2 text-right">{item.durationMs ?? 'n/a'} ms</td>
                   <td className="px-2 py-2 text-right">{item.attempt}</td>
-                  <td className="px-2 py-2 text-right">
+                  <td className="whitespace-nowrap px-2 py-2 text-right">
                     {new Date(item.createdAt).toLocaleString('ro-RO')}
                   </td>
                 </tr>
@@ -93,7 +93,7 @@ export function WebhookDeliveriesTable(props: {
       </div>
 
       {expanded ? (
-        <div className="space-y-2 rounded-md border border-muted/20 p-3 dark:border-slate-700 dark:bg-slate-800/50">
+        <div className="space-y-2 rounded-md border border-muted/20 p-3">
           {(() => {
             const row = props.deliveries.find((item) => item.id === expanded);
             if (!row) return null;
@@ -101,7 +101,7 @@ export function WebhookDeliveriesTable(props: {
             return (
               <>
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-sm font-medium dark:text-slate-100">Detalii livrare</div>
+                  <div className="text-sm font-medium">Detalii livrare</div>
                   {failed && props.onRetry ? (
                     <Button
                       variant="secondary"
@@ -119,7 +119,7 @@ export function WebhookDeliveriesTable(props: {
                   ) : null}
                 </div>
                 {row.errorMessage ? (
-                  <div className="rounded-md border border-error/30 bg-error/10 p-2 text-sm text-error dark:border-red-700/50 dark:bg-red-900/20">
+                  <div className="rounded-md border border-error/30 bg-error/10 p-2 text-sm text-error">
                     {row.errorMessage}
                   </div>
                 ) : null}

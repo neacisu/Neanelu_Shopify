@@ -1,12 +1,20 @@
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
 import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
 import { withTenantContext } from '@app/database';
 import { configFromEnv, createQueue } from '@app/queue-manager';
-import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
+import type { MultipartFile } from '@fastify/multipart';
+import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from 'fastify';
 import type { SessionConfig } from '../auth/session.js';
 import { requireSession } from '../auth/session.js';
 import { getShopOpenAiConfig } from '../runtime/openai-config.js';
 import { resolveChatTaskCredentials } from '../services/ai-provider-routing.js';
+import { loadXAICredentials } from '../services/xai-credentials.js';
+import { brainstormMetafieldSuggestions } from '../services/metafield-brainstorm.js';
+import { withTokenRetry } from '../auth/token-lifecycle.js';
+import { shopifyApi } from '../shopify/client.js';
 import { consensusChatCompletion } from '../services/consensus-engine.js';
 import {
   approveMenuAssignment,
@@ -35,9 +43,11 @@ import {
   rejectPendingCollectionChange,
   upsertFieldUpdatePendingChange,
   upsertMenuAssignPendingChange,
+  upsertProductDissociatePendingChange,
   upsertTaxonomyAssignPendingChange,
   upsertTaxonomyUnassignPendingChange,
   type CollectionPendingChangeSource,
+  type DbClientLike,
 } from '../services/collection-pending-changes.js';
 import {
   buildMenuAssignPendingMetadata,
@@ -543,6 +553,20 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+const PENDING_IMAGES_DIR =
+  process.env['COLLECTION_IMAGES_DIR']?.trim() ?? '/var/lib/neanelu/collection-images';
+
+async function ensurePendingImagesDir(): Promise<string> {
+  try {
+    await fs.mkdir(PENDING_IMAGES_DIR, { recursive: true });
+    return PENDING_IMAGES_DIR;
+  } catch {
+    const fallback = path.join(os.tmpdir(), 'neanelu', 'collection-images');
+    await fs.mkdir(fallback, { recursive: true });
+    return fallback;
+  }
+}
+
 function successEnvelope<T>(requestId: string, data: T) {
   return {
     success: true,
@@ -575,7 +599,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
 
   const ALLOWED_SORT: Record<string, string> = {
     title: 'sc.title',
-    products_count: 'sc.products_count',
+    products_count: 'products_count',
     synced_at: 'sc.synced_at',
     collection_type: 'sc.collection_type',
     menu_level: 'sc.menu_level',
@@ -695,12 +719,16 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           );
         }
         if (minProducts != null && !Number.isNaN(minProducts)) {
-          conditions.push(`sc.products_count >= $${paramIdx}`);
+          conditions.push(
+            `(SELECT COUNT(*) FROM shopify_collection_products scp WHERE scp.shop_id = sc.shop_id AND scp.collection_id = sc.id) >= $${paramIdx}`
+          );
           params.push(minProducts);
           paramIdx += 1;
         }
         if (maxProducts != null && !Number.isNaN(maxProducts)) {
-          conditions.push(`sc.products_count <= $${paramIdx}`);
+          conditions.push(
+            `(SELECT COUNT(*) FROM shopify_collection_products scp WHERE scp.shop_id = sc.shop_id AND scp.collection_id = sc.id) <= $${paramIdx}`
+          );
           params.push(maxProducts);
           paramIdx += 1;
         }
@@ -724,6 +752,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           description_en: string | null;
           title_en: string | null;
           image_url: string | null;
+          pending_image_path: string | null;
           parent_collection_id: string | null;
           parent_title: string | null;
           menu_level: number | null;
@@ -739,7 +768,12 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                   sc.title_en,
                   sc.handle,
                   sc.collection_type,
-                  sc.products_count,
+                  COALESCE((
+                    SELECT COUNT(*)::int
+                      FROM shopify_collection_products scp
+                     WHERE scp.shop_id = sc.shop_id
+                       AND scp.collection_id = sc.id
+                  ), 0) AS products_count,
                   COALESCE(COUNT(ptcm.taxonomy_id), 0)::int AS taxonomy_count,
                   MAX(pt.name) AS taxonomy_name,
                   sc.synced_at::text,
@@ -747,6 +781,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                   sc.description_html,
                   sc.description_en,
                   sc.image_url,
+                  sc.pending_image_path,
                   sc.parent_collection_id,
                   parent_sc.title AS parent_title,
                   sc.menu_level,
@@ -775,8 +810,9 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
            LEFT JOIN prod_taxonomy pt ON pt.id = ptcm.taxonomy_id
            WHERE ${whereClause}
            GROUP BY sc.id, sc.shopify_gid, sc.legacy_resource_id, sc.title, sc.title_en, sc.handle,
-                    sc.collection_type, sc.products_count, sc.synced_at, sc.description,
-                    sc.description_html, sc.description_en, sc.image_url, sc.parent_collection_id, parent_sc.title,
+                    sc.collection_type, sc.synced_at, sc.description,
+                    sc.description_html, sc.description_en, sc.image_url, sc.pending_image_path,
+                    sc.parent_collection_id, parent_sc.title,
                     sc.menu_level, sc.menu_path, sc.updated_at
            ORDER BY ${orderColumn} ${sortDir}
            LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
@@ -805,6 +841,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
         description_html: r.description_html,
         description_en: r.description_en,
         image_url: r.image_url,
+        has_pending_image: r.pending_image_path != null && r.pending_image_path !== '',
         parent_collection_id: r.parent_collection_id,
         parent_title: r.parent_title,
         menu_level: r.menu_level,
@@ -1067,6 +1104,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           description_html: string | null;
           description_en: string | null;
           image_url: string | null;
+          pending_image_path: string | null;
           parent_collection_id: string | null;
           parent_title: string | null;
           menu_level: number | null;
@@ -1081,7 +1119,12 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                   sc.title_en,
                   sc.handle,
                   sc.collection_type,
-                  sc.products_count,
+                  COALESCE((
+                    SELECT COUNT(*)::int
+                      FROM shopify_collection_products scp
+                     WHERE scp.shop_id = sc.shop_id
+                       AND scp.collection_id = sc.id
+                  ), 0) AS products_count,
                   COALESCE(COUNT(ptcm.taxonomy_id), 0)::int AS taxonomy_count,
                   MAX(pt.name) AS taxonomy_name,
                   sc.synced_at::text,
@@ -1089,6 +1132,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
                   sc.description_html,
                   sc.description_en,
                   sc.image_url,
+                  sc.pending_image_path,
                   sc.parent_collection_id,
                   parent_sc.title AS parent_title,
                   sc.menu_level,
@@ -1117,9 +1161,10 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
            WHERE sc.shop_id = $1
              AND sc.id = $2
            GROUP BY sc.id, sc.shopify_gid, sc.legacy_resource_id, sc.title, sc.title_en,
-                    sc.handle, sc.collection_type, sc.products_count, sc.synced_at,
+                    sc.handle, sc.collection_type, sc.synced_at,
                     sc.description, sc.description_html, sc.description_en, sc.image_url,
-                    sc.parent_collection_id, parent_sc.title, sc.menu_level, sc.menu_path
+                    sc.pending_image_path, sc.parent_collection_id, parent_sc.title,
+                    sc.menu_level, sc.menu_path
            LIMIT 1`,
           [session.shopId, collectionId]
         );
@@ -1150,6 +1195,7 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
             description_html: row.description_html,
             description_en: row.description_en,
             image_url: row.image_url,
+            has_pending_image: row.pending_image_path != null && row.pending_image_path !== '',
             parent_collection_id: row.parent_collection_id,
             parent_title: row.parent_title,
             menu_level: row.menu_level,
@@ -1230,8 +1276,12 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
 
       setClauses.push('updated_at = now()');
 
+      let snapshot: { title: string | null; description: string | null } = {
+        title: null,
+        description: null,
+      };
       await withTenantContext(session.shopId, async (client) => {
-        const snapshot = await loadCollectionFieldSnapshot({
+        snapshot = await loadCollectionFieldSnapshot({
           shopId: session.shopId,
           collectionId,
         });
@@ -1241,19 +1291,36 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
             WHERE shop_id = $1 AND id = $2`,
           values
         );
-        for (const fieldUpdate of pendingFieldUpdates) {
-          await upsertFieldUpdatePendingChange(client, {
-            shopId: session.shopId,
-            collectionId,
-            fieldName: fieldUpdate.fieldName,
-            oldValue: fieldUpdate.fieldName === 'title' ? snapshot.title : snapshot.description,
-            newValue: fieldUpdate.newValue,
-            source,
-          });
-        }
       });
 
-      const pending = await getPendingCollectionChangeCounts(session.shopId);
+      if (pendingFieldUpdates.length > 0) {
+        try {
+          await withTenantContext(session.shopId, async (client) => {
+            for (const fieldUpdate of pendingFieldUpdates) {
+              await upsertFieldUpdatePendingChange(client, {
+                shopId: session.shopId,
+                collectionId,
+                fieldName: fieldUpdate.fieldName,
+                oldValue: fieldUpdate.fieldName === 'title' ? snapshot.title : snapshot.description,
+                newValue: fieldUpdate.newValue,
+                source,
+              });
+            }
+          });
+        } catch (pendingErr) {
+          request.log.warn({ err: pendingErr }, 'Failed to queue pending field changes');
+        }
+      }
+
+      let pending = {
+        count: 0,
+        byType: { field_update: 0, taxonomy_assign: 0, taxonomy_unassign: 0, menu_assign: 0 },
+      };
+      try {
+        pending = await getPendingCollectionChangeCounts(session.shopId);
+      } catch {
+        /* table may not exist yet */
+      }
       return reply.send(successEnvelope(request.id, { updated: true, pendingChanges: pending }));
     }
   );
@@ -1271,8 +1338,25 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
       }
 
-      const pending = await listPendingCollectionChanges(session.shopId);
-      return reply.send(successEnvelope(request.id, pending));
+      try {
+        const pending = await listPendingCollectionChanges(session.shopId);
+        return reply.send(successEnvelope(request.id, pending));
+      } catch (err) {
+        request.log.warn({ err }, 'Failed to list pending collection changes');
+        return reply.send(
+          successEnvelope(request.id, {
+            changes: [],
+            byType: {
+              field_update: 0,
+              taxonomy_assign: 0,
+              taxonomy_unassign: 0,
+              menu_assign: 0,
+              product_dissociate: 0,
+              metafield_definition_create: 0,
+            },
+          })
+        );
+      }
     }
   );
 
@@ -1289,8 +1373,25 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
       }
 
-      const counts = await getPendingCollectionChangeCounts(session.shopId);
-      return reply.send(successEnvelope(request.id, counts));
+      try {
+        const counts = await getPendingCollectionChangeCounts(session.shopId);
+        return reply.send(successEnvelope(request.id, counts));
+      } catch (err) {
+        request.log.warn({ err }, 'Failed to get pending collection change counts');
+        return reply.send(
+          successEnvelope(request.id, {
+            count: 0,
+            byType: {
+              field_update: 0,
+              taxonomy_assign: 0,
+              taxonomy_unassign: 0,
+              menu_assign: 0,
+              product_dissociate: 0,
+              metafield_definition_create: 0,
+            },
+          })
+        );
+      }
     }
   );
 
@@ -1307,23 +1408,92 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
       }
 
-      const approved = await approvePendingCollectionChanges(session.shopId);
-      for (const change of approved) {
-        await enqueueCollectionShopifySyncJob({
-          shopId: change.shopId,
-          changeId: change.id,
-          collectionId: change.collectionId,
-          changeType: change.changeType,
-          fieldName: change.fieldName,
-          newValue: change.newValue,
-          metadata: change.metadata,
-          shopifyMutation: change.shopifyMutation,
-        });
+      try {
+        const approved = await approvePendingCollectionChanges(session.shopId);
+
+        const menuAssignByMenu = new Map<string, typeof approved>();
+        const nonMenuChanges: typeof approved = [];
+
+        for (const change of approved) {
+          if (change.changeType === 'menu_assign') {
+            const menuId =
+              typeof change.metadata['menuId'] === 'string' ? change.metadata['menuId'] : '';
+            if (menuId) {
+              const group = menuAssignByMenu.get(menuId) ?? [];
+              group.push(change);
+              menuAssignByMenu.set(menuId, group);
+            } else {
+              nonMenuChanges.push(change);
+            }
+          } else {
+            nonMenuChanges.push(change);
+          }
+        }
+
+        for (const change of nonMenuChanges) {
+          await enqueueCollectionShopifySyncJob({
+            shopId: change.shopId,
+            changeId: change.id,
+            collectionId: change.collectionId,
+            changeType: change.changeType,
+            fieldName: change.fieldName,
+            newValue: change.newValue,
+            metadata: change.metadata,
+            shopifyMutation: change.shopifyMutation,
+          });
+        }
+
+        for (const [, menuChanges] of menuAssignByMenu) {
+          const primary = menuChanges[0]!;
+          const batchedOps = menuChanges.map((c) => ({
+            changeId: c.id,
+            collectionId: c.collectionId,
+            action: typeof c.metadata['action'] === 'string' ? c.metadata['action'] : 'add',
+            collectionGid:
+              typeof c.metadata['collectionGid'] === 'string' ? c.metadata['collectionGid'] : '',
+            collectionTitle:
+              typeof c.metadata['collectionTitle'] === 'string'
+                ? c.metadata['collectionTitle']
+                : '',
+            parentMenuItemId:
+              typeof c.metadata['parentMenuItemId'] === 'string'
+                ? c.metadata['parentMenuItemId']
+                : undefined,
+            menuItemIdToRemove:
+              typeof c.metadata['menuItemIdToRemove'] === 'string'
+                ? c.metadata['menuItemIdToRemove']
+                : undefined,
+          }));
+          await enqueueCollectionShopifySyncJob({
+            shopId: primary.shopId,
+            changeId: primary.id,
+            collectionId: primary.collectionId,
+            changeType: 'menu_assign',
+            fieldName: primary.fieldName,
+            newValue: primary.newValue,
+            metadata: {
+              ...primary.metadata,
+              batchedOperations: batchedOps,
+            },
+            shopifyMutation: primary.shopifyMutation,
+          });
+        }
+        const pending = await getPendingCollectionChangeCounts(session.shopId);
+        return reply.send(
+          successEnvelope(request.id, {
+            approved: approved.length,
+            queued: approved.length,
+            pending,
+          })
+        );
+      } catch (err) {
+        request.log.error({ err }, 'Failed to approve pending collection changes');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(request.id, 500, 'INTERNAL_ERROR', 'Failed to approve pending changes')
+          );
       }
-      const pending = await getPendingCollectionChangeCounts(session.shopId);
-      return reply.send(
-        successEnvelope(request.id, { approved: approved.length, queued: approved.length, pending })
-      );
     }
   );
 
@@ -1346,14 +1516,23 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing pending change id'));
       }
 
-      const rejected = await rejectPendingCollectionChange(session.shopId, changeId);
-      if (!rejected) {
+      try {
+        const rejected = await rejectPendingCollectionChange(session.shopId, changeId);
+        if (!rejected) {
+          return reply
+            .status(404)
+            .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Pending change not found'));
+        }
+        const pending = await getPendingCollectionChangeCounts(session.shopId);
+        return reply.send(successEnvelope(request.id, { rejected: true, pending }));
+      } catch (err) {
+        request.log.error({ err }, 'Failed to reject pending collection change');
         return reply
-          .status(404)
-          .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Pending change not found'));
+          .status(500)
+          .send(
+            errorEnvelope(request.id, 500, 'INTERNAL_ERROR', 'Failed to reject pending change')
+          );
       }
-      const pending = await getPendingCollectionChangeCounts(session.shopId);
-      return reply.send(successEnvelope(request.id, { rejected: true, pending }));
     }
   );
 
@@ -2614,6 +2793,540 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
     }
   );
 
+  // ── Generate image with xAI (save locally as pending, no Shopify push) ──
+
+  server.post(
+    '/collections/:collectionId/generate-image',
+    { preHandler: [requireAdminSession] },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      const collectionId = (request.params as { collectionId?: string }).collectionId;
+      if (!collectionId) {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing collectionId'));
+      }
+
+      try {
+        const env = options.env;
+        const log = options.logger;
+        log.info({ collectionId, shopId: session.shopId }, 'generate-image: handler entered');
+
+        const ctx = await withTenantContext(session.shopId, async (client) => {
+          const result = await client.query<{ title: string; description: string | null }>(
+            `SELECT title, description FROM shopify_collections WHERE id = $1 AND shop_id = $2`,
+            [collectionId, session.shopId]
+          );
+          return result.rows[0] ?? null;
+        });
+        if (!ctx) {
+          return reply
+            .status(404)
+            .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Collection not found'));
+        }
+        log.info({ collectionId, title: ctx.title }, 'generate-image: collection found');
+
+        const xaiCreds = await loadXAICredentials({
+          shopId: session.shopId,
+          encryptionKeyHex: env.encryptionKeyHex,
+        });
+        log.info(
+          { collectionId, hasXaiCreds: xaiCreds != null, baseUrl: xaiCreds?.baseUrl },
+          'generate-image: xai creds loaded'
+        );
+        if (!xaiCreds) {
+          return reply
+            .status(400)
+            .send(
+              errorEnvelope(
+                request.id,
+                400,
+                'AI_NOT_CONFIGURED',
+                'xAI nu este configurat. Adaugă credențiale în Setări > xAI.'
+              )
+            );
+        }
+
+        const prompt = [
+          `Professional product category hero image for an e-commerce store.`,
+          `Category: "${ctx.title}".`,
+          ctx.description ? `Description: "${ctx.description.slice(0, 200)}".` : '',
+          `Requirements:`,
+          `- Clean, modern product photography style`,
+          `- Show representative products from this category arranged aesthetically`,
+          `- Neutral or white background, well-lit, commercial quality`,
+          `- No text, labels, logos, watermarks, or brand names`,
+          `- Square composition 1:1 ratio`,
+          `- Professional e-commerce catalog style`,
+        ]
+          .filter(Boolean)
+          .join('\n');
+
+        log.info(
+          { collectionId, title: ctx.title, url: `${xaiCreds.baseUrl}/images/generations` },
+          'generate-image: calling xAI'
+        );
+
+        const xaiResp = await fetch(`${xaiCreds.baseUrl}/images/generations`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${xaiCreds.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: 'grok-imagine-image',
+            prompt,
+            n: 1,
+            response_format: 'b64_json',
+          }),
+        });
+
+        log.info({ collectionId, xaiStatus: xaiResp.status }, 'generate-image: xAI responded');
+
+        if (!xaiResp.ok) {
+          const errBody = await xaiResp.text().catch(() => '');
+          log.error(
+            { status: xaiResp.status, body: errBody.slice(0, 500) },
+            'xAI image generation failed'
+          );
+          return reply
+            .status(502)
+            .send(
+              errorEnvelope(
+                request.id,
+                502,
+                'AI_ERROR',
+                `Generarea imaginii a eșuat la xAI (${xaiResp.status})`
+              )
+            );
+        }
+
+        const xaiData = (await xaiResp.json()) as { data?: { b64_json?: string }[] };
+        const b64 = xaiData.data?.[0]?.b64_json;
+        if (!b64) {
+          log.error({ collectionId, dataKeys: Object.keys(xaiData) }, 'xAI returned no b64_json');
+          return reply
+            .status(502)
+            .send(errorEnvelope(request.id, 502, 'AI_ERROR', 'xAI nu a returnat date imagine'));
+        }
+
+        const imageBuffer = Buffer.from(b64, 'base64');
+        const dir = await ensurePendingImagesDir();
+        const fileName = `${session.shopId}_${collectionId}.jpg`;
+        const filePath = path.join(dir, fileName);
+        await fs.writeFile(filePath, imageBuffer);
+
+        await withTenantContext(session.shopId, async (client) => {
+          await client.query(
+            `UPDATE shopify_collections SET pending_image_path = $1, updated_at = now() WHERE id = $2 AND shop_id = $3`,
+            [filePath, collectionId, session.shopId]
+          );
+        });
+
+        request.log.info(
+          { collectionId, filePath },
+          'Collection image generated and saved as pending'
+        );
+
+        return reply.send(
+          successEnvelope(request.id, {
+            pending: true,
+            previewUrl: `/api/collections/${collectionId}/pending-image`,
+          })
+        );
+      } catch (err) {
+        options.logger.error({ err }, 'generate-image failed');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(
+              request.id,
+              500,
+              'INTERNAL_ERROR',
+              err instanceof Error ? err.message : 'Eroare la generarea imaginii'
+            )
+          );
+      }
+    }
+  );
+
+  // ── Upload image manually (multipart, save as pending) ──
+
+  server.post(
+    '/collections/:collectionId/upload-image',
+    { preHandler: [requireAdminSession] },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      const collectionId = (request.params as { collectionId?: string }).collectionId;
+      if (!collectionId) {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing collectionId'));
+      }
+
+      try {
+        const file = await (
+          request as FastifyRequest & { file: () => Promise<MultipartFile | undefined> }
+        ).file();
+        if (!file) {
+          return reply
+            .status(400)
+            .send(errorEnvelope(request.id, 400, 'NO_FILE', 'Nu a fost încărcat niciun fișier'));
+        }
+
+        const allowed = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+        if (!allowed.has(file.mimetype)) {
+          return reply
+            .status(400)
+            .send(
+              errorEnvelope(
+                request.id,
+                400,
+                'INVALID_TYPE',
+                `Tip fișier neacceptat: ${file.mimetype}. Acceptăm: JPG, PNG, WebP, GIF`
+              )
+            );
+        }
+
+        const exists = await withTenantContext(session.shopId, async (client) => {
+          const r = await client.query<{ id: string }>(
+            `SELECT id FROM shopify_collections WHERE id = $1 AND shop_id = $2`,
+            [collectionId, session.shopId]
+          );
+          return r.rows.length > 0;
+        });
+        if (!exists) {
+          return reply
+            .status(404)
+            .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Collection not found'));
+        }
+
+        const ext =
+          file.mimetype.split('/')[1] === 'jpeg' ? 'jpg' : (file.mimetype.split('/')[1] ?? 'jpg');
+        const dir = await ensurePendingImagesDir();
+        const fileName = `${session.shopId}_${collectionId}.${ext}`;
+        const filePath = path.join(dir, fileName);
+
+        const chunks: Buffer[] = [];
+        for await (const chunk of file.file) {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as ArrayBuffer));
+        }
+        await fs.writeFile(filePath, Buffer.concat(chunks));
+
+        await withTenantContext(session.shopId, async (client) => {
+          await client.query(
+            `UPDATE shopify_collections SET pending_image_path = $1, updated_at = now() WHERE id = $2 AND shop_id = $3`,
+            [filePath, collectionId, session.shopId]
+          );
+        });
+
+        request.log.info(
+          { collectionId, filePath },
+          'Collection image uploaded and saved as pending'
+        );
+
+        return reply.send(
+          successEnvelope(request.id, {
+            pending: true,
+            previewUrl: `/api/collections/${collectionId}/pending-image`,
+          })
+        );
+      } catch (err) {
+        request.log.error({ err }, 'upload-image failed');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(
+              request.id,
+              500,
+              'INTERNAL_ERROR',
+              err instanceof Error ? err.message : 'Eroare la încărcarea imaginii'
+            )
+          );
+      }
+    }
+  );
+
+  // ── Serve pending image from disk ──
+
+  server.get(
+    '/collections/:collectionId/pending-image',
+    { preHandler: [requireAdminSession] },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      const collectionId = (request.params as { collectionId?: string }).collectionId;
+      if (!collectionId) {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing collectionId'));
+      }
+
+      try {
+        const row = await withTenantContext(session.shopId, async (client) => {
+          const r = await client.query<{ pending_image_path: string | null }>(
+            `SELECT pending_image_path FROM shopify_collections WHERE id = $1 AND shop_id = $2`,
+            [collectionId, session.shopId]
+          );
+          return r.rows[0] ?? null;
+        });
+
+        if (!row?.pending_image_path) {
+          return reply
+            .status(404)
+            .send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Nu există imagine pending'));
+        }
+
+        const filePath = row.pending_image_path;
+        try {
+          await fs.access(filePath);
+        } catch {
+          return reply
+            .status(404)
+            .send(
+              errorEnvelope(
+                request.id,
+                404,
+                'FILE_NOT_FOUND',
+                'Fișierul imagine nu mai există pe disk'
+              )
+            );
+        }
+
+        const ext = path.extname(filePath).toLowerCase();
+        const mimeMap: Record<string, string> = {
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+          '.png': 'image/png',
+          '.webp': 'image/webp',
+          '.gif': 'image/gif',
+        };
+        const contentType = mimeMap[ext] ?? 'application/octet-stream';
+
+        const data = await fs.readFile(filePath);
+        return reply
+          .header('Content-Type', contentType)
+          .header('Cache-Control', 'no-store')
+          .send(data);
+      } catch (err) {
+        request.log.error({ err }, 'pending-image serve failed');
+        return reply
+          .status(500)
+          .send(errorEnvelope(request.id, 500, 'INTERNAL_ERROR', 'Eroare la servirea imaginii'));
+      }
+    }
+  );
+
+  // ── Approve pending image → push to Shopify ──
+
+  server.post(
+    '/collections/:collectionId/approve-image',
+    { preHandler: [requireAdminSession] },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      const collectionId = (request.params as { collectionId?: string }).collectionId;
+      if (!collectionId) {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing collectionId'));
+      }
+
+      try {
+        const env = options.env;
+        const encryptionKey = Buffer.from(env.encryptionKeyHex, 'hex');
+
+        const row = await withTenantContext(session.shopId, async (client) => {
+          const r = await client.query<{
+            pending_image_path: string | null;
+            shopify_gid: string | null;
+          }>(
+            `SELECT pending_image_path, shopify_gid FROM shopify_collections WHERE id = $1 AND shop_id = $2`,
+            [collectionId, session.shopId]
+          );
+          return r.rows[0] ?? null;
+        });
+
+        if (!row?.pending_image_path) {
+          return reply
+            .status(400)
+            .send(
+              errorEnvelope(request.id, 400, 'NO_PENDING', 'Nu există imagine pending de aprobat')
+            );
+        }
+        if (!row.shopify_gid) {
+          return reply
+            .status(400)
+            .send(errorEnvelope(request.id, 400, 'NO_SHOPIFY_GID', 'Colecția nu are GID Shopify'));
+        }
+
+        const filePath = row.pending_image_path;
+        let imageBuffer: Buffer;
+        try {
+          imageBuffer = await fs.readFile(filePath);
+        } catch {
+          return reply
+            .status(404)
+            .send(
+              errorEnvelope(
+                request.id,
+                404,
+                'FILE_NOT_FOUND',
+                'Fișierul imagine nu mai există pe disk'
+              )
+            );
+        }
+
+        const ext = path.extname(filePath).toLowerCase();
+        const mimeMap: Record<string, string> = {
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+          '.png': 'image/png',
+          '.webp': 'image/webp',
+          '.gif': 'image/gif',
+        };
+        const mimeType = mimeMap[ext] ?? 'image/jpeg';
+        const fileName = path.basename(filePath);
+
+        type StagedUploadResponse = Readonly<{
+          stagedUploadsCreate?: Readonly<{
+            stagedTargets?: readonly Readonly<{
+              url: string;
+              resourceUrl: string;
+              parameters: readonly Readonly<{ name: string; value: string }>[];
+            }>[];
+            userErrors?: readonly Readonly<{ message?: string | null }>[];
+          }>;
+        }>;
+
+        const stagedResp = await withTokenRetry(
+          session.shopId,
+          encryptionKey,
+          request.log,
+          async (accessToken, shopDomain) => {
+            const client = shopifyApi.createClient({ shopDomain, accessToken });
+            return await client.request<StagedUploadResponse>(
+              `mutation StagedUploadsCreate($input: [StagedUploadInput!]!) {
+                stagedUploadsCreate(input: $input) {
+                  stagedTargets { url resourceUrl parameters { name value } }
+                  userErrors { message }
+                }
+              }`,
+              {
+                input: [
+                  { filename: fileName, mimeType, httpMethod: 'PUT', resource: 'COLLECTION_IMAGE' },
+                ],
+              }
+            );
+          }
+        );
+
+        const target = stagedResp.data?.stagedUploadsCreate?.stagedTargets?.[0];
+        if (!target) {
+          const errs = stagedResp.data?.stagedUploadsCreate?.userErrors;
+          request.log.error({ errs }, 'stagedUploadsCreate failed');
+          return reply
+            .status(502)
+            .send(errorEnvelope(request.id, 502, 'SHOPIFY_ERROR', 'Staged upload eșuat'));
+        }
+
+        const uploadResp = await fetch(target.url, {
+          method: 'PUT',
+          headers: { 'Content-Type': mimeType },
+          body: imageBuffer,
+        });
+        if (!uploadResp.ok) {
+          request.log.error({ status: uploadResp.status }, 'File upload to staged target failed');
+          return reply
+            .status(502)
+            .send(errorEnvelope(request.id, 502, 'UPLOAD_ERROR', 'Upload imagine eșuat'));
+        }
+
+        type CollUpdateResp = Readonly<{
+          collectionUpdate?: Readonly<{
+            collection?: Readonly<{ image?: Readonly<{ url: string }> | null }> | null;
+            userErrors?: readonly Readonly<{ message?: string | null }>[];
+          }>;
+        }>;
+
+        const collUpdateResp = await withTokenRetry(
+          session.shopId,
+          encryptionKey,
+          request.log,
+          async (accessToken, shopDomain) => {
+            const client = shopifyApi.createClient({ shopDomain, accessToken });
+            return await client.request<CollUpdateResp>(
+              `mutation CollectionUpdate($input: CollectionInput!) {
+                collectionUpdate(input: $input) {
+                  collection { image { url } }
+                  userErrors { message }
+                }
+              }`,
+              { input: { id: row.shopify_gid, image: { src: target.resourceUrl } } }
+            );
+          }
+        );
+
+        const collErrors = collUpdateResp.data?.collectionUpdate?.userErrors ?? [];
+        if (collErrors.length > 0) {
+          const msg = collErrors.map((e) => e.message).join('; ');
+          request.log.error({ msg }, 'collectionUpdate image failed');
+          return reply.status(502).send(errorEnvelope(request.id, 502, 'SHOPIFY_ERROR', msg));
+        }
+
+        const newImageUrl = collUpdateResp.data?.collectionUpdate?.collection?.image?.url ?? null;
+
+        await withTenantContext(session.shopId, async (client) => {
+          await client.query(
+            `UPDATE shopify_collections SET image_url = $1, pending_image_path = NULL, updated_at = now() WHERE id = $2 AND shop_id = $3`,
+            [newImageUrl, collectionId, session.shopId]
+          );
+        });
+
+        fs.unlink(filePath).catch((e: unknown) => {
+          options.logger.warn({ err: e, filePath }, 'pending image cleanup failed');
+        });
+
+        request.log.info(
+          { collectionId, imageUrl: newImageUrl },
+          'Collection image approved and pushed to Shopify'
+        );
+
+        return reply.send(successEnvelope(request.id, { imageUrl: newImageUrl }));
+      } catch (err) {
+        request.log.error({ err }, 'approve-image failed');
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(
+              request.id,
+              500,
+              'INTERNAL_ERROR',
+              err instanceof Error ? err.message : 'Eroare la aprobarea imaginii'
+            )
+          );
+      }
+    }
+  );
+
   server.post(
     '/collections/:collectionId/generate-ro',
     {
@@ -2695,14 +3408,16 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
             taskType: 'translation',
             systemPrompt: `Ești specialist SEO și merchandising pentru un magazin online românesc de bricolaj, materiale de construcții, grădinărit și agricultură (neanelu.ro).
 
-SARCINĂ: Generează un titlu optimizat ÎN ROMÂNĂ pentru o colecție/categorie de produse.
+SARCINĂ: Generează un titlu SEO-optimizat ÎN ROMÂNĂ pentru o categorie de produse.
 
 REGULI:
 1. Titlul trebuie să fie concis (2-5 cuvinte), clar și descriptiv.
-2. Folosește terminologia corectă din domeniul bricolaj/construcții/grădinărit/agricultură în limba română.
-3. Titlul trebuie să reflecte fidel conținutul colecției pe baza produselor și poziției în meniu.
-4. Nu inventa categorii — bazează-te strict pe contextul furnizat.
-5. Dacă titlul curent este deja bun, îmbunătățește-l minimal.
+2. NU include nume de branduri sau producători — titlul descrie categoria, nu un brand.
+3. Folosește terminologia corectă din domeniu în limba română.
+4. Titlul trebuie să reflecte fidel conținutul categoriei pe baza produselor și poziției în meniu.
+5. Folosește cuvinte cheie pe care un client le-ar căuta pe Google.
+6. Nu inventa categorii — bazează-te strict pe contextul furnizat.
+7. Dacă titlul curent este deja bun, îmbunătățește-l minimal.
 
 Returnează JSON: { "title": "..." }`,
             userPrompt: `Titlu curent: "${ctx.title}"\n\nContext:\n${contextLines}`,
@@ -2725,15 +3440,21 @@ Returnează JSON: { "title": "..." }`,
                 `UPDATE shopify_collections SET title = $1, updated_at = now() WHERE id = $2 AND shop_id = $3`,
                 [newTitle, collectionId, session.shopId]
               );
-              await upsertFieldUpdatePendingChange(client, {
-                shopId: session.shopId,
-                collectionId,
-                fieldName: 'title',
-                oldValue: ctx.title,
-                newValue: newTitle,
-                source,
-              });
             });
+            try {
+              await withTenantContext(session.shopId, async (client) => {
+                await upsertFieldUpdatePendingChange(client, {
+                  shopId: session.shopId,
+                  collectionId,
+                  fieldName: 'title',
+                  oldValue: ctx.title,
+                  newValue: newTitle,
+                  source,
+                });
+              });
+            } catch (pendingErr) {
+              request.log.warn({ err: pendingErr }, 'Failed to queue pending change for title');
+            }
             emit({
               type: 'progress',
               step: 'generate',
@@ -2763,20 +3484,25 @@ Returnează JSON: { "title": "..." }`,
             env: options.env,
             logger: options.logger,
             taskType: 'translation',
-            systemPrompt: `Ești specialist SEO și copywriter pentru un magazin online românesc de bricolaj, materiale de construcții, grădinărit și agricultură (neanelu.ro).
+            systemPrompt: `Ești specialist SEO și copywriter profesionist pentru un magazin online românesc de bricolaj, materiale de construcții, grădinărit și agricultură (neanelu.ro).
 
-SARCINĂ: Generează o descriere optimizată ÎN ROMÂNĂ pentru o colecție/categorie de produse.
+SARCINĂ: Scrie o descriere SEO-optimizată ÎN ROMÂNĂ pentru o categorie/colecție de produse dintr-un magazin online.
 
-REGULI:
-1. Descrierea trebuie să aibă 2-4 propoziții, concisă și informativă.
-2. Menționează tipurile de produse din colecție și utilizarea lor principală.
-3. Folosește terminologia corectă din domeniu în limba română.
-4. Tonul trebuie să fie profesional, orientat spre client.
-5. Include cuvinte cheie relevante pentru SEO.
-6. Nu inventa detalii — bazează-te strict pe contextul furnizat.
+SCOP: Descrierea va apărea ca text introductiv pe pagina categoriei. Trebuie să ajute clientul să înțeleagă ce găsește în această categorie și să îmbunătățească clasarea în Google.
+
+REGULI STRICTE:
+1. NU menționa NICIODATĂ nume de branduri, mărci sau producători specifici (Ferroli, Bosch, Makita etc.) — descrierea trebuie să fie 100% generică pe categorie.
+2. NU menționa specificații tehnice exacte (capacități, dimensiuni, modele) — vorbește despre tipuri și game de produse.
+3. Scrie 2-3 propoziții clare, fluente, naturale — ca un text de prezentare profesionist, nu ca o listă de specificații.
+4. Prima propoziție trebuie să conțină cuvintele cheie principale ale categoriei.
+5. Descrie ce tipuri de produse conține categoria, pentru cine sunt utile și în ce contexte se folosesc.
+6. Folosește terminologia corectă din domeniu (bricolaj/construcții/instalații/grădinărit) în limba română.
+7. Tonul: profesional, clar, orientat spre beneficiul clientului.
+8. NU folosi formulări generice goale precum „de cea mai bună calitate" sau „la cele mai bune prețuri".
+9. NU începe cu „Colecția..." sau „În această categorie..." — scrie direct, natural.
 
 Returnează JSON: { "description": "..." }`,
-            userPrompt: `Colecție: "${ctx.title}"\n\nContext:\n${contextLines}`,
+            userPrompt: `Categorie: "${ctx.title}"\n\nContext:\n${contextLines}`,
             responseFormat: { type: 'json_object' },
             maxTokens: 300,
             keyField: 'description',
@@ -2796,15 +3522,24 @@ Returnează JSON: { "description": "..." }`,
                 `UPDATE shopify_collections SET description = $1, updated_at = now() WHERE id = $2 AND shop_id = $3`,
                 [newDesc, collectionId, session.shopId]
               );
-              await upsertFieldUpdatePendingChange(client, {
-                shopId: session.shopId,
-                collectionId,
-                fieldName: 'description',
-                oldValue: ctx.description,
-                newValue: newDesc,
-                source,
-              });
             });
+            try {
+              await withTenantContext(session.shopId, async (client) => {
+                await upsertFieldUpdatePendingChange(client, {
+                  shopId: session.shopId,
+                  collectionId,
+                  fieldName: 'description',
+                  oldValue: ctx.description,
+                  newValue: newDesc,
+                  source,
+                });
+              });
+            } catch (pendingErr) {
+              request.log.warn(
+                { err: pendingErr },
+                'Failed to queue pending change for description'
+              );
+            }
             emit({
               type: 'progress',
               step: 'generate',
@@ -3725,6 +4460,115 @@ Returnează JSON: { "description": "..." }`,
     }
   );
 
+  server.post(
+    '/collections/:id/dissociate-products',
+    {
+      preHandler: [requireAdminSession],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      const collectionId = (request.params as { id?: string }).id;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      if (!collectionId) {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing collection id'));
+      }
+
+      const body = request.body as { productIds?: string[] } | undefined;
+      const productIds = body?.productIds;
+      if (!productIds?.length) {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing productIds'));
+      }
+
+      try {
+        const data = await withTenantContext(session.shopId, async (client) => {
+          const collectionResult = await client.query<{
+            shopify_gid: string;
+            collection_type: string;
+          }>(
+            `SELECT shopify_gid, collection_type FROM shopify_collections WHERE shop_id = $1 AND id = $2`,
+            [session.shopId, collectionId]
+          );
+          const collection = collectionResult.rows[0];
+          if (!collection?.shopify_gid) {
+            return { error: 'collection_not_found' as const };
+          }
+
+          const productsResult = await client.query<{
+            id: string;
+            shopify_gid: string;
+            title: string;
+          }>(
+            `SELECT sp.id, sp.shopify_gid, sp.title
+               FROM shopify_products sp
+              WHERE sp.shop_id = $1
+                AND sp.id = ANY($2::uuid[])`,
+            [session.shopId, productIds]
+          );
+
+          const foundProducts = productsResult.rows;
+          if (foundProducts.length === 0) {
+            return { error: 'no_valid_products' as const };
+          }
+
+          await client.query(
+            `DELETE FROM shopify_collection_products
+              WHERE shop_id = $1
+                AND collection_id = $2
+                AND product_id = ANY($3::uuid[])`,
+            [session.shopId, collectionId, foundProducts.map((p) => p.id)]
+          );
+
+          await client.query(
+            `UPDATE shopify_collections
+                SET products_count = GREATEST(0, COALESCE(products_count, 0) - $3),
+                    updated_at = now()
+              WHERE shop_id = $1 AND id = $2`,
+            [session.shopId, collectionId, foundProducts.length]
+          );
+
+          await upsertProductDissociatePendingChange(client as DbClientLike, {
+            shopId: session.shopId,
+            collectionId,
+            productIds: foundProducts.map((p) => p.id),
+            productGids: foundProducts.map((p) => p.shopify_gid),
+            collectionGid: collection.shopify_gid,
+            collectionType: collection.collection_type,
+            source: 'manual',
+          });
+
+          return {
+            removed: foundProducts.length,
+            productTitles: foundProducts.map((p) => p.title),
+          };
+        });
+
+        if ('error' in data) {
+          return reply.status(400).send(errorEnvelope(request.id, 400, 'BAD_REQUEST', data.error));
+        }
+
+        return reply.send(
+          successEnvelope(request.id, {
+            removed: data.removed,
+            productTitles: data.productTitles,
+          })
+        );
+      } catch (err) {
+        options.logger.error({ err, collectionId }, 'Failed to dissociate products');
+        return reply
+          .status(500)
+          .send(errorEnvelope(request.id, 500, 'INTERNAL_ERROR', 'Failed to dissociate products'));
+      }
+    }
+  );
+
   server.get(
     '/collections/:id/taxonomy-status',
     {
@@ -3810,8 +4654,8 @@ Returnează JSON: { "description": "..." }`,
           .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing collection id'));
       }
 
-      const row = await withTenantContext(session.shopId, async (client) => {
-        const result = await client.query<{ metafields: Record<string, unknown> | null }>(
+      const data = await withTenantContext(session.shopId, async (client) => {
+        const collResult = await client.query<{ metafields: Record<string, unknown> | null }>(
           `SELECT metafields
            FROM shopify_collections
            WHERE shop_id = $1
@@ -3819,10 +4663,166 @@ Returnează JSON: { "description": "..." }`,
            LIMIT 1`,
           [session.shopId, collectionId]
         );
-        return result.rows[0] ?? null;
+
+        interface SchemaMetafield {
+          attr_code: string;
+          shopify_namespace: string;
+          shopify_key: string;
+          shopify_type: string;
+          display_name: string | null;
+          display_name_en: string | null;
+          description: string | null;
+          is_required: boolean;
+          ai_generated: boolean;
+        }
+
+        const schemaResult = await client.query<SchemaMetafield>(
+          `SELECT s.attr_code,
+                  s.shopify_namespace,
+                  s.shopify_key,
+                  s.shopify_type,
+                  s.display_name,
+                  s.display_name_en,
+                  s.description,
+                  s.is_required,
+                  s.ai_generated
+             FROM pim_taxonomy_metafield_schema s
+             JOIN pim_taxonomy_collection_map m
+               ON m.taxonomy_id = s.taxonomy_id
+            WHERE m.shop_id = $1
+              AND m.collection_id = $2
+            ORDER BY s.attr_code`,
+          [session.shopId, collectionId]
+        );
+
+        return {
+          metafields: collResult.rows[0]?.metafields ?? {},
+          schema: schemaResult.rows,
+        };
       });
 
-      return reply.send(successEnvelope(request.id, { metafields: row?.metafields ?? {} }));
+      return reply.send(successEnvelope(request.id, data));
+    }
+  );
+
+  // ─── Diagnostic: metafield definitions Shopify vs local ─────────
+  server.get(
+    '/collections/:id/metafield-definitions-status',
+    {
+      preHandler: [requireAdminSession],
+    },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      const collectionId = (request.params as { id?: string }).id;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+      if (!collectionId) {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing collection id'));
+      }
+
+      interface LocalDef {
+        namespace: string;
+        key: string;
+        shopify_type: string;
+        name: string;
+        shopify_definition_gid: string | null;
+        synced_at: string | null;
+      }
+      interface SchemaEntry {
+        attr_code: string;
+        shopify_key: string;
+        shopify_type: string;
+        display_name: string | null;
+        ai_generated: boolean;
+      }
+
+      const localData = await withTenantContext(session.shopId, async (client) => {
+        const defsResult = await client.query<LocalDef>(
+          `SELECT namespace, key, shopify_type, name, shopify_definition_gid, synced_at
+             FROM shopify_metafield_definitions
+            WHERE shop_id = $1 AND owner_type = 'PRODUCT'
+            ORDER BY key`,
+          [session.shopId]
+        );
+
+        const schemaResult = await client.query<SchemaEntry>(
+          `SELECT s.attr_code, s.shopify_key, s.shopify_type, s.display_name, s.ai_generated
+             FROM pim_taxonomy_metafield_schema s
+             JOIN pim_taxonomy_collection_map m ON m.taxonomy_id = s.taxonomy_id
+            WHERE m.shop_id = $1 AND m.collection_id = $2
+            ORDER BY s.attr_code`,
+          [session.shopId, collectionId]
+        );
+
+        return {
+          definitions: defsResult.rows,
+          schema: schemaResult.rows,
+        };
+      });
+
+      // Query Shopify for the actual definitions
+      interface ShopifyDefNode {
+        id: string;
+        namespace: string;
+        key: string;
+        name: string;
+        type: { name: string };
+        ownerType: string;
+        pinnedPosition: number | null;
+        metafieldsCount: number;
+      }
+      interface ShopifyDefsResponse {
+        metafieldDefinitions?: {
+          nodes?: ShopifyDefNode[];
+        };
+      }
+
+      let shopifyDefs: ShopifyDefNode[] = [];
+      try {
+        const queryGql = `#graphql
+          query MetafieldDefinitionsAll {
+            metafieldDefinitions(first: 50, ownerType: PRODUCT, namespace: "custom") {
+              nodes {
+                id
+                namespace
+                key
+                name
+                type { name }
+                ownerType
+                pinnedPosition
+                metafieldsCount
+              }
+            }
+          }`;
+
+        const env = options.env;
+        const encryptionKey = Buffer.from(env.encryptionKeyHex, 'hex');
+        const response = await withTokenRetry(
+          session.shopId,
+          encryptionKey,
+          options.logger,
+          async (accessToken, shopDomain) => {
+            const client = shopifyApi.createClient({ shopDomain, accessToken });
+            return await client.request<ShopifyDefsResponse>(queryGql);
+          }
+        );
+        shopifyDefs = response.data?.metafieldDefinitions?.nodes ?? [];
+      } catch (err) {
+        options.logger.warn({ err }, 'metafield-definitions-status: failed to query Shopify');
+      }
+
+      return reply.send(
+        successEnvelope(request.id, {
+          localDefinitions: localData.definitions,
+          collectionSchema: localData.schema,
+          shopifyDefinitions: shopifyDefs,
+        })
+      );
     }
   );
 
@@ -4762,6 +5762,337 @@ Returnează JSON: { "description": "..." }`,
       return reply.send(
         successEnvelope(request.id, { cancelled: true, embeddingBatchId: activeBatch.id })
       );
+    }
+  );
+
+  // ─── Generate Metafields AI (NDJSON streaming) ────────────────────────────
+  server.post(
+    '/collections/:id/generate-metafields-ai',
+    { preHandler: [requireAdminSession] },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+
+      const { id: collectionId } = request.params as { id: string };
+      if (!collectionId?.trim()) {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing collection id'));
+      }
+
+      reply.hijack();
+      const raw = reply.raw;
+      raw.writeHead(200, {
+        'Content-Type': 'application/x-ndjson',
+        'Cache-Control': 'no-cache',
+        'X-Content-Type-Options': 'nosniff',
+      });
+
+      const emit = (event: Record<string, unknown>) => {
+        try {
+          raw.write(JSON.stringify(event) + '\n');
+        } catch {
+          /* connection already closed */
+        }
+      };
+
+      try {
+        // Colectăm contextul colecției
+        interface CollectionContextRow {
+          id: string;
+          title: string;
+          title_en: string | null;
+          description: string | null;
+          description_en: string | null;
+          handle: string;
+          taxonomy_id: string | null;
+          taxonomy_name: string | null;
+        }
+
+        const contextRow = await withTenantContext(session.shopId, async (client) => {
+          const r = await client.query<CollectionContextRow>(
+            `SELECT sc.id,
+                    sc.title,
+                    sc.title_en,
+                    sc.description,
+                    sc.description_en,
+                    sc.handle,
+                    m.taxonomy_id,
+                    pt.name AS taxonomy_name
+               FROM shopify_collections sc
+               LEFT JOIN pim_taxonomy_collection_map m
+                      ON m.shop_id = sc.shop_id AND m.collection_id = sc.id
+               LEFT JOIN prod_taxonomy pt ON pt.id = m.taxonomy_id
+              WHERE sc.shop_id = $1 AND sc.id = $2
+              LIMIT 1`,
+            [session.shopId, collectionId]
+          );
+          return r.rows[0] ?? null;
+        });
+
+        if (!contextRow) {
+          emit({ type: 'error', message: 'Colecția nu a fost găsită.' });
+          raw.end();
+          return;
+        }
+
+        // Verificăm pre-condițiile
+        if (!contextRow.title_en) {
+          emit({
+            type: 'error',
+            message:
+              'Colecția nu are titlu în engleză. Efectuează mai întâi traducerea titlului (tab Informații).',
+          });
+          raw.end();
+          return;
+        }
+        if (!contextRow.taxonomy_id || !contextRow.taxonomy_name) {
+          emit({
+            type: 'error',
+            message:
+              'Colecția nu are taxonomie atribuită. Atribuie mai întâi o taxonomie (tab Taxonomie).',
+          });
+          raw.end();
+          return;
+        }
+
+        // Colectăm primele 50 de titluri produse
+        const productTitles = await sampleProductNames({
+          shopId: session.shopId,
+          collectionId,
+          limit: 50,
+        });
+
+        // Colectăm metafield-urile existente pe taxonomie
+        interface SchemaRow {
+          attr_code: string;
+        }
+        const existingSchema = await withTenantContext(session.shopId, async (client) => {
+          const r = await client.query<SchemaRow>(
+            `SELECT attr_code FROM pim_taxonomy_metafield_schema WHERE taxonomy_id = $1`,
+            [contextRow.taxonomy_id]
+          );
+          return r.rows.map((row) => row.attr_code);
+        });
+
+        emit({
+          type: 'progress',
+          step: 'context',
+          message: `Context colectat: ${productTitles.length} produse, ${existingSchema.length} metafield-uri existente.`,
+        });
+
+        // Keepalive: trimite heartbeat la fiecare 10s pentru a preveni timeout proxy (Caddy/HTTP2)
+        const keepalive = setInterval(() => {
+          emit({ type: 'heartbeat', ts: Date.now() });
+        }, 10_000);
+
+        try {
+          const suggestions = await brainstormMetafieldSuggestions({
+            shopId: session.shopId,
+            env: options.env,
+            logger: options.logger,
+            context: {
+              titleRo: contextRow.title,
+              titleEn: contextRow.title_en,
+              descriptionRo: contextRow.description,
+              descriptionEn: contextRow.description_en,
+              handle: contextRow.handle,
+              taxonomyName: contextRow.taxonomy_name,
+              productTitles,
+              existingAttrCodes: existingSchema,
+            },
+            onProgress: (event) => {
+              emit({
+                type: 'progress',
+                step: event.step,
+                message: event.message,
+                status: event.status,
+              });
+            },
+          });
+
+          emit({
+            type: 'result',
+            suggestions,
+            message: `${suggestions.length} metafield-uri generate cu succes.`,
+            status: 'done',
+          });
+        } finally {
+          clearInterval(keepalive);
+        }
+        raw.end();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Eroare necunoscută';
+        options.logger.error({ err, collectionId }, 'generate-metafields-ai: unexpected error');
+        emit({ type: 'error', message });
+        raw.end();
+      }
+    }
+  );
+
+  // ─── Accept Metafields (atomic) ────────────────────────────────────────────
+  server.post(
+    '/collections/:id/accept-metafields',
+    { preHandler: [requireAdminSession] },
+    async (request, reply) => {
+      const session = (request as RequestWithSession).session;
+      if (!session) {
+        return reply
+          .status(401)
+          .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Unauthorized'));
+      }
+
+      const { id: collectionId } = request.params as { id: string };
+      if (!collectionId?.trim()) {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing collection id'));
+      }
+
+      interface AcceptBody {
+        metafields?: unknown;
+      }
+      const body = (request.body ?? {}) as AcceptBody;
+      if (!Array.isArray(body.metafields) || body.metafields.length === 0) {
+        return reply
+          .status(400)
+          .send(
+            errorEnvelope(
+              request.id,
+              400,
+              'BAD_REQUEST',
+              'metafields array is required and must not be empty'
+            )
+          );
+      }
+
+      // Validăm fiecare metafield din body
+      const ATTR_CODE_RE = /^[a-z][a-z0-9_]{1,98}$/;
+      const SHOPIFY_KEY_RE = /^[a-z][a-z0-9_]{1,62}$/;
+      const VALID_TYPES = new Set([
+        'single_line_text_field',
+        'multi_line_text_field',
+        'number_integer',
+        'number_decimal',
+        'boolean',
+        'list.single_line_text_field',
+        'dimension',
+        'weight',
+        'volume',
+      ]);
+
+      interface RawSuggestion {
+        attr_code?: unknown;
+        display_name_ro?: unknown;
+        display_name_en?: unknown;
+        shopify_key?: unknown;
+        shopify_type?: unknown;
+        description?: unknown;
+        is_required?: unknown;
+      }
+
+      const validated = (body.metafields as RawSuggestion[]).filter((m) => {
+        if (typeof m.attr_code !== 'string' || !ATTR_CODE_RE.test(m.attr_code)) return false;
+        if (typeof m.shopify_key !== 'string' || !SHOPIFY_KEY_RE.test(m.shopify_key)) return false;
+        if (typeof m.shopify_type !== 'string' || !VALID_TYPES.has(m.shopify_type)) return false;
+        if (typeof m.display_name_ro !== 'string' || !m.display_name_ro.trim()) return false;
+        if (typeof m.display_name_en !== 'string' || !m.display_name_en.trim()) return false;
+        return true;
+      });
+
+      if (validated.length === 0) {
+        return reply
+          .status(400)
+          .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'No valid metafields provided'));
+      }
+
+      try {
+        const accepted = await withTenantContext(session.shopId, async (client) => {
+          // 1. Obținem taxonomy_id pentru această colecție
+          const taxResult = await client.query<{ taxonomy_id: string }>(
+            `SELECT taxonomy_id FROM pim_taxonomy_collection_map
+              WHERE shop_id = $1 AND collection_id = $2
+              LIMIT 1`,
+            [session.shopId, collectionId]
+          );
+          if (!taxResult.rows[0]) {
+            throw new Error('no_taxonomy: Colecția nu are taxonomie atribuită');
+          }
+          const taxonomyId = taxResult.rows[0].taxonomy_id;
+
+          // 2. INSERT ON CONFLICT UPDATE în pim_taxonomy_metafield_schema per metafield
+          for (const mf of validated) {
+            await client.query(
+              `INSERT INTO pim_taxonomy_metafield_schema
+                 (taxonomy_id, attr_code, shopify_namespace, shopify_key, shopify_type,
+                  display_name, display_name_en, description, ai_generated, is_required)
+               VALUES ($1, $2, 'custom', $3, $4, $5, $6, $7, true, $8)
+               ON CONFLICT (taxonomy_id, attr_code) DO UPDATE
+                 SET shopify_key     = EXCLUDED.shopify_key,
+                     shopify_type    = EXCLUDED.shopify_type,
+                     display_name    = EXCLUDED.display_name,
+                     display_name_en = EXCLUDED.display_name_en,
+                     description     = EXCLUDED.description,
+                     ai_generated    = true`,
+              [
+                taxonomyId,
+                mf.attr_code,
+                mf.shopify_key,
+                mf.shopify_type,
+                mf.display_name_ro,
+                mf.display_name_en,
+                mf.description ?? null,
+                mf.is_required === true,
+              ]
+            );
+          }
+
+          // 3. INSERT collection_pending_changes atomic
+          await client.query(
+            `INSERT INTO collection_pending_changes
+               (shop_id, collection_id, change_type, metadata, source, shopify_mutation)
+             VALUES ($1, $2, 'metafield_definition_create', $3::jsonb, 'ai_metafield', 'metafieldDefinitionCreate')`,
+            [
+              session.shopId,
+              collectionId,
+              JSON.stringify({ metafields: validated, taxonomy_id: taxonomyId }),
+            ]
+          );
+
+          return validated.length;
+        });
+
+        return reply.send(
+          successEnvelope(request.id, {
+            accepted,
+            message: `${accepted} metafield-uri acceptate și trimise în coada HITL.`,
+          })
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Internal error';
+        options.logger.error({ err, collectionId }, 'accept-metafields: error');
+        if (message.startsWith('no_taxonomy')) {
+          return reply
+            .status(400)
+            .send(
+              errorEnvelope(request.id, 400, 'NO_TAXONOMY', 'Colecția nu are taxonomie atribuită')
+            );
+        }
+        return reply
+          .status(500)
+          .send(
+            errorEnvelope(
+              request.id,
+              500,
+              'INTERNAL_ERROR',
+              'Eroare la acceptarea metafield-urilor'
+            )
+          );
+      }
     }
   );
 

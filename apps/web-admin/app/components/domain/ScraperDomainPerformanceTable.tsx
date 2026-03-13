@@ -1,7 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Globe } from 'lucide-react';
+
 import { EmptyState } from '../patterns/empty-state';
 import { InfoTooltip } from '../ui/info-tooltip';
+import type { DataTableColumn, DataTableSortState } from '../ui/data-table';
+import { DataTable } from '../ui/data-table';
+import { useState } from 'react';
 
 export type ScraperDomainPerformanceRow = Readonly<{
   domain: string;
@@ -13,48 +17,97 @@ export type ScraperDomainPerformanceRow = Readonly<{
 }>;
 
 type SortKey = 'successRate' | 'avgLatencyMs' | 'totalPages';
-type SortDirection = 'asc' | 'desc';
+
+const columns: readonly DataTableColumn<ScraperDomainPerformanceRow>[] = [
+  {
+    id: 'domain',
+    header: 'Domeniu',
+    renderCell: (row) => <span className="font-medium">{row.domain}</span>,
+  },
+  {
+    id: 'totalPages',
+    header: 'Pagini',
+    sortKey: 'totalPages',
+    sortable: true,
+    align: 'right',
+    renderCell: (row) => <span className="tabular-nums">{row.totalPages}</span>,
+  },
+  {
+    id: 'successRate',
+    header: 'Rata succes',
+    sortKey: 'successRate',
+    sortable: true,
+    align: 'right',
+    renderCell: (row) => (
+      <span
+        className={
+          row.successRate >= 0.9
+            ? 'text-success tabular-nums'
+            : row.successRate >= 0.7
+              ? 'text-warning tabular-nums'
+              : 'text-error tabular-nums'
+        }
+      >
+        {(row.successRate * 100).toFixed(1)}%
+      </span>
+    ),
+  },
+  {
+    id: 'avgLatencyMs',
+    header: 'Latență medie',
+    sortKey: 'avgLatencyMs',
+    sortable: true,
+    align: 'right',
+    renderCell: (row) => (
+      <span
+        className={`tabular-nums ${row.avgLatencyMs > 2000 ? 'text-warning' : 'text-foreground'}`}
+      >
+        {row.avgLatencyMs.toFixed(0)}ms
+      </span>
+    ),
+  },
+  {
+    id: 'robotsBlocked',
+    header: 'Blocări robots',
+    align: 'right',
+    renderCell: (row) =>
+      row.robotsBlocked > 0 ? (
+        <span className="text-warning tabular-nums">{row.robotsBlocked}</span>
+      ) : (
+        <span className="text-muted tabular-nums">{row.robotsBlocked}</span>
+      ),
+  },
+  {
+    id: 'lastScrapedAt',
+    header: 'Ultima rulare',
+    align: 'right',
+    renderCell: (row) => (
+      <span className="text-muted">
+        {row.lastScrapedAt ? new Date(row.lastScrapedAt).toLocaleString('ro-RO') : '-'}
+      </span>
+    ),
+  },
+];
 
 export function ScraperDomainPerformanceTable({
   rows,
 }: {
   rows: readonly ScraperDomainPerformanceRow[];
 }) {
-  const [sortKey, setSortKey] = useState<SortKey>('successRate');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [sort, setSort] = useState<DataTableSortState>({ key: 'successRate', direction: 'desc' });
 
   const sortedRows = useMemo(() => {
     return [...rows].sort((a, b) => {
-      const left =
-        sortKey === 'totalPages'
-          ? a.totalPages
-          : sortKey === 'avgLatencyMs'
-            ? a.avgLatencyMs
-            : a.successRate;
-      const right =
-        sortKey === 'totalPages'
-          ? b.totalPages
-          : sortKey === 'avgLatencyMs'
-            ? b.avgLatencyMs
-            : b.successRate;
-      const diff = Number(left) - Number(right);
-      return sortDirection === 'asc' ? diff : -diff;
+      const key = sort.key as SortKey;
+      const diff = Number(a[key]) - Number(b[key]);
+      return sort.direction === 'asc' ? diff : -diff;
     });
-  }, [rows, sortDirection, sortKey]);
-
-  function sortBy(key: SortKey): void {
-    if (sortKey === key) {
-      setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'));
-      return;
-    }
-    setSortKey(key);
-    setSortDirection('desc');
-  }
+  }, [rows, sort]);
 
   return (
-    <div className="rounded-lg border border-muted/20 bg-background p-4 dark:border-slate-700 dark:bg-slate-900/80">
+    <div className="rounded-lg border border-border bg-card p-4 backdrop-blur-sm shadow-[var(--shadow-sm)] transition-[box-shadow,border-color] duration-normal hover:border-accent-border/70 hover:shadow-[var(--shadow-md)]">
       <div className="mb-2 flex items-center gap-2">
-        <span className="text-xs text-muted dark:text-slate-400">Performanță pe domenii</span>
+        <span className="text-xs text-primary">Performanță pe domenii</span>
         <InfoTooltip title="Performanță pe domenii" side="bottom" portalToBody>
           Statistici detaliate per domeniu scrapat: pagini totale procesate, rata de succes, latența
           medie și blocările robots.txt. Click pe antetul unei coloane pentru sortare
@@ -62,65 +115,23 @@ export function ScraperDomainPerformanceTable({
           acces sau schimbări de structură. Sfat: monitorizează domeniile cu latență mare.
         </InfoTooltip>
       </div>
-      {!rows.length ? (
+      {rows.length === 0 ? (
         <EmptyState
           icon={Globe}
           title="Nicio activitate pe domenii"
           description="Datele vor aparea dupa primele rulari scraper."
         />
-      ) : null}
-      <div className="overflow-auto rounded-md border dark:border-slate-700">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/20 dark:bg-slate-800/50">
-            <tr>
-              <th className="px-3 py-2 text-left dark:text-slate-300">Domeniu</th>
-              <th className="px-3 py-2 text-right">
-                <button
-                  type="button"
-                  onClick={() => sortBy('totalPages')}
-                  className="rounded transition-shadow duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 dark:text-slate-300 dark:focus-visible:ring-blue-400/50"
-                >
-                  Pagini
-                </button>
-              </th>
-              <th className="px-3 py-2 text-right">
-                <button
-                  type="button"
-                  onClick={() => sortBy('successRate')}
-                  className="rounded transition-shadow duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 dark:text-slate-300 dark:focus-visible:ring-blue-400/50"
-                >
-                  Rata succes
-                </button>
-              </th>
-              <th className="px-3 py-2 text-right">
-                <button
-                  type="button"
-                  onClick={() => sortBy('avgLatencyMs')}
-                  className="rounded transition-shadow duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 dark:text-slate-300 dark:focus-visible:ring-blue-400/50"
-                >
-                  Latență medie
-                </button>
-              </th>
-              <th className="px-3 py-2 text-right dark:text-slate-300">Blocări robots</th>
-              <th className="px-3 py-2 text-right dark:text-slate-300">Ultima rulare</th>
-            </tr>
-          </thead>
-          <tbody className="dark:text-slate-200">
-            {sortedRows.map((row) => (
-              <tr key={row.domain} className="border-t border-muted/20 dark:border-slate-700">
-                <td className="px-3 py-2">{row.domain}</td>
-                <td className="px-3 py-2 text-right">{row.totalPages}</td>
-                <td className="px-3 py-2 text-right">{(row.successRate * 100).toFixed(1)}%</td>
-                <td className="px-3 py-2 text-right">{row.avgLatencyMs.toFixed(0)}ms</td>
-                <td className="px-3 py-2 text-right">{row.robotsBlocked}</td>
-                <td className="px-3 py-2 text-right">
-                  {row.lastScrapedAt ? new Date(row.lastScrapedAt).toLocaleString('ro-RO') : '-'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      ) : (
+        <DataTable
+          data={sortedRows}
+          columns={columns}
+          rowKey={(row) => row.domain}
+          sort={sort}
+          onSortChange={setSort}
+          tableClassName="min-w-[560px]"
+          className="rounded-md border border-border"
+        />
+      )}
     </div>
   );
 }

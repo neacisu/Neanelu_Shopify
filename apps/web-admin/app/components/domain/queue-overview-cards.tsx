@@ -6,6 +6,7 @@
 import type React from 'react';
 import { useCallback, useRef } from 'react';
 import { useCountUp } from '../../hooks/useCountUp';
+import { useReducedMotion } from '../../hooks/use-reduced-motion';
 import { useScrollReveal } from '../../hooks/useScrollReveal';
 import { InfoTooltip } from '../ui/info-tooltip';
 import { Button } from '../ui/button';
@@ -51,6 +52,7 @@ export function QueueOverviewCard({
   onResume,
   onCleanFailed,
 }: QueueOverviewCardProps) {
+  const reducedMotion = useReducedMotion();
   const cardRef = useRef<HTMLElement>(null);
   const [revealRef, isVisible] = useScrollReveal<HTMLElement>({ rootMargin: '0px 0px -24px 0px' });
   const setRefs = useCallback(
@@ -69,25 +71,25 @@ export function QueueOverviewCard({
       ref={setRefs}
       role="listitem"
       data-hover-lift
-      className={`group relative overflow-hidden rounded-xl border bg-white/80 backdrop-blur-sm shadow-[var(--shadow-sm)] transition-all duration-300 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-md)] focus-within:ring-2 focus-within:ring-blue-500/40 focus-within:ring-offset-2 dark:bg-slate-900/80 dark:focus-within:ring-blue-400/50 dark:focus-within:ring-offset-slate-900 ${
+      className={`group relative overflow-hidden rounded-xl border bg-card backdrop-blur-sm shadow-[var(--shadow-sm)] transition-all duration-300 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-md)] focus-within:ring-2 focus-within:ring-ring/40 focus-within:ring-offset-2 ${
         isSelected
-          ? 'border-blue-400/80 ring-2 ring-blue-400/20 shadow-[var(--shadow-md)] dark:border-blue-500/60 dark:ring-blue-500/30'
-          : 'border-slate-200/90 hover:border-slate-300/80 dark:border-slate-700/80 dark:hover:border-slate-600/80'
+          ? 'border-primary/60 ring-2 ring-primary/20 shadow-[var(--shadow-md)]'
+          : 'border-border hover:border-accent-border/80'
       }`}
-      style={{
-        animation: isVisible
-          ? `queueCardEnter ${ENTER_DURATION_MS}ms ease-out ${Math.min(index, STAGGER_CAP) * STAGGER_MS}ms both`
-          : 'none',
-      }}
+      style={
+        reducedMotion
+          ? undefined
+          : {
+              animation: isVisible
+                ? `queueCardEnter ${ENTER_DURATION_MS}ms ease-out ${Math.min(index, STAGGER_CAP) * STAGGER_MS}ms both`
+                : 'none',
+            }
+      }
     >
-      {/* Accent bar: amber when has failed, blue when active, slate when idle */}
+      {/* Accent bar: warning when failed, primary when active, muted when idle */}
       <div
         className={`absolute left-0 top-0 h-full w-1 shrink-0 ${
-          accent === 'amber'
-            ? 'bg-amber-500'
-            : accent === 'blue'
-              ? 'bg-blue-500'
-              : 'bg-slate-300 dark:bg-slate-600'
+          accent === 'amber' ? 'bg-warning' : accent === 'blue' ? 'bg-primary' : 'bg-muted/60'
         }`}
         aria-hidden
       />
@@ -100,7 +102,7 @@ export function QueueOverviewCard({
               <button
                 type="button"
                 onClick={onSelect}
-                className="focus-ring truncate text-left text-base font-semibold text-slate-800 transition-colors hover:text-blue-600 focus:outline-none dark:text-slate-100 dark:hover:text-blue-400"
+                className="focus-ring-standard truncate rounded-md text-left text-base font-semibold text-foreground transition-colors hover:text-primary"
                 title={display.labelRo}
               >
                 {display.labelRo}
@@ -114,60 +116,48 @@ export function QueueOverviewCard({
                 {display.tooltip}
               </InfoTooltip>
             </div>
-            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400" title="Nume intern">
+            <p className="mt-0.5 text-xs text-muted" title="Nume intern">
               {queue.name}
             </p>
           </div>
           {isSelected ? (
-            <span className="shrink-0 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 ring-1 ring-blue-200/80 dark:bg-blue-900/40 dark:text-blue-300 dark:ring-blue-700/60">
+            <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary ring-1 ring-primary/20">
               Selectată
             </span>
           ) : null}
         </div>
 
         {/* Statistici: grid compact */}
-        <div className="grid grid-cols-5 gap-2 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2.5 dark:border-slate-700/60 dark:bg-slate-800/50">
+        <div className="grid grid-cols-5 gap-2 rounded-lg border border-border bg-subtle/40 px-3 py-2.5">
           <div className="text-center">
-            <p className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              În așteptare
-            </p>
-            <p className="font-mono text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+            <p className="text-[10px] uppercase tracking-wide text-muted">În așteptare</p>
+            <p className="font-mono text-sm font-semibold tabular-nums text-foreground">
               <QueueStatCountUp value={queue.waiting} />
             </p>
           </div>
           <div className="text-center">
-            <p className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Active
-            </p>
-            <p className="font-mono text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+            <p className="text-[10px] uppercase tracking-wide text-muted">Active</p>
+            <p className="font-mono text-sm font-semibold tabular-nums text-foreground">
               <QueueStatCountUp value={queue.active} />
             </p>
           </div>
           <div className="text-center">
-            <p className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Amânate
-            </p>
-            <p className="font-mono text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+            <p className="text-[10px] uppercase tracking-wide text-muted">Amânate</p>
+            <p className="font-mono text-sm font-semibold tabular-nums text-foreground">
               <QueueStatCountUp value={queue.delayed} />
             </p>
           </div>
           <div className="text-center">
-            <p className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Finalizate
-            </p>
-            <p className="font-mono text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+            <p className="text-[10px] uppercase tracking-wide text-muted">Finalizate</p>
+            <p className="font-mono text-sm font-semibold tabular-nums text-foreground">
               <QueueStatCountUp value={queue.completed} />
             </p>
           </div>
           <div className="text-center">
-            <p className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Eșuate
-            </p>
+            <p className="text-[10px] uppercase tracking-wide text-muted">Eșuate</p>
             <p
               className={`font-mono text-sm font-semibold tabular-nums ${
-                queue.failed > 0
-                  ? 'text-amber-600 dark:text-amber-400'
-                  : 'text-slate-800 dark:text-slate-100'
+                queue.failed > 0 ? 'text-warning' : 'text-foreground'
               }`}
             >
               <QueueStatCountUp value={queue.failed} />

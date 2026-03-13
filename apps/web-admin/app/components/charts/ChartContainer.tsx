@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Button } from '../ui/button';
 
 export type ChartContainerProps = Readonly<{
   title: ReactNode;
@@ -38,29 +39,26 @@ export function ChartContainer(props: ChartContainerProps) {
 
   return (
     <article
-      className={`overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm transition-all duration-200 hover:shadow-[var(--shadow-md)] dark:border-slate-700/90 dark:bg-slate-900/80 dark:backdrop-blur-sm ${className ?? ''}`.trim()}
+      className={`overflow-hidden rounded-xl border border-border bg-card/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm transition-all duration-200 hover:shadow-[var(--shadow-md)] motion-safe:animate-[chartFadeIn_300ms_ease-out_both] ${className ?? ''}`.trim()}
     >
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            {title}
-          </h3>
-          {description ? (
-            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{description}</p>
-          ) : null}
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-muted">{title}</h3>
+          {description ? <p className="mt-0.5 text-xs text-muted">{description}</p> : null}
         </div>
         {onLegendToggle || actions ? (
           <div className="flex shrink-0 items-center gap-2">
             {onLegendToggle ? (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={onLegendToggle}
-                className="rounded-md px-2 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-1 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200 dark:focus-visible:ring-offset-slate-900"
                 aria-pressed={legendCollapsed}
                 aria-label={legendCollapsed ? 'Afișează legenda' : 'Ascunde legenda'}
               >
                 {legendCollapsed ? 'Afișează legenda' : 'Ascunde legenda'}
-              </button>
+              </Button>
             ) : null}
             {actions ?? null}
           </div>
@@ -73,14 +71,14 @@ export function ChartContainer(props: ChartContainerProps) {
       >
         {loading ? (
           <div className="flex h-full flex-col items-center justify-center gap-2">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-sky-500 dark:border-slate-600 dark:border-t-sky-400" />
-            <span className="text-xs text-slate-500 dark:text-slate-400">Se încarcă…</span>
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-primary" />
+            <span className="text-xs text-muted">Se încarcă…</span>
           </div>
         ) : null}
         {error ? (
           <div className="flex h-full flex-col items-center justify-center gap-2">
             <svg
-              className="h-6 w-6 text-red-400 dark:text-red-500"
+              className="h-6 w-6 text-error/70"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -92,16 +90,14 @@ export function ChartContainer(props: ChartContainerProps) {
                 d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
               />
             </svg>
-            <span className="max-w-xs text-center text-xs text-red-600 dark:text-red-400">
-              {error}
-            </span>
+            <span className="max-w-xs text-center text-xs text-error">{error}</span>
           </div>
         ) : null}
         {!loading && !error && empty
           ? (emptyState ?? (
               <div className="flex h-full flex-col items-center justify-center gap-2">
                 <svg
-                  className="h-8 w-8 text-slate-300 dark:text-slate-600"
+                  className="h-8 w-8 text-muted"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -113,7 +109,7 @@ export function ChartContainer(props: ChartContainerProps) {
                     d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"
                   />
                 </svg>
-                <span className="text-xs text-slate-500 dark:text-slate-400">Fără date.</span>
+                <span className="text-xs text-muted">Fără date.</span>
               </div>
             ))
           : null}

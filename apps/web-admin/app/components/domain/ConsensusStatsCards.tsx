@@ -8,8 +8,8 @@ type ConsensusStatsCardsProps = Readonly<{
 export function ConsensusStatsCards({ stats }: ConsensusStatsCardsProps) {
   return (
     <div className="grid gap-4 md:grid-cols-4">
-      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-md dark:bg-slate-900/80 dark:border-slate-700/60">
-        <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-md)]">
+        <div className="mb-2 flex items-center gap-1.5 text-xs text-success">
           <span>Produse cu consens</span>
           <InfoTooltip title="Produse cu consens">
             Produsele cu consens au date agregate din multiple surse, fără conflicte. De ce
@@ -18,12 +18,10 @@ export function ConsensusStatsCards({ stats }: ConsensusStatsCardsProps) {
             surse noi.
           </InfoTooltip>
         </div>
-        <div className="text-h5 text-slate-800 dark:text-slate-100">
-          {stats.productsWithConsensus}
-        </div>
+        <div className="text-h5 text-foreground">{stats.productsWithConsensus}</div>
       </div>
-      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-md dark:bg-slate-900/80 dark:border-slate-700/60">
-        <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-md)]">
+        <div className="mb-2 flex items-center gap-1.5 text-xs text-warning">
           <span>Consens în așteptare</span>
           <InfoTooltip title="Consens în așteptare">
             Produsele în așteptare nu au încă un calcul de consens finalizat. De ce contează: un
@@ -32,10 +30,10 @@ export function ConsensusStatsCards({ stats }: ConsensusStatsCardsProps) {
             procesarea.
           </InfoTooltip>
         </div>
-        <div className="text-h5 text-slate-800 dark:text-slate-100">{stats.pendingConsensus}</div>
+        <div className="text-h5 text-foreground">{stats.pendingConsensus}</div>
       </div>
-      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-md dark:bg-slate-900/80 dark:border-slate-700/60">
-        <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-md)]">
+        <div className="mb-2 flex items-center gap-1.5 text-xs text-error">
           <span>Conflicte</span>
           <InfoTooltip title="Conflicte">
             Conflictele apar când surse diferite furnizează valori contradictorii pentru același
@@ -44,12 +42,10 @@ export function ConsensusStatsCards({ stats }: ConsensusStatsCardsProps) {
             prioritar pe produsele importante.
           </InfoTooltip>
         </div>
-        <div className="text-h5 text-slate-800 dark:text-slate-100">
-          {stats.productsWithConflicts}
-        </div>
+        <div className="text-h5 text-foreground">{stats.productsWithConflicts}</div>
       </div>
-      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-md dark:bg-slate-900/80 dark:border-slate-700/60">
-        <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-md)]">
+        <div className="mb-2 flex items-center gap-1.5 text-xs text-success">
           <span>Rezolvate azi</span>
           <InfoTooltip title="Rezolvate azi">
             Rezolvate azi arată câte conflicte au fost soluționate manual în ziua curentă. De ce
@@ -57,7 +53,7 @@ export function ConsensusStatsCards({ stats }: ConsensusStatsCardsProps) {
             produse au primit date corecte. Sfat: stabilește un obiectiv zilnic de rezolvare.
           </InfoTooltip>
         </div>
-        <div className="text-h5 text-slate-800 dark:text-slate-100">{stats.resolvedToday}</div>
+        <div className="text-h5 text-foreground">{stats.resolvedToday}</div>
       </div>
     </div>
   );

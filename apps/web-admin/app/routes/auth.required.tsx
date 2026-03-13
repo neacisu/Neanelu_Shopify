@@ -1,6 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 
+import { Button } from '../components/ui/button';
+import { Card, CardContent, CardHeader } from '../components/ui/card';
+import { TextField } from '../components/ui/text-field';
 import { isValidShopDomain } from '../shopify/shopify-url';
 
 function normalizeReturnTo(raw: string | null): string {
@@ -44,58 +47,50 @@ export default function AuthRequiredPage() {
   };
 
   return (
-    <div className="mx-auto max-w-xl space-y-4 rounded-lg border bg-card p-6 shadow-sm">
-      <div className="space-y-1">
+    <Card variant="glass" padding="lg" className="mx-auto max-w-xl">
+      <CardHeader className="space-y-1 border-b-0 pb-0">
         <div className="text-h5">Autentificare necesară</div>
         <div className="text-body text-muted">
           Nu am putut determina magazinul Shopify (lipsește parametrul{' '}
           <span className="font-medium">shop</span> din URL), deci nu putem crea sesiunea pentru
           API.
         </div>
-      </div>
+      </CardHeader>
 
-      <div className="space-y-2">
-        <label className="block text-caption font-medium" htmlFor="shop">
-          Domeniu shop (ex: <span className="font-mono">magazin.myshopify.com</span>)
-        </label>
-        <input
+      <CardContent className="mt-6">
+        <TextField
           id="shop"
+          label="Domeniu shop (ex: magazin.myshopify.com)"
           value={shop}
           onChange={(e) => setShop(e.target.value)}
-          className="w-full rounded-md border bg-background px-3 py-2 text-body"
           placeholder="your-shop.myshopify.com"
           autoComplete="off"
           spellCheck={false}
+          {...(!shopOk && shop.length > 0 ? { error: 'Domeniu invalid.' } : {})}
         />
-        {!shopOk && shop.length > 0 ? (
-          <div className="text-caption text-error">Domeniu invalid.</div>
-        ) : null}
-      </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={startAuth}
-          disabled={!shopOk}
-          className="rounded-md bg-primary px-3 py-2 text-caption text-primary-foreground disabled:opacity-50"
-        >
-          Pornește autentificarea
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button type="button" variant="primary" onClick={startAuth} disabled={!shopOk}>
+            Pornește autentificarea
+          </Button>
 
-        <a
-          className="rounded-md border px-3 py-2 text-caption hover:bg-muted"
-          href={returnTo}
-          rel="noreferrer"
-        >
-          Înapoi
-        </a>
-      </div>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              window.location.href = returnTo;
+            }}
+          >
+            Înapoi
+          </Button>
+        </div>
 
-      <div className="text-caption text-muted">
-        Tip: cel mai sigur e să deschizi aplicația din Shopify Admin (URL-ul va conține automat{' '}
-        <span className="font-medium">shop</span> și
-        <span className="font-medium">host</span>).
-      </div>
-    </div>
+        <div className="text-caption text-muted">
+          Tip: cel mai sigur e să deschizi aplicația din Shopify Admin (URL-ul va conține automat{' '}
+          <span className="font-medium">shop</span> și
+          <span className="font-medium">host</span>).
+        </div>
+      </CardContent>
+    </Card>
   );
 }

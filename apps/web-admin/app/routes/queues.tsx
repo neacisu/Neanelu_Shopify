@@ -18,8 +18,11 @@ import { toast } from 'sonner';
 
 import { useScrollReveal } from '../hooks/useScrollReveal';
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
+import { PageHeader } from '../components/layout/page-header';
 import { ErrorState } from '../components/patterns/error-state';
+import { LoadingState } from '../components/patterns/loading-state.js';
 import { Button } from '../components/ui/button';
+import { Select } from '../components/ui/select';
 import { InfoTooltip } from '../components/ui/info-tooltip';
 import { Tabs } from '../components/ui/tabs';
 import { Card } from '../components/ui/card';
@@ -49,6 +52,7 @@ import {
 import { WorkersGrid, type WorkerSummary } from '../components/domain/workers-grid';
 import { QueuesOverviewGrid } from '../components/domain/queue-overview-cards';
 import { RealtimeQueueStatusWithCountdown } from '../components/domain/realtime-queue-status';
+import { StreamingIndicator } from '../components/ui/streaming-indicator.js';
 
 type QueueSummary = Readonly<{
   name: string;
@@ -661,26 +665,29 @@ export default function QueuesPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="space-y-1">
-          <Breadcrumbs items={breadcrumbs} />
-          <h1 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-slate-100 motion-safe:animate-[fadeSlideUp_0.5s_ease-out_both]">
-            Monitor cozi
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            Monitorizare cozi, job-uri și workeri în timp real
-          </p>
-        </div>
-      </header>
+      <Breadcrumbs items={breadcrumbs} />
+      <div className="flex items-center gap-3">
+        <PageHeader
+          title="Monitor cozi"
+          description="Monitorizare cozi, job-uri și workeri în timp real"
+        />
+        <StreamingIndicator
+          active={stream.connected}
+          label="Stream activ"
+          variant="success"
+          showLabel
+        />
+      </div>
 
-      <Card className="p-4 dark:bg-slate-800/80 dark:border-slate-700/60">
+      <Card variant="glass" padding="md">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-64">
             <div className="flex items-center gap-1.5">
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                Queue
-                <select
+              <div className="min-w-64">
+                <Select
+                  label="Queue"
                   value={selectedQueue}
+                  options={queueOptions}
                   onChange={(e) => {
                     const next = e.target.value;
                     updateSearchParams(navigate, location.search, (p) => {
@@ -689,15 +696,8 @@ export default function QueuesPage() {
                       p.set('page', '0');
                     });
                   }}
-                  className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm transition-shadow duration-200 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 dark:focus:ring-blue-400/50"
-                >
-                  {queueOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                />
+              </div>
               <InfoTooltip title="Selectare coadă" side="bottom">
                 Alege coada pentru care vezi metricile și job-urile. Fiecare coadă procesează un tip
                 de job (sincronizare, webhooks, enrichment etc.). După selecție, metricile și lista
@@ -720,7 +720,7 @@ export default function QueuesPage() {
                   void revalidator.revalidate();
                 }}
               >
-                Reincarca
+                Reîncarcă
               </Button>
               <InfoTooltip title="Reîncarcă" side="bottom">
                 Reîmprospătează datele afișate pe pagină (lista de cozi, numerele din carduri,
@@ -755,6 +755,12 @@ export default function QueuesPage() {
           </InfoTooltip>
         </span>
       </div>
+
+      <p className="sr-only" aria-live="polite" aria-atomic="true">
+        {isLoading
+          ? 'Se încarcă...'
+          : `${queues.length} cozi disponibile, coada selectată: ${selectedQueue || 'niciuna'}`}
+      </p>
 
       {selectedQueue ? (
         <>
@@ -800,7 +806,7 @@ export default function QueuesPage() {
             <h2 id="queues-overview-heading" className="sr-only">
               Prezentare cozi
             </h2>
-            <p className="mb-4 text-sm text-slate-600 dark:text-slate-400">
+            <p className="mb-4 text-sm text-muted">
               Fiecare card reprezintă o coadă: statistici în timp real și acțiuni (Pauză, Reia,
               Șterge eșecuri). Apasă pe numele cozii pentru a o selecta și a vedea metricile mai
               sus.
@@ -878,22 +884,24 @@ export default function QueuesPage() {
 
       {tab === 'workers' ? (
         <div className="space-y-4 motion-safe:animate-[fadeIn_0.3s_ease-out]">
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200/90 bg-slate-50/50 px-4 py-3 dark:border-slate-700/60 dark:bg-slate-800/60">
+          <Card
+            variant="glass"
+            padding="md"
+            className="flex flex-wrap items-center justify-between gap-3"
+          >
             <div className="flex items-center gap-3">
-              <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                {isLoading ? (
-                  'Se încarcă…'
-                ) : (
-                  <>
-                    <span className="tabular-nums">{workers.length}</span>
-                    <span className="ml-1 text-slate-500 dark:text-slate-400">
-                      {workers.length === 1 ? 'worker' : 'workeri'}
-                    </span>
-                  </>
-                )}
-              </span>
+              {isLoading ? (
+                <LoadingState label="Se încarcă…" />
+              ) : (
+                <span className="text-sm font-medium text-foreground">
+                  <span className="tabular-nums">{workers.length}</span>
+                  <span className="ml-1 text-muted">
+                    {workers.length === 1 ? 'worker' : 'workeri'}
+                  </span>
+                </span>
+              )}
               {!isLoading && workers.length > 0 ? (
-                <span className="text-xs text-slate-500 dark:text-slate-400">
+                <span className="text-xs text-muted">
                   ({workers.filter((w) => w.ok).length} online)
                 </span>
               ) : null}
@@ -912,7 +920,7 @@ export default function QueuesPage() {
                 conectați). Nu modifică nimic în cozi sau în aplicație.
               </InfoTooltip>
             </span>
-          </div>
+          </Card>
           <WorkersGrid workers={workers} />
         </div>
       ) : null}

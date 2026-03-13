@@ -10,6 +10,7 @@ import {
   toStagingVariantRowShape,
 } from './transformation/stitching/parent-child-remapper.js';
 import { withBulkSpan } from '../../otel/spans.js';
+import { insertBulkError } from '../../state-machine.js';
 
 function extractLegacyResourceId(gid: string): number | null {
   // Shopify GID format: gid://shopify/Product/123456
@@ -35,6 +36,11 @@ export type CopyWriterCounters = Readonly<{
   mediaCopied: number;
   productMediaCopied: number;
   variantMediaCopied: number;
+  metafieldProductPatchesBuffered: number;
+  metafieldVariantPatchesBuffered: number;
+  metafieldProductPatchesFlushed: number;
+  metafieldVariantPatchesFlushed: number;
+  metafieldFlushErrors: number;
 }>;
 
 type StagingMediaRowShape = Readonly<{
@@ -68,12 +74,177 @@ type StagingVariantMediaRowShape = Readonly<{
   position: number;
 }>;
 
+export type MetafieldPatchWriterCounters = Readonly<{
+  productPatchesBuffered: number;
+  variantPatchesBuffered: number;
+  productPatchesFlushed: number;
+  variantPatchesFlushed: number;
+  flushErrors: number;
+}>;
+
+/**
+ * Accumulates metafield patches from `product_metafields_patch` and
+ * `variant_metafields_patch` stitched records, then applies them as batch
+ * JSONB || UPDATE statements directly on `shopify_products` / `shopify_variants`.
+ *
+ * This bypasses the staging tables entirely -- metafields from a `meta` bulk
+ * run are written straight to the live tables, which is correct since the meta
+ * JSONL contains only id + metafields (no product scalar fields to stage).
+ */
+export class MetafieldPatchWriter {
+  private readonly shopId: string;
+  private readonly bulkRunId: string;
+  private readonly batchMaxRows: number;
+
+  /** GID -> { namespace: { key: value } } */
+  private productBuffer = new Map<string, Record<string, unknown>>();
+  private variantBuffer = new Map<string, Record<string, unknown>>();
+
+  private mutable = {
+    productPatchesBuffered: 0,
+    variantPatchesBuffered: 0,
+    productPatchesFlushed: 0,
+    variantPatchesFlushed: 0,
+    flushErrors: 0,
+  };
+
+  constructor(params: { shopId: string; bulkRunId: string; batchMaxRows: number }) {
+    this.shopId = params.shopId;
+    this.bulkRunId = params.bulkRunId;
+    this.batchMaxRows = Math.max(1, params.batchMaxRows);
+  }
+
+  public getCounters(): MetafieldPatchWriterCounters {
+    return {
+      productPatchesBuffered: this.mutable.productPatchesBuffered,
+      variantPatchesBuffered: this.mutable.variantPatchesBuffered,
+      productPatchesFlushed: this.mutable.productPatchesFlushed,
+      variantPatchesFlushed: this.mutable.variantPatchesFlushed,
+      flushErrors: this.mutable.flushErrors,
+    };
+  }
+
+  public shouldFlush(): boolean {
+    return (
+      this.productBuffer.size >= this.batchMaxRows || this.variantBuffer.size >= this.batchMaxRows
+    );
+  }
+
+  public handleProductPatch(
+    record: Extract<StitchedRecord, { kind: 'product_metafields_patch' }>
+  ): void {
+    this.mergeMetafieldIntoBuffer(this.productBuffer, record.ownerId, record.patch);
+    this.mutable.productPatchesBuffered += 1;
+  }
+
+  public handleVariantPatch(
+    record: Extract<StitchedRecord, { kind: 'variant_metafields_patch' }>
+  ): void {
+    this.mergeMetafieldIntoBuffer(this.variantBuffer, record.ownerId, record.patch);
+    this.mutable.variantPatchesBuffered += 1;
+  }
+
+  private mergeMetafieldIntoBuffer(
+    buffer: Map<string, Record<string, unknown>>,
+    ownerId: string,
+    patch: Readonly<Record<string, Readonly<Record<string, unknown>>>>
+  ): void {
+    let existing = buffer.get(ownerId);
+    if (!existing) {
+      existing = {};
+      buffer.set(ownerId, existing);
+    }
+    // Deep merge: namespace -> key -> value
+    for (const [ns, keys] of Object.entries(patch)) {
+      const existingNs = existing[ns];
+      const mergedNs: Record<string, unknown> =
+        existingNs && typeof existingNs === 'object'
+          ? { ...(existingNs as Record<string, unknown>) }
+          : {};
+      for (const [k, v] of Object.entries(keys)) {
+        mergedNs[k] = v;
+      }
+      existing[ns] = mergedNs;
+    }
+  }
+
+  public async flush(): Promise<void> {
+    await this.flushBuffer(this.productBuffer, 'shopify_products', 'product');
+    await this.flushBuffer(this.variantBuffer, 'shopify_variants', 'variant');
+  }
+
+  private async flushBuffer(
+    buffer: Map<string, Record<string, unknown>>,
+    table: 'shopify_products' | 'shopify_variants',
+    kind: 'product' | 'variant'
+  ): Promise<void> {
+    if (buffer.size === 0) return;
+
+    const entries = Array.from(buffer.entries());
+    buffer.clear();
+
+    await withBulkSpan(
+      'bulk.metafield_patch.flush',
+      {
+        shopId: this.shopId,
+        bulkRunId: this.bulkRunId,
+        step: 'metafield_patch',
+      },
+      async (span) => {
+        span.setAttribute('bulk.batch_rows', entries.length);
+        span.setAttribute('bulk.target_table', table);
+
+        try {
+          await withTenantContext(this.shopId, async (client) => {
+            const values: unknown[] = [];
+            const placeholders: string[] = [];
+            let idx = 1;
+            for (const [gid, patch] of entries) {
+              placeholders.push(`($${idx++}::text, $${idx++}::jsonb)`);
+              values.push(gid, JSON.stringify(patch));
+            }
+
+            const shopIdColumn = table === 'shopify_products' ? 'shop_id' : 'shop_id';
+            await client.query(
+              `UPDATE ${table} t
+               SET metafields = COALESCE(t.metafields, '{}'::jsonb) || batch.patch,
+                   updated_at = now()
+               FROM (VALUES ${placeholders.join(', ')}) AS batch(shopify_gid, patch)
+               WHERE t.${shopIdColumn} = $${idx}
+                 AND t.shopify_gid = batch.shopify_gid`,
+              [...values, this.shopId]
+            );
+          });
+
+          if (kind === 'product') {
+            this.mutable.productPatchesFlushed += entries.length;
+          } else {
+            this.mutable.variantPatchesFlushed += entries.length;
+          }
+        } catch (err) {
+          this.mutable.flushErrors += 1;
+          void insertBulkError({
+            shopId: this.shopId,
+            bulkRunId: this.bulkRunId,
+            errorType: 'metafield_patch_flush_error',
+            errorCode: err instanceof Error ? err.message.slice(0, 100) : 'unknown',
+            errorMessage: `MetafieldPatchWriter flush failed for ${table} (batch=${entries.length})`,
+          }).catch(() => undefined);
+        }
+      }
+    );
+  }
+}
+
 export class StagingCopyWriter {
   private readonly shopId: string;
   private readonly bulkRunId: string;
 
   private readonly batchMaxRows: number;
   private readonly batchMaxBytes: number;
+  private readonly skipProductStaging: boolean;
+
+  public readonly metafieldPatchWriter: MetafieldPatchWriter;
 
   private products: StagingProductRowShape[] = [];
   private variants: StagingVariantRowShape[] = [];
@@ -105,14 +276,22 @@ export class StagingCopyWriter {
     bulkRunId: string;
     batchMaxRows: number;
     batchMaxBytes: number;
+    skipProductStaging?: boolean;
   }) {
     this.shopId = params.shopId;
     this.bulkRunId = params.bulkRunId;
     this.batchMaxRows = Math.max(1, Math.trunc(params.batchMaxRows));
     this.batchMaxBytes = Math.max(1024, Math.trunc(params.batchMaxBytes));
+    this.skipProductStaging = params.skipProductStaging === true;
+    this.metafieldPatchWriter = new MetafieldPatchWriter({
+      shopId: params.shopId,
+      bulkRunId: params.bulkRunId,
+      batchMaxRows: this.batchMaxRows,
+    });
   }
 
   public getCounters(): CopyWriterCounters {
+    const mfCounters = this.metafieldPatchWriter.getCounters();
     return {
       recordsSeen: this.mutable.recordsSeen,
       recordsSkipped: this.mutable.recordsSkipped,
@@ -126,6 +305,11 @@ export class StagingCopyWriter {
       mediaCopied: this.mutable.mediaCopied,
       productMediaCopied: this.mutable.productMediaCopied,
       variantMediaCopied: this.mutable.variantMediaCopied,
+      metafieldProductPatchesBuffered: mfCounters.productPatchesBuffered,
+      metafieldVariantPatchesBuffered: mfCounters.variantPatchesBuffered,
+      metafieldProductPatchesFlushed: mfCounters.productPatchesFlushed,
+      metafieldVariantPatchesFlushed: mfCounters.variantPatchesFlushed,
+      metafieldFlushErrors: mfCounters.flushErrors,
     };
   }
 
@@ -140,6 +324,10 @@ export class StagingCopyWriter {
       this.variantMedia.length;
 
     if (record.kind === 'product') {
+      if (this.skipProductStaging) {
+        this.mutable.recordsSkipped += 1;
+        return { flushed: false };
+      }
       const row = toStagingProductRowShape(record.raw);
       if (!row?.shopify_gid) {
         this.mutable.recordsSkipped += 1;
@@ -156,6 +344,10 @@ export class StagingCopyWriter {
         this.productMedia.push(...mediaBatch.productMedia);
       }
     } else if (record.kind === 'variant') {
+      if (this.skipProductStaging) {
+        this.mutable.recordsSkipped += 1;
+        return { flushed: false };
+      }
       const row = toStagingVariantRowShape(record.raw);
       if (!row?.shopify_gid || !row.product_shopify_gid) {
         this.mutable.recordsSkipped += 1;
@@ -171,8 +363,21 @@ export class StagingCopyWriter {
       if (variantMediaBatch.variantMedia.length > 0) {
         this.variantMedia.push(...variantMediaBatch.variantMedia);
       }
+    } else if (record.kind === 'product_metafields_patch') {
+      this.metafieldPatchWriter.handleProductPatch(record);
+      if (this.metafieldPatchWriter.shouldFlush()) {
+        await this.metafieldPatchWriter.flush();
+        return { flushed: true };
+      }
+      return { flushed: false };
+    } else if (record.kind === 'variant_metafields_patch') {
+      this.metafieldPatchWriter.handleVariantPatch(record);
+      if (this.metafieldPatchWriter.shouldFlush()) {
+        await this.metafieldPatchWriter.flush();
+        return { flushed: true };
+      }
+      return { flushed: false };
     } else {
-      // PR-042 scope: only stage products/variants. Others are handled by later PRs.
       this.mutable.recordsSkipped += 1;
       return { flushed: false };
     }
@@ -194,14 +399,19 @@ export class StagingCopyWriter {
   }
 
   public async flush(): Promise<void> {
-    if (
-      this.products.length === 0 &&
-      this.variants.length === 0 &&
-      this.media.length === 0 &&
-      this.productMedia.length === 0 &&
-      this.variantMedia.length === 0
-    )
+    const hasStagingRows =
+      this.products.length > 0 ||
+      this.variants.length > 0 ||
+      this.media.length > 0 ||
+      this.productMedia.length > 0 ||
+      this.variantMedia.length > 0;
+
+    if (!hasStagingRows) {
+      // Even with no staging rows, drain any remaining metafield patches
+      // (critical for meta runs where skipProductStaging === true).
+      await this.metafieldPatchWriter.flush();
       return;
+    }
 
     // Flush products first.
     if (this.products.length > 0) {
@@ -238,6 +448,8 @@ export class StagingCopyWriter {
       await this.copyVariantMedia(batch);
       this.mutable.variantMediaCopied += batch.length;
     }
+
+    await this.metafieldPatchWriter.flush();
 
     this.bufferedBytes = 0;
   }
@@ -322,6 +534,7 @@ export class StagingCopyWriter {
             row.has_only_default_variant,
             row.total_inventory,
             asJsonColumn(row.collections),
+            row.category_id ?? null,
             asJsonColumn(row.raw_data),
             isValid ? 'valid' : 'invalid',
             'pending',
@@ -352,6 +565,7 @@ export class StagingCopyWriter {
             'has_only_default_variant',
             'total_inventory',
             'collections',
+            'category_id',
             'raw_data',
             'validation_status',
             'merge_status',

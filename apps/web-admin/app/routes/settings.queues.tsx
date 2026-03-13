@@ -1,8 +1,19 @@
 import { useEffect, useState } from 'react';
 
+import { ErrorState } from '../components/patterns/error-state';
+import { EmptyState } from '../components/patterns/empty-state';
+import { LoadingState } from '../components/patterns/loading-state';
+import { Button } from '../components/ui/button';
 import { InfoTooltip } from '../components/ui/info-tooltip';
+import { Select, type SelectOption } from '../components/ui/select';
+import { TextField } from '../components/ui/text-field';
 import { WarningModal } from '../components/ui/warning-modal';
 import { useApiClient } from '../hooks/use-api';
+
+const BACKOFF_TYPE_OPTIONS: SelectOption[] = [
+  { value: 'exponential', label: 'Exponential' },
+  { value: 'fixed', label: 'Fix' },
+];
 
 interface QueueConfig {
   name: string;
@@ -97,27 +108,15 @@ export default function SettingsQueues() {
   };
 
   if (queuesLoading) {
-    return (
-      <div className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-        Se încarcă setările pentru cozi...
-      </div>
-    );
+    return <LoadingState label="Se încarcă setările pentru cozi..." />;
   }
 
   if (queuesError) {
-    return (
-      <div className="rounded-md border border-error/30 bg-error/10 p-4 text-error shadow-sm dark:border-red-700/50 dark:bg-red-900/20">
-        {queuesError}
-      </div>
-    );
+    return <ErrorState message={queuesError} />;
   }
 
   if (!queuesData?.queues.length) {
-    return (
-      <div className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-        Nu există cozi configurate.
-      </div>
-    );
+    return <EmptyState title="Nicio coadă configurată" description="Nu există cozi configurate." />;
   }
 
   return (
@@ -128,14 +127,12 @@ export default function SettingsQueues() {
         return (
           <div
             key={queue.name}
-            className="rounded-md border border-muted/20 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/80"
+            className="rounded-md border border-border p-4 shadow-[var(--shadow-sm)]"
           >
-            <div className="text-sm font-semibold text-foreground dark:text-slate-100">
-              {queue.name}
-            </div>
+            <div className="text-sm font-semibold text-foreground">{queue.name}</div>
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <label className="space-y-1 text-sm">
-                <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+                <span className="text-muted inline-flex items-center gap-1">
                   Concurrență (1–50)
                   <InfoTooltip title="Concurrență" side="bottom" portalToBody>
                     Câți job-uri pot rula în paralel pentru această coadă. Valori mai mari
@@ -144,20 +141,19 @@ export default function SettingsQueues() {
                     pentru prioritare; peste 20 necesită confirmare.
                   </InfoTooltip>
                 </span>
-                <input
+                <TextField
                   type="number"
                   min={1}
                   max={50}
-                  value={edit.concurrency}
+                  value={String(edit.concurrency)}
                   disabled={disabled}
                   onChange={(event) =>
                     updateQueueEdit(queue.name, { concurrency: Number(event.target.value) })
                   }
-                  className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
                 />
               </label>
               <label className="space-y-1 text-sm">
-                <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+                <span className="text-muted inline-flex items-center gap-1">
                   Încercări maxime
                   <InfoTooltip title="Încercări maxime" side="bottom" portalToBody>
                     Numărul maxim de încercări înainte ca job-ul să fie mutat în coada de erori
@@ -166,20 +162,19 @@ export default function SettingsQueues() {
                     Sfat: 3–5 e recomandat pentru API-uri externe.
                   </InfoTooltip>
                 </span>
-                <input
+                <TextField
                   type="number"
                   min={1}
                   max={10}
-                  value={edit.maxAttempts}
+                  value={String(edit.maxAttempts)}
                   disabled={disabled}
                   onChange={(event) =>
                     updateQueueEdit(queue.name, { maxAttempts: Number(event.target.value) })
                   }
-                  className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
                 />
               </label>
               <label className="space-y-1 text-sm">
-                <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+                <span className="text-muted inline-flex items-center gap-1">
                   Tip backoff
                   <InfoTooltip title="Tip backoff" side="bottom" portalToBody>
                     Strategia de pauză între reîncercări după eșec. „Exponential" crește progresiv
@@ -188,7 +183,8 @@ export default function SettingsQueues() {
                     limiting. Sfat: alegeți exponential pentru API-uri externe.
                   </InfoTooltip>
                 </span>
-                <select
+                <Select
+                  options={BACKOFF_TYPE_OPTIONS}
                   value={edit.backoffType}
                   disabled={disabled}
                   onChange={(event) =>
@@ -196,14 +192,10 @@ export default function SettingsQueues() {
                       backoffType: event.target.value as QueueConfig['backoffType'],
                     })
                   }
-                  className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
-                >
-                  <option value="exponential">Exponential</option>
-                  <option value="fixed">Fix</option>
-                </select>
+                />
               </label>
               <label className="space-y-1 text-sm">
-                <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+                <span className="text-muted inline-flex items-center gap-1">
                   Întârziere backoff (ms)
                   <InfoTooltip title="Întârziere backoff" side="bottom" portalToBody>
                     Durata pauzei inițiale în milisecunde între reîncercări. Pentru „exponential",
@@ -212,20 +204,19 @@ export default function SettingsQueues() {
                     pentru API-uri cu rate limiting.
                   </InfoTooltip>
                 </span>
-                <input
+                <TextField
                   type="number"
                   min={0}
                   max={600000}
-                  value={edit.backoffDelayMs}
+                  value={String(edit.backoffDelayMs)}
                   disabled={disabled}
                   onChange={(event) =>
                     updateQueueEdit(queue.name, { backoffDelayMs: Number(event.target.value) })
                   }
-                  className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
                 />
               </label>
               <label className="space-y-1 text-sm">
-                <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+                <span className="text-muted inline-flex items-center gap-1">
                   Retenție DLQ (zile)
                   <InfoTooltip title="Retenție coadă erori" side="bottom" portalToBody>
                     Câte zile se păstrează job-urile eșuate în DLQ (Dead Letter Queue) înainte de
@@ -234,29 +225,29 @@ export default function SettingsQueues() {
                     7–30 zile e suficient; 90 pentru audit.
                   </InfoTooltip>
                 </span>
-                <input
+                <TextField
                   type="number"
                   min={7}
                   max={90}
-                  value={edit.dlqRetentionDays}
+                  value={String(edit.dlqRetentionDays)}
                   disabled={disabled}
                   onChange={(event) =>
                     updateQueueEdit(queue.name, { dlqRetentionDays: Number(event.target.value) })
                   }
-                  className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
                 />
               </label>
             </div>
             <div className="mt-4 flex items-center gap-3">
               <span className="inline-flex items-center gap-1">
-                <button
+                <Button
                   type="button"
+                  variant="secondary"
                   disabled={disabled || queueSaving === queue.name}
                   onClick={() => void persistQueue(edit)}
-                  className="rounded-md border border-muted/20 px-4 py-2 text-sm font-medium shadow-sm transition-shadow duration-200 hover:bg-muted/10 focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:focus:ring-blue-400/50"
+                  loading={queueSaving === queue.name}
                 >
                   {queueSaving === queue.name ? 'Se salvează...' : 'Aplică'}
-                </button>
+                </Button>
                 <InfoTooltip title="Aplică modificările" side="bottom" portalToBody>
                   Salvează modificările de configurare pentru această coadă. Noile valori se aplică
                   imediat job-urilor noi — cele aflate deja în procesare nu sunt afectate. De
@@ -265,9 +256,7 @@ export default function SettingsQueues() {
                 </InfoTooltip>
               </span>
               {queueSaveMessage[queue.name] ? (
-                <span className="text-xs text-muted dark:text-slate-400">
-                  {queueSaveMessage[queue.name]}
-                </span>
+                <span className="text-xs text-muted">{queueSaveMessage[queue.name]}</span>
               ) : null}
             </div>
           </div>

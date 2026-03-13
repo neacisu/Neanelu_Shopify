@@ -1,34 +1,39 @@
 import { Loader2 } from 'lucide-react';
 
-import { InfoTooltip } from '../ui/info-tooltip';
+import { Badge } from '../ui/badge.js';
+import { InfoTooltip } from '../ui/info-tooltip.js';
 
-interface ExtractionStatusBadgeProps {
-  status: 'pending' | 'in_progress' | 'complete' | 'failed';
-}
+type ExtractionStatus = 'pending' | 'in_progress' | 'complete' | 'failed';
 
-const STATUS_STYLES: Record<ExtractionStatusBadgeProps['status'], string> = {
-  pending: 'bg-slate-200/60 text-slate-600 dark:bg-slate-700/60 dark:text-slate-400',
-  in_progress: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
-  complete: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
-  failed: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
-};
-
-const STATUS_LABELS: Record<ExtractionStatusBadgeProps['status'], string> = {
+const STATUS_LABELS: Record<ExtractionStatus, string> = {
   pending: 'În așteptare',
   in_progress: 'În curs',
   complete: 'Finalizat',
   failed: 'Eșuat',
 };
 
+const STATUS_TONES: Record<ExtractionStatus, 'neutral' | 'success' | 'critical' | 'info'> = {
+  pending: 'neutral',
+  in_progress: 'info',
+  complete: 'success',
+  failed: 'critical',
+};
+
+interface ExtractionStatusBadgeProps {
+  status: ExtractionStatus;
+}
+
 export function ExtractionStatusBadge({ status }: ExtractionStatusBadgeProps) {
   return (
     <span className="inline-flex items-center gap-1">
-      <span
-        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium transition-transform duration-150 hover:scale-105 ${STATUS_STYLES[status]}`}
-      >
-        {status === 'in_progress' ? <Loader2 className="size-3 animate-spin" aria-hidden /> : null}
-        {STATUS_LABELS[status]}
-      </span>
+      <Badge tone={STATUS_TONES[status]}>
+        <span className="inline-flex items-center gap-1.5">
+          {status === 'in_progress' ? (
+            <Loader2 className="size-3 animate-spin" aria-hidden />
+          ) : null}
+          {STATUS_LABELS[status]}
+        </span>
+      </Badge>
       <InfoTooltip title="Status extracție date">
         Acest indicator arată progresul extracției datelor din sursa externă. „În așteptare"
         înseamnă că produsul este în coada de procesare și va fi preluat în curând. „În curs" (cu

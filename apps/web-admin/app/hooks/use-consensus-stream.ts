@@ -50,6 +50,8 @@ export function useConsensusStream(options: UseConsensusStreamOptions = {}) {
       const token = await getSessionToken();
       if (cancelled) return;
       const url = new URL('/api/pim/consensus/stream', window.location.origin);
+      // NOTE: JWT in URL query string is logged in server/proxy logs and browser history.
+      // Acceptable for EventSource (no Authorization header support); mitigate with short-lived tokens + TLS.
       if (token) url.searchParams.set('token', token);
       const source = new EventSource(url.toString());
       sourceRef.current = source;

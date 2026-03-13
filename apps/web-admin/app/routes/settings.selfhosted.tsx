@@ -8,8 +8,13 @@ import type {
 } from '@app/types';
 
 import { SubmitButton } from '../components/forms/submit-button';
+import { ErrorState } from '../components/patterns/error-state';
+import { EmptyState } from '../components/patterns/empty-state';
+import { LoadingState } from '../components/patterns/loading-state';
 import { InfoTooltip } from '../components/ui/info-tooltip';
 import { Button } from '../components/ui/button';
+import { Checkbox } from '../components/ui/checkbox';
+import { TextField } from '../components/ui/text-field';
 import { useApiClient } from '../hooks/use-api';
 
 function createEmptyEndpoint(): SelfHostedEndpoint {
@@ -183,26 +188,16 @@ export default function SettingsSelfHosted() {
     setEndpoints((prev) => prev.filter((item) => item.id !== id));
   };
 
+  if (loading) return <LoadingState label="Se încarcă setările selfhosted..." />;
+
   return (
     <div className="space-y-4">
-      {loading ? (
-        <div className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-          Se încarcă setările selfhosted...
-        </div>
-      ) : null}
+      {error ? <ErrorState message={error} /> : null}
 
-      {error ? (
-        <div className="rounded-md border border-error/30 bg-error/10 p-4 text-error shadow-sm dark:border-red-700/50 dark:bg-red-900/20">
-          {error}
-        </div>
-      ) : null}
-
-      <div className="rounded-lg border border-muted/20 bg-background p-4 text-sm dark:border-slate-700 dark:bg-slate-900/80">
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted dark:text-slate-400">
+      <div className="rounded-lg border border-border bg-background p-4 text-sm">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
           <span>Status conexiune</span>
-          <span className="rounded-full bg-muted/20 px-2 py-1 font-medium dark:bg-slate-700/40">
-            {connectionStatus}
-          </span>
+          <span className="rounded-full bg-muted/20 px-2 py-1 font-medium">{connectionStatus}</span>
           {lastCheckedAt ? (
             <span>verificat {new Date(lastCheckedAt).toLocaleString('ro-RO')}</span>
           ) : null}
@@ -211,17 +206,12 @@ export default function SettingsSelfHosted() {
           ) : null}
         </div>
         {lastError ? <div className="mt-1 text-xs text-error">{lastError}</div> : null}
-        <div className="mt-2 text-xs text-muted dark:text-slate-400">{gpuMetricsText}</div>
+        <div className="mt-2 text-xs text-muted">{gpuMetricsText}</div>
       </div>
 
       <form onSubmit={onSaveSettingsSubmit} className="space-y-4">
-        <label className="flex items-center gap-2 text-body dark:text-slate-200">
-          <input
-            type="checkbox"
-            className="size-4 accent-primary"
-            checked={enabled}
-            onChange={(event) => setEnabled(event.target.checked)}
-          />
+        <label className="flex items-center gap-2 text-foreground">
+          <Checkbox checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
           Activează self-hosted LLM
           <InfoTooltip title="Activare self-hosted" side="bottom" portalToBody>
             Activează endpointurile vLLM interne pentru taskuri de chat/completions. Auditul live a
@@ -232,7 +222,7 @@ export default function SettingsSelfHosted() {
 
         <div>
           <label
-            className="text-caption text-muted dark:text-slate-400 inline-flex items-center gap-1"
+            className="text-caption text-muted inline-flex items-center gap-1"
             htmlFor="selfhosted-token"
           >
             Bearer token (opțional)
@@ -241,7 +231,7 @@ export default function SettingsSelfHosted() {
               lăsați câmpul gol. Dacă există, este stocat criptat AES-256-GCM.
             </InfoTooltip>
           </label>
-          <input
+          <TextField
             id="selfhosted-token"
             type="password"
             value={bearerToken}
@@ -250,13 +240,12 @@ export default function SettingsSelfHosted() {
               setBearerTokenDirty(true);
             }}
             placeholder={hasBearerToken ? '••••••••' : 'Bearer token'}
-            className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
           />
         </div>
 
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <div className="text-sm font-medium text-body dark:text-slate-200">Endpointuri</div>
+            <div className="text-sm font-medium text-foreground">Endpointuri</div>
             <Button
               type="button"
               variant="secondary"
@@ -266,29 +255,27 @@ export default function SettingsSelfHosted() {
             </Button>
           </div>
 
-          <div className="rounded-md border border-amber-300/40 bg-amber-50/70 p-3 text-xs text-amber-900 dark:border-amber-700/40 dark:bg-amber-950/20 dark:text-amber-200">
+          <div className="rounded-md border border-warning/40 bg-warning/5 p-3 text-xs text-warning">
             Audit live: `Qwen/QwQ-32B-AWQ` și `Qwen/Qwen2.5-14B-Instruct-AWQ` răspund pe chat, dar
             `/v1/embeddings` răspunde `404`. Tipul de endpoint permis în această versiune este doar
             `chat`.
           </div>
 
           {endpoints.length === 0 ? (
-            <div className="rounded-md border border-dashed border-muted/30 p-4 text-sm text-muted dark:border-slate-700 dark:text-slate-400">
-              Nu există endpointuri configurate.
-            </div>
+            <EmptyState
+              title="Niciun endpoint configurat"
+              description="Nu există endpointuri self-hosted configurate."
+            />
           ) : null}
 
           {endpoints.map((endpoint, index) => {
             const health = healthResult?.endpoints[endpoint.id];
             return (
-              <div
-                key={endpoint.id}
-                className="rounded-lg border border-muted/20 p-4 dark:border-slate-700 dark:bg-slate-900/80"
-              >
+              <div key={endpoint.id} className="rounded-lg border border-border p-4">
                 <div className="grid gap-4 md:grid-cols-2">
                   <label className="space-y-1 text-sm">
-                    <span className="text-muted dark:text-slate-400">Label</span>
-                    <input
+                    <span className="text-muted">Label</span>
+                    <TextField
                       type="text"
                       value={endpoint.label}
                       onChange={(event) => {
@@ -296,12 +283,11 @@ export default function SettingsSelfHosted() {
                         next[index] = { ...endpoint, label: event.target.value };
                         setEndpoints(next);
                       }}
-                      className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                     />
                   </label>
                   <label className="space-y-1 text-sm">
-                    <span className="text-muted dark:text-slate-400">Base URL</span>
-                    <input
+                    <span className="text-muted">Base URL</span>
+                    <TextField
                       type="text"
                       value={endpoint.baseUrl}
                       onChange={(event) => {
@@ -310,12 +296,11 @@ export default function SettingsSelfHosted() {
                         setEndpoints(next);
                       }}
                       placeholder="http://10.0.1.13:8000"
-                      className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                     />
                   </label>
                   <label className="space-y-1 text-sm">
-                    <span className="text-muted dark:text-slate-400">Model ID exact</span>
-                    <input
+                    <span className="text-muted">Model ID exact</span>
+                    <TextField
                       type="text"
                       value={endpoint.modelId}
                       onChange={(event) => {
@@ -324,17 +309,16 @@ export default function SettingsSelfHosted() {
                         setEndpoints(next);
                       }}
                       placeholder="Qwen/QwQ-32B-AWQ"
-                      className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                     />
                   </label>
                   <div className="grid grid-cols-3 gap-3">
                     <label className="space-y-1 text-sm">
-                      <span className="text-muted dark:text-slate-400">Concurență</span>
-                      <input
+                      <span className="text-muted">Concurență</span>
+                      <TextField
                         type="number"
                         min={1}
                         max={32}
-                        value={endpoint.maxConcurrentRequests}
+                        value={String(endpoint.maxConcurrentRequests)}
                         onChange={(event) => {
                           const next = [...endpoints];
                           next[index] = {
@@ -343,41 +327,37 @@ export default function SettingsSelfHosted() {
                           };
                           setEndpoints(next);
                         }}
-                        className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                       />
                     </label>
                     <label className="space-y-1 text-sm">
-                      <span className="text-muted dark:text-slate-400">Timeout ms</span>
-                      <input
+                      <span className="text-muted">Timeout ms</span>
+                      <TextField
                         type="number"
                         min={1000}
                         max={120000}
-                        value={endpoint.timeoutMs}
+                        value={String(endpoint.timeoutMs)}
                         onChange={(event) => {
                           const next = [...endpoints];
                           next[index] = { ...endpoint, timeoutMs: Number(event.target.value) };
                           setEndpoints(next);
                         }}
-                        className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                       />
                     </label>
-                    <label className="flex items-end gap-2 text-sm text-body dark:text-slate-200">
-                      <input
-                        type="checkbox"
+                    <label className="flex items-end gap-2 text-sm text-foreground">
+                      <Checkbox
                         checked={endpoint.enabled}
                         onChange={(event) => {
                           const next = [...endpoints];
                           next[index] = { ...endpoint, enabled: event.target.checked };
                           setEndpoints(next);
                         }}
-                        className="size-4 accent-primary"
                       />
                       <span>Activ</span>
                     </label>
                   </div>
                 </div>
 
-                <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted dark:text-slate-400">
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted">
                   <span>Status: {health?.status ?? 'nevalidat'}</span>
                   {health?.latencyMs == null ? null : <span>Latență: {health.latencyMs} ms</span>}
                   {health?.modelsLoaded != null && health.modelsLoaded.length > 0 ? (
@@ -408,13 +388,13 @@ export default function SettingsSelfHosted() {
         </div>
 
         {healthResult ? (
-          <div className="rounded-md border border-muted/20 bg-muted/5 p-3 text-sm text-muted dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+          <div className="rounded-md border border-muted/20 bg-muted/5 p-3 text-sm text-muted">
             Rezultat health: {healthResult.status}
           </div>
         ) : null}
 
         {success ? (
-          <div className="rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success shadow-sm dark:border-emerald-700/50 dark:bg-emerald-900/20">
+          <div className="rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success shadow-(--shadow-sm)">
             Setările selfhosted au fost salvate.
           </div>
         ) : null}

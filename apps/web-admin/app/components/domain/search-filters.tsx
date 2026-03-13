@@ -5,6 +5,7 @@ import type { ProductFiltersResponse } from '@app/types';
 import { InfoTooltip } from '../ui/info-tooltip';
 import { MultiSelect } from '../ui/MultiSelect';
 import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
 
 type FilterState = Readonly<{
   vendors: string[];
@@ -83,7 +84,7 @@ export function SearchFilters({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          <span className="text-sm font-semibold dark:text-slate-100">Filtre avansate</span>
+          <span className="text-sm font-semibold">Filtre avansate</span>
           <InfoTooltip title="Filtre căutare">
             Filtrele avansate restrâng rezultatele căutării semantice. Sunt utile pentru a găsi
             rapid un produs dintr-o categorie sau de la un anumit furnizor. De exemplu, selectează
@@ -151,7 +152,7 @@ export function SearchFilters({
             value={priceMin}
             min={minRange}
             max={priceMax}
-            className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:focus:ring-blue-400/50"
+            className="h-9 rounded-md border border-border bg-card px-2 text-sm transition-shadow duration-200 focus-ring-standard focus:outline-none"
             onChange={(e) => {
               const nextMin = clamp(Number(e.target.value), minRange, priceMax);
               onChange({ ...filters, priceMin: nextMin });
@@ -163,7 +164,7 @@ export function SearchFilters({
             value={priceMax}
             min={priceMin}
             max={maxRange}
-            className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:focus:ring-blue-400/50"
+            className="h-9 rounded-md border border-border bg-card px-2 text-sm transition-shadow duration-200 focus-ring-standard focus:outline-none"
             onChange={(e) => {
               const nextMax = clamp(Number(e.target.value), priceMin, maxRange);
               onChange({ ...filters, priceMax: nextMax });
@@ -177,7 +178,7 @@ export function SearchFilters({
             min={minRange}
             max={maxRange}
             value={priceMin}
-            className="w-full accent-blue-600 dark:accent-blue-400"
+            className="w-full accent-primary"
             onChange={(e) => {
               const nextMin = clamp(Number(e.target.value), minRange, priceMax);
               onChange({ ...filters, priceMin: nextMin });
@@ -189,7 +190,7 @@ export function SearchFilters({
             min={minRange}
             max={maxRange}
             value={priceMax}
-            className="w-full accent-blue-600 dark:accent-blue-400"
+            className="w-full accent-primary"
             onChange={(e) => {
               const nextMax = clamp(Number(e.target.value), priceMin, maxRange);
               onChange({ ...filters, priceMax: nextMax });
@@ -207,19 +208,17 @@ export function SearchFilters({
             mai multe colecții simultan — rezultatele vor include produse din oricare dintre ele.
           </InfoTooltip>
         </div>
-        <div className="rounded-md border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+        <div className="rounded-md border border-border bg-card">
           <input
             type="text"
             value={collectionSearch}
             onChange={(e) => setCollectionSearch(e.target.value)}
             placeholder="Caută colecții..."
-            className="w-full border-b border-slate-200 bg-transparent px-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none dark:border-slate-700 dark:text-slate-200 dark:placeholder:text-slate-500"
+            className="w-full border-b border-border bg-transparent px-3 py-2 text-sm text-foreground placeholder:text-muted focus-visible:outline-none"
           />
           <div className="max-h-48 overflow-y-auto p-1">
             {collectionOptions.length === 0 ? (
-              <p className="px-2 py-3 text-center text-xs text-slate-400 dark:text-slate-500">
-                Nicio colecție găsită
-              </p>
+              <p className="px-2 py-3 text-center text-xs text-muted">Nicio colecție găsită</p>
             ) : (
               collectionOptions.map((c) => {
                 const checked = filters.collectionIds.includes(c.id);
@@ -228,12 +227,11 @@ export function SearchFilters({
                     key={c.id}
                     className={`flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors ${
                       checked
-                        ? 'bg-blue-50 font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-                        : 'text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700/50'
+                        ? 'bg-primary/5 font-medium text-primary'
+                        : 'text-foreground hover:bg-subtle'
                     }`}
                   >
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={checked}
                       disabled={Boolean(loading)}
                       onChange={() => {
@@ -242,12 +240,10 @@ export function SearchFilters({
                           : [...filters.collectionIds, c.id];
                         onChange({ ...filters, collectionIds: next });
                       }}
-                      className="size-3.5 shrink-0 rounded border-slate-300 text-blue-600 accent-blue-600 focus:ring-blue-500/40 dark:border-slate-600 dark:accent-blue-400"
+                      className="size-3.5 shrink-0"
                     />
                     <span className="min-w-0 truncate">{c.title}</span>
-                    <span className="ml-auto shrink-0 text-xs text-slate-400 dark:text-slate-500">
-                      {c.productsCount}
-                    </span>
+                    <span className="ml-auto shrink-0 text-xs text-muted">{c.productsCount}</span>
                   </label>
                 );
               })
@@ -260,7 +256,7 @@ export function SearchFilters({
               {selectedCollectionTitles.map((title) => (
                 <span
                   key={title}
-                  className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                  className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary"
                 >
                   {title}
                 </span>

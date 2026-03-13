@@ -333,9 +333,9 @@ export function VirtualizedList<TItem>(props: VirtualizedListProps<TItem>) {
       </div>
 
       {showScrollIndicator ? (
-        <div className="absolute bottom-0 left-0 right-0 h-1 overflow-hidden rounded-b bg-slate-200/50 dark:bg-slate-700/50">
+        <div className="absolute bottom-0 left-0 right-0 h-1 overflow-hidden rounded-b bg-subtle">
           <div
-            className="h-full rounded-full bg-blue-400/60 transition-[width] duration-150 dark:bg-blue-500/60"
+            className="h-full rounded-full bg-primary/60 transition-[width] duration-150"
             style={{ width: `${scrollProgress * 100}%` }}
           />
         </div>

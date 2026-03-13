@@ -28,7 +28,7 @@ export type BulkRunStatus =
   | 'failed'
   | 'cancelled';
 
-export type BulkJobTriggeredBy = 'manual' | 'scheduler' | 'webhook' | 'system';
+export type BulkJobTriggeredBy = 'manual' | 'scheduler' | 'webhook' | 'system' | 'auto-chain';
 
 export type EnrichmentJobPayload = Readonly<{
   shopId: string;

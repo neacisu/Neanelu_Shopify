@@ -16,11 +16,20 @@ import {
 import { loadSelfHostedCredentials } from './selfhosted-credentials.js';
 import { loadXAICredentials } from './xai-credentials.js';
 
-export type ChatTaskType = 'extraction' | 'audit' | 'classification' | 'translation';
+export type ChatTaskType =
+  | 'extraction'
+  | 'audit'
+  | 'classification'
+  | 'translation'
+  | 'description';
 
 export interface ConsensusChatModelConfig extends ChatModelCredentials {
   endpointId: string;
   timeoutMs: number;
+  executionStage?: number;
+  executionGroupId?: string | null;
+  maxConcurrentGroupSlots?: number | null;
+  maxTokensOverride?: number | null;
 }
 
 export interface ConsensusCredentialSet {
@@ -68,6 +77,7 @@ const DEFAULT_CHAT_MODELS: Record<ChatTaskType, string> = {
   translation: 'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
   extraction: 'selfhosted:Qwen/Qwen2.5-14B-Instruct-AWQ',
   audit: 'selfhosted:Qwen/QwQ-32B-AWQ',
+  description: 'selfhosted:Qwen/QwQ-32B-AWQ',
 };
 
 const FALLBACK_CHAT_MODELS: Record<ChatTaskType, string> = {
@@ -75,6 +85,7 @@ const FALLBACK_CHAT_MODELS: Record<ChatTaskType, string> = {
   translation: 'xai:grok-4-1-fast-non-reasoning',
   extraction: 'xai:grok-4-1-fast-non-reasoning',
   audit: 'xai:grok-4-1-fast-non-reasoning',
+  description: 'xai:grok-4-1-fast-non-reasoning',
 };
 
 const SECONDARY_FALLBACK_CHAT_MODELS: Record<ChatTaskType, string> = {
@@ -82,6 +93,7 @@ const SECONDARY_FALLBACK_CHAT_MODELS: Record<ChatTaskType, string> = {
   translation: 'openai:gpt-4o-mini',
   extraction: 'openai:gpt-4o-mini',
   audit: 'openai:gpt-4o-mini',
+  description: 'openai:gpt-4o-mini',
 };
 
 const DEFAULT_RETRY: RetryOptions = {
@@ -118,6 +130,10 @@ function parseProviderRoute(value: string): { provider: AiProvider; model: strin
 }
 
 async function loadTaskRoute(shopId: string, taskType: ChatTaskType): Promise<string> {
+  // 'description' has no dedicated DB column yet — always use the default model.
+  if (taskType === 'description') {
+    return DEFAULT_CHAT_MODELS.description;
+  }
   const row = await withTenantContext(shopId, async (client) => {
     const result = await client.query<RoutingRow>(
       `SELECT
@@ -138,6 +154,8 @@ async function loadTaskRoute(shopId: string, taskType: ChatTaskType): Promise<st
     audit: 'modelAudit',
     classification: 'modelClassification',
     translation: 'modelTranslation',
+    // 'description' is handled by the early-return above; this entry is a type-safety placeholder.
+    description: 'modelAudit',
   };
 
   const col = columnMap[taskType];
@@ -505,6 +523,15 @@ export async function resolveChatTaskCredentials(params: {
   return await resolveProviderRoute(parsedRoute, 'none', params);
 }
 
+export async function resolveFallbackChatTaskCredentials(params: {
+  shopId: string;
+  taskType: ChatTaskType;
+  env: AppEnv;
+  logger: Logger;
+}): Promise<ChatModelCredentials | null> {
+  return await tryFallbackChain(params);
+}
+
 function consensusCbKeys(
   redisPrefix: string,
   endpointId: string
@@ -521,9 +548,9 @@ function consensusCbKeys(
   };
 }
 
-const CONSENSUS_CIRCUIT_BREAKER_OPEN_TIMEOUT_MS = 60_000;
-const CONSENSUS_CIRCUIT_BREAKER_KEY_TTL_MS = 120_000;
-const CONSENSUS_CIRCUIT_BREAKER_FAILURE_THRESHOLD = 3;
+const CONSENSUS_CIRCUIT_BREAKER_OPEN_TIMEOUT_MS = 120_000;
+const CONSENSUS_CIRCUIT_BREAKER_KEY_TTL_MS = 300_000;
+const CONSENSUS_CIRCUIT_BREAKER_FAILURE_THRESHOLD = 2;
 
 async function getConsensusCircuitBreakerState(params: {
   redis: Redis;
@@ -601,18 +628,78 @@ export function getAiRoutingRedis(env: AppEnv): Redis {
   return getRoutingRedis(env);
 }
 
+function buildSelfhostedExecutionGroupId(endpoint: { baseUrl: string; id: string }): string {
+  try {
+    return `selfhosted-chat-host:${new URL(endpoint.baseUrl).hostname}`;
+  } catch {
+    return `selfhosted-chat-endpoint:${endpoint.id}`;
+  }
+}
+
 function toConsensusConfig(params: {
   credentials: ChatModelCredentials;
   endpointId: string;
   temperature: number;
   timeoutMs: number;
+  executionStage?: number;
+  executionGroupId?: string | null;
+  maxConcurrentGroupSlots?: number | null;
+  maxTokensOverride?: number | null;
 }): ConsensusChatModelConfig {
   return {
     ...params.credentials,
     endpointId: params.endpointId,
     temperature: params.temperature,
     timeoutMs: params.timeoutMs,
+    ...(params.executionStage !== undefined ? { executionStage: params.executionStage } : {}),
+    ...(params.executionGroupId !== undefined ? { executionGroupId: params.executionGroupId } : {}),
+    ...(params.maxConcurrentGroupSlots !== undefined
+      ? { maxConcurrentGroupSlots: params.maxConcurrentGroupSlots }
+      : {}),
+    ...(params.maxTokensOverride !== undefined
+      ? { maxTokensOverride: params.maxTokensOverride }
+      : {}),
   };
+}
+
+export function getChatTaskTimeoutMs(params: {
+  taskType: ChatTaskType;
+  provider: AiProvider;
+  model: string;
+  endpointId?: string;
+  timeoutMs: number;
+}): number {
+  if (params.provider !== 'selfhosted') return params.timeoutMs;
+  if (params.taskType !== 'extraction' && params.taskType !== 'description')
+    return params.timeoutMs;
+
+  const marker = `${params.endpointId ?? ''} ${params.model}`.toLowerCase();
+  if (marker.includes('selfhosted-chat-reasoning') || marker.includes('qwq-32b')) {
+    return Math.max(params.timeoutMs, 120_000);
+  }
+  if (marker.includes('selfhosted-chat-fast') || marker.includes('qwen2.5-14b-instruct-awq')) {
+    return Math.max(params.timeoutMs, 90_000);
+  }
+  return Math.max(params.timeoutMs, 60_000);
+}
+
+export function getChatTaskMaxTokensOverride(params: {
+  taskType: ChatTaskType;
+  provider: AiProvider;
+  model: string;
+  endpointId?: string;
+}): number | undefined {
+  if (params.provider !== 'selfhosted') return undefined;
+  if (params.taskType !== 'extraction') return undefined;
+
+  const marker = `${params.endpointId ?? ''} ${params.model}`.toLowerCase();
+  if (marker.includes('selfhosted-chat-fast') || marker.includes('qwen2.5-14b-instruct-awq')) {
+    return 250;
+  }
+  if (marker.includes('selfhosted-chat-reasoning') || marker.includes('qwq-32b')) {
+    return 1000;
+  }
+  return 600;
 }
 
 async function buildFallbackConsensusSet(params: {
@@ -729,38 +816,128 @@ export async function resolveConsensusCredentials(params: {
   if (qwqEndpoint && qwenEndpoint && !qwqOpen && !qwenOpen) {
     const qwqCreds = buildSelfhostedCreds(qwqEndpoint);
     const qwenCreds = buildSelfhostedCreds(qwenEndpoint);
+    const qwenMaxTokensOverride = getChatTaskMaxTokensOverride({
+      taskType: params.taskType,
+      provider: 'selfhosted',
+      model: qwenEndpoint.modelId,
+      endpointId: qwenEndpoint.id,
+    });
+    const qwqMaxTokensOverride = getChatTaskMaxTokensOverride({
+      taskType: params.taskType,
+      provider: 'selfhosted',
+      model: qwqEndpoint.modelId,
+      endpointId: qwqEndpoint.id,
+    });
+    const extractionGroupQwq = buildSelfhostedExecutionGroupId(qwqEndpoint);
+    const extractionGroupQwen = buildSelfhostedExecutionGroupId(qwenEndpoint);
+    const useStagedExtractionPlan =
+      params.taskType === 'extraction' || params.taskType === 'description';
     return {
       calls: [
-        toConsensusConfig({
-          credentials: qwqCreds,
-          endpointId: qwqEndpoint.id,
-          temperature: 0.1,
-          timeoutMs: qwqEndpoint.timeoutMs,
-        }),
-        toConsensusConfig({
-          credentials: qwqCreds,
-          endpointId: qwqEndpoint.id,
-          temperature: 0.3,
-          timeoutMs: qwqEndpoint.timeoutMs,
-        }),
         toConsensusConfig({
           credentials: qwenCreds,
           endpointId: qwenEndpoint.id,
           temperature: 0.2,
-          timeoutMs: qwenEndpoint.timeoutMs,
+          timeoutMs: getChatTaskTimeoutMs({
+            taskType: params.taskType,
+            provider: 'selfhosted',
+            model: qwenEndpoint.modelId,
+            endpointId: qwenEndpoint.id,
+            timeoutMs: qwenEndpoint.timeoutMs,
+          }),
+          ...(useStagedExtractionPlan
+            ? {
+                executionStage: 1,
+                executionGroupId: extractionGroupQwen,
+                maxConcurrentGroupSlots: 1,
+              }
+            : {}),
+          ...(qwenMaxTokensOverride !== undefined
+            ? { maxTokensOverride: qwenMaxTokensOverride }
+            : {}),
+        }),
+        toConsensusConfig({
+          credentials: qwqCreds,
+          endpointId: qwqEndpoint.id,
+          temperature: 0.1,
+          timeoutMs: getChatTaskTimeoutMs({
+            taskType: params.taskType,
+            provider: 'selfhosted',
+            model: qwqEndpoint.modelId,
+            endpointId: qwqEndpoint.id,
+            timeoutMs: qwqEndpoint.timeoutMs,
+          }),
+          ...(useStagedExtractionPlan
+            ? {
+                executionStage: 1,
+                executionGroupId: extractionGroupQwq,
+                maxConcurrentGroupSlots: 1,
+              }
+            : {}),
+          ...(qwqMaxTokensOverride !== undefined
+            ? { maxTokensOverride: qwqMaxTokensOverride }
+            : {}),
         }),
         toConsensusConfig({
           credentials: qwenCreds,
           endpointId: qwenEndpoint.id,
           temperature: 0.4,
-          timeoutMs: qwenEndpoint.timeoutMs,
+          timeoutMs: getChatTaskTimeoutMs({
+            taskType: params.taskType,
+            provider: 'selfhosted',
+            model: qwenEndpoint.modelId,
+            endpointId: qwenEndpoint.id,
+            timeoutMs: qwenEndpoint.timeoutMs,
+          }),
+          ...(useStagedExtractionPlan
+            ? {
+                executionStage: 2,
+                executionGroupId: extractionGroupQwen,
+                maxConcurrentGroupSlots: 1,
+              }
+            : {}),
+          ...(qwenMaxTokensOverride !== undefined
+            ? { maxTokensOverride: qwenMaxTokensOverride }
+            : {}),
+        }),
+        toConsensusConfig({
+          credentials: qwqCreds,
+          endpointId: qwqEndpoint.id,
+          temperature: 0.3,
+          timeoutMs: getChatTaskTimeoutMs({
+            taskType: params.taskType,
+            provider: 'selfhosted',
+            model: qwqEndpoint.modelId,
+            endpointId: qwqEndpoint.id,
+            timeoutMs: qwqEndpoint.timeoutMs,
+          }),
+          ...(useStagedExtractionPlan
+            ? {
+                executionStage: 2,
+                executionGroupId: extractionGroupQwq,
+                maxConcurrentGroupSlots: 1,
+              }
+            : {}),
+          ...(qwqMaxTokensOverride !== undefined
+            ? { maxTokensOverride: qwqMaxTokensOverride }
+            : {}),
         }),
       ],
       arbitration: toConsensusConfig({
         credentials: qwqCreds,
         endpointId: qwqEndpoint.id,
         temperature: 0,
-        timeoutMs: Math.max(qwqEndpoint.timeoutMs, 45_000),
+        timeoutMs: getChatTaskTimeoutMs({
+          taskType: params.taskType,
+          provider: 'selfhosted',
+          model: qwqEndpoint.modelId,
+          endpointId: qwqEndpoint.id,
+          timeoutMs: Math.max(qwqEndpoint.timeoutMs, 45_000),
+        }),
+        ...(useStagedExtractionPlan
+          ? { executionStage: 3, executionGroupId: extractionGroupQwq, maxConcurrentGroupSlots: 1 }
+          : {}),
+        ...(qwqMaxTokensOverride !== undefined ? { maxTokensOverride: qwqMaxTokensOverride } : {}),
       }),
     };
   }
@@ -769,20 +946,57 @@ export async function resolveConsensusCredentials(params: {
     qwqEndpoint && !qwqOpen ? qwqEndpoint : qwenEndpoint && !qwenOpen ? qwenEndpoint : null;
   if (singleEndpoint) {
     const creds = buildSelfhostedCreds(singleEndpoint);
+    const singleEndpointMaxTokensOverride = getChatTaskMaxTokensOverride({
+      taskType: params.taskType,
+      provider: 'selfhosted',
+      model: singleEndpoint.modelId,
+      endpointId: singleEndpoint.id,
+    });
+    const useStagedExtractionPlan =
+      params.taskType === 'extraction' || params.taskType === 'description';
+    const extractionGroup = buildSelfhostedExecutionGroupId(singleEndpoint);
     return {
-      calls: [0.1, 0.2, 0.3, 0.4].map((temperature) =>
+      calls: [0.1, 0.2, 0.3, 0.4].map((temperature, index) =>
         toConsensusConfig({
           credentials: creds,
           endpointId: singleEndpoint.id,
           temperature,
-          timeoutMs: singleEndpoint.timeoutMs,
+          timeoutMs: getChatTaskTimeoutMs({
+            taskType: params.taskType,
+            provider: 'selfhosted',
+            model: singleEndpoint.modelId,
+            endpointId: singleEndpoint.id,
+            timeoutMs: singleEndpoint.timeoutMs,
+          }),
+          ...(useStagedExtractionPlan
+            ? {
+                executionStage: index + 1,
+                executionGroupId: extractionGroup,
+                maxConcurrentGroupSlots: 1,
+              }
+            : {}),
+          ...(singleEndpointMaxTokensOverride !== undefined
+            ? { maxTokensOverride: singleEndpointMaxTokensOverride }
+            : {}),
         })
       ),
       arbitration: toConsensusConfig({
         credentials: creds,
         endpointId: singleEndpoint.id,
         temperature: 0,
-        timeoutMs: Math.max(singleEndpoint.timeoutMs, 45_000),
+        timeoutMs: getChatTaskTimeoutMs({
+          taskType: params.taskType,
+          provider: 'selfhosted',
+          model: singleEndpoint.modelId,
+          endpointId: singleEndpoint.id,
+          timeoutMs: Math.max(singleEndpoint.timeoutMs, 45_000),
+        }),
+        ...(useStagedExtractionPlan
+          ? { executionStage: 5, executionGroupId: extractionGroup, maxConcurrentGroupSlots: 1 }
+          : {}),
+        ...(singleEndpointMaxTokensOverride !== undefined
+          ? { maxTokensOverride: singleEndpointMaxTokensOverride }
+          : {}),
       }),
     };
   }
@@ -848,7 +1062,7 @@ async function gateSelfhostedEmbeddingRequest(params: {
   };
 }
 
-async function acquireSelfhostedSlot(params: {
+export async function acquireSelfhostedSlot(params: {
   redis: Redis;
   redisPrefix: string;
   endpointId: string;

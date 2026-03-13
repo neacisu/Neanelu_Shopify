@@ -32,15 +32,15 @@ export function ProductsAssignCategoryModal({
 
   return (
     <Modal open={open} onClose={onClose}>
-      <div className="space-y-4 p-4 bg-white/80 backdrop-blur-sm dark:bg-slate-900/80 rounded-lg">
+      <div className="space-y-4 p-4 bg-card/80 backdrop-blur-sm rounded-lg">
         <div>
-          <div className="text-h3 dark:text-slate-100">Atribuie categorie</div>
-          <p className="text-body text-muted dark:text-slate-400">
+          <div className="text-h3">Atribuie categorie</div>
+          <p className="text-body text-muted">
             Alege o categorie din taxonomie pentru produsele selectate.
           </p>
         </div>
 
-        <div className="rounded-md border border-border dark:border-slate-700 bg-white dark:bg-slate-800 p-2">
+        <div className="rounded-md border border-border bg-card p-2">
           <TreeView
             nodes={tree}
             selectedId={selectedId}

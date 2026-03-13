@@ -64,14 +64,14 @@ export function Tabs({ items, value, onValueChange, className, ariaLabel }: Tabs
   return (
     <div
       ref={listRef}
-      className={`relative inline-flex items-center gap-1 rounded-xl border border-slate-200/80 bg-white/70 p-1 shadow-[var(--shadow-sm)] backdrop-blur supports-[backdrop-filter]:bg-white/60 dark:border-slate-700/70 dark:bg-slate-900/70 dark:supports-[backdrop-filter]:bg-slate-900/60 ${className ?? ''}`}
+      className={`relative inline-flex items-center gap-1 rounded-xl border border-primary/20 bg-card p-1 shadow-[var(--shadow-sm)] ${className ?? ''}`}
       role="tablist"
       aria-label={ariaLabel ?? 'Tabs'}
       onKeyDown={onKeyDown}
     >
       <span
         aria-hidden
-        className="pointer-events-none absolute bottom-1 top-1 z-0 rounded-lg bg-white shadow-[var(--shadow-sm)] ring-1 ring-slate-200/80 transition-[left,width] duration-300 ease-out dark:bg-slate-800 dark:ring-slate-700/80"
+        className="pointer-events-none absolute bottom-1 top-1 z-0 rounded-lg bg-primary shadow-[var(--shadow-sm)] transition-[left,width] duration-300 ease-out"
         style={{
           width: `${indicator.width}px`,
           left: `${indicator.left}px`,
@@ -83,23 +83,64 @@ export function Tabs({ items, value, onValueChange, className, ariaLabel }: Tabs
           <button
             key={item.value}
             type="button"
+            id={`tab-${item.value}`}
             onClick={() => onValueChange(item.value)}
             data-tab-value={item.value}
             className={`
-              relative z-10 inline-flex items-center justify-center whitespace-nowrap rounded-lg px-4 py-2.5 text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:pointer-events-none disabled:opacity-50 dark:focus-visible:ring-blue-400/40 dark:focus-visible:ring-offset-slate-900
+              relative z-10 inline-flex items-center justify-center whitespace-nowrap rounded-lg px-4 py-2.5 text-sm font-semibold
+              transition-all duration-200
+              focus-ring-standard
+              disabled:pointer-events-none disabled:opacity-50
               ${
                 isActive
-                  ? 'text-slate-900 dark:text-slate-100'
-                  : 'text-slate-600 hover:bg-white/70 hover:text-slate-900 hover:shadow-[var(--shadow-sm)] dark:text-slate-300 dark:hover:bg-slate-800/70 dark:hover:text-slate-100'
+                  ? 'text-primary-foreground'
+                  : 'text-muted hover:bg-primary/8 hover:text-primary'
               }
             `}
             role="tab"
             aria-selected={isActive}
+            aria-controls={`tabpanel-${item.value}`}
           >
             {item.label}
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * TabPanel cu animație cross-fade la schimbarea tab-ului.
+ * Înregistrată cu role="tabpanel" pentru accesibilitate WCAG 2.2.
+ */
+export interface TabPanelProps {
+  id?: string;
+  activeTabValue: string;
+  tabValue: string;
+  children: React.ReactNode;
+  className?: string;
+}
+
+export function TabPanel({
+  id,
+  activeTabValue,
+  tabValue,
+  children,
+  className = '',
+}: TabPanelProps) {
+  const isActive = activeTabValue === tabValue;
+
+  return (
+    <div
+      id={id ?? `tabpanel-${tabValue}`}
+      role="tabpanel"
+      aria-labelledby={`tab-${tabValue}`}
+      className={`
+        ${isActive ? 'block motion-safe:animate-[fadeSlideUp_0.2s_ease-out]' : 'hidden'}
+        ${className}
+      `}
+    >
+      {children}
     </div>
   );
 }

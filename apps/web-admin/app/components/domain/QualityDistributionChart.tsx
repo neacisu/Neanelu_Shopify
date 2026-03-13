@@ -24,28 +24,28 @@ export function QualityDistributionChart({
     {
       name: 'Bronze',
       value: distribution.bronze,
-      color: '#CD7F32',
+      color: 'rgb(var(--color-bronze))',
     },
     {
       name: 'Silver',
       value: distribution.silver,
-      color: '#C0C0C0',
+      color: 'rgb(var(--color-silver))',
     },
     {
       name: 'Golden',
       value: distribution.golden,
-      color: '#FFD700',
+      color: 'rgb(var(--color-golden))',
     },
     {
       name: 'Review',
       value: distribution.review,
-      color: '#FF6B6B',
+      color: 'rgb(var(--color-review))',
     },
   ];
 
   return (
     <div className="rounded-lg border border-muted/20 bg-background p-4">
-      <div className="mb-2 flex items-center gap-1.5 text-xs text-muted">
+      <div className="mb-2 flex items-center gap-1.5 text-xs text-primary">
         <span>Distribuție calitate</span>
         <InfoTooltip title="Distribuție calitate">
           Bronze: date minime. Silver: îmbunătățite. Golden: complete. Review: necesită revizuire

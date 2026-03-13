@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { useReducedMotion } from '../hooks/use-reduced-motion';
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { PageHeader } from '../components/layout/page-header';
 import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
 import { InfoTooltip } from '../components/ui/info-tooltip';
 import { HITLReviewQueue } from '../components/domain/HITLReviewQueue';
 import { ValueComparisonPanel } from '../components/domain/ValueComparisonPanel';
+import { LoadingState } from '../components/patterns/loading-state';
+import { ErrorState } from '../components/patterns/error-state';
+import { EmptyState } from '../components/patterns/empty-state';
 import { useApiClient } from '../hooks/use-api';
 
 type ReviewMatchItem = Readonly<{
@@ -40,9 +45,11 @@ type ReviewProposalItem = Readonly<{
 export default function ProductsReviewPage() {
   const location = useLocation();
   const api = useApiClient();
+  const reducedMotion = useReducedMotion();
   const [type, setType] = useState<'match' | 'proposal' | 'hitl'>('match');
   const [items, setItems] = useState<ReviewMatchItem[] | ReviewProposalItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const breadcrumbs = useMemo(
     () => [
@@ -55,14 +62,16 @@ export default function ProductsReviewPage() {
 
   useEffect(() => {
     setLoading(true);
+    setError(null);
     void api
       .getApi<{ items: typeof items; type: string }>(`/products/review?type=${type}`)
       .then((data) => setItems(data.items))
+      .catch((err) => setError(err instanceof Error ? err.message : 'Eroare la încărcarea datelor'))
       .finally(() => setLoading(false));
   }, [api, type]);
 
   return (
-    <div className="space-y-6 dark:text-slate-100">
+    <div className="space-y-6">
       <Breadcrumbs items={breadcrumbs} />
       <PageHeader
         title="Coada review"
@@ -112,13 +121,34 @@ export default function ProductsReviewPage() {
         </span>
       </div>
 
-      <div className="rounded-lg border border-border dark:border-slate-700 bg-white dark:bg-slate-900/80 transition-shadow duration-200 hover:shadow-[var(--shadow-sm)]">
-        {loading ? (
-          <div className="p-4 text-sm text-muted dark:text-slate-400">Se încarcă...</div>
-        ) : null}
-        {!loading && items.length === 0 ? (
-          <div className="p-4 text-sm text-muted dark:text-slate-400">
-            Nu exista elemente in asteptare pentru review.
+      <Card padding="none">
+        {error ? (
+          <div className="p-4">
+            <ErrorState
+              message={error}
+              onRetry={() => {
+                setLoading(true);
+                setError(null);
+                void api
+                  .getApi<{ items: typeof items; type: string }>(`/products/review?type=${type}`)
+                  .then((data) => setItems(data.items))
+                  .catch((err) =>
+                    setError(err instanceof Error ? err.message : 'Eroare la încărcarea datelor')
+                  )
+                  .finally(() => setLoading(false));
+              }}
+            />
+          </div>
+        ) : loading ? (
+          <div className="p-4">
+            <LoadingState label="Se încarcă coada de review..." />
+          </div>
+        ) : items.length === 0 ? (
+          <div className="p-4">
+            <EmptyState
+              title="Coadă goală"
+              description="Nu există elemente în așteptare pentru review în această categorie."
+            />
           </div>
         ) : null}
 
@@ -146,14 +176,14 @@ export default function ProductsReviewPage() {
           (items as ReviewMatchItem[]).map((item, idx) => (
             <div
               key={item.id}
-              className="border-t border-border dark:border-slate-700 p-4 text-sm transition-colors duration-200 hover:bg-muted/5 dark:hover:bg-slate-800/50"
-              style={{ animationDelay: `${idx * 30}ms` }}
+              className="border-t border-border p-4 text-sm transition-colors duration-200 hover:bg-muted/5"
+              style={reducedMotion ? undefined : { animationDelay: `${idx * 30}ms` }}
             >
-              <div className="font-semibold dark:text-slate-100">{item.product_title}</div>
-              <div className="text-xs text-muted dark:text-slate-400">
+              <div className="font-semibold">{item.product_title}</div>
+              <div className="text-xs text-muted">
                 Similaritate: {item.similarity_score} • {item.source_title ?? item.source_url}
               </div>
-              <div className="mt-2 text-xs text-muted dark:text-slate-400">
+              <div className="mt-2 text-xs text-muted">
                 GTIN: {item.source_gtin ?? '-'} • Pret: {item.source_price ?? '-'}{' '}
                 {item.source_currency ?? ''}
               </div>
@@ -191,11 +221,11 @@ export default function ProductsReviewPage() {
           (items as ReviewProposalItem[]).map((item, idx) => (
             <div
               key={item.id}
-              className="border-t border-border dark:border-slate-700 p-4 text-sm transition-colors duration-200 hover:bg-muted/5 dark:hover:bg-slate-800/50"
-              style={{ animationDelay: `${idx * 30}ms` }}
+              className="border-t border-border p-4 text-sm transition-colors duration-200 hover:bg-muted/5"
+              style={reducedMotion ? undefined : { animationDelay: `${idx * 30}ms` }}
             >
-              <div className="font-semibold dark:text-slate-100">{item.product_title}</div>
-              <div className="text-xs text-muted dark:text-slate-400">
+              <div className="font-semibold">{item.product_title}</div>
+              <div className="text-xs text-muted">
                 {item.field_path} • Incredere: {item.confidence_score ?? '-'}
               </div>
               <ValueComparisonPanel
@@ -233,7 +263,7 @@ export default function ProductsReviewPage() {
             </div>
           ))
         )}
-      </div>
+      </Card>
     </div>
   );
 }

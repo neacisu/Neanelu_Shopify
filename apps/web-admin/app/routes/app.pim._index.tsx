@@ -2,8 +2,10 @@ import { useEffect } from 'react';
 import type { LoaderFunctionArgs } from 'react-router-dom';
 import { useLoaderData, useNavigate, useRevalidator } from 'react-router-dom';
 import { PackageSearch } from 'lucide-react';
+import { Card } from '../components/ui/card';
 
 import { useCountUp } from '../hooks/useCountUp';
+import { useReducedMotion } from '../hooks/use-reduced-motion';
 import { useScrollReveal } from '../hooks/useScrollReveal';
 import { InfoTooltip } from '../components/ui/info-tooltip';
 import { GaugeChart } from '../components/charts/GaugeChart';
@@ -90,7 +92,7 @@ function getSyncRateClasses(syncRate: number): { text: string; bar: string } {
   if (syncRate >= 70) {
     return { text: 'text-warning', bar: 'bg-warning' };
   }
-  return { text: 'text-danger', bar: 'bg-danger' };
+  return { text: 'text-error', bar: 'bg-error' };
 }
 
 export default function PimOverviewPage() {
@@ -105,6 +107,7 @@ export default function PimOverviewPage() {
     return () => clearInterval(id);
   }, [revalidator]);
 
+  const reducedMotion = useReducedMotion();
   const total = quality.total;
   const activeSourcesCount = sources.sources.filter((s) => s.isActive).length;
   const goldenPct = total > 0 ? quality.golden.count / total : 0;
@@ -138,15 +141,23 @@ export default function PimOverviewPage() {
   });
 
   return (
-    <div className="space-y-6" style={{ animation: 'fadeIn 0.5s ease-out both' }}>
+    <div
+      className="space-y-6"
+      style={reducedMotion ? undefined : { animation: 'fadeIn 0.5s ease-out both' }}
+    >
       <div ref={gridRef} className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <div
-          className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60 transition-shadow duration-200 hover:shadow-md"
-          style={{
-            animation: gridVisible ? 'fadeSlideUp 0.4s ease-out both' : 'none',
-          }}
+        <Card
+          padding="md"
+          className="transition-shadow duration-200 hover:shadow-[var(--shadow-md)]"
+          style={
+            reducedMotion
+              ? undefined
+              : {
+                  animation: gridVisible ? 'fadeSlideUp 0.4s ease-out both' : 'none',
+                }
+          }
         >
-          <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-primary">
             <span>Total produse</span>
             <InfoTooltip title="Total produse PIM">
               Total produse este suma tuturor produselor din catalogul PIM (Bronze + Silver + Golden
@@ -155,18 +166,23 @@ export default function PimOverviewPage() {
               regulate.
             </InfoTooltip>
           </div>
-          <div className="text-h4 tabular-nums text-slate-800 dark:text-slate-100">
+          <div className="text-h4 tabular-nums text-foreground">
             <PimCountUp value={total} format={(n) => String(Math.round(n))} />
           </div>
           <Sparkline data={[quality.bronze.count, quality.silver.count, quality.golden.count]} />
-        </div>
-        <div
-          className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60 transition-shadow duration-200 hover:shadow-md"
-          style={{
-            animation: gridVisible ? 'fadeSlideUp 0.4s ease-out 0.05s both' : 'none',
-          }}
+        </Card>
+        <Card
+          padding="md"
+          className="transition-shadow duration-200 hover:shadow-[var(--shadow-md)]"
+          style={
+            reducedMotion
+              ? undefined
+              : {
+                  animation: gridVisible ? 'fadeSlideUp 0.4s ease-out 0.05s both' : 'none',
+                }
+          }
         >
-          <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-primary">
             <span>Rata golden</span>
             <InfoTooltip title="Rata golden">
               Rata golden indică procentul produselor cu nivel Golden Record. De ce contează: Golden
@@ -176,14 +192,19 @@ export default function PimOverviewPage() {
             </InfoTooltip>
           </div>
           <GaugeChart value={Math.round(goldenPct * 100)} max={100} ariaLabel="Rata golden" />
-        </div>
-        <div
-          className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60 transition-shadow duration-200 hover:shadow-md"
-          style={{
-            animation: gridVisible ? 'fadeSlideUp 0.4s ease-out 0.1s both' : 'none',
-          }}
+        </Card>
+        <Card
+          padding="md"
+          className="transition-shadow duration-200 hover:shadow-[var(--shadow-md)]"
+          style={
+            reducedMotion
+              ? undefined
+              : {
+                  animation: gridVisible ? 'fadeSlideUp 0.4s ease-out 0.1s both' : 'none',
+                }
+          }
         >
-          <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-primary">
             <span>Scor calitate mediu</span>
             <InfoTooltip title="Scor calitate">
               Scorul mediu de calitate al datelor (0–1) pe tot catalogul. De ce contează: reflectă
@@ -197,14 +218,19 @@ export default function PimOverviewPage() {
             max={1}
             ariaLabel="Scor mediu de calitate"
           />
-        </div>
-        <div
-          className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60 transition-shadow duration-200 hover:shadow-md"
-          style={{
-            animation: gridVisible ? 'fadeSlideUp 0.4s ease-out 0.15s both' : 'none',
-          }}
+        </Card>
+        <Card
+          padding="md"
+          className="transition-shadow duration-200 hover:shadow-[var(--shadow-md)]"
+          style={
+            reducedMotion
+              ? undefined
+              : {
+                  animation: gridVisible ? 'fadeSlideUp 0.4s ease-out 0.15s both' : 'none',
+                }
+          }
         >
-          <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-primary">
             <span>Surse active</span>
             <InfoTooltip title="Surse active">
               Sursele active sunt canalele externe (eMAG, producători, etc.) care furnizează date.
@@ -213,10 +239,10 @@ export default function PimOverviewPage() {
               inactive în tabul Enrichment.
             </InfoTooltip>
           </div>
-          <div className="text-h4 tabular-nums text-slate-800 dark:text-slate-100">
+          <div className="text-h4 tabular-nums text-foreground">
             <PimCountUp value={activeSourcesCount} format={(n) => String(Math.round(n))} />
           </div>
-        </div>
+        </Card>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
@@ -253,11 +279,11 @@ export default function PimOverviewPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
-        <div
-          className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60"
-          style={{ animation: 'fadeSlideUp 0.4s ease-out 0.2s both' }}
+        <Card
+          padding="md"
+          style={reducedMotion ? undefined : { animation: 'fadeSlideUp 0.4s ease-out 0.2s both' }}
         >
-          <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-primary">
             <span>Etape pipeline enrichment</span>
             <InfoTooltip title="Pipeline enrichment">
               Pipeline-ul de enrichment este secvența de etape pentru îmbogățirea datelor produs. De
@@ -267,12 +293,12 @@ export default function PimOverviewPage() {
             </InfoTooltip>
           </div>
           <EnrichmentPipelineViz stages={enrichment.pipelineStages} />
-        </div>
-        <div
-          className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60"
-          style={{ animation: 'fadeSlideUp 0.4s ease-out 0.25s both' }}
+        </Card>
+        <Card
+          padding="md"
+          style={reducedMotion ? undefined : { animation: 'fadeSlideUp 0.4s ease-out 0.25s both' }}
         >
-          <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-primary">
             <span>Sănătate surse (top)</span>
             <InfoTooltip title="Sănătate surse">
               Sănătatea surselor arată rata de succes a fiecărei surse externe. De ce contează:
@@ -281,27 +307,25 @@ export default function PimOverviewPage() {
               tabul Enrichment.
             </InfoTooltip>
           </div>
-          <div className="space-y-2 text-sm text-slate-800 dark:text-slate-100">
+          <div className="space-y-2 text-sm text-foreground">
             {sources.sources.slice(0, 3).map((source) => (
               <div
                 key={`${source.sourceName}-${source.sourceType}`}
                 className="flex justify-between gap-2"
               >
                 <span>{source.sourceName}</span>
-                <span className="text-slate-500 dark:text-slate-400">
-                  {source.successRate.toFixed(1)}%
-                </span>
+                <span className="text-muted">{source.successRate.toFixed(1)}%</span>
               </div>
             ))}
           </div>
-        </div>
+        </Card>
       </div>
 
-      <div
-        className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60"
-        style={{ animation: 'fadeSlideUp 0.4s ease-out 0.3s both' }}
+      <Card
+        padding="md"
+        style={reducedMotion ? undefined : { animation: 'fadeSlideUp 0.4s ease-out 0.3s both' }}
       >
-        <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+        <div className="mb-2 flex items-center gap-1.5 text-xs text-primary">
           <span>Status sincronizare canale</span>
           <InfoTooltip title="Sincronizare canale">
             Sincronizarea arată câte produse sunt actualizate pe fiecare canal (Shopify, eMAG). De
@@ -310,24 +334,16 @@ export default function PimOverviewPage() {
             pentru nivel Golden.
           </InfoTooltip>
         </div>
-        <div className="overflow-auto rounded-md border dark:border-slate-700">
+        <div className="overflow-auto rounded-md border">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 dark:bg-slate-800">
+            <thead className="bg-subtle">
               <tr>
-                <th className="px-3 py-2 text-left text-slate-800 dark:text-slate-100">
-                  Nivel calitate
-                </th>
-                <th className="px-3 py-2 text-left text-slate-800 dark:text-slate-100">Canal</th>
-                <th className="px-3 py-2 text-right text-slate-800 dark:text-slate-100">Produse</th>
-                <th className="px-3 py-2 text-right text-slate-800 dark:text-slate-100">
-                  Sincronizate
-                </th>
-                <th className="px-3 py-2 text-right text-slate-800 dark:text-slate-100">
-                  Rata sync
-                </th>
-                <th className="px-3 py-2 text-right text-slate-800 dark:text-slate-100">
-                  Scor mediu
-                </th>
+                <th className="px-3 py-2 text-left text-foreground">Nivel calitate</th>
+                <th className="px-3 py-2 text-left text-foreground">Canal</th>
+                <th className="px-3 py-2 text-right text-foreground">Produse</th>
+                <th className="px-3 py-2 text-right text-foreground">Sincronizate</th>
+                <th className="px-3 py-2 text-right text-foreground">Rata sync</th>
+                <th className="px-3 py-2 text-right text-foreground">Scor mediu</th>
               </tr>
             </thead>
             <tbody>
@@ -336,7 +352,7 @@ export default function PimOverviewPage() {
                 return (
                   <tr
                     key={`${item.dataQualityLevel}-${item.channel}`}
-                    className="border-t border-muted/20 dark:border-slate-700 text-slate-800 dark:text-slate-200"
+                    className="table-row-interactive border-t border-border text-foreground"
                   >
                     <td className="px-3 py-2">{item.dataQualityLevel}</td>
                     <td className="px-3 py-2">{item.channel}</td>
@@ -345,7 +361,7 @@ export default function PimOverviewPage() {
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-2">
                         <div
-                          className="h-2 w-full min-w-24 overflow-hidden rounded-full bg-muted/30 dark:bg-slate-700"
+                          className="h-2 w-full min-w-24 overflow-hidden rounded-full bg-muted/30"
                           role="presentation"
                           aria-hidden="true"
                         >
@@ -366,7 +382,7 @@ export default function PimOverviewPage() {
             </tbody>
           </table>
         </div>
-      </div>
+      </Card>
 
       <div className="flex flex-wrap gap-2">
         <DataFreshnessIndicator refreshedAt={quality.refreshedAt} label="Date calitate" />

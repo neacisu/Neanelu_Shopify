@@ -171,4 +171,73 @@ void describe('PR-041: ParentChildRemapper', () => {
       await rm(tmp, { recursive: true, force: true });
     }
   });
+
+  void it('extracts category_id from productCategory.productTaxonomyNode.id', async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'neanelu-stitching-test-'));
+    try {
+      const records: StitchedRecord[] = [];
+
+      const remapper = new ParentChildRemapper({
+        shopId: 'shop-test',
+        artifactsDir: tmp,
+        logger: noopLogger,
+        onRecord: (r) => {
+          records.push(r);
+        },
+        bucketCount: 16,
+        maxInMemoryParents: 10,
+        maxInMemoryOrphans: 1,
+      });
+
+      await remapper.init();
+
+      // Product WITH productCategory
+      await remapper.processLine({
+        __typename: 'Product',
+        id: 'gid://shopify/Product/42',
+        title: 'Cat Product',
+        handle: 'cat-product',
+        status: 'ACTIVE',
+        productCategory: {
+          productTaxonomyNode: {
+            id: 'gid://shopify/ProductTaxonomyNode/123',
+            name: 'Electronics',
+            fullName: 'Electronics > Cables',
+          },
+        },
+      });
+
+      // Product WITHOUT productCategory
+      await remapper.processLine({
+        __typename: 'Product',
+        id: 'gid://shopify/Product/43',
+        title: 'No Cat Product',
+        handle: 'no-cat-product',
+        status: 'ACTIVE',
+      });
+
+      await remapper.finalize();
+
+      const products = records.filter(
+        (r): r is Extract<StitchedRecord, { kind: 'product' }> => r.kind === 'product'
+      );
+      assert.equal(products.length, 2);
+
+      const { toStagingProductRowShape } = await import('./parent-child-remapper.js');
+
+      const row42 = toStagingProductRowShape(
+        products.find((p) => p.id === 'gid://shopify/Product/42')!.raw
+      );
+      assert.ok(row42 !== null, 'row42 should not be null');
+      assert.equal(row42.category_id, 'gid://shopify/ProductTaxonomyNode/123');
+
+      const row43 = toStagingProductRowShape(
+        products.find((p) => p.id === 'gid://shopify/Product/43')!.raw
+      );
+      assert.ok(row43 !== null, 'row43 should not be null');
+      assert.equal(row43.category_id, null);
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
+  });
 });

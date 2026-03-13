@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useReducedMotion } from '../hooks/use-reduced-motion';
 import { useScrollReveal } from '../hooks/useScrollReveal';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
@@ -14,8 +15,11 @@ import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { PageHeader } from '../components/layout/page-header';
 import { InfoTooltip } from '../components/ui/info-tooltip';
 import { EmptyState } from '../components/patterns';
+import { ErrorState } from '../components/patterns/error-state';
 import { SearchInput } from '../components/ui/SearchInput';
 import { Button } from '../components/ui/button';
+import { RadioGroup } from '../components/ui/radio-group';
+import { LoadingState } from '../components/patterns/loading-state';
 import { ProductsCompareModal } from '../components/domain/ProductsCompareModal';
 import { ProductsAssignCategoryModal } from '../components/domain/ProductsAssignCategoryModal';
 import { ProductsAddToCollectionModal } from '../components/domain/ProductsAddToCollectionModal';
@@ -26,6 +30,7 @@ import { ProductDetailDrawer } from '../components/domain/ProductDetailDrawer';
 import { ProductsExportModal } from '../components/domain/ProductsExportModal';
 import { useApiClient } from '../hooks/use-api';
 import { useDebounce } from '../hooks/use-debounce';
+import { jobsStore } from '../contexts/jobs-context.js';
 import { toast } from 'sonner';
 
 const DEFAULT_LIMIT = 50;
@@ -88,6 +93,7 @@ export default function ProductsPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [semanticCursor, setSemanticCursor] = useState<string | null>(null);
   const [semanticHasMore, setSemanticHasMore] = useState(false);
   const [sortBy, setSortBy] = useState(searchParams.get('sortBy') ?? 'updated_at');
@@ -162,6 +168,7 @@ export default function ProductsPage() {
     async (nextPage: number, replace = false) => {
       if (replace) {
         setLoading(true);
+        setError(null);
       } else {
         setLoadingMore(true);
       }
@@ -244,6 +251,10 @@ export default function ProductsPage() {
         setItems((prev) => (replace ? response.items : [...prev, ...response.items]));
         setTotal(response.total);
         setPage(response.page);
+      } catch (err) {
+        if (replace) {
+          setError(err instanceof Error ? err.message : 'Eroare la încărcarea produselor');
+        }
       } finally {
         setLoading(false);
         setLoadingMore(false);
@@ -303,37 +314,58 @@ export default function ProductsPage() {
     setDrawerOpen(true);
   };
 
-  const onForceSync = async (singleProductId?: string) => {
-    const idsToSync = singleProductId ? [singleProductId] : Array.from(selectedIds);
+  const onForceSync = async (
+    singleProductId?: string
+  ): Promise<{ consensusJobId: string | null; masterId: string | null } | undefined> => {
+    // Single product from the drawer: use direct GraphQL sync (synchronous, ~1-3s)
+    if (singleProductId) {
+      const result = await api.postApi<
+        {
+          ok: boolean;
+          syncedAt: string;
+          consensusJobId: string | null;
+          masterId: string | null;
+        },
+        Record<string, never>
+      >(`/products/${singleProductId}/sync`, {});
+      // Refresh the drawer product immediately — the DB is already up to date
+      if (activeProduct?.id === singleProductId) {
+        try {
+          const detail = await api.getApi<ProductDetail>(
+            `/products/${singleProductId}?includeVariants=false`
+          );
+          setActiveProduct(detail);
+        } catch {
+          // best-effort
+        }
+      }
+      return { consensusJobId: result.consensusJobId, masterId: result.masterId };
+    }
+
+    // Bulk selection: keep using the async bulk-operations pipeline
+    const idsToSync = Array.from(selectedIds);
     if (idsToSync.length === 0) {
       toast.error('Selectează cel puțin un produs');
       return;
     }
-    await api.postApi('/products/bulk-sync', { productIds: idsToSync });
-
-    // When syncing a single product from the drawer, refresh the drawer payload once
-    // the backend creates the PIM mapping (pim.masterId). The bulk sync is async.
-    if (singleProductId && activeProduct?.id === singleProductId) {
-      void (async () => {
-        const maxAttempts = 12;
-        const delayMs = 5_000;
-
-        for (let attempt = 0; attempt < maxAttempts; attempt++) {
-          await new Promise((resolve) => setTimeout(resolve, delayMs));
-          try {
-            const detail = await api.getApi<ProductDetail>(
-              `/products/${singleProductId}?includeVariants=false`
-            );
-            if (detail.pim?.masterId) {
-              setActiveProduct(detail);
-              break;
-            }
-          } catch {
-            // best-effort
-          }
-        }
-      })();
+    const jobId = `sync-${Date.now()}`;
+    jobsStore.add({
+      id: jobId,
+      label: `Sincronizare ${idsToSync.length} produs${idsToSync.length > 1 ? 'e' : ''}`,
+      status: 'running',
+      progress: 0,
+      startedAt: Date.now(),
+    });
+    try {
+      await api.postApi('/products/bulk-sync', { productIds: idsToSync });
+      jobsStore.update(jobId, { status: 'completed', progress: 100 });
+      setTimeout(() => jobsStore.remove(jobId), 5000);
+    } catch (err) {
+      jobsStore.update(jobId, { status: 'failed' });
+      toast.error(err instanceof Error ? err.message : 'Sincronizarea a eșuat');
     }
+
+    return undefined;
   };
 
   const onExport = () => setExportOpen(true);
@@ -387,16 +419,32 @@ export default function ProductsPage() {
       toast.error('Selectează cel puțin un produs');
       return;
     }
-    await api.postApi('/products/bulk-request-enrichment', {
-      productIds: Array.from(selectedIds),
+    const jobId = `enrich-${Date.now()}`;
+    jobsStore.add({
+      id: jobId,
+      label: `Îmbogățire ${selectedIds.size} produs${selectedIds.size > 1 ? 'e' : ''}`,
+      status: 'running',
+      progress: 0,
+      startedAt: Date.now(),
     });
-    toast.success('Enrichment requested');
+    try {
+      await api.postApi('/products/bulk-request-enrichment', {
+        productIds: Array.from(selectedIds),
+      });
+      jobsStore.update(jobId, { status: 'completed', progress: 100 });
+      setTimeout(() => jobsStore.remove(jobId), 5000);
+    } catch (err) {
+      jobsStore.update(jobId, { status: 'failed' });
+      toast.error(err instanceof Error ? err.message : 'Enrichment request a eșuat');
+    }
   };
 
   const onSemanticSearch = () => {
     if (!query.trim()) return;
     void navigate(`/search?q=${encodeURIComponent(query.trim())}`);
   };
+
+  const reducedMotion = useReducedMotion();
 
   const [contentRef, contentVisible] = useScrollReveal<HTMLDivElement>({
     rootMargin: '0px 0px -40px 0px',
@@ -405,10 +453,14 @@ export default function ProductsPage() {
   return (
     <div
       ref={contentRef}
-      className="space-y-4 dark:text-slate-100"
-      style={{
-        animation: contentVisible ? 'fadeSlideUp 0.4s ease-out both' : 'none',
-      }}
+      className="space-y-4"
+      style={
+        reducedMotion
+          ? undefined
+          : {
+              animation: contentVisible ? 'fadeSlideUp 0.4s ease-out both' : 'none',
+            }
+      }
     >
       <Breadcrumbs items={breadcrumbs} />
       <PageHeader
@@ -440,7 +492,7 @@ export default function ProductsPage() {
         }
       />
 
-      <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)] dark:text-slate-200">
+      <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
         <ProductsFilters
           filters={filters}
           options={options}
@@ -458,32 +510,26 @@ export default function ProductsPage() {
               placeholder="Caută produse..."
               loading={loading}
             />
-            <div className="flex items-center gap-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1 text-xs dark:text-slate-300">
+            <div className="flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1 text-xs text-muted shadow-(--shadow-xs)">
               <span className="flex items-center gap-1">
-                <InfoTooltip title="Mod căutare" side="bottom">
-                  Exact: potrivire text în titlu, SKU sau alte câmpuri. Semantic: căutare AI după
-                  sens — ideal pentru fraze în limbaj natural (ex. „pantofi sport pentru alergare").
-                  Semantic folosește embedding-uri și găsește produse relevante chiar dacă nu conțin
-                  cuvintele exacte.
-                </InfoTooltip>
-                <label className="flex items-center gap-1">
-                  <input
-                    type="radio"
+                <span className="inline-flex items-center gap-2">
+                  <InfoTooltip title="Mod căutare" side="bottom">
+                    Exact: potrivire text în titlu, SKU sau alte câmpuri. Semantic: căutare AI după
+                    sens — ideal pentru fraze în limbaj natural (ex. „pantofi sport pentru
+                    alergare"). Semantic folosește embedding-uri și găsește produse relevante chiar
+                    dacă nu conțin cuvintele exacte.
+                  </InfoTooltip>
+                  <RadioGroup
                     name="search-mode"
-                    checked={searchMode === 'exact'}
-                    onChange={() => setSearchMode('exact')}
+                    orientation="horizontal"
+                    value={searchMode}
+                    onChange={(val) => setSearchMode(val as 'exact' | 'semantic')}
+                    options={[
+                      { value: 'exact', label: 'Exact' },
+                      { value: 'semantic', label: 'Semantic' },
+                    ]}
                   />
-                  <span>Exact</span>
-                </label>
-                <label className="flex items-center gap-1">
-                  <input
-                    type="radio"
-                    name="search-mode"
-                    checked={searchMode === 'semantic'}
-                    onChange={() => setSearchMode('semantic')}
-                  />
-                  <span>Semantic</span>
-                </label>
+                </span>
               </span>
             </div>
             {searchMode === 'semantic' ? (
@@ -493,60 +539,57 @@ export default function ProductsPage() {
             ) : null}
           </div>
 
-          <ProductsBulkActions
-            selectedCount={selectedIds.size}
-            onForceSync={() => {
-              void onForceSync()
-                .then(() => {
-                  toast.success('Sync pornit');
-                })
-                .catch((error) => {
-                  toast.error(error instanceof Error ? error.message : 'Force Sync a esuat');
-                });
-            }}
-            onExport={onExport}
-            onAssignCategory={onAssignCategory}
-            onAddToCollection={() => {
-              onAddToCollection().catch(() => {
-                // handled by called function/toast
-              });
-            }}
-            onCompare={() => {
-              onCompare().catch(() => {
-                // handled by called function/toast
-              });
-            }}
-            onRequestEnrichment={() => {
-              onRequestEnrichment().catch(() => {
-                // handled by called function/toast
-              });
-            }}
-          />
-
-          {items.length === 0 && !loading ? (
-            <EmptyState
-              title="Nu exista produse"
-              description="Incearca sa ajustezi filtrele sau ruleaza un sync."
+          {selectedIds.size > 0 ? (
+            <ProductsBulkActions
+              selectedCount={selectedIds.size}
+              onForceSync={() => void onForceSync()}
+              onExport={onExport}
+              onAssignCategory={onAssignCategory}
+              onAddToCollection={() => void onAddToCollection()}
+              onCompare={() => void onCompare()}
+              onRequestEnrichment={() => onRequestEnrichment()}
             />
-          ) : (
-            <ProductsTable
-              items={items}
-              selectedIds={selectedIds}
-              onToggle={onToggle}
-              onToggleAll={onToggleAll}
-              onRowClick={(id) => void onRowClick(id)}
-              height={640}
-              loading={loading}
-              isLoading={loadingMore}
-              onLoadMore={onLoadMore}
-              hasMore={hasMore}
-              sortBy={sortBy}
-              sortOrder={sortOrder as 'asc' | 'desc'}
-              onSortChange={(nextSortBy: string, nextSortOrder: string) => {
-                setSortBy(nextSortBy);
-                setSortOrder(nextSortOrder);
+          ) : null}
+
+          {loading && items.length === 0 ? (
+            <LoadingState label="Se încarcă produsele..." />
+          ) : error && items.length === 0 ? (
+            <ErrorState
+              message={error}
+              onRetry={() => {
+                setError(null);
+                void fetchProducts(1, true);
               }}
             />
+          ) : items.length === 0 ? (
+            <EmptyState
+              title="Nu există produse"
+              description="Încearcă să ajustezi filtrele sau rulează un sync."
+            />
+          ) : (
+            <>
+              <p className="sr-only" aria-live="polite" aria-atomic="true">
+                {`${total} produse găsite`}
+              </p>
+              <ProductsTable
+                items={items}
+                selectedIds={selectedIds}
+                onToggle={onToggle}
+                onToggleAll={onToggleAll}
+                onRowClick={(id) => void onRowClick(id)}
+                height={640}
+                loading={loading}
+                isLoading={loadingMore}
+                onLoadMore={onLoadMore}
+                hasMore={hasMore}
+                sortBy={sortBy}
+                sortOrder={sortOrder as 'asc' | 'desc'}
+                onSortChange={(nextSortBy: string, nextSortOrder: string) => {
+                  setSortBy(nextSortBy);
+                  setSortOrder(nextSortOrder);
+                }}
+              />
+            </>
           )}
         </div>
       </div>
@@ -555,7 +598,9 @@ export default function ProductsPage() {
         open={drawerOpen}
         product={activeProduct}
         onClose={() => setDrawerOpen(false)}
-        onForceSync={() => (activeProduct ? onForceSync(activeProduct.id) : undefined)}
+        onForceSync={() =>
+          activeProduct ? onForceSync(activeProduct.id) : Promise.resolve(undefined)
+        }
         onEdit={() => {
           if (activeProduct) void navigate(`/products/${activeProduct.id}/edit`);
         }}

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 
-import { Button } from '../ui/button';
+import { Button } from '../ui/button.js';
+import { Drawer } from '../ui/drawer';
 import { ConsensusStatusBadge } from './ConsensusStatusBadge';
 import { TrustScoreBadge } from './TrustScoreBadge';
 import { ConflictIndicator } from './ConflictIndicator';
@@ -77,6 +79,9 @@ type ConsensusDetailDrawerProps = Readonly<{
     }[]
   >;
 }>;
+
+const summaryClass =
+  'interactive flex cursor-pointer select-none list-none items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-sm font-semibold text-foreground hover:bg-subtle/40 [&::-webkit-details-marker]:hidden';
 
 export function ConsensusDetailDrawer({
   isOpen,
@@ -166,34 +171,13 @@ export function ConsensusDetailDrawer({
   }, [conflicts]);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex justify-end bg-black/30 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out_both]"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="consensus-drawer-title"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div
-        className="h-full w-full max-w-3xl border-l border-white/20 bg-white/90 backdrop-blur-xl p-4 shadow-xl animate-[slide-in-right_0.25s_ease-out_both] dark:border-white/10 dark:bg-slate-900/90"
-        style={{ animationFillMode: 'both' }}
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <div id="consensus-drawer-title" className="text-h6 text-slate-800 dark:text-slate-100">
-              Detalii consens
-            </div>
-            <div className="mt-1 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-              <ConsensusStatusBadge status={status} />
-              <span>Scor: {qualityScore != null ? qualityScore.toFixed(2) : '—'}</span>
-              <ConflictIndicator count={conflictsCount} />
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="ghost" onClick={onClose}>
-              Închide
-            </Button>
+    <Drawer open={isOpen} onClose={onClose} title="Detalii consens" side="right" size="xl">
+      <div className="p-4">
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted">
+          <ConsensusStatusBadge status={status} />
+          <span>Scor: {qualityScore != null ? qualityScore.toFixed(2) : '—'}</span>
+          <ConflictIndicator count={conflictsCount} />
+          <div className="ml-auto flex items-center gap-2">
             <Button
               size="sm"
               variant="secondary"
@@ -211,33 +195,39 @@ export function ConsensusDetailDrawer({
           </div>
         </div>
 
-        <div className="mt-4 space-y-4 overflow-y-auto">
-          <div className="rounded-md border border-muted/20 p-3 dark:border-slate-700">
-            <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</div>
+        <div className="mt-4 space-y-4">
+          <div className="rounded-md border border-border/60 p-3">
+            <div className="text-sm font-semibold text-foreground">{title}</div>
             <div className="mt-3">
               <QualityScoreBreakdown breakdown={breakdown} score={qualityScore ?? null} />
             </div>
           </div>
 
-          <details className="rounded-md border border-muted/20 p-3 dark:border-slate-700" open>
-            <summary className="cursor-pointer text-sm font-semibold text-slate-800 dark:text-slate-100">
-              Surse
+          <details className="group rounded-md border border-border/60 p-3" open>
+            <summary className={summaryClass}>
+              <span>Surse</span>
+              <ChevronDown
+                className="size-3.5 shrink-0 text-muted transition-transform duration-200 group-open:rotate-180"
+                aria-hidden
+              />
             </summary>
-            <div className="mt-3 overflow-hidden rounded-md border border-muted/20 dark:border-slate-700">
+            <div className="mt-3 overflow-x-auto rounded-md border border-border/60">
               <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                <thead className="bg-subtle/40">
                   <tr>
-                    <th className="px-3 py-2 text-left font-medium">Sursă</th>
-                    <th className="px-3 py-2 text-right font-medium">Trust</th>
-                    <th className="px-3 py-2 text-right font-medium">Similaritate</th>
-                    <th className="px-3 py-2 text-right font-medium">Status</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted">Sursă</th>
+                    <th className="px-3 py-2 text-right text-xs font-medium text-muted">Trust</th>
+                    <th className="px-3 py-2 text-right text-xs font-medium text-muted">
+                      Similaritate
+                    </th>
+                    <th className="px-3 py-2 text-right text-xs font-medium text-muted">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {sources.map((source, idx) => (
                     <tr
                       key={`${source.sourceName}-${idx}`}
-                      className="border-t border-muted/20 dark:border-slate-700 text-slate-800 dark:text-slate-200"
+                      className="table-row-interactive border-t border-border/60 text-foreground"
                     >
                       <td className="px-3 py-2">{source.sourceName}</td>
                       <td className="px-3 py-2 text-right">
@@ -252,30 +242,38 @@ export function ConsensusDetailDrawer({
             </div>
           </details>
 
-          <details className="rounded-md border border-muted/20 p-3 dark:border-slate-700" open>
-            <summary className="cursor-pointer text-sm font-semibold text-slate-800 dark:text-slate-100">
-              Rezultate consens
+          <details className="group rounded-md border border-border/60 p-3" open>
+            <summary className={summaryClass}>
+              <span>Rezultate consens</span>
+              <ChevronDown
+                className="size-3.5 shrink-0 text-muted transition-transform duration-200 group-open:rotate-180"
+                aria-hidden
+              />
             </summary>
-            <div className="mt-3 overflow-hidden rounded-md border border-muted/20 dark:border-slate-700">
+            <div className="mt-3 overflow-x-auto rounded-md border border-border/60">
               <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                <thead className="bg-subtle/40">
                   <tr>
-                    <th className="px-3 py-2 text-left font-medium">Atribut</th>
-                    <th className="px-3 py-2 text-left font-medium">Valoare</th>
-                    <th className="px-3 py-2 text-right font-medium">Surse</th>
-                    <th className="px-3 py-2 text-right font-medium">Încredere</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted">Atribut</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted">Valoare</th>
+                    <th className="px-3 py-2 text-right text-xs font-medium text-muted">Surse</th>
+                    <th className="px-3 py-2 text-right text-xs font-medium text-muted">
+                      Încredere
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {results.map((row) => (
                     <tr
                       key={row.attribute}
-                      className="border-t border-muted/20 dark:border-slate-700 text-slate-800 dark:text-slate-200"
+                      className="table-row-interactive border-t border-border/60 text-foreground"
                     >
                       <td className="px-3 py-2">{row.attribute}</td>
-                      <td className="px-3 py-2">{row.value}</td>
-                      <td className="px-3 py-2 text-right">{row.sourcesCount}</td>
-                      <td className="px-3 py-2 text-right">{row.confidence.toFixed(2)}</td>
+                      <td className="px-3 py-2 text-muted">{row.value}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{row.sourcesCount}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {row.confidence.toFixed(2)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -284,16 +282,18 @@ export function ConsensusDetailDrawer({
           </details>
 
           {conflicts.length > 0 ? (
-            <details className="rounded-md border border-muted/20 p-3 dark:border-slate-700" open>
-              <summary className="cursor-pointer text-sm font-semibold text-slate-800 dark:text-slate-100">
-                Conflicte
+            <details className="group rounded-md border border-error/25 p-3" open>
+              <summary className={`${summaryClass} text-error`}>
+                <span>Conflicte ({conflicts.length})</span>
+                <ChevronDown
+                  className="size-3.5 shrink-0 text-error/60 transition-transform duration-200 group-open:rotate-180"
+                  aria-hidden
+                />
               </summary>
               <div className="mt-3 space-y-4">
                 {conflictPanels.map(({ conflict, options }) => (
                   <div key={conflict.attributeName} className="space-y-2">
-                    <div className="text-xs text-slate-500 dark:text-slate-400">
-                      {conflict.reason}
-                    </div>
+                    <div className="text-xs text-muted">{conflict.reason}</div>
                     <ConflictResolutionPanel
                       attributeName={conflict.attributeName}
                       options={options}
@@ -306,19 +306,23 @@ export function ConsensusDetailDrawer({
           ) : null}
 
           {selectedAttribute ? (
-            <details className="rounded-md border border-muted/20 p-3 dark:border-slate-700" open>
-              <summary className="cursor-pointer text-sm font-semibold text-slate-800 dark:text-slate-100">
-                Votare multi-sursă
+            <details className="group rounded-md border border-border/60 p-3" open>
+              <summary className={summaryClass}>
+                <span>Votare multi-sursă</span>
+                <ChevronDown
+                  className="size-3.5 shrink-0 text-muted transition-transform duration-200 group-open:rotate-180"
+                  aria-hidden
+                />
               </summary>
               <div className="mt-3 flex flex-wrap gap-2">
                 {attributeOptions.map((attribute) => (
                   <button
                     key={attribute}
                     type="button"
-                    className={`rounded-full px-3 py-1 text-xs transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50 ${
+                    className={`interactive rounded-full px-3 py-1 text-xs focus-ring-standard ${
                       selectedAttribute === attribute
-                        ? 'bg-primary/20 text-primary dark:bg-primary/30'
-                        : 'bg-muted/20 text-muted dark:bg-slate-700 dark:text-slate-400'
+                        ? 'bg-primary/20 text-primary ring-1 ring-primary/30'
+                        : 'bg-muted/15 text-muted hover:bg-muted/25 hover:text-foreground'
                     }`}
                     onClick={() => setSelectedAttribute(attribute)}
                   >
@@ -332,9 +336,13 @@ export function ConsensusDetailDrawer({
             </details>
           ) : null}
 
-          <details className="rounded-md border border-muted/20 p-3 dark:border-slate-700">
-            <summary className="cursor-pointer text-sm font-semibold text-slate-800 dark:text-slate-100">
-              Cronologie proveniență
+          <details className="group rounded-md border border-border/60 p-3">
+            <summary className={summaryClass}>
+              <span>Cronologie proveniență</span>
+              <ChevronDown
+                className="size-3.5 shrink-0 text-muted transition-transform duration-200 group-open:rotate-180"
+                aria-hidden
+              />
             </summary>
             <div className="mt-3">
               <ProvenanceTimeline entries={provenance} />
@@ -342,6 +350,6 @@ export function ConsensusDetailDrawer({
           </details>
         </div>
       </div>
-    </div>
+    </Drawer>
   );
 }

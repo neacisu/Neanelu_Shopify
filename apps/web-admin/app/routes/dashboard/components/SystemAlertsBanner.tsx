@@ -109,16 +109,16 @@ export function SystemAlertsBanner() {
         return (
           <div
             key={a.id}
-            role="status"
+            role={a.severity === 'critical' ? 'alert' : 'status'}
             className={
               a.severity === 'critical'
-                ? 'rounded-xl border border-red-200/80 bg-red-50/80 p-4 shadow-[var(--shadow-sm)] dark:border-red-800/60 dark:bg-red-950/40'
-                : 'rounded-xl border border-amber-200/80 bg-amber-50/80 p-4 shadow-[var(--shadow-sm)] dark:border-amber-800/60 dark:bg-amber-950/40'
+                ? 'rounded-xl border border-error/30 bg-error/10 p-4 shadow-[var(--shadow-sm)]'
+                : 'rounded-xl border border-warning/30 bg-warning/10 p-4 shadow-[var(--shadow-sm)]'
             }
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-200">
+                <div className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
                   {a.title}
                   {tooltip ? (
                     <InfoTooltip title={tooltip.title} side="bottom">
@@ -126,9 +126,7 @@ export function SystemAlertsBanner() {
                     </InfoTooltip>
                   ) : null}
                 </div>
-                <div className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-                  {a.description}
-                </div>
+                <div className="mt-1 text-xs text-muted">{a.description}</div>
               </div>
               <Button variant="secondary" size="sm" onClick={() => dismiss(a.id)}>
                 Închide

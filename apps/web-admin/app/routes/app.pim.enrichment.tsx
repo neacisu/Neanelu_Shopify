@@ -1,12 +1,16 @@
 import type { LoaderFunctionArgs } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
-import { useLoaderData, useRevalidator, useSearchParams } from 'react-router-dom';
+import { useLoaderData, useNavigation, useRevalidator, useSearchParams } from 'react-router-dom';
 import type { DateRange } from 'react-day-picker';
-import { Loader2, Play, RefreshCw } from 'lucide-react';
+import { Check, Loader2, Play, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { Button } from '../components/ui/button';
+import { useButtonState } from '../hooks/use-button-state.js';
+import { Button } from '../components/ui/button.js';
+import { Card } from '../components/ui/card.js';
 import { InfoTooltip } from '../components/ui/info-tooltip';
+import { LoadingState } from '../components/patterns/loading-state';
+import { jobsStore } from '../contexts/jobs-context.js';
 import { DateRangePicker } from '../components/ui/DateRangePicker';
 import { Timeline, type TimelineEvent } from '../components/ui/Timeline';
 import { EnrichmentPipelineViz } from '../components/domain/EnrichmentPipelineViz';
@@ -18,6 +22,7 @@ import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/load
 import { toUtcIsoRange } from '../utils/date-range';
 import { useEnrichmentStream } from '../hooks/useEnrichmentStream';
 import { useApiClient } from '../hooks/use-api';
+import { StreamingIndicator } from '../components/ui/streaming-indicator.js';
 
 interface EnrichmentStage {
   id: string;
@@ -89,10 +94,12 @@ function parseRangeFromParams(searchParams: URLSearchParams): DateRange | undefi
 
 export default function EnrichmentDashboardPage() {
   const { progress, sourcePerformance } = useLoaderData<RouteLoaderData>();
+  const navigation = useNavigation();
   const revalidator = useRevalidator();
   const stream = useEnrichmentStream();
   const api = useApiClient();
   const [starting, setStarting] = useState(false);
+  const enrichBtnState = useButtonState({ feedbackMs: 2000 });
   const [searchParams, setSearchParams] = useSearchParams();
   const timeZone =
     typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC';
@@ -124,6 +131,10 @@ export default function EnrichmentDashboardPage() {
     return () => clearInterval(id);
   }, [revalidator]);
 
+  if (navigation.state === 'loading') {
+    return <LoadingState label="Se încarcă datele de îmbogățire..." />;
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end gap-3">
@@ -154,38 +165,65 @@ export default function EnrichmentDashboardPage() {
         </span>
         <Button
           size="sm"
+          loading={enrichBtnState.isLoading}
+          disabled={starting || enrichBtnState.isLoading}
           onClick={() => {
             setStarting(true);
-            void api
-              .postApi<{ status: string; queued?: number }, { limit: number }>(
-                '/pim/enrichment/start',
-                {
-                  limit: 50,
+            void enrichBtnState
+              .run(async () => {
+                const jobId = `enrichment-${Date.now()}`;
+                jobsStore.add({
+                  id: jobId,
+                  label: 'Enrichment PIM pornit',
+                  status: 'running',
+                  progress: 0,
+                  startedAt: Date.now(),
+                });
+                try {
+                  const result = await api.postApi<
+                    { status: string; queued?: number },
+                    { limit: number }
+                  >('/pim/enrichment/start', { limit: 50 });
+                  if (result.status === 'noop') {
+                    toast.message('Nu exista produse eligibile pentru enrichment acum.');
+                    jobsStore.remove(jobId);
+                    return;
+                  }
+                  const queued = typeof result.queued === 'number' ? result.queued : 0;
+                  jobsStore.update(jobId, {
+                    label: `Enrichment pornit (${queued} produse)`,
+                    status: 'completed',
+                    progress: 100,
+                    ...(queued > 0 ? { counts: { processed: 0, total: queued } } : {}),
+                  });
+                  setTimeout(() => jobsStore.remove(jobId), 8000);
+                  void revalidator.revalidate();
+                } catch (err) {
+                  jobsStore.update(jobId, { status: 'failed' });
+                  throw err;
                 }
-              )
-              .then((result) => {
-                if (result.status === 'noop') {
-                  toast.message('Nu exista produse eligibile pentru enrichment acum.');
-                  return;
-                }
-                toast.success(
-                  `Enrichment pornit${typeof result.queued === 'number' ? ` (${result.queued} produse)` : ''}.`
-                );
-                void revalidator.revalidate();
               })
               .catch((error) => {
                 toast.error(error instanceof Error ? error.message : 'Nu pot porni enrichment.');
               })
               .finally(() => setStarting(false));
           }}
-          disabled={starting}
         >
-          {starting ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          {enrichBtnState.isSuccess ? (
+            <span className="inline-flex items-center gap-1 motion-safe:animate-[fadeSlideUp_0.2s_ease-out]">
+              <Check className="size-3.5" aria-hidden />
+              Pornit
+            </span>
           ) : (
-            <Play className="mr-2 h-4 w-4" />
+            <>
+              {enrichBtnState.isLoading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="mr-2 h-4 w-4" />
+              )}
+              Pornește enrichment
+            </>
           )}
-          Pornește enrichment
         </Button>
         <InfoTooltip title="Pornește enrichment" side="bottom">
           Pornește procesul de îmbogățire automată a produselor. Sistemul va folosi sursele AI
@@ -205,6 +243,12 @@ export default function EnrichmentDashboardPage() {
           Reîncarcă
         </Button>
         <DataFreshnessIndicator refreshedAt={sourcePerformance.refreshedAt} label="Date surse" />
+        <StreamingIndicator
+          active={stream.connected}
+          label="Stream activ"
+          variant="success"
+          showLabel
+        />
       </div>
 
       <EnrichmentStatsCards
@@ -219,17 +263,17 @@ export default function EnrichmentDashboardPage() {
 
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
         <div className="space-y-4">
-          <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60">
-            <div className="mb-2 text-xs text-slate-500 dark:text-slate-400">Etape pipeline</div>
+          <Card padding="md">
+            <div className="mb-2 text-xs text-primary">Etape pipeline</div>
             <EnrichmentPipelineViz stages={progress.pipelineStages} />
-          </div>
+          </Card>
           <EnrichmentProgressChart data={progress.trendPoints} />
           <SourcePerformanceTable rows={sourcePerformance.sources} />
         </div>
-        <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60">
-          <div className="mb-2 text-xs text-slate-500 dark:text-slate-400">Activitate recentă</div>
+        <Card padding="md">
+          <div className="mb-2 text-xs text-primary">Activitate recentă</div>
           <Timeline events={events} maxHeight={420} emptyState="Nu există evenimente încă." />
-        </div>
+        </Card>
       </div>
     </div>
   );

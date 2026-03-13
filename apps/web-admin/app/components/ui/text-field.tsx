@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import type { ChangeEvent, ComponentPropsWithoutRef } from 'react';
 
 export type TextFieldProps = Omit<ComponentPropsWithoutRef<'input'>, 'value' | 'onChange'> & {
@@ -20,15 +21,13 @@ export function TextField({
   error,
   ...rest
 }: TextFieldProps) {
-  const inputId = id ?? `text-field-${Math.random().toString(36).slice(2, 9)}`;
+  const uid = useId().replace(/:/g, '');
+  const inputId = id ?? `text-field-${uid}`;
 
   return (
     <div className="flex flex-col gap-1.5">
       {label ? (
-        <label
-          htmlFor={inputId}
-          className="text-sm font-medium text-foreground dark:text-foreground"
-        >
+        <label htmlFor={inputId} className="text-sm font-medium text-foreground">
           {label}
         </label>
       ) : null}
@@ -42,28 +41,21 @@ export function TextField({
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? `${inputId}-error` : undefined}
         className={`
-          h-10 w-full rounded-xl border bg-white/70 px-3 py-2
-          text-sm text-foreground placeholder:text-muted
-          shadow-[var(--shadow-sm)] backdrop-blur-sm
-          transition-[border-color,box-shadow] duration-200
-          focus:outline-none focus-visible:shadow-[0_0_0_3px_rgba(59,130,246,0.15)]
-          disabled:cursor-not-allowed disabled:opacity-60
-          dark:bg-slate-900/70 dark:text-foreground dark:placeholder:text-muted
-          dark:focus-visible:shadow-[0_0_0_3px_rgba(96,165,250,0.2)]
-          ${
-            error
-              ? 'border-red-300 focus-visible:border-red-400 dark:border-red-700'
-              : 'border-border focus-visible:border-accent dark:border-slate-700'
-          }
-          ${className}
+ focus-ring-standard h-10 w-full rounded-xl border bg-card px-3 py-2
+ text-sm text-foreground placeholder:text-muted
+ shadow-[var(--shadow-sm)]
+ transition-[border-color,box-shadow,background-color] duration-normal
+ hover:border-accent-border
+ disabled:cursor-not-allowed disabled:opacity-60
+ ${error ? 'border-error/50' : 'border-border'}
+        ${className}
         `}
-        aria-label={label}
         {...rest}
       />
       {error ? (
         <p
           id={`${inputId}-error`}
-          className="text-xs text-red-600 dark:text-red-400 motion-safe:animate-[fadeSlideUp_0.15s_ease-out]"
+          className="text-xs text-error motion-safe:animate-[fadeSlideUp_0.15s_ease-out]"
           role="alert"
         >
           {error}

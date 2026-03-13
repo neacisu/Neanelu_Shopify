@@ -11,7 +11,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
+import { PageHeader } from '../components/layout/page-header';
 import { Tabs } from '../components/ui/tabs';
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
 import { ScheduleForm, ConfirmDialog } from '../components/domain/index.js';
 import { apiAction, type ActionData, createActionApiClient } from '../utils/actions';
 import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
@@ -186,17 +189,11 @@ export default function IngestionSchedulePage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="space-y-1">
-          <Breadcrumbs items={breadcrumbs} />
-          <h1 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-slate-100 motion-safe:animate-[fadeSlideUp_0.5s_ease-out_both]">
-            Programare ingestie
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 motion-safe:animate-[fadeSlideUp_0.5s_ease-out_0.1s_both]">
-            Planifică sincronizări automate cu Shopify
-          </p>
-        </div>
-      </header>
+      <Breadcrumbs items={breadcrumbs} />
+      <PageHeader
+        title="Programare ingestie"
+        description="Planifică sincronizări automate cu Shopify"
+      />
 
       <div className="flex flex-wrap items-center gap-4">
         <Tabs
@@ -209,7 +206,7 @@ export default function IngestionSchedulePage() {
         />
       </div>
 
-      <article className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-[var(--shadow-sm)]">
+      <Card variant="glass" padding="md">
         <ScheduleForm
           schedule={activeSchedule ?? null}
           onSubmit={submitSchedule}
@@ -217,16 +214,17 @@ export default function IngestionSchedulePage() {
         />
         {activeSchedule?.id ? (
           <div className="mt-4 flex justify-end">
-            <button
+            <Button
               type="button"
-              className="text-sm font-medium text-red-600 transition-colors hover:text-red-700 hover:underline"
+              variant="destructive"
+              size="sm"
               onClick={() => setConfirmDeleteOpen(true)}
             >
               Șterge programarea
-            </button>
+            </Button>
           </div>
         ) : null}
-      </article>
+      </Card>
 
       <ConfirmDialog
         open={confirmDeleteOpen}

@@ -43,8 +43,8 @@ export function PromotionEligibilityCard(props: PromotionEligibilityCardProps) {
   } = props;
 
   const gaugeThresholds: GaugeThreshold[] = [
-    { value: thresholds.silver, color: '#ffc453' },
-    { value: thresholds.golden, color: '#22c55e' },
+    { value: thresholds.silver, color: 'rgb(var(--color-warning))' },
+    { value: thresholds.golden, color: 'rgb(var(--color-success))' },
   ];
 
   const progressLevelIndex = getLevelIndex(currentLevel);
@@ -89,9 +89,9 @@ export function PromotionEligibilityCard(props: PromotionEligibilityCardProps) {
           const isDone = index < progressLevelIndex;
           const isCurrent = index === progressLevelIndex;
           const circleClass = isCurrent
-            ? 'border-2 border-black text-black shadow-sm'
+            ? 'border-2 border-foreground text-foreground shadow-[var(--shadow-sm)]'
             : isDone
-              ? 'border border-emerald-500 text-emerald-600'
+              ? 'border border-success/60 text-success'
               : 'border border-muted text-muted';
           return (
             <div key={level} className="flex flex-1 items-center gap-2">
@@ -115,7 +115,7 @@ export function PromotionEligibilityCard(props: PromotionEligibilityCardProps) {
           min={0}
           max={1}
           thresholds={gaugeThresholds}
-          trackColor="#f87171"
+          trackColor="rgb(var(--color-error) / 0.22)"
           showValue
           formatValue={(v) => `${Math.round(v * 100)}%`}
           label={nextLevel ? `Următor: ${nextThreshold} pentru ${nextLevel}` : 'Golden Record'}
@@ -132,11 +132,11 @@ export function PromotionEligibilityCard(props: PromotionEligibilityCardProps) {
         {checklistItems.map((item, index) => {
           const icon =
             item.status === 'met' ? (
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+              <CheckCircle2 className="h-4 w-4 text-success" />
             ) : item.status === 'missing' ? (
-              <XCircle className="h-4 w-4 text-rose-500" />
+              <XCircle className="h-4 w-4 text-error" />
             ) : (
-              <AlertCircle className="h-4 w-4 text-amber-500" />
+              <AlertCircle className="h-4 w-4 text-warning" />
             );
           return (
             <div key={`${item.text}-${index}`} className="flex items-center gap-2 text-sm">
@@ -159,7 +159,7 @@ export function PromotionEligibilityCard(props: PromotionEligibilityCardProps) {
         )}
 
         {showGoldenBadge ? (
-          <div className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">
+          <div className="rounded-md border border-golden/35 bg-golden/10 px-2 py-1 text-xs font-semibold text-golden">
             Golden Record
           </div>
         ) : null}

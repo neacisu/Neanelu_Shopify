@@ -172,6 +172,8 @@ export function useLogStream(options: UseLogStreamOptions): LogStreamState {
       const token = await getSessionToken();
       if (connectIdRef.current !== connectId) return;
       const url = new URL(resolvedEndpoint, window.location.origin);
+      // NOTE: JWT in URL query string is logged in server/proxy logs and browser history.
+      // Acceptable for WebSocket handshake; mitigate with short-lived tokens + TLS.
       if (token) url.searchParams.set('token', token);
       url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
       const socket = new WebSocket(url.toString());

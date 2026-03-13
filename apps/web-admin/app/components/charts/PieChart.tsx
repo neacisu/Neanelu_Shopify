@@ -22,6 +22,7 @@ export type PieChartProps = Readonly<{
   tooltipContent?: ChartTooltipProps['content'];
   centerLabel?: ReactNode;
   innerRadius?: number | string;
+  ariaLabel?: string;
 }>;
 
 export function PieChart({
@@ -34,6 +35,7 @@ export function PieChart({
   tooltipContent,
   centerLabel,
   innerRadius,
+  ariaLabel,
 }: PieChartProps) {
   const safeHeight = Math.max(1, height);
   const { isDark, text } = useChartTheme();
@@ -47,9 +49,13 @@ export function PieChart({
     setHoveredIndex(null);
   }, []);
 
+  const defaultAriaLabel = `Diagramă pie cu ${data.length} segmente: ${data.map((d) => `${d.name}: ${d.value}`).join(', ')}`;
+
   return (
     <div
-      className="animate-[chartFadeIn_0.5s_ease-out_0.1s_both]"
+      role="img"
+      aria-label={ariaLabel ?? defaultAriaLabel}
+      className="motion-safe:animate-[chartFadeIn_0.5s_ease-out_0.1s_both]"
       style={{ width: '100%', height: safeHeight, minHeight: safeHeight, minWidth: 1 }}
     >
       <ResponsiveContainer width="100%" height={safeHeight} minWidth={1} minHeight={safeHeight}>
@@ -81,15 +87,15 @@ export function PieChart({
             {data.map((entry, index) => (
               <Cell
                 key={`cell-${index}`}
-                fill={entry.color ?? '#94a3b8'}
+                fill={entry.color ?? 'rgb(var(--color-muted))'}
                 opacity={hoveredIndex !== null && hoveredIndex !== index ? 0.4 : 1}
                 strokeWidth={hoveredIndex === index ? 2 : 0}
                 stroke={
                   hoveredIndex === index
-                    ? (entry.color ?? '#94a3b8')
+                    ? (entry.color ?? 'rgb(var(--color-muted))')
                     : isDark
-                      ? '#0f172a'
-                      : '#ffffff'
+                      ? 'rgb(var(--color-background))'
+                      : 'rgb(var(--color-card))'
                 }
                 style={{ transition: 'opacity 0.2s ease-out, stroke-width 0.15s ease-out' }}
               />

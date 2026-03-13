@@ -11,9 +11,7 @@ export type NavLinkProps = PropsWithChildren<{
   icon?: IconType;
   badge?: number | string;
   compact?: boolean;
-  /** Detailed explanation for new users; when set, an info icon with tooltip is shown next to the label. */
   tooltip?: string;
-  /** Tooltip heading; defaults to the link label (children). */
   tooltipTitle?: string;
 }>;
 
@@ -41,12 +39,23 @@ export function NavLink({
     <ShopifyLink
       to={to}
       className={
-        'group/link flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-sm font-medium outline-none transition-all duration-200 ease-out ' +
+        'group/link flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-sm outline-none transition-all duration-200 ease-out focus-ring-standard ' +
         (isActive
-          ? 'border-l-4 border-blue-500 bg-blue-50/80 text-slate-800 shadow-[var(--shadow-sm)] dark:bg-blue-900/30 dark:text-slate-100 dark:border-blue-400'
-          : 'border-l-4 border-transparent text-slate-600 hover:translate-x-0.5 hover:bg-slate-100 hover:text-slate-800 hover:shadow-[var(--shadow-sm)] dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100') +
-        ' focus-visible:ring-2 focus-visible:ring-[rgb(var(--color-ring))]/40 focus-visible:ring-offset-2 ' +
-        (compact ? 'justify-center px-2.5' : '')
+          ? 'font-semibold shadow-[var(--shadow-sm)]'
+          : 'font-medium text-muted hover:translate-x-0.5 hover:shadow-[var(--shadow-sm)]') +
+        (compact ? ' justify-center px-2.5' : '')
+      }
+      style={
+        isActive
+          ? {
+              borderLeft: '3px solid rgb(var(--color-primary))',
+              background:
+                'linear-gradient(90deg, rgba(30, 96, 145, 0.22) 0%, rgba(30, 96, 145, 0.06) 100%)',
+              color: 'rgb(var(--color-primary))',
+            }
+          : {
+              borderLeft: '3px solid transparent',
+            }
       }
       aria-current={isActive ? 'page' : undefined}
     >
@@ -54,10 +63,8 @@ export function NavLink({
         {Icon ? (
           <span
             className={
-              'flex shrink-0 items-center justify-center transition-colors duration-200 group-hover/link:scale-110 ' +
-              (isActive
-                ? 'text-blue-600 dark:text-blue-400'
-                : 'text-slate-400 group-hover/link:text-slate-600 dark:text-slate-500 dark:group-hover/link:text-slate-300')
+              'flex shrink-0 items-center justify-center transition-[color,transform] duration-200 group-hover/link:scale-110 ' +
+              (isActive ? 'text-primary' : 'text-muted group-hover/link:text-foreground')
             }
           >
             <Icon className="size-4" />
@@ -80,7 +87,7 @@ export function NavLink({
       </span>
 
       {badge !== undefined && !compact ? (
-        <span className="shrink-0 rounded-full bg-slate-200/80 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-700/80 dark:text-slate-300">
+        <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary ring-1 ring-primary/20 motion-safe:animate-[number-pop_0.3s_ease-out]">
           {badge}
         </span>
       ) : null}

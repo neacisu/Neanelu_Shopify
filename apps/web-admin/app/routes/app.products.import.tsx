@@ -3,8 +3,10 @@ import { useLocation } from 'react-router-dom';
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { PageHeader } from '../components/layout/page-header';
+import { Card } from '../components/ui/card';
 import { FileUpload } from '../components/ui/FileUpload';
 import { InfoTooltip } from '../components/ui/info-tooltip';
+import { Checkbox } from '../components/ui/checkbox';
 import { useApiClient } from '../hooks/use-api';
 
 type ImportJob = Readonly<{
@@ -61,18 +63,16 @@ export default function ProductsImportPage() {
   }, [api, job, polling]);
 
   return (
-    <div className="space-y-6 dark:text-slate-100">
+    <div className="space-y-6">
       <Breadcrumbs items={breadcrumbs} />
       <PageHeader
         title="Import produse"
         description="Încarcă fișiere CSV sau JSON pentru import în masă."
       />
 
-      <section className="rounded-lg border border-border dark:border-slate-700 bg-white dark:bg-slate-900/80 p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-sm)]">
+      <Card padding="md">
         <div className="flex items-center gap-1">
-          <span className="text-sm font-semibold dark:text-slate-100">
-            Pasul 1: Încarcă fișierul
-          </span>
+          <span className="text-sm font-semibold">Pasul 1: Încarcă fișierul</span>
           <InfoTooltip title="Format fișier">
             CSV: coloane title, sku, vendor, price etc. JSON/JSONL: array de obiecte produs. Max 50
             MB.
@@ -110,13 +110,11 @@ export default function ProductsImportPage() {
             apiHelpers.setDone();
           }}
         />
-      </section>
+      </Card>
 
-      <section className="rounded-lg border border-border dark:border-slate-700 bg-white dark:bg-slate-900/80 p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-sm)]">
+      <Card padding="md">
         <div className="flex items-center gap-1">
-          <span className="text-sm font-semibold dark:text-slate-100">
-            Pasul 2: Previzualizare și validare
-          </span>
+          <span className="text-sm font-semibold">Pasul 2: Previzualizare și validare</span>
           <InfoTooltip title="Validare">
             Verifică erorile pe rând înainte de import. Rândurile cu erori pot fi omise dacă „Omite
             erori” este bifat.
@@ -143,7 +141,7 @@ export default function ProductsImportPage() {
               </div>
             ) : null}
             {job.errors?.length ? (
-              <div className="rounded-md border border-border dark:border-slate-700 bg-muted/10 dark:bg-slate-800/50 p-3 text-xs dark:text-slate-300">
+              <div className="rounded-md border border-border bg-muted/10 p-3 text-xs">
                 {job.errors.slice(0, 5).map((err) => (
                   <div key={`${err.row}-${err.message}`}>
                     Rând {err.row}: {err.message}
@@ -152,8 +150,8 @@ export default function ProductsImportPage() {
               </div>
             ) : null}
             {job.previewRows?.length ? (
-              <div className="overflow-hidden rounded-md border border-border dark:border-slate-700">
-                <div className="grid grid-cols-4 gap-2 border-b border-border dark:border-slate-700 bg-muted/10 dark:bg-slate-800/50 px-3 py-2 text-xs font-semibold dark:text-slate-300">
+              <div className="overflow-x-auto rounded-md border border-border">
+                <div className="grid grid-cols-4 gap-2 border-b border-border bg-muted/10 px-3 py-2 text-xs font-semibold">
                   <div>Rând</div>
                   <div>Titlu</div>
                   <div>SKU</div>
@@ -163,7 +161,7 @@ export default function ProductsImportPage() {
                   <div
                     key={`${row.row}-${row.error ?? 'ok'}`}
                     className={`grid grid-cols-4 gap-2 px-3 py-2 text-xs transition-colors ${
-                      row.error ? 'bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300' : ''
+                      row.error ? 'bg-error/5 text-error' : ''
                     }`}
                   >
                     <div>{row.row}</div>
@@ -177,39 +175,36 @@ export default function ProductsImportPage() {
             {job.error ? <div className="text-xs text-error">{job.error}</div> : null}
           </div>
         ) : (
-          <div className="mt-2 text-xs text-muted dark:text-slate-400">
+          <div className="mt-2 text-xs text-muted">
             Încarcă un fișier pentru a vedea rezultatele validării.
           </div>
         )}
-      </section>
+      </Card>
 
-      <section className="rounded-lg border border-border dark:border-slate-700 bg-white dark:bg-slate-900/80 p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-sm)]">
+      <Card padding="md">
         <div className="flex items-center gap-1">
-          <span className="text-sm font-semibold dark:text-slate-100">Pasul 3: Opțiuni</span>
+          <span className="text-sm font-semibold">Pasul 3: Opțiuni</span>
           <InfoTooltip title="Opțiuni import">
             Opțiunile se aplică la următorul upload. Dry run doar previzualizează, fără salvare.
           </InfoTooltip>
         </div>
-        <div className="mt-2 space-y-2 text-xs text-muted dark:text-slate-400">
-          <label className="flex cursor-pointer items-center gap-2 transition-colors hover:text-foreground dark:hover:text-slate-200">
-            <input
-              type="checkbox"
+        <div className="mt-2 space-y-2 text-xs text-muted">
+          <label className="flex cursor-pointer items-center gap-2 transition-colors hover:text-foreground">
+            <Checkbox
               checked={options.dryRun}
               onChange={(e) => setOptions((prev) => ({ ...prev, dryRun: e.target.checked }))}
             />
             Dry run (doar previzualizare)
           </label>
-          <label className="flex cursor-pointer items-center gap-2 transition-colors hover:text-foreground dark:hover:text-slate-200">
-            <input
-              type="checkbox"
+          <label className="flex cursor-pointer items-center gap-2 transition-colors hover:text-foreground">
+            <Checkbox
               checked={options.skipErrors}
               onChange={(e) => setOptions((prev) => ({ ...prev, skipErrors: e.target.checked }))}
             />
             Omite rândurile cu erori
           </label>
-          <label className="flex cursor-pointer items-center gap-2 transition-colors hover:text-foreground dark:hover:text-slate-200">
-            <input
-              type="checkbox"
+          <label className="flex cursor-pointer items-center gap-2 transition-colors hover:text-foreground">
+            <Checkbox
               checked={options.updateExisting}
               onChange={(e) =>
                 setOptions((prev) => ({ ...prev, updateExisting: e.target.checked }))
@@ -217,9 +212,8 @@ export default function ProductsImportPage() {
             />
             Actualizează produsele existente
           </label>
-          <label className="flex cursor-pointer items-center gap-2 transition-colors hover:text-foreground dark:hover:text-slate-200">
-            <input
-              type="checkbox"
+          <label className="flex cursor-pointer items-center gap-2 transition-colors hover:text-foreground">
+            <Checkbox
               checked={options.triggerEnrichment}
               onChange={(e) =>
                 setOptions((prev) => ({ ...prev, triggerEnrichment: e.target.checked }))
@@ -227,11 +221,9 @@ export default function ProductsImportPage() {
             />
             Pornește îmbogățirea pentru produse noi
           </label>
-          <div className="text-xs text-muted dark:text-slate-500">
-            Opțiunile se aplică la următorul upload.
-          </div>
+          <div className="text-xs text-muted">Opțiunile se aplică la următorul upload.</div>
         </div>
-      </section>
+      </Card>
     </div>
   );
 }

@@ -84,7 +84,12 @@ export function ConfirmDialog(props: {
         <div>
           <div className="text-h3">{title}</div>
         </div>
-        <Button variant="ghost" disabled={cancelDisabled ?? false} onClick={onCancel}>
+        <Button
+          variant="ghost"
+          aria-label="Închide"
+          disabled={cancelDisabled ?? false}
+          onClick={onCancel}
+        >
           ✕
         </Button>
       </div>

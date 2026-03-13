@@ -43,6 +43,13 @@ export const PRODUCTS_EXPORT_CORE_QUERY_V2 = `#graphql
           minVariantCompareAtPrice { amount currencyCode }
           maxVariantCompareAtPrice { amount currencyCode }
         }
+        productCategory {
+          productTaxonomyNode {
+            id
+            name
+            fullName
+          }
+        }
         images(first: 250) {
           edges {
             node {

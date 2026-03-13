@@ -1,5 +1,6 @@
 import { Filter, Search, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useReducedMotion } from '../hooks/use-reduced-motion';
 import { useLocation, useSearchParams } from 'react-router-dom';
 
 import type {
@@ -9,8 +10,11 @@ import type {
 } from '@app/types';
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
+import { PageHeader } from '../components/layout/page-header';
 import { InfoTooltip } from '../components/ui/info-tooltip';
 import { EmptyState } from '../components/patterns';
+import { ErrorState } from '../components/patterns/error-state.js';
+import { LoadingState } from '../components/patterns/loading-state.js';
 import { ExportResultsModal } from '../components/domain/export-results-modal';
 import { RecentSearchesDropdown } from '../components/domain/recent-searches-dropdown';
 import { SearchFilters } from '../components/domain/search-filters';
@@ -18,6 +22,8 @@ import { VectorResultCard } from '../components/domain/vector-result';
 import { SearchInput } from '../components/ui/SearchInput';
 import { JsonViewer } from '../components/ui/JsonViewer';
 import { Button } from '../components/ui/button';
+import { TextField } from '../components/ui/text-field';
+import { Slider } from '../components/ui/slider';
 import { useApiClient } from '../hooks/use-api';
 import { useDebounce } from '../hooks/use-debounce';
 import { useRecentSearches } from '../hooks/use-recent-searches';
@@ -67,6 +73,7 @@ export default function SearchPage() {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const api = useApiClient();
+  const reducedMotion = useReducedMotion();
   const recent = useRecentSearches({ storageKey: 'neanelu:web-admin:search:recent:v1' });
   const addRecent = recent.add;
 
@@ -215,33 +222,28 @@ export default function SearchPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="space-y-1">
-          <Breadcrumbs items={breadcrumbs} />
-          <h1 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-slate-100 motion-safe:animate-[fadeSlideUp_0.5s_ease-out_both]">
-            Căutare produse
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            Căutare semantica (AI) în catalogul de produse. Ajustează filtrele și pragul pentru
-            rezultate relevante.
-          </p>
-        </div>
-        {results.length > 0 ? (
-          <span className="inline-flex items-center gap-1.5">
-            <Button
-              variant="secondary"
-              onClick={() => setExportOpen(true)}
-              className="shrink-0 transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
-            >
-              Exportă
-            </Button>
-            <InfoTooltip title="Exportă rezultate" side="bottom">
-              Exportă rezultatele căutării curente în CSV sau Excel. Poți alege formatul și
-              limitele. Exportul rulează în fundal; vei primi link de descărcare când e gata.
-            </InfoTooltip>
-          </span>
-        ) : null}
-      </header>
+      <Breadcrumbs items={breadcrumbs} />
+      <PageHeader
+        title="Căutare produse"
+        description="Căutare semantica (AI) în catalogul de produse. Ajustează filtrele și pragul pentru rezultate relevante."
+        actions={
+          results.length > 0 ? (
+            <span className="inline-flex items-center gap-1.5">
+              <Button
+                variant="secondary"
+                onClick={() => setExportOpen(true)}
+                className="shrink-0 transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
+              >
+                Exportă
+              </Button>
+              <InfoTooltip title="Exportă rezultate" side="bottom">
+                Exportă rezultatele căutării curente în CSV sau Excel. Poți alege formatul și
+                limitele. Exportul rulează în fundal; vei primi link de descărcare când e gata.
+              </InfoTooltip>
+            </span>
+          ) : undefined
+        }
+      />
 
       <Button
         variant="secondary"
@@ -254,7 +256,7 @@ export default function SearchPage() {
 
       {mobileFiltersOpen ? (
         <div
-          className="fixed inset-0 z-[900] bg-black/30 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-[900] bg-overlay/35 backdrop-blur-sm lg:hidden"
           onClick={() => setMobileFiltersOpen(false)}
           aria-hidden
         />
@@ -263,22 +265,24 @@ export default function SearchPage() {
       <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
         <article
           className={`
-            overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 backdrop-blur-sm p-4 shadow-[var(--shadow-sm)] dark:border-slate-700/60 dark:bg-slate-900/80
-            max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:z-[950] max-lg:w-[340px] max-lg:max-w-[85vw] max-lg:overflow-auto max-lg:shadow-2xl
-            max-lg:transition-transform max-lg:duration-300 max-lg:ease-out
-            ${mobileFiltersOpen ? 'max-lg:translate-x-0' : 'max-lg:-translate-x-full'}
-          `}
-          style={{ animation: 'fadeSlideUp 0.4s ease-out both' }}
+ overflow-hidden rounded-xl border border-border bg-card/80 backdrop-blur-sm p-4 shadow-[var(--shadow-sm)]
+ max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:z-[950] max-lg:w-[340px] max-lg:max-w-[85vw] max-lg:overflow-auto max-lg:shadow-2xl
+ max-lg:transition-transform max-lg:duration-300 max-lg:ease-out
+ ${mobileFiltersOpen ? 'max-lg:translate-x-0' : 'max-lg:-translate-x-full'}
+ `}
+          style={reducedMotion ? undefined : { animation: 'fadeSlideUp 0.4s ease-out both' }}
         >
           <div className="flex items-center justify-between lg:hidden mb-3">
-            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Filtre</h2>
-            <button
+            <h2 className="text-sm font-semibold text-foreground">Filtre</h2>
+            <Button
               type="button"
+              variant="ghost"
+              size="sm"
               onClick={() => setMobileFiltersOpen(false)}
-              className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+              aria-label="Închide filtre"
             >
               <X className="size-5" />
-            </button>
+            </Button>
           </div>
           <div className="space-y-4">
             <div
@@ -311,7 +315,7 @@ export default function SearchPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <label className="space-y-1.5">
-                <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted">
                   Prag
                   <InfoTooltip title="Prag similaritate" side="bottom">
                     Minim 0.1–1.0. Rezultatele cu scor sub prag sunt excluse. Prag mai mare =
@@ -319,56 +323,51 @@ export default function SearchPage() {
                     similare.
                   </InfoTooltip>
                 </span>
-                <input
-                  type="range"
+                <Slider
                   min={0.1}
                   max={1}
                   step={0.05}
                   value={threshold}
-                  onChange={(e) => {
-                    const next = clampNumber(Number(e.target.value), 0.1, 1);
-                    setThreshold(next);
+                  showValue={false}
+                  onChange={(next) => {
+                    setThreshold(clampNumber(next, 0.1, 1));
                   }}
-                  className="mt-1 block w-full accent-blue-600 dark:accent-blue-400"
                 />
-                <div className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                  {threshold.toFixed(2)}
-                </div>
+                <div className="text-sm font-medium text-foreground">{threshold.toFixed(2)}</div>
               </label>
               <label className="space-y-1.5">
-                <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted">
                   Limită
                   <InfoTooltip title="Limită rezultate" side="bottom">
                     Numărul maxim de rezultate returnate (1–100). Mai multe rezultate = căutare mai
                     lentă. Pentru exporturi mari, folosește butonul Exportă după căutare.
                   </InfoTooltip>
                 </span>
-                <input
+                <TextField
                   type="number"
                   min={1}
                   max={100}
-                  value={limit}
+                  value={String(limit)}
                   onChange={(e) => {
                     const next = clampNumber(Number(e.target.value), 1, 100);
                     setLimit(next);
                   }}
-                  className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 shadow-[var(--shadow-sm)] transition-shadow duration-200 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:focus:ring-blue-400/50"
                 />
               </label>
             </div>
 
-            <label className="flex cursor-pointer items-center gap-3 text-sm text-slate-700 dark:text-slate-300">
+            <label className="flex cursor-pointer items-center gap-3 text-sm text-foreground">
               <button
                 type="button"
                 role="switch"
                 aria-checked={showJson}
-                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50 focus:ring-offset-2 dark:focus:ring-offset-slate-900 ${
-                  showJson ? 'bg-blue-600' : 'bg-slate-200 dark:bg-slate-600'
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-shadow duration-200 focus:outline-none focus-ring-standard ${
+                  showJson ? 'bg-primary' : 'bg-subtle'
                 }`}
                 onClick={() => setShowJson(!showJson)}
               >
                 <span
-                  className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                  className={`absolute top-1 h-4 w-4 rounded-full bg-card shadow transition-transform ${
                     showJson ? 'translate-x-6' : 'translate-x-1'
                   }`}
                 />
@@ -402,47 +401,27 @@ export default function SearchPage() {
         </article>
 
         <article
-          className="overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 backdrop-blur-sm p-4 shadow-[var(--shadow-sm)] sm:p-6 dark:border-slate-700/60 dark:bg-slate-900/80"
-          style={{ animation: 'fadeSlideUp 0.4s ease-out 0.1s both' }}
+          className="overflow-hidden rounded-xl border border-border bg-card/80 backdrop-blur-sm p-4 shadow-[var(--shadow-sm)] sm:p-6"
+          style={reducedMotion ? undefined : { animation: 'fadeSlideUp 0.4s ease-out 0.1s both' }}
         >
+          <p className="sr-only" aria-live="polite" aria-atomic="true">
+            {loading ? 'Se încarcă...' : `${totalCount} rezultate găsite`}
+          </p>
           <div className="space-y-4">
             {resultsHeader ? (
-              <p className="text-sm font-medium text-slate-600 dark:text-slate-400">
-                {resultsHeader}
-              </p>
+              <p className="text-sm font-medium text-muted">{resultsHeader}</p>
             ) : null}
 
             {typing ? (
-              <div className="rounded-xl border border-slate-100 bg-slate-50/50 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
+              <div className="rounded-xl border border-border bg-subtle py-8 text-center text-sm text-muted">
                 Se actualizează...
               </div>
             ) : null}
 
-            {loading ? (
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {Array.from({ length: 6 }).map((_, idx) => (
-                  <div
-                    key={`skeleton-${idx}`}
-                    className="h-52 rounded-xl border border-slate-200/80 bg-slate-100/50 dark:border-slate-700/60 dark:bg-slate-800/50"
-                    style={{
-                      animation: `pulse 2s cubic-bezier(0.4, 0, 0.6, 1) ${idx * 80}ms infinite`,
-                    }}
-                  />
-                ))}
-              </div>
-            ) : null}
+            {loading ? <LoadingState label="Se caută…" /> : null}
 
             {!loading && error ? (
-              <div className="rounded-xl border border-red-200/90 bg-red-50/80 p-4 text-sm text-red-800 dark:border-red-800/50 dark:bg-red-950/40 dark:text-red-300">
-                <p>{error}</p>
-                <Button
-                  variant="ghost"
-                  className="mt-3 text-red-700 hover:bg-red-100 dark:text-red-400 dark:hover:bg-red-900/30"
-                  onClick={() => void runSearch(query)}
-                >
-                  Reîncearcă
-                </Button>
-              </div>
+              <ErrorState message={error} onRetry={() => void runSearch(query)} />
             ) : null}
 
             {!loading && !typing && results.length === 0 && query.trim().length === 0 ? (
@@ -526,9 +505,7 @@ export default function SearchPage() {
       {showJson && activeJson ? (
         <Modal open={Boolean(activeJson)} onClose={() => setActiveJson(null)}>
           <div className="space-y-4 p-4">
-            <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
-              Metadate rezultat
-            </h2>
+            <h2 className="text-lg font-semibold text-foreground">Metadate rezultat</h2>
             <JsonViewer value={activeJson} />
             <div className="flex justify-end">
               <Button

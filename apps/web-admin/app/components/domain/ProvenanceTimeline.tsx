@@ -31,7 +31,7 @@ export function ProvenanceTimeline({ entries }: ProvenanceTimelineProps) {
   return (
     <div ref={containerRef} className="motion-safe:animate-[fadeSlideUp_0.35s_ease-out]">
       <div className="mb-2 flex items-center gap-1.5">
-        <span className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <span className="text-xs font-medium uppercase tracking-wider text-muted">
           Istoric surse
         </span>
         <InfoTooltip
@@ -45,14 +45,14 @@ export function ProvenanceTimeline({ entries }: ProvenanceTimelineProps) {
           când a fost rezolvată fiecare sursă.
         </InfoTooltip>
       </div>
-      <div className="rounded-lg border border-muted/20 bg-white/50 p-3 dark:bg-slate-800/50 dark:border-slate-700">
+      <div className="rounded-lg border border-muted/20 bg-card/50 p-3">
         <Timeline
           events={events}
           showGroupHeaders={true}
           relativeTime={true}
           expandable={true}
           emptyState={
-            <p className="py-4 text-center text-sm text-slate-500 dark:text-slate-400">
+            <p className="py-4 text-center text-sm text-muted">
               Niciun eveniment de proveniență de afișat.
             </p>
           }

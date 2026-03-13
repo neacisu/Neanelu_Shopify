@@ -49,17 +49,15 @@ function formatValue(value: CompareItem[keyof CompareItem]) {
 export function ProductsCompareModal({ open, items, onClose }: ProductsCompareModalProps) {
   return (
     <Modal open={open} onClose={onClose}>
-      <div className="space-y-4 p-4 bg-white/80 backdrop-blur-sm dark:bg-slate-900/80 rounded-lg">
+      <div className="space-y-4 p-4 bg-card/80 backdrop-blur-sm rounded-lg">
         <div>
-          <div className="text-h3 dark:text-slate-100">Compară produse</div>
-          <p className="text-body text-muted dark:text-slate-400">
-            Comparație side-by-side a produselor selectate.
-          </p>
+          <div className="text-h3">Compară produse</div>
+          <p className="text-body text-muted">Comparație side-by-side a produselor selectate.</p>
         </div>
 
-        <div className="overflow-auto rounded-md border border-border dark:border-slate-700">
+        <div className="overflow-auto rounded-md border border-border">
           <div
-            className="grid gap-2 border-b border-border dark:border-slate-700 bg-muted/10 dark:bg-slate-800/50 px-3 py-2 text-xs font-semibold dark:text-slate-300"
+            className="grid gap-2 border-b border-border bg-muted/10 px-3 py-2 text-xs font-semibold"
             style={{ gridTemplateColumns: `200px repeat(${items.length}, minmax(180px, 1fr))` }}
           >
             <div>Câmp</div>
@@ -70,10 +68,10 @@ export function ProductsCompareModal({ open, items, onClose }: ProductsCompareMo
           {fields.map((field) => (
             <div
               key={field.key}
-              className="grid gap-2 border-b dark:border-slate-700/60 px-3 py-2 text-xs dark:text-slate-300"
+              className="grid gap-2 border-b px-3 py-2 text-xs"
               style={{ gridTemplateColumns: `200px repeat(${items.length}, minmax(180px, 1fr))` }}
             >
-              <div className="text-muted dark:text-slate-400">{field.label}</div>
+              <div className="text-muted">{field.label}</div>
               {items.map((item) => (
                 <div key={`${item.id}-${field.key}`}>{formatValue(item[field.key])}</div>
               ))}

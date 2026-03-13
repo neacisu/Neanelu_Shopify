@@ -13,11 +13,11 @@ export function useSkeletonTransition(isLoading: boolean): {
   contentStyle: React.CSSProperties;
 } {
   const [phase, setPhase] = useState<Phase>(isLoading ? 'skeleton' : 'content');
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timer = useRef<number | null>(null);
   const reduced = prefersReducedMotion();
 
   useEffect(() => {
-    if (timer.current) clearTimeout(timer.current);
+    if (timer.current) window.clearTimeout(timer.current);
 
     if (isLoading) {
       setPhase('skeleton');
@@ -30,13 +30,13 @@ export function useSkeletonTransition(isLoading: boolean): {
     }
 
     setPhase('fade-out');
-    timer.current = setTimeout(() => {
+    timer.current = window.setTimeout(() => {
       setPhase('content');
       timer.current = null;
     }, 200);
 
     return () => {
-      if (timer.current) clearTimeout(timer.current);
+      if (timer.current) window.clearTimeout(timer.current);
     };
   }, [isLoading, reduced]);
 

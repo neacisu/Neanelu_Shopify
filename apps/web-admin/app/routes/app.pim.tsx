@@ -1,10 +1,11 @@
 import { useMemo } from 'react';
-import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate, useRouteError } from 'react-router-dom';
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { PageHeader } from '../components/layout/page-header';
 import { InfoTooltip } from '../components/ui/info-tooltip';
 import { Tabs } from '../components/ui/tabs';
+import { ErrorState } from '../components/patterns/error-state';
 
 const tabs = [
   { label: 'Prezentare', value: 'overview', path: '/pim' },
@@ -82,4 +83,11 @@ export default function PimLayout() {
       </div>
     </div>
   );
+}
+
+export function ErrorBoundary() {
+  const error = useRouteError();
+  const message =
+    error instanceof Error ? error.message : 'A apărut o eroare neașteptată în modulul PIM.';
+  return <ErrorState message={message} />;
 }

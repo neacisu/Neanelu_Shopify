@@ -126,10 +126,8 @@ function TreeRow(props: {
       aria-expanded={flat.hasChildren ? isExpanded : undefined}
       tabIndex={tabIndex}
       onFocus={onFocus}
-      className={`relative flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-foreground outline-none transition-colors duration-150 focus-visible:shadow-[0_0_0_3px_rgba(59,130,246,0.15)] dark:focus-visible:shadow-[0_0_0_3px_rgba(96,165,250,0.2)] ${
-        isSelected
-          ? 'bg-blue-50/80 dark:bg-blue-900/20'
-          : 'hover:bg-subtle/70 dark:hover:bg-slate-800/50'
+      className={`relative flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-foreground outline-none transition-colors duration-150 focus-ring-standard ${
+        isSelected ? 'bg-primary/5' : 'hover:bg-subtle/70'
       } ${itemClassName ?? ''}`}
       style={{ paddingLeft: indentPx + 10 }}
       data-dnd-over={droppable.isOver ? 'true' : 'false'}
@@ -143,7 +141,7 @@ function TreeRow(props: {
           {Array.from({ length: flat.depth }, (_, i) => (
             <span
               key={i}
-              className="absolute top-0 bottom-0 w-px bg-slate-200 dark:bg-slate-700"
+              className="absolute top-0 bottom-0 w-px bg-subtle"
               style={{ left: i * 20 + 14 }}
             />
           ))}
@@ -153,7 +151,7 @@ function TreeRow(props: {
       {flat.hasChildren ? (
         <button
           type="button"
-          className="flex size-6 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-subtle dark:hover:bg-slate-700/60"
+          className="flex size-6 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-subtle"
           onClick={() => onToggleExpand(flat.id)}
           aria-label={isExpanded ? 'Restrânge' : 'Extinde'}
         >
@@ -182,7 +180,7 @@ function TreeRow(props: {
       {draggable ? (
         <button
           type="button"
-          className="cursor-grab select-none rounded-md px-2 py-1 text-xs text-muted transition-colors hover:bg-subtle dark:hover:bg-slate-700/60"
+          className="cursor-grab select-none rounded-md px-2 py-1 text-xs text-muted transition-colors hover:bg-subtle"
           {...draggableHook.attributes}
           {...draggableHook.listeners}
           ref={draggableHook.setNodeRef}

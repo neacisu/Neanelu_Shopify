@@ -1,5 +1,23 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+
+vi.mock('../components/ui/VirtualizedList', () => ({
+  VirtualizedList: ({
+    items,
+    renderItem,
+  }: {
+    items: unknown[];
+    renderItem: (item: unknown, index: number) => React.ReactNode;
+  }) => (
+    <div data-testid="virtualized-list">
+      {items.slice(0, 20).map((item, index) => (
+        <div key={index} role="row">
+          {renderItem(item, index)}
+        </div>
+      ))}
+    </div>
+  ),
+}));
 
 import { ProductsTable } from '../components/domain/ProductsTable';
 

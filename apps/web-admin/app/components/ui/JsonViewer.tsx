@@ -205,17 +205,13 @@ export function JsonViewer(props: JsonViewerProps) {
 
   const toolbar = showToolbar ? (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      {title ? (
-        <div className="text-base font-semibold text-slate-800 dark:text-slate-200">{title}</div>
-      ) : (
-        <div />
-      )}
+      {title ? <div className="text-base font-semibold text-foreground">{title}</div> : <div />}
       <div className="flex flex-wrap items-center gap-2">
         {searchable ? (
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-9 w-48 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 shadow-[var(--shadow-sm)] outline-none transition-[border-color,box-shadow] duration-200 placeholder:text-slate-400 focus:border-blue-500 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.15)] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:placeholder:text-slate-500 dark:focus:shadow-[0_0_0_3px_rgba(96,165,250,0.2)]"
+            className="h-9 w-48 rounded-lg border border-border bg-card px-3 text-sm text-foreground shadow-[var(--shadow-sm)] outline-none transition-[border-color,box-shadow] duration-200 placeholder:text-muted focus:border-primary focus:shadow-[0_0_0_3px_rgb(var(--color-primary)/0.15)]"
             placeholder={searchPlaceholder}
             aria-label="Caută"
           />
@@ -226,7 +222,7 @@ export function JsonViewer(props: JsonViewerProps) {
             type="button"
             onClick={() => setExpanded(!expanded)}
             aria-pressed={expanded}
-            className="text-slate-700 dark:text-slate-300"
+            className="text-foreground"
           >
             {expanded ? 'Restrânge' : 'Extinde'}
           </Button>
@@ -236,11 +232,11 @@ export function JsonViewer(props: JsonViewerProps) {
             variant="ghost"
             type="button"
             onClick={() => void copyText()}
-            className="text-slate-700 dark:text-slate-300"
+            className="text-foreground"
           >
             {copied ? (
               <span className="inline-flex items-center gap-1.5 motion-safe:animate-[fadeIn_150ms_ease-out]">
-                <Check className="size-3.5 text-emerald-500" />
+                <Check className="size-3.5 text-success" />
                 Copiat!
               </span>
             ) : (
@@ -260,29 +256,22 @@ export function JsonViewer(props: JsonViewerProps) {
       {toolbar}
 
       {searchable && search.trim() ? (
-        <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-xs dark:border-slate-700 dark:bg-slate-800/50">
-          <div className="text-sm font-medium text-slate-600 dark:text-slate-400">
-            Potriviri:{' '}
-            <span className="font-semibold text-slate-800 dark:text-slate-200">
-              {matches.length}
-            </span>
+        <div className="mt-2 rounded-xl border border-border bg-subtle p-3 text-xs">
+          <div className="text-sm font-medium text-foreground">
+            Potriviri: <span className="font-semibold text-foreground">{matches.length}</span>
             {matches.length >= maxSearchResults ? ' (limitat)' : ''}
           </div>
           {matches.length ? (
             <div className="mt-1.5 max-h-32 overflow-auto">
               {matches.map((m) => (
                 <div key={`${m.path}:${m.preview}`} className="flex items-start gap-2 py-0.5">
-                  <span className="shrink-0 font-mono text-[11px] text-slate-500 dark:text-slate-500">
-                    {m.path}
-                  </span>
-                  <span className="truncate text-[11px] text-slate-700 dark:text-slate-400">
-                    {m.preview}
-                  </span>
+                  <span className="shrink-0 font-mono text-[11px] text-muted">{m.path}</span>
+                  <span className="truncate text-[11px] text-foreground">{m.preview}</span>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="mt-1 text-slate-500 dark:text-slate-500">Nicio potrivire.</div>
+            <div className="mt-1 text-muted">Nicio potrivire.</div>
           )}
         </div>
       ) : null}
@@ -290,8 +279,8 @@ export function JsonViewer(props: JsonViewerProps) {
       <div
         className={`${showToolbar ? 'mt-2' : ''} overflow-auto rounded-xl border p-3 text-xs transition-colors duration-200 ${
           theme === 'dark'
-            ? 'border-white/10 bg-zinc-950 text-zinc-50'
-            : 'border-slate-200 bg-slate-50/50 text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'
+            ? 'border-border bg-card text-foreground'
+            : 'border-border bg-subtle text-foreground'
         }`}
         style={{ maxHeight }}
       >
@@ -303,7 +292,7 @@ export function JsonViewer(props: JsonViewerProps) {
       </div>
 
       {isLarge ? (
-        <div className="mt-1 text-xs text-slate-500 dark:text-slate-500">
+        <div className="mt-1 text-xs text-muted">
           {truncated ? 'Truncat · ' : ''}Payload mare ({rawText.length.toLocaleString('ro-RO')}{' '}
           caractere) — afișare restrânsă implicit.
         </div>

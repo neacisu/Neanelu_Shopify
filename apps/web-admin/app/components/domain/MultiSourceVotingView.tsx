@@ -32,12 +32,10 @@ export function MultiSourceVotingView({
 
   return (
     <div className="space-y-3">
-      <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-        {attributeName}
-      </div>
-      <div className="overflow-hidden rounded-md border border-muted/20 dark:border-slate-700">
+      <div className="text-sm font-semibold text-foreground">{attributeName}</div>
+      <div className="overflow-x-auto rounded-md border border-muted/20">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+          <thead className="bg-subtle text-xs text-muted">
             <tr>
               <th className="px-3 py-2 text-left font-medium">Sursă</th>
               <th className="px-3 py-2 text-left font-medium">Valoare</th>
@@ -50,7 +48,7 @@ export function MultiSourceVotingView({
             {votes.map((vote, idx) => (
               <tr
                 key={`${vote.sourceName}-${idx}`}
-                className="border-t border-muted/20 dark:border-slate-700 text-slate-800 dark:text-slate-200"
+                className="border-t border-muted/20 text-foreground"
               >
                 <td className="px-3 py-2">{vote.sourceName}</td>
                 <td className="px-3 py-2">{vote.value}</td>
@@ -63,12 +61,12 @@ export function MultiSourceVotingView({
         </table>
       </div>
       {winner ? (
-        <div className="text-xs text-slate-500 dark:text-slate-400">
+        <div className="text-xs text-muted">
           Câștigător: {winner[0]} (voturi: {winner[1].count}, pondere: {winner[1].weight.toFixed(3)}
           ). Voturi minime necesare: {minVotes}
         </div>
       ) : (
-        <div className="text-xs text-slate-500 dark:text-slate-400">Nu există câștigător.</div>
+        <div className="text-xs text-muted">Nu există câștigător.</div>
       )}
     </div>
   );

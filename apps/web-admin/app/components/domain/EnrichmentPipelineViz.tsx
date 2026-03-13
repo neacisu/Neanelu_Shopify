@@ -22,17 +22,15 @@ const stageIcons: Record<string, typeof Search> = {
 };
 
 function statusClass(status: PipelineStage['status']): string {
-  if (status === 'bottleneck')
-    return 'border-red-400 bg-red-50 text-red-700 dark:border-red-500/60 dark:bg-red-900/30 dark:text-red-300';
-  if (status === 'active')
-    return 'border-emerald-400 bg-emerald-50 text-emerald-700 dark:border-emerald-500/60 dark:bg-emerald-900/30 dark:text-emerald-300';
-  return 'border-muted/30 bg-muted/10 text-muted dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-400';
+  if (status === 'bottleneck') return 'border-error/60 bg-error/5 text-error';
+  if (status === 'active') return 'border-success/60 bg-success/5 text-success';
+  return 'border-muted/30 bg-muted/10 text-muted';
 }
 
 export function EnrichmentPipelineViz({ stages }: EnrichmentPipelineVizProps) {
   if (!stages.length) {
     return (
-      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 text-sm text-slate-500 dark:bg-slate-900/80 dark:border-slate-700/60 dark:text-slate-400">
+      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 text-sm text-muted">
         Nu există date pentru pipeline.
       </div>
     );
@@ -49,7 +47,7 @@ export function EnrichmentPipelineViz({ stages }: EnrichmentPipelineVizProps) {
               stage.status
             )}`}
           >
-            <div className="rounded-md bg-white/70 p-2 dark:bg-slate-800/70">
+            <div className="rounded-md bg-card/70 p-2">
               <Icon className="h-4 w-4" />
             </div>
             <div className="min-w-0">

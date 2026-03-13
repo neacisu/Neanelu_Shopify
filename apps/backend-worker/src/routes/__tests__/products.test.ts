@@ -2,6 +2,24 @@ import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 
+type MockJobState = 'waiting' | 'active' | 'completed' | 'failed' | 'delayed' | 'unknown';
+
+type MockQueueJob = Readonly<{
+  state: MockJobState;
+  progress?: number | null;
+  processedOn?: number | null;
+  finishedOn?: number | null;
+  attemptsMade?: number;
+  failedReason?: string;
+  data?: unknown;
+}>;
+
+const queueJobLookup = new Map<string, MockQueueJob>();
+
+function setQueueJob(queueName: string, jobId: string, job: MockQueueJob): void {
+  queueJobLookup.set(`${queueName}:${jobId}`, job);
+}
+
 const sessionPath = new URL('../../auth/session.js', import.meta.url).href;
 void mock.module(sessionPath, {
   namedExports: {
@@ -133,6 +151,18 @@ void mock.module('@app/database', {
           if (sql.includes('FROM prod_channel_mappings')) {
             return Promise.resolve({ rows: [{ product_id: 'pim-1' }] });
           }
+          if (sql.includes('FROM prod_master pm') && sql.includes('pim_metafield_push_log')) {
+            return Promise.resolve({
+              rows: [
+                {
+                  data_quality_level: 'bronze',
+                  metafield_status: null,
+                  metafield_error_message: null,
+                  metafield_pushed_at_ms: null,
+                },
+              ],
+            });
+          }
           if (sql.includes('FROM shopify_collections')) {
             return Promise.resolve({
               rows: [
@@ -198,10 +228,30 @@ void mock.module('@app/queue-manager', {
       redisUrl: env.redisUrl ?? 'redis://localhost:6379',
       bullmqProToken: env.bullmqProToken ?? 'test-token',
     }),
-    createQueue: () => ({
+    createQueue: (_config: unknown, options: { name: string }) => ({
       add: () => Promise.resolve({ id: 'test-job' }),
+      getJob: (jobId: string) => {
+        const job = queueJobLookup.get(`${options.name}:${jobId}`);
+        if (!job) return Promise.resolve(null);
+        return Promise.resolve({
+          progress: job.progress ?? null,
+          processedOn: job.processedOn ?? null,
+          finishedOn: job.finishedOn ?? null,
+          attemptsMade: job.attemptsMade ?? 0,
+          failedReason: job.failedReason,
+          data: job.data,
+          getState: () => Promise.resolve(job.state),
+        });
+      },
       close: () => Promise.resolve(),
     }),
+    createWorker: () => ({
+      worker: {
+        close: () => Promise.resolve(),
+        isRunning: () => true,
+      },
+    }),
+    withJobTelemetryContext: async (_job: unknown, fn: () => Promise<unknown>) => await fn(),
     checkAndConsumeCost: () =>
       Promise.resolve({ allowed: true, delayMs: 0, tokensRemaining: 100, tokensNow: 100 }),
     enqueueBulkOrchestratorJob: () => Promise.resolve(),
@@ -486,5 +536,164 @@ void describe('products routes', () => {
 
     const response = await app.inject({ method: 'GET', url: '/collections' });
     assert.equal(response.statusCode, 200);
+  });
+
+  void it('marks metafield push as skipped when bronze consensus completes without a push job', async () => {
+    queueJobLookup.clear();
+    setQueueJob('pim-consensus', 'consensus:pim-1:123', {
+      state: 'completed',
+      progress: 100,
+      processedOn: 1010,
+      finishedOn: 1100,
+      attemptsMade: 1,
+    });
+    setQueueJob('pim-category-classifier', 'pim-category-pim-1-consensus', {
+      state: 'completed',
+      progress: 100,
+      processedOn: 1101,
+      finishedOn: 1200,
+      attemptsMade: 1,
+    });
+    setQueueJob('pim-description-generator', 'pim-description-pim-1-consensus', {
+      state: 'completed',
+      progress: 100,
+      processedOn: 1201,
+      finishedOn: 1300,
+      attemptsMade: 1,
+    });
+
+    const { productsRoutes } = await import('../products.js');
+    const app = Fastify();
+    await app.register(productsRoutes as unknown as Parameters<typeof app.register>[0], {
+      env: {
+        encryptionKeyHex: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        appHost: new URL('https://example.com'),
+        redisUrl: 'redis://localhost:6379',
+      },
+      logger: console,
+      sessionConfig: { secret: 'test', cookieName: 'neanelu_session', maxAge: 10 },
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/products/prod-1/sync-status?masterId=pim-1&consensusJobId=consensus:pim-1:123&sinceMs=1000',
+    });
+    assert.equal(response.statusCode, 200);
+
+    const body = JSON.parse(response.body) as {
+      success?: boolean;
+      data?: {
+        allTerminal?: boolean;
+        anyFailed?: boolean;
+        steps?: { id?: string; status?: string; progress?: number | null }[];
+      };
+    };
+
+    assert.equal(body.success, true);
+    assert.equal(body.data?.allTerminal, true);
+    assert.equal(body.data?.anyFailed, false);
+    assert.deepEqual(
+      body.data?.steps?.map((step) => ({
+        id: step.id,
+        status: step.status,
+        progress: step.progress,
+      })),
+      [
+        { id: 'consensus', status: 'completed', progress: 100 },
+        { id: 'category', status: 'completed', progress: 100 },
+        { id: 'description', status: 'completed', progress: 100 },
+        { id: 'metafield', status: 'skipped', progress: 100 },
+      ]
+    );
+  });
+
+  void it('treats DLQ-backed description failures as terminal sync-status failures', async () => {
+    queueJobLookup.clear();
+    setQueueJob('pim-consensus', 'consensus:pim-1:bootstrap', {
+      state: 'completed',
+      progress: 100,
+      processedOn: 1010,
+      finishedOn: 1100,
+      attemptsMade: 1,
+    });
+    setQueueJob('pim-consensus', 'consensus:pim-1:settlement', {
+      state: 'completed',
+      progress: 100,
+      processedOn: 1110,
+      finishedOn: 1200,
+      attemptsMade: 1,
+    });
+    setQueueJob('pim-category-classifier', 'pim-category-pim-1-consensus', {
+      state: 'completed',
+      progress: 100,
+      processedOn: 1201,
+      finishedOn: 1300,
+      attemptsMade: 1,
+    });
+    setQueueJob(
+      'pim-description-generator-dlq',
+      'pim-description-generator__pim-description-pim-1-consensus',
+      {
+        state: 'waiting',
+        attemptsMade: 3,
+        data: {
+          originalQueue: 'pim-description-generator',
+          originalJobId: 'pim-description-pim-1-consensus',
+          attemptsMade: 3,
+          failedReason: 'description_generation_invalid_json',
+          occurredAt: '2026-03-13T13:00:37.053Z',
+        },
+      }
+    );
+
+    const { productsRoutes } = await import('../products.js');
+    const app = Fastify();
+    await app.register(productsRoutes as unknown as Parameters<typeof app.register>[0], {
+      env: {
+        encryptionKeyHex: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        appHost: new URL('https://example.com'),
+        redisUrl: 'redis://localhost:6379',
+      },
+      logger: console,
+      sessionConfig: { secret: 'test', cookieName: 'neanelu_session', maxAge: 10 },
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/products/prod-1/sync-status?masterId=pim-1&sinceMs=1000',
+    });
+    assert.equal(response.statusCode, 200);
+
+    const body = JSON.parse(response.body) as {
+      success?: boolean;
+      data?: {
+        allTerminal?: boolean;
+        anyFailed?: boolean;
+        steps?: { id?: string; status?: string; progress?: number | null; failedReason?: string }[];
+      };
+    };
+
+    assert.equal(body.success, true);
+    assert.equal(body.data?.allTerminal, true);
+    assert.equal(body.data?.anyFailed, true);
+    assert.deepEqual(
+      body.data?.steps?.map((step) => ({
+        id: step.id,
+        status: step.status,
+        progress: step.progress,
+        failedReason: step.failedReason ?? null,
+      })),
+      [
+        { id: 'consensus', status: 'completed', progress: 100, failedReason: null },
+        { id: 'category', status: 'completed', progress: 100, failedReason: null },
+        {
+          id: 'description',
+          status: 'failed',
+          progress: 100,
+          failedReason: 'description_generation_invalid_json',
+        },
+        { id: 'metafield', status: 'skipped', progress: 100, failedReason: null },
+      ]
+    );
   });
 });

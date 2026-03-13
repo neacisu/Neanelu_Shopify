@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useScrollReveal } from '../hooks/useScrollReveal';
+import { useReducedMotion } from '../hooks/use-reduced-motion';
+import { useScrollReveal } from '../hooks/useScrollReveal.js';
 import { useLocation } from 'react-router-dom';
+import { LoadingState } from '../components/patterns/loading-state.js';
 import { toast } from 'sonner';
 
-import { Breadcrumbs } from '../components/layout/breadcrumbs';
-import { PageHeader } from '../components/layout/page-header';
-import { InfoTooltip } from '../components/ui/info-tooltip';
-import { Tabs } from '../components/ui/tabs';
-import { Button } from '../components/ui/button';
-import { useApiClient } from '../hooks/use-api';
+import { Breadcrumbs } from '../components/layout/breadcrumbs.js';
+import { PageHeader } from '../components/layout/page-header.js';
+import { InfoTooltip } from '../components/ui/info-tooltip.js';
+import { Tabs } from '../components/ui/tabs.js';
+import { Button } from '../components/ui/button.js';
+import { Checkbox } from '../components/ui/checkbox.js';
+import { EmptyState } from '../components/patterns/empty-state.js';
+import { ErrorState } from '../components/patterns/error-state.js';
+import { useApiClient } from '../hooks/use-api.js';
 import { SimilarityMatchCard } from '../components/domain/SimilarityMatchCard';
 import { SimilarityMatchDetailDrawer } from '../components/domain/SimilarityMatchDetailDrawer';
 import {
@@ -67,6 +72,7 @@ const TABS = [
 export default function SimilarityMatchesPage() {
   const location = useLocation();
   const api = useApiClient();
+  const reducedMotion = useReducedMotion();
   const productIdFromQuery = useMemo(
     () => new URLSearchParams(location.search).get('productId') ?? undefined,
     [location.search]
@@ -334,9 +340,13 @@ export default function SimilarityMatchesPage() {
     <div
       ref={contentRef}
       className="space-y-6"
-      style={{
-        animation: contentVisible ? 'fadeSlideUp 0.4s ease-out both' : 'none',
-      }}
+      style={
+        reducedMotion
+          ? undefined
+          : {
+              animation: contentVisible ? 'fadeSlideUp 0.4s ease-out both' : 'none',
+            }
+      }
     >
       <Breadcrumbs
         items={[{ label: 'Produse', href: '/products' }, { label: 'Potriviri similare' }]}
@@ -365,8 +375,7 @@ export default function SimilarityMatchesPage() {
               </InfoTooltip>
             </span>
             <label className="flex items-center gap-2 text-xs text-muted">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={autoRefresh}
                 aria-label="Activează auto-refresh"
                 onChange={(event) => setAutoRefresh(event.target.checked)}
@@ -422,56 +431,40 @@ export default function SimilarityMatchesPage() {
       />
 
       {selectedIds.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200/80 bg-white/80 backdrop-blur-sm p-3 text-sm dark:border-slate-700/60 dark:bg-slate-900/80 dark:text-slate-200">
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card backdrop-blur-sm p-3 text-sm">
           <span>{selectedIds.length} selectate</span>
-          <button
+          <Button
             type="button"
-            className="rounded-md border border-slate-200 px-3 py-1 text-xs transition-shadow duration-200 hover:shadow-[var(--shadow-sm)] focus:ring-2 focus:ring-blue-500/40 focus:outline-none dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:focus:ring-blue-400/50"
+            variant="secondary"
+            size="sm"
             onClick={() => {
               void batchUpdateConfidence(selectedIds, 'confirmed').then(() => reload());
             }}
           >
-            Confirma selectate
-          </button>
-          <button
+            Confirmă selectate
+          </Button>
+          <Button
             type="button"
-            className="rounded-md border border-slate-200 px-3 py-1 text-xs transition-shadow duration-200 hover:shadow-[var(--shadow-sm)] focus:ring-2 focus:ring-blue-500/40 focus:outline-none dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:focus:ring-blue-400/50"
+            variant="ghost"
+            size="sm"
             onClick={() => {
               void batchUpdateConfidence(selectedIds, 'rejected').then(() => reload());
             }}
           >
             Respinge selectate
-          </button>
-          <button
-            type="button"
-            className="rounded-md border border-slate-200 px-3 py-1 text-xs transition-shadow duration-200 hover:shadow-[var(--shadow-sm)] focus:ring-2 focus:ring-blue-500/40 focus:outline-none dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:focus:ring-blue-400/50"
-            onClick={() => setSelectedIds([])}
-          >
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedIds([])}>
             Curăță selecția
-          </button>
+          </Button>
         </div>
       ) : null}
 
-      {error ? (
-        <div className="rounded-md border border-red-200/80 bg-red-50/80 p-4 text-red-800 dark:border-red-800/50 dark:bg-red-950/40 dark:text-red-300">
-          {error}
-        </div>
-      ) : null}
-      {loading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <div
-              key={`skeleton-${index}`}
-              className="rounded-md border border-slate-200/60 bg-slate-100/50 p-4 text-sm text-slate-400 dark:border-slate-700/40 dark:bg-slate-800/50 dark:text-slate-500"
-              style={{
-                animation: `pulse 2s cubic-bezier(0.4, 0, 0.6, 1) ${index * 100}ms infinite`,
-              }}
-            >
-              Se încarcă potrivirile...
-            </div>
-          ))}
-        </div>
-      ) : null}
+      <p className="sr-only" aria-live="polite" aria-atomic="true">
+        {loading ? 'Se încarcă...' : `${sorted.length} potriviri găsite`}
+      </p>
+
+      {error ? <ErrorState message={error} onRetry={() => void reload()} /> : null}
+      {loading ? <LoadingState label="Se încarcă potrivirile…" /> : null}
 
       <div className="md:hidden space-y-3">
         {visible.map((match, idx) => (
@@ -486,9 +479,10 @@ export default function SimilarityMatchesPage() {
           />
         ))}
         {!loading && visible.length === 0 ? (
-          <div className="rounded-md border border-slate-200/60 bg-slate-50/50 p-4 text-sm text-slate-500 dark:border-slate-700/40 dark:bg-slate-800/50 dark:text-slate-400">
-            Nu există matches pentru filtrul curent. Ajustează filtrele sau încearcă un search nou.
-          </div>
+          <EmptyState
+            title="Nu există potriviri"
+            description="Nu există matches pentru filtrul curent. Ajustează filtrele sau rulează un search nou."
+          />
         ) : null}
       </div>
 
@@ -517,18 +511,14 @@ export default function SimilarityMatchesPage() {
         />
       </div>
 
-      <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+      <div className="flex items-center justify-between text-xs text-muted">
         <span>
           {visible.length} din {sorted.length} potriviri afișate
         </span>
         {hasMore ? (
-          <button
-            type="button"
-            className="rounded-md border border-slate-200 px-3 py-1.5 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
-            onClick={loadMore}
-          >
+          <Button type="button" variant="secondary" size="sm" onClick={loadMore}>
             Încarcă mai multe
-          </button>
+          </Button>
         ) : null}
       </div>
 

@@ -1,31 +1,30 @@
-import { InfoTooltip } from '../ui/info-tooltip';
+import { Badge } from '../ui/badge.js';
+import { InfoTooltip } from '../ui/info-tooltip.js';
 
-interface MatchStatusBadgeProps {
-  status: 'pending' | 'confirmed' | 'rejected' | 'uncertain';
-}
+type MatchStatus = 'pending' | 'confirmed' | 'rejected' | 'uncertain';
 
-const STATUS_STYLES: Record<MatchStatusBadgeProps['status'], string> = {
-  pending: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-  confirmed: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
-  rejected: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
-  uncertain: 'bg-amber-200/40 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300',
+const STATUS_TONES: Record<MatchStatus, 'warning' | 'success' | 'critical' | 'neutral'> = {
+  pending: 'warning',
+  confirmed: 'success',
+  rejected: 'critical',
+  uncertain: 'warning',
 };
 
-const STATUS_LABELS: Record<MatchStatusBadgeProps['status'], string> = {
+const STATUS_LABELS: Record<MatchStatus, string> = {
   pending: 'În așteptare',
   confirmed: 'Confirmat',
   rejected: 'Respins',
   uncertain: 'Incert',
 };
 
+interface MatchStatusBadgeProps {
+  status: MatchStatus;
+}
+
 export function MatchStatusBadge({ status }: MatchStatusBadgeProps) {
   return (
     <span className="inline-flex items-center gap-1">
-      <span
-        className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-transform duration-150 hover:scale-105 ${STATUS_STYLES[status]}`}
-      >
-        {STATUS_LABELS[status]}
-      </span>
+      <Badge tone={STATUS_TONES[status]}>{STATUS_LABELS[status]}</Badge>
       <InfoTooltip title="Status potrivire">
         Acest indicator arată statusul potrivirii dintre produsul tău și o sursă externă. „În
         așteptare" înseamnă că decizia nu a fost luată — potrivirea așteaptă revizuire automată sau

@@ -34,19 +34,37 @@ function normalizeReturnTo(value: unknown): string | null {
   return trimmed;
 }
 
+const LS_KEY = 'neanelu_last_shop';
+
+function readLastShopFromStorage(): string {
+  try {
+    return window.localStorage.getItem(LS_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function writeLastShopToStorage(domain: string): void {
+  try {
+    if (domain) window.localStorage.setItem(LS_KEY, domain);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function ShopSelector({ compact = false }: { compact?: boolean }) {
   const { isEmbedded, shop } = useShopifyAppBridge();
   const { profile, loading, update } = useUiProfile();
 
   const defaultShop = useMemo(() => {
-    return shop ?? profile.activeShopDomain ?? profile.lastShopDomain ?? '';
+    return shop ?? profile.activeShopDomain ?? profile.lastShopDomain ?? readLastShopFromStorage();
   }, [profile.activeShopDomain, profile.lastShopDomain, shop]);
 
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useState(defaultShop);
   const [sessionShopDomain, setSessionShopDomain] = useState<string | null>(null);
 
   useEffect(() => {
-    setDraft(defaultShop);
+    if (defaultShop) setDraft(defaultShop);
   }, [defaultShop]);
 
   useEffect(() => {
@@ -54,6 +72,10 @@ export function ShopSelector({ compact = false }: { compact?: boolean }) {
     void fetchSessionShopDomain().then((domain) => {
       if (cancelled) return;
       setSessionShopDomain(domain);
+      if (domain) {
+        writeLastShopToStorage(domain);
+        setDraft((prev) => (prev ? prev : domain));
+      }
     });
     return () => {
       cancelled = true;
@@ -109,11 +131,12 @@ export function ShopSelector({ compact = false }: { compact?: boolean }) {
             onBlur={() => {
               const v = draft.trim();
               if (!v || !isValidShopDomain(v)) return;
+              writeLastShopToStorage(v);
               void update({ lastShopDomain: v, activeShopDomain: v });
             }}
             placeholder="example.myshopify.com"
             title="Introdu domeniul magazinului tău Shopify (ex: magazin.myshopify.com)"
-            className="focus-ring w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm text-foreground shadow-[var(--shadow-sm)] transition-all duration-200 placeholder:text-muted focus:border-primary/50 focus:ring-2 focus:ring-primary/30 dark:border-border dark:bg-card"
+            className="focus-ring w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm text-foreground shadow-[var(--shadow-sm)] transition-all duration-200 placeholder:text-muted focus:border-primary/50 focus-ring-standard"
           />
           {suggestions.length > 0 ? (
             <datalist id={listId} aria-hidden="true">
@@ -126,13 +149,14 @@ export function ShopSelector({ compact = false }: { compact?: boolean }) {
             className={
               'focus-ring inline-flex items-center justify-center rounded-lg px-2.5 py-1.5 text-sm font-medium shadow-[var(--shadow-sm)] transition-all duration-200 ' +
               (connected
-                ? 'cursor-default border border-success/30 bg-success/10 text-success dark:border-success/40 dark:bg-success/15'
+                ? 'cursor-default border border-success/30 bg-success/10 text-success'
                 : valid
-                  ? 'border border-border bg-background text-foreground hover:scale-[1.02] hover:bg-muted/10 hover:border-muted active:scale-[0.98] dark:border-border dark:bg-card dark:hover:bg-muted/20'
-                  : 'cursor-not-allowed border border-muted/20 bg-muted/10 text-muted dark:border-muted/30 dark:bg-muted/20')
+                  ? 'border border-border bg-background text-foreground hover:scale-[1.02] hover:bg-muted/10 hover:border-muted active:scale-[0.98]'
+                  : 'cursor-not-allowed border border-border bg-muted/10 text-muted')
             }
             href={!connected && valid ? buildAuthUrl(normalized, returnTo) : undefined}
             aria-disabled={!valid || connected}
+            tabIndex={!valid || connected ? -1 : undefined}
             title={
               connected
                 ? 'Magazinul este deja conectat'
@@ -142,7 +166,10 @@ export function ShopSelector({ compact = false }: { compact?: boolean }) {
             }
             onClick={(e) => {
               if (!valid || connected) e.preventDefault();
-              else void update({ lastShopDomain: normalized, activeShopDomain: normalized });
+              else {
+                writeLastShopToStorage(normalized);
+                void update({ lastShopDomain: normalized, activeShopDomain: normalized });
+              }
             }}
           >
             {connected ? 'Conectat' : 'Conectare'}
@@ -172,11 +199,12 @@ export function ShopSelector({ compact = false }: { compact?: boolean }) {
           onBlur={() => {
             const v = draft.trim();
             if (!v || !isValidShopDomain(v)) return;
+            writeLastShopToStorage(v);
             void update({ lastShopDomain: v, activeShopDomain: v });
           }}
           placeholder="example.myshopify.com"
           title="Introdu domeniul magazinului tău Shopify (ex: magazin.myshopify.com)"
-          className="focus-ring w-55 rounded-md border border-muted/20 bg-background px-2 py-1 text-body text-foreground shadow-sm transition-all duration-200 placeholder:text-muted focus:border-primary/50 focus:ring-2 focus:ring-primary/40 dark:border-border dark:bg-card"
+          className="focus-ring w-55 rounded-md border border-border bg-background px-2 py-1 text-body text-foreground shadow-[var(--shadow-sm)] transition-all duration-200 placeholder:text-muted focus:border-primary/50 focus-ring-standard"
         />
 
         {suggestions.length > 0 ? (
@@ -189,12 +217,12 @@ export function ShopSelector({ compact = false }: { compact?: boolean }) {
 
         <a
           className={
-            'focus-ring rounded-md border px-2 py-1 text-caption shadow-sm transition-all duration-200 ' +
+            'focus-ring rounded-md border px-2 py-1 text-caption shadow-[var(--shadow-sm)] transition-all duration-200 ' +
             (connected
-              ? 'cursor-default border-success/30 bg-success/10 text-success dark:border-success/40 dark:bg-success/15'
+              ? 'cursor-default border-success/30 bg-success/10 text-success'
               : valid
-                ? 'border-muted/20 bg-background text-foreground hover:scale-[1.02] hover:bg-muted/10 hover:border-muted active:scale-[0.98] dark:border-border dark:bg-card dark:hover:bg-muted/20'
-                : 'cursor-not-allowed border-muted/10 bg-muted/10 text-muted dark:border-muted/30 dark:bg-muted/20')
+                ? 'border-border bg-background text-foreground hover:scale-[1.02] hover:bg-muted/10 hover:border-muted active:scale-[0.98]'
+                : 'cursor-not-allowed border-muted/10 bg-muted/10 text-muted')
           }
           href={!connected && valid ? buildAuthUrl(normalized, returnTo) : undefined}
           aria-disabled={!valid || connected}
@@ -207,7 +235,10 @@ export function ShopSelector({ compact = false }: { compact?: boolean }) {
           }
           onClick={(e) => {
             if (!valid || connected) e.preventDefault();
-            else void update({ lastShopDomain: normalized, activeShopDomain: normalized });
+            else {
+              writeLastShopToStorage(normalized);
+              void update({ lastShopDomain: normalized, activeShopDomain: normalized });
+            }
           }}
         >
           {connected ? 'Conectat' : 'Conectare'}

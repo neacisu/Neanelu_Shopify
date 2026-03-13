@@ -42,7 +42,8 @@ export function BarChart<TData extends Record<string, unknown>>({
   showLegend = true,
   tooltipProps,
   tooltipContent,
-}: BarChartProps<TData>) {
+  ariaLabel,
+}: BarChartProps<TData> & { ariaLabel?: string }) {
   const safeHeight = Math.max(1, height);
   const resolvedStackId = stacked ? 'stack' : undefined;
   const { text, grid } = useChartTheme();
@@ -59,7 +60,9 @@ export function BarChart<TData extends Record<string, unknown>>({
 
   return (
     <div
-      className="animate-[chartFadeIn_0.5s_ease-out_both]"
+      role="img"
+      aria-label={ariaLabel ?? `Bar chart cu ${data.length} puncte de date`}
+      className="motion-safe:animate-[chartFadeIn_0.5s_ease-out_both]"
       style={{ width: '100%', height: safeHeight, minHeight: safeHeight, minWidth: 1 }}
     >
       <ResponsiveContainer width="100%" height={safeHeight} minWidth={1} minHeight={safeHeight}>

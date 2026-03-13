@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Bell } from 'lucide-react';
+import { Bell, X } from 'lucide-react';
 
 import { useApiClient } from '../../hooks/use-api';
 import { usePolling } from '../../hooks/use-polling';
@@ -20,6 +20,8 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const stream = useEnrichmentStream();
   const lastPushedNotificationIdRef = useRef<string | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
   const unread = usePolling({
     queryKey: ['notifications-unread'],
     interval: 60_000,
@@ -38,7 +40,6 @@ export function NotificationBell() {
   );
 
   useEffect(() => {
-    // Real-time: PIM events stream pushes quality events; those create notifications in DB.
     const evt = stream.events[0];
     if (evt?.type !== 'quality.event') return;
     const id = typeof evt.payload['id'] === 'string' ? evt.payload['id'] : null;
@@ -48,8 +49,28 @@ export function NotificationBell() {
     void notifications.refetch();
   }, [notifications.refetch, stream.events, unread.refetch]);
 
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [open]);
+
   return (
-    <div className="relative">
+    <div className="relative" ref={panelRef}>
       <div className="sr-only">
         <InfoTooltip title="Notificări">
           Aici vezi notificările importante din aplicație: alerte de sistem, finalizări de
@@ -59,53 +80,79 @@ export function NotificationBell() {
       </div>
       <button
         type="button"
-        className="relative inline-flex items-center rounded-md border border-muted/20 bg-background px-3 py-2 text-caption shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-muted/10 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"
+        className="interactive relative inline-flex items-center rounded-lg border border-border/70 bg-card px-2.5 py-2 text-muted shadow-[var(--shadow-xs)] focus-ring-standard"
         onClick={() => {
           setOpen((prev) => !prev);
           void unread.refetch();
           void notifications.refetch();
         }}
-        aria-label="Notificări"
+        aria-label={`Notificări${unreadCount > 0 ? ` (${unreadCount} necitite)` : ''}`}
+        aria-expanded={open}
+        aria-haspopup="true"
       >
         <Bell className="h-4 w-4" />
         {unreadCount > 0 ? (
-          <span className="ml-2 inline-flex min-w-5 justify-center rounded-full bg-primary px-1.5 py-0.5 text-[10px] text-white">
+          <span
+            className="ml-2 inline-flex min-w-5 justify-center rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground motion-safe:animate-[number-pop_0.3s_var(--ease-spring)_both]"
+            aria-live="polite"
+          >
             {unreadCount}
           </span>
         ) : null}
       </button>
 
       {open ? (
-        <div className="absolute right-0 z-30 mt-2 w-[340px] animate-[scale-in_180ms_ease-out] rounded-md border border-muted/20 bg-background p-3 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+        <div
+          className="absolute right-0 z-30 mt-2 w-[340px] origin-top-right rounded-xl border border-border/70 bg-card p-3 shadow-[var(--shadow-lg)] backdrop-blur-sm motion-safe:animate-[scale-in_180ms_ease-out]"
+          role="dialog"
+          aria-label="Panou notificări"
+        >
           <div className="mb-2 flex items-center justify-between">
-            <div className="text-sm font-medium dark:text-slate-100">Notificări</div>
-            <button
-              type="button"
-              className="text-xs text-primary dark:text-blue-400"
-              onClick={() => {
-                void api.postApi<{ updated: number }, Record<string, never>>(
-                  '/pim/notifications/mark-all-read',
-                  {}
-                );
-                void unread.refetch();
-                void notifications.refetch();
-              }}
-            >
-              Marchează toate ca citite
-            </button>
+            <div className="text-sm font-semibold text-foreground">Notificări</div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="interactive rounded-md px-2 py-1 text-xs text-primary hover:bg-primary/10 focus-ring-standard"
+                aria-label="Marchează toate notificările ca citite"
+                onClick={() => {
+                  void api.postApi<{ updated: number }, Record<string, never>>(
+                    '/pim/notifications/mark-all-read',
+                    {}
+                  );
+                  void unread.refetch();
+                  void notifications.refetch();
+                }}
+              >
+                Marchează toate ca citite
+              </button>
+              <button
+                type="button"
+                className="interactive rounded-md p-1 text-muted hover:bg-subtle/60 hover:text-foreground"
+                onClick={() => setOpen(false)}
+                aria-label="Închide notificări"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
           </div>
-          <div className="max-h-80 space-y-2 overflow-auto">
+          <div
+            className="max-h-80 space-y-1.5 overflow-auto"
+            role="list"
+            aria-live="polite"
+            aria-label="Lista notificări"
+          >
             {items.length === 0 ? (
-              <div className="text-sm text-muted dark:text-slate-400">Nu există notificări</div>
+              <div className="py-4 text-center text-sm text-muted">Nu există notificări</div>
             ) : null}
             {items.map((item) => (
               <button
                 key={item.id}
                 type="button"
-                className={`w-full rounded-md border p-2 text-left transition ${
+                role="listitem"
+                className={`interactive w-full rounded-lg border p-2.5 text-left ${
                   item.read
-                    ? 'border-muted/20 dark:border-slate-700'
-                    : 'border-primary/30 bg-primary/5 dark:border-blue-500/30 dark:bg-blue-900/10'
+                    ? 'border-border/60 hover:bg-subtle/40'
+                    : 'border-primary/25 bg-primary/5 hover:bg-primary/10'
                 }`}
                 onClick={() => {
                   void api.putApi<{ updated: boolean }, Record<string, never>>(
@@ -116,8 +163,8 @@ export function NotificationBell() {
                   void notifications.refetch();
                 }}
               >
-                <div className="text-sm font-medium dark:text-slate-100">{item.title}</div>
-                <div className="text-xs text-muted dark:text-slate-400">
+                <div className="text-sm font-medium text-foreground">{item.title}</div>
+                <div className="mt-0.5 text-xs text-muted">
                   {new Date(item.created_at).toLocaleString('ro-RO')}
                 </div>
               </button>

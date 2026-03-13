@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import { useReducedMotion } from '../../hooks/use-reduced-motion';
 import { InfoTooltip } from '../ui/info-tooltip';
 import { GaugeChart, calculateDynamicMax } from '../charts/GaugeChart.js';
 import { getWorkerDisplayInfo, type WorkerDisplayInfo } from '../../utils/worker-display';
@@ -57,6 +58,7 @@ function WorkerCard({
   index: number;
   display: WorkerDisplayInfo;
 }) {
+  const reducedMotion = useReducedMotion();
   const cardRef = useRef<HTMLElement>(null);
   const { heapMax, rssMax } = calculateDynamicMax({
     heapTotal: w.memoryHeapTotalBytes,
@@ -70,23 +72,26 @@ function WorkerCard({
       ref={cardRef}
       role="listitem"
       data-hover-lift
-      className="group relative overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-[var(--shadow-sm)]
-        transition-all duration-300 ease-out
-        hover:-translate-y-0.5 hover:border-slate-300/80 hover:shadow-[var(--shadow-md)]
-        focus-within:ring-2 focus-within:ring-[rgb(var(--color-ring))]/40 focus-within:ring-offset-2
-        dark:border-slate-700/80 dark:bg-slate-800/95 dark:hover:border-slate-600/80"
-      style={{
-        animation: `workerCardEnter ${ENTER_DURATION_MS}ms ease-out ${Math.min(index, STAGGER_CAP) * STAGGER_MS}ms both`,
-      }}
+      className="group relative overflow-hidden rounded-xl border border-border bg-card shadow-[var(--shadow-sm)]
+  transition-all duration-300 ease-out
+  hover:-translate-y-0.5 hover:border-accent-border/80 hover:shadow-[var(--shadow-md)]
+              focus-within:ring-2 focus-within:ring-ring/40 focus-within:ring-offset-2"
+      style={
+        reducedMotion
+          ? undefined
+          : {
+              animation: `workerCardEnter ${ENTER_DURATION_MS}ms ease-out ${Math.min(index, STAGGER_CAP) * STAGGER_MS}ms both`,
+            }
+      }
     >
-      {/* Accent bar left: green online, amber when busy, slate offline */}
+      {/* Accent bar left: success online, warning when busy, muted offline */}
       <div
         className={`absolute left-0 top-0 h-full w-1 shrink-0 ${
           isOnline
             ? isBusy
-              ? 'bg-amber-500 motion-safe:animate-[workerBusyShimmer_2s_ease-in-out_infinite]'
-              : 'bg-green-500'
-            : 'bg-slate-300 dark:bg-slate-600'
+              ? 'bg-warning motion-safe:animate-[workerBusyShimmer_2s_ease-in-out_infinite]'
+              : 'bg-success'
+            : 'bg-muted/60'
         }`}
         aria-hidden
       />
@@ -97,7 +102,7 @@ function WorkerCard({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-1.5">
               <h3
-                className="truncate text-base font-semibold text-slate-800 dark:text-slate-100"
+                className="truncate text-base font-semibold text-foreground"
                 title={display.labelRo}
               >
                 {display.labelRo}
@@ -111,7 +116,7 @@ function WorkerCard({
                 {display.tooltip}
               </InfoTooltip>
             </div>
-            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+            <p className="mt-0.5 text-xs text-muted">
               PID {w.pid}
               <InfoTooltip
                 title="Identificator proces"
@@ -121,7 +126,7 @@ function WorkerCard({
               >
                 Numărul unic al procesului în sistem. Folosit pentru monitorizare tehnică.
               </InfoTooltip>
-              <span className="ml-1.5 text-slate-400 dark:text-slate-500" title={w.id}>
+              <span className="ml-1.5 text-muted" title={w.id}>
                 · {w.id}
               </span>
             </p>
@@ -130,16 +135,16 @@ function WorkerCard({
             <span
               className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
                 isOnline
-                  ? 'bg-green-50 text-green-800 ring-1 ring-green-200/80 dark:bg-green-900/30 dark:text-green-300 dark:ring-green-700/60'
-                  : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200/80 dark:bg-slate-700/80 dark:text-slate-400 dark:ring-slate-600/60'
+                  ? 'bg-success/15 text-success ring-1 ring-success/20'
+                  : 'bg-muted/10 text-muted ring-1 ring-border/80'
               }`}
               aria-label={isOnline ? 'Activ' : 'Inactiv'}
             >
               <span
                 className={`size-2 rounded-full ${
                   isOnline
-                    ? 'bg-green-500 motion-safe:animate-[workerOnlinePulse_2s_ease-in-out_infinite]'
-                    : 'bg-slate-400 dark:bg-slate-500'
+                    ? 'bg-success motion-safe:animate-[workerOnlinePulse_2s_ease-in-out_infinite]'
+                    : 'bg-muted'
                 }`}
                 aria-hidden
               />
@@ -149,8 +154,8 @@ function WorkerCard({
         </div>
 
         {/* Uptime */}
-        <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-          <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+        <div className="flex items-center gap-2 text-sm text-foreground">
+          <span className="flex items-center gap-1.5 text-muted">
             Timp activ:
             <InfoTooltip
               title="Timp de funcționare"
@@ -165,8 +170,8 @@ function WorkerCard({
         </div>
 
         {/* Current job / Idle */}
-        <div className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2.5 dark:border-slate-700/60 dark:bg-slate-800/50">
-          <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <div className="rounded-lg border border-border bg-subtle px-3 py-2.5">
+          <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
             Activitate
             <InfoTooltip
               title="Activitate curentă"
@@ -181,15 +186,12 @@ function WorkerCard({
           {w.currentJob ? (
             <div className="mt-1.5 space-y-1.5">
               <p
-                className="truncate text-sm font-medium text-slate-800 dark:text-slate-200"
+                className="truncate text-sm font-medium text-foreground"
                 title={w.currentJob.jobName}
               >
                 {w.currentJob.jobName}
               </p>
-              <p
-                className="font-mono text-xs text-slate-500 dark:text-slate-400"
-                title={w.currentJob.jobId}
-              >
+              <p className="font-mono text-xs text-muted" title={w.currentJob.jobId}>
                 {w.currentJob.jobId}
               </p>
               {w.currentJob.progressPct != null ? (
@@ -201,28 +203,26 @@ function WorkerCard({
                   aria-valuemax={100}
                   aria-label={`Progres ${Math.round(w.currentJob.progressPct)}%`}
                 >
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-600">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-subtle">
                     <div
-                      className="h-full rounded-full bg-amber-500 motion-safe:transition-[width_0.5s_ease-out]"
+                      className="h-full rounded-full bg-warning motion-safe:transition-[width_0.5s_ease-out]"
                       style={{ width: `${Math.min(100, Math.max(0, w.currentJob.progressPct))}%` }}
                     />
                   </div>
-                  <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                  <p className="mt-0.5 text-xs text-muted tabular-nums">
                     {Math.round(w.currentJob.progressPct)}%
                   </p>
                 </div>
               ) : null}
             </div>
           ) : (
-            <p className="mt-1.5 text-sm italic text-slate-500 dark:text-slate-400">
-              {isOnline ? 'Liber' : '—'}
-            </p>
+            <p className="mt-1.5 text-sm italic text-muted">{isOnline ? 'Liber' : '—'}</p>
           )}
         </div>
 
         {/* Gauges */}
         <div>
-          <p className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <p className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
             Resurse
             <InfoTooltip
               title="Utilizare resurse"
@@ -234,7 +234,7 @@ function WorkerCard({
               încărcare mare; valorile scăzute înseamnă că worker-ul are spațiu de lucru.
             </InfoTooltip>
           </p>
-          <div className="flex items-end justify-around gap-2 rounded-lg bg-slate-50/50 p-3 dark:bg-slate-800/50">
+          <div className="flex items-end justify-around gap-2 rounded-lg bg-subtle p-3">
             <GaugeChart
               value={w.memoryRssBytes}
               max={rssMax}

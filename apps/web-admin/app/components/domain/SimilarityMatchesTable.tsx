@@ -1,4 +1,6 @@
+import { useReducedMotion } from '../../hooks/use-reduced-motion';
 import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
 import { InfoTooltip } from '../ui/info-tooltip';
 import { ExtractionStatusBadge } from './ExtractionStatusBadge';
 import { MatchStatusBadge } from './MatchStatusBadge';
@@ -37,6 +39,7 @@ export function SimilarityMatchesTable({
   onSortChange,
   extractionStatusMap,
 }: SimilarityMatchesTableProps) {
+  const reducedMotion = useReducedMotion();
   const allSelected = matches.length > 0 && selectedIds.length === matches.length;
   const toggleSort = (key: 'score' | 'created' | 'product') => {
     if (sortBy.key === key) {
@@ -48,15 +51,14 @@ export function SimilarityMatchesTable({
 
   return (
     <div
-      className="overflow-x-auto rounded-lg border border-slate-200/80 bg-white/80 backdrop-blur-sm dark:border-slate-700/60 dark:bg-slate-900/80"
-      style={{ animation: 'fadeSlideUp 0.35s ease-out both' }}
+      className="overflow-x-auto rounded-lg border border-border bg-card/80 backdrop-blur-sm"
+      style={reducedMotion ? undefined : { animation: 'fadeSlideUp 0.35s ease-out both' }}
     >
       <table className="min-w-full text-sm">
-        <thead className="bg-slate-50/80 text-left text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
+        <thead className="bg-subtle text-left text-xs text-muted">
           <tr>
             <th className="px-4 py-3">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={allSelected}
                 aria-label="Selectează toate potrivirile"
                 onChange={() => onToggleSelectAll(matches.map((item) => item.id))}
@@ -67,7 +69,8 @@ export function SimilarityMatchesTable({
                 <button
                   type="button"
                   onClick={() => toggleSort('product')}
-                  className="flex items-center gap-1 transition-colors hover:text-slate-800 dark:hover:text-slate-200"
+                  className="flex items-center gap-1 transition-colors hover:text-foreground"
+                  aria-label="Sortează după Produs"
                 >
                   Produs
                 </button>
@@ -95,7 +98,8 @@ export function SimilarityMatchesTable({
                 <button
                   type="button"
                   onClick={() => toggleSort('score')}
-                  className="flex items-center gap-1 transition-colors hover:text-slate-800 dark:hover:text-slate-200"
+                  className="flex items-center gap-1 transition-colors hover:text-foreground"
+                  aria-label="Sortează după Scor"
                 >
                   Scor
                 </button>
@@ -163,19 +167,23 @@ export function SimilarityMatchesTable({
           {matches.map((match, idx) => (
             <tr
               key={match.id}
-              className="cursor-pointer border-t border-slate-100 transition-colors duration-200 hover:bg-slate-50/70 dark:border-slate-800 dark:hover:bg-slate-800/50"
-              style={{ animation: `fadeSlideUp 0.3s ease-out ${idx * 50}ms both` }}
+              className="table-row-interactive cursor-pointer border-t border-border transition-colors duration-200 hover:bg-subtle"
+              style={
+                reducedMotion
+                  ? undefined
+                  : { animation: `fadeSlideUp 0.3s ease-out ${idx * 50}ms both` }
+              }
               onClick={() => onRowClick?.(match)}
             >
               <td className="px-4 py-3">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={selectedIds.includes(match.id)}
                   aria-label={`Selectează match pentru ${match.product_title}`}
-                  onChange={(event) => {
-                    event.stopPropagation();
+                  onChange={(e) => {
+                    e.stopPropagation();
                     onToggleSelect(match.id);
                   }}
+                  onClick={(e) => e.stopPropagation()}
                 />
               </td>
               <td className="px-4 py-3">
@@ -187,42 +195,36 @@ export function SimilarityMatchesTable({
                       className="h-10 w-10 rounded object-cover"
                     />
                   ) : (
-                    <div className="h-10 w-10 rounded bg-slate-100 dark:bg-slate-800" />
+                    <div className="h-10 w-10 rounded bg-subtle" />
                   )}
                   <div>
-                    <div className="text-sm text-slate-800 dark:text-slate-100">
-                      {match.product_title}
-                    </div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400">
-                      {match.source_brand ?? '—'}
-                    </div>
+                    <div className="text-sm text-foreground">{match.product_title}</div>
+                    <div className="text-xs text-muted">{match.source_brand ?? '—'}</div>
                   </div>
                 </div>
               </td>
               <td className="px-4 py-3">
-                <div className="text-sm text-slate-800 dark:text-slate-100">
+                <div className="text-sm text-foreground">
                   {match.source_title ?? match.source_url}
                 </div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">{match.source_url}</div>
+                <div className="text-xs text-muted">{match.source_url}</div>
               </td>
               <td className="px-4 py-3">
-                <div className="text-sm text-slate-800 dark:text-slate-100">
+                <div className="text-sm text-foreground">
                   {Number(match.similarity_score).toFixed(2)}
                 </div>
-                <div className="mt-1 h-1.5 w-24 rounded-full bg-slate-200 dark:bg-slate-700">
+                <div className="mt-1 h-1.5 w-24 rounded-full bg-subtle">
                   <div
-                    className="h-1.5 rounded-full bg-blue-500/70 dark:bg-blue-400/70"
+                    className="h-1.5 rounded-full bg-primary/70"
                     style={{ width: `${Math.min(Number(match.similarity_score) * 100, 100)}%` }}
                   />
                 </div>
                 {getScoreBreakdown(match) ? (
-                  <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    Detalii scor
-                  </div>
+                  <div className="mt-1 text-xs text-muted">Detalii scor</div>
                 ) : null}
               </td>
               <td className="px-4 py-3">
-                <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                <span className="rounded-full bg-subtle px-2 py-1 text-xs text-foreground">
                   {match.match_method}
                 </span>
               </td>
@@ -247,7 +249,7 @@ export function SimilarityMatchesTable({
                 {getTriageDecision(match) ? (
                   <TriageStatusBadge status={getTriageDecision(match) ?? 'rejected'} />
                 ) : (
-                  <span className="text-xs text-slate-500 dark:text-slate-400">—</span>
+                  <span className="text-xs text-muted">—</span>
                 )}
               </td>
               <td className="px-4 py-3">
@@ -278,10 +280,7 @@ export function SimilarityMatchesTable({
           ))}
           {matches.length === 0 ? (
             <tr>
-              <td
-                className="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400"
-                colSpan={9}
-              >
+              <td className="px-4 py-6 text-center text-sm text-muted" colSpan={9}>
                 Nu există matches pentru filtrul curent. Încearcă să ajustezi filtrele.
               </td>
             </tr>

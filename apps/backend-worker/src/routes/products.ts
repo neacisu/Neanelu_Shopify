@@ -9,12 +9,17 @@ import {
   createRedisConnection,
   enqueueBulkOrchestratorJob,
   enqueueEnrichmentJob,
+  configFromEnv,
+  createQueue,
 } from '@app/queue-manager';
-import { enqueueConsensusJob } from '../queue/consensus-queue.js';
+import { buildConsensusLaneJobId, enqueueConsensusJob } from '../queue/consensus-queue.js';
+import { enqueueSimilaritySearchJob } from '../queue/similarity-queues.js';
 import type { BulkOrchestratorJobPayload, EnrichmentJobPayload } from '@app/types';
 import type { ProductDetail, ProductVariantDetail } from '@app/types';
 import type { SessionConfig } from '../auth/session.js';
 import { getSessionFromRequest, requireSession } from '../auth/session.js';
+import { withTokenRetry } from '../auth/token-lifecycle.js';
+import { shopifyApi } from '../shopify/client.js';
 
 // Local type definitions to avoid ESLint resolution issues with path aliases in monorepo
 type LocalSyncStatus = 'synced' | 'pending' | 'error' | 'never';
@@ -23,6 +28,9 @@ type LocalQualityLevel = 'bronze' | 'silver' | 'golden' | 'review_needed';
 interface LocalProductPimData {
   masterId: string;
   taxonomyId: string | null;
+  taxonomyAiStatus: string | null;
+  taxonomyAiConfidence: number | null;
+  taxonomyAiMethod: string | null;
   qualityLevel: LocalQualityLevel;
   qualityScore: number | null;
   qualityScoreBreakdown: {
@@ -40,6 +48,7 @@ interface LocalProductPimData {
   needsReview: boolean;
   promotedToSilverAt: string | null;
   promotedToGoldenAt: string | null;
+  generatedAt?: string | null;
 }
 
 const DEFAULT_LIMIT = 50;
@@ -109,6 +118,14 @@ async function getJob<T>(
   } catch {
     return null;
   }
+}
+
+function toSyncStatusDlqQueueName(queueName: string): string {
+  return queueName.endsWith('-dlq') ? queueName : `${queueName}-dlq`;
+}
+
+function buildDlqLookupJobId(queueName: string, jobId: string): string {
+  return `${queueName}__${jobId.replaceAll(':', '_')}`;
 }
 
 function nowIso(): string {
@@ -212,10 +229,23 @@ type ProductDetailRow = Readonly<{
   featuredImageUrl: string | null;
   categoryId: string | null;
   priceRange: { min: string; max: string; currency: string } | null;
+  compareAtPriceRange: Record<string, unknown> | null;
   metafields: Record<string, unknown> | null;
   syncedAt: string | null;
   createdAtShopify: string | null;
   updatedAtShopify: string | null;
+  publishedAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  shopifyGid: string | null;
+  legacyResourceId: string | null;
+  isGiftCard: boolean | null;
+  hasOnlyDefaultVariant: boolean | null;
+  hasOutOfStockVariants: boolean | null;
+  requiresSellingPlan: boolean | null;
+  options: unknown[] | null;
+  seo: Record<string, unknown> | null;
+  templateSuffix: string | null;
   pimMasterId: string | null;
   pimTaxonomyId: string | null;
   pimQualityLevel: LocalQualityLevel | null;
@@ -226,11 +256,20 @@ type ProductDetailRow = Readonly<{
   pimGtin: string | null;
   pimMpn: string | null;
   pimNeedsReview: boolean | null;
+  pimDescriptionGeneratedAt: string | null;
   pimPromotedToSilverAt: string | null;
   pimPromotedToGoldenAt: string | null;
   pimTitleMaster: string | null;
   pimDescriptionMaster: string | null;
   pimDescriptionShort: string | null;
+  pimTaxonomyAiStatus: string | null;
+  pimTaxonomyAiConfidence: string | null;
+  pimTaxonomyAiMethod: string | null;
+  collectionTaxonomyId: string | null;
+  collectionTaxonomyName: string | null;
+  collectionTaxonomyPath: string | null;
+  collectionTaxonomyCollectionId: string | null;
+  collectionTaxonomyCollectionTitle: string | null;
 }>;
 
 type ProductVariantRow = Readonly<{
@@ -441,8 +480,41 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
     logger.warn({ error }, 'Redis error (products jobs)');
   });
 
+  // Queue handles reused across all /sync-status polls — do NOT create inside the request handler
+  const queueCfg = { config: configFromEnv(opts.env) };
+  const syncStatusQueueNames = {
+    consensus: 'pim-consensus',
+    category: 'pim-category-classifier',
+    description: 'pim-description-generator',
+    metafield: 'pim-metafield-push',
+  } as const;
+  const syncStatusQueues = {
+    consensus: createQueue(queueCfg, { name: syncStatusQueueNames.consensus }),
+    category: createQueue(queueCfg, { name: syncStatusQueueNames.category }),
+    description: createQueue(queueCfg, { name: syncStatusQueueNames.description }),
+    metafield: createQueue(queueCfg, { name: syncStatusQueueNames.metafield }),
+  } as const;
+  const syncStatusDlqQueues = {
+    consensus: createQueue(queueCfg, {
+      name: toSyncStatusDlqQueueName(syncStatusQueueNames.consensus),
+    }),
+    category: createQueue(queueCfg, {
+      name: toSyncStatusDlqQueueName(syncStatusQueueNames.category),
+    }),
+    description: createQueue(queueCfg, {
+      name: toSyncStatusDlqQueueName(syncStatusQueueNames.description),
+    }),
+    metafield: createQueue(queueCfg, {
+      name: toSyncStatusDlqQueueName(syncStatusQueueNames.metafield),
+    }),
+  } as const;
+
   server.addHook('onClose', async () => {
-    await redis.quit().catch(() => undefined);
+    await Promise.all([
+      redis.quit().catch(() => undefined),
+      ...Object.values(syncStatusQueues).map((q) => q.close().catch(() => undefined)),
+      ...Object.values(syncStatusDlqQueues).map((q) => q.close().catch(() => undefined)),
+    ]);
   });
 
   server.get('/products', requireAdminSession, async (request, reply) => {
@@ -651,10 +723,23 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
            ) as "featuredImageUrl",
            p.category_id as "categoryId",
            p.price_range as "priceRange",
+           p.compare_at_price_range as "compareAtPriceRange",
            p.metafields,
            p.synced_at as "syncedAt",
            p.created_at_shopify as "createdAtShopify",
            p.updated_at_shopify as "updatedAtShopify",
+           p.published_at as "publishedAt",
+           p.created_at as "createdAt",
+           p.updated_at as "updatedAt",
+           p.shopify_gid as "shopifyGid",
+           p.legacy_resource_id as "legacyResourceId",
+           p.is_gift_card as "isGiftCard",
+           p.has_only_default_variant as "hasOnlyDefaultVariant",
+           p.has_out_of_stock_variants as "hasOutOfStockVariants",
+           p.requires_selling_plan as "requiresSellingPlan",
+           p.options,
+           p.seo,
+           p.template_suffix as "templateSuffix",
            pm.id as "pimMasterId",
            pm.taxonomy_id as "pimTaxonomyId",
            pm.data_quality_level as "pimQualityLevel",
@@ -669,7 +754,16 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
            pm.promoted_to_golden_at as "pimPromotedToGoldenAt",
            ps.title_master as "pimTitleMaster",
            ps.description_master as "pimDescriptionMaster",
-           ps.description_short as "pimDescriptionShort"
+           ps.description_short as "pimDescriptionShort",
+           ps.generated_at as "pimDescriptionGeneratedAt",
+           pm.taxonomy_ai_status as "pimTaxonomyAiStatus",
+           pm.taxonomy_ai_confidence as "pimTaxonomyAiConfidence",
+           pm.taxonomy_ai_method as "pimTaxonomyAiMethod",
+           col_tax_inherit.taxonomy_id as "collectionTaxonomyId",
+           col_tax_inherit.taxonomy_name as "collectionTaxonomyName",
+           col_tax_inherit.taxonomy_path as "collectionTaxonomyPath",
+           col_tax_inherit.collection_id as "collectionTaxonomyCollectionId",
+           col_tax_inherit.collection_title as "collectionTaxonomyCollectionTitle"
          FROM shopify_products p
          LEFT JOIN prod_channel_mappings pcm
            ON pcm.channel = 'shopify'
@@ -699,6 +793,28 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
           ORDER BY sv.position ASC
           LIMIT 1
         ) v_image ON true
+        LEFT JOIN LATERAL (
+          SELECT
+            scp.collection_id,
+            sc.title as collection_title,
+            ptcm.taxonomy_id,
+            pt.name as taxonomy_name,
+            ARRAY_TO_STRING(pt.breadcrumbs, ' > ') as taxonomy_path
+          FROM shopify_collection_products scp
+          JOIN pim_taxonomy_collection_map ptcm
+            ON ptcm.collection_id = scp.collection_id
+           AND ptcm.shop_id = scp.shop_id
+           AND ptcm.is_primary = true
+          JOIN shopify_collections sc
+            ON sc.id = scp.collection_id
+           AND sc.shop_id = scp.shop_id
+          JOIN prod_taxonomy pt
+            ON pt.id = ptcm.taxonomy_id
+          WHERE scp.shop_id = p.shop_id
+            AND scp.product_id = p.id
+          ORDER BY scp.position ASC
+          LIMIT 1
+        ) col_tax_inherit ON true
         WHERE p.shop_id = $1
           AND p.id = $2`,
         [session.shopId, productId]
@@ -762,6 +878,7 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
           titleMaster: detail.detail.pimTitleMaster,
           descriptionMaster: detail.detail.pimDescriptionMaster,
           descriptionShort: detail.detail.pimDescriptionShort,
+          generatedAt: detail.detail.pimDescriptionGeneratedAt,
           brand: detail.detail.pimBrand,
           manufacturer: detail.detail.pimManufacturer,
           gtin: detail.detail.pimGtin,
@@ -769,6 +886,11 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
           needsReview: detail.detail.pimNeedsReview ?? false,
           promotedToSilverAt: detail.detail.pimPromotedToSilverAt,
           promotedToGoldenAt: detail.detail.pimPromotedToGoldenAt,
+          taxonomyAiStatus: detail.detail.pimTaxonomyAiStatus,
+          taxonomyAiConfidence: detail.detail.pimTaxonomyAiConfidence
+            ? Number(detail.detail.pimTaxonomyAiConfidence)
+            : null,
+          taxonomyAiMethod: detail.detail.pimTaxonomyAiMethod,
         }
       : null;
 
@@ -784,16 +906,191 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
       tags: detail.detail.tags ?? [],
       featuredImageUrl: detail.detail.featuredImageUrl,
       priceRange: detail.detail.priceRange,
+      compareAtPriceRange: detail.detail.compareAtPriceRange,
       metafields: detail.detail.metafields ?? {},
       categoryId: detail.detail.categoryId,
       syncedAt: detail.detail.syncedAt,
       createdAtShopify: detail.detail.createdAtShopify,
       updatedAtShopify: detail.detail.updatedAtShopify,
+      publishedAt: detail.detail.publishedAt,
+      createdAt: detail.detail.createdAt,
+      updatedAt: detail.detail.updatedAt,
+      shopifyGid: detail.detail.shopifyGid,
+      legacyResourceId: detail.detail.legacyResourceId,
+      isGiftCard: detail.detail.isGiftCard ?? false,
+      hasOnlyDefaultVariant: detail.detail.hasOnlyDefaultVariant ?? true,
+      hasOutOfStockVariants: detail.detail.hasOutOfStockVariants ?? false,
+      requiresSellingPlan: detail.detail.requiresSellingPlan ?? false,
+      options: detail.detail.options ?? [],
+      seo: detail.detail.seo,
+      templateSuffix: detail.detail.templateSuffix,
+      collectionTaxonomy: detail.detail.collectionTaxonomyId
+        ? {
+            collectionId: detail.detail.collectionTaxonomyCollectionId ?? '',
+            collectionTitle: detail.detail.collectionTaxonomyCollectionTitle ?? '',
+            taxonomyId: detail.detail.collectionTaxonomyId,
+            taxonomyName: detail.detail.collectionTaxonomyName ?? '',
+            taxonomyPath: detail.detail.collectionTaxonomyPath,
+          }
+        : null,
       pim,
       variants: detail.variants as ProductVariantDetail[],
     };
 
     void reply.status(200).send(successEnvelope(request.id, payload));
+  });
+
+  // ─── Schema metafield definitions per produs (din taxonomia colecțiilor) ──
+  server.get('/products/:id/metafield-schema', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      void reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+      return;
+    }
+
+    const productId = (request.params as { id?: string }).id;
+    if (!productId) {
+      void reply
+        .status(400)
+        .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing product id'));
+      return;
+    }
+
+    interface SchemaRow {
+      attr_code: string;
+      shopify_namespace: string;
+      shopify_key: string;
+      shopify_type: string;
+      display_name: string | null;
+      display_name_en: string | null;
+      description: string | null;
+      is_required: boolean;
+      ai_generated: boolean;
+      collection_id: string;
+      collection_title: string;
+    }
+
+    const schema = await withTenantContext(session.shopId, async (client) => {
+      const result = await client.query<SchemaRow>(
+        `SELECT DISTINCT ON (s.attr_code)
+                s.attr_code,
+                s.shopify_namespace,
+                s.shopify_key,
+                s.shopify_type,
+                s.display_name,
+                s.display_name_en,
+                s.description,
+                s.is_required,
+                s.ai_generated,
+                cp.collection_id,
+                c.title AS collection_title
+           FROM shopify_collection_products cp
+           JOIN pim_taxonomy_collection_map m
+             ON m.shop_id = cp.shop_id AND m.collection_id = cp.collection_id
+           JOIN pim_taxonomy_metafield_schema s
+             ON s.taxonomy_id = m.taxonomy_id
+           JOIN shopify_collections c
+             ON c.id = cp.collection_id AND c.shop_id = cp.shop_id
+          WHERE cp.shop_id = $1
+            AND cp.product_id = $2
+          ORDER BY s.attr_code, s.ai_generated DESC`,
+        [session.shopId, productId]
+      );
+      return result.rows;
+    });
+
+    const productMetafields = await withTenantContext(session.shopId, async (client) => {
+      const result = await client.query<{ metafields: Record<string, unknown> | null }>(
+        `SELECT metafields FROM shopify_products WHERE shop_id = $1 AND id = $2 LIMIT 1`,
+        [session.shopId, productId]
+      );
+      return result.rows[0]?.metafields ?? {};
+    });
+
+    interface SchemaItem {
+      attr_code: string;
+      shopify_namespace: string;
+      shopify_key: string;
+      shopify_type: string;
+      display_name: string | null;
+      display_name_en: string | null;
+      description: string | null;
+      is_required: boolean;
+      ai_generated: boolean;
+      collection_id: string;
+      collection_title: string;
+      current_value: unknown;
+    }
+
+    const schemaWithValues: SchemaItem[] = schema.map((s) => {
+      const fullKey = `${s.shopify_namespace}.${s.shopify_key}`;
+      const mf = productMetafields;
+      const current = mf[fullKey] ?? mf[s.shopify_key] ?? null;
+      return { ...s, current_value: current };
+    });
+
+    void reply.send(
+      successEnvelope(request.id, {
+        schema: schemaWithValues,
+        totalAttributes: schema.length,
+        filledAttributes: schemaWithValues.filter((s) => s.current_value != null).length,
+      })
+    );
+  });
+
+  // ─── Colecțiile din care face parte un produs ──────────────────────
+  server.get('/products/:id/collections', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      void reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+      return;
+    }
+
+    const productId = (request.params as { id?: string }).id;
+    if (!productId) {
+      void reply
+        .status(400)
+        .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing product id'));
+      return;
+    }
+
+    interface CollectionRow {
+      id: string;
+      title: string;
+      handle: string;
+      collection_type: string;
+      products_count: number;
+    }
+
+    const collections = await withTenantContext(session.shopId, async (client) => {
+      const result = await client.query<CollectionRow>(
+        `SELECT c.id,
+                c.title,
+                c.handle,
+                c.collection_type,
+                COALESCE(cnt.real_count, 0)::int AS products_count
+           FROM shopify_collection_products cp
+           JOIN shopify_collections c
+             ON c.id = cp.collection_id AND c.shop_id = cp.shop_id
+           LEFT JOIN LATERAL (
+             SELECT COUNT(*)::int AS real_count
+               FROM shopify_collection_products cp2
+              WHERE cp2.shop_id = c.shop_id
+                AND cp2.collection_id = c.id
+           ) cnt ON true
+          WHERE cp.shop_id = $1
+            AND cp.product_id = $2
+          ORDER BY c.title`,
+        [session.shopId, productId]
+      );
+      return result.rows;
+    });
+
+    void reply.send(successEnvelope(request.id, { collections }));
   });
 
   server.get('/products/:id/variants', requireAdminSession, async (request, reply) => {
@@ -2252,6 +2549,763 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
     reply.header('Content-Type', job.contentType ?? 'application/octet-stream');
     reply.header('Content-Disposition', `attachment; filename="products-export.${job.format}"`);
     void reply.status(200).send(Readable.from(job.payload));
+  });
+
+  // ---------------------------------------------------------------------------
+  // POST /products/:id/sync — direct GraphQL sync for a single product
+  // Does NOT use Shopify Bulk Operations. Makes one product(id:) query and
+  // upserts shopify_products + shopify_variants in the same request cycle.
+  // ---------------------------------------------------------------------------
+  server.post('/products/:id/sync', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      void reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+      return;
+    }
+
+    const productId = (request.params as { id?: string }).id;
+    if (!productId) {
+      void reply
+        .status(400)
+        .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing product id'));
+      return;
+    }
+
+    // 1. Get shopify_gid to use as the Shopify query variable
+    const row = await withTenantContext(session.shopId, async (client) => {
+      const res = await client.query<{ shopify_gid: string }>(
+        `SELECT shopify_gid FROM shopify_products WHERE shop_id = $1 AND id = $2`,
+        [session.shopId, productId]
+      );
+      return res.rows[0] ?? null;
+    });
+
+    if (!row) {
+      void reply.status(404).send(errorEnvelope(request.id, 404, 'NOT_FOUND', 'Product not found'));
+      return;
+    }
+
+    // 2. Direct Shopify GraphQL call — no bulk, no JSONL, no queues
+    const key = Buffer.from(opts.env.encryptionKeyHex, 'hex');
+
+    const PRODUCT_SYNC_QUERY = `
+      query ProductSync($id: ID!) {
+        product(id: $id) {
+          id
+          legacyResourceId
+          title
+          handle
+          vendor
+          status
+          createdAt
+          updatedAt
+          publishedAt
+          description
+          descriptionHtml
+          tags
+          templateSuffix
+          hasOnlyDefaultVariant
+          totalInventory
+          seo { title description }
+          featuredImage { url }
+          options { id name values }
+          priceRangeV2 {
+            minVariantPrice { amount currencyCode }
+            maxVariantPrice { amount currencyCode }
+          }
+          compareAtPriceRange {
+            minVariantCompareAtPrice { amount currencyCode }
+            maxVariantCompareAtPrice { amount currencyCode }
+          }
+          variants(first: 100) {
+            nodes {
+              id
+              legacyResourceId
+              title
+              sku
+              barcode
+              price
+              compareAtPrice
+              inventoryQuantity
+              selectedOptions { name value }
+              image { url }
+            }
+          }
+        }
+      }
+    `;
+
+    type ShopifyVariantNode = Readonly<{
+      id: string;
+      legacyResourceId: string;
+      title: string;
+      sku: string | null;
+      barcode: string | null;
+      price: string;
+      compareAtPrice: string | null;
+      inventoryQuantity: number | null;
+      selectedOptions: readonly { name: string; value: string }[];
+      image: { url: string } | null;
+    }>;
+
+    type ProductSyncResponse = Readonly<{
+      product?: {
+        id: string;
+        legacyResourceId: string;
+        title: string;
+        handle: string;
+        vendor: string | null;
+        status: string;
+        createdAt: string;
+        updatedAt: string;
+        publishedAt: string | null;
+        description: string | null;
+        descriptionHtml: string | null;
+        tags: string[];
+        templateSuffix: string | null;
+        hasOnlyDefaultVariant: boolean;
+        totalInventory: number | null;
+        seo: { title: string | null; description: string | null } | null;
+        featuredImage: { url: string } | null;
+        options: readonly { id: string; name: string; values: string[] }[];
+        priceRangeV2: {
+          minVariantPrice: { amount: string; currencyCode: string };
+          maxVariantPrice: { amount: string; currencyCode: string };
+        } | null;
+        compareAtPriceRange: {
+          minVariantCompareAtPrice: { amount: string; currencyCode: string };
+          maxVariantCompareAtPrice: { amount: string; currencyCode: string };
+        } | null;
+        variants: { nodes: ShopifyVariantNode[] };
+      } | null;
+    }>;
+
+    // Will hold the prod_master UUID so we can enqueue consensus after DB writes
+    let pimMasterId: string | null = null;
+
+    try {
+      await withTokenRetry(session.shopId, key, logger, async (accessToken, shopDomain) => {
+        const shopifyClient = shopifyApi.createClient({ shopDomain, accessToken });
+        const response = await shopifyClient.request<ProductSyncResponse>(PRODUCT_SYNC_QUERY, {
+          id: row.shopify_gid,
+        });
+
+        const p = response.data?.product;
+        if (!p) throw new Error('Product not found in Shopify');
+
+        const legacyId = Number(p.legacyResourceId);
+        const priceRange = p.priceRangeV2
+          ? {
+              min: p.priceRangeV2.minVariantPrice.amount,
+              max: p.priceRangeV2.maxVariantPrice.amount,
+              currency: p.priceRangeV2.minVariantPrice.currencyCode,
+            }
+          : null;
+
+        // 3. Upsert product row
+        await withTenantContext(session.shopId, async (dbClient) => {
+          const productRow = await dbClient.query<{ id: string }>(
+            `INSERT INTO shopify_products (
+               shop_id,
+               shopify_gid,
+               legacy_resource_id,
+               title,
+               handle,
+               description,
+               description_html,
+               vendor,
+               status,
+               tags,
+               options,
+               seo,
+               featured_image_url,
+               price_range,
+               compare_at_price_range,
+               published_at,
+               template_suffix,
+               has_only_default_variant,
+               total_inventory,
+               created_at_shopify,
+               updated_at_shopify,
+               synced_at,
+               created_at,
+               updated_at
+             )
+             VALUES (
+               $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+               $11, $12, $13, $14, $15, $16, $17, $18, $19,
+               $20, $21, now(), now(), now()
+             )
+             ON CONFLICT (shop_id, shopify_gid)
+             DO UPDATE SET
+               legacy_resource_id    = EXCLUDED.legacy_resource_id,
+               title                 = EXCLUDED.title,
+               handle                = EXCLUDED.handle,
+               description           = COALESCE(EXCLUDED.description,           shopify_products.description),
+               description_html      = COALESCE(EXCLUDED.description_html,      shopify_products.description_html),
+               vendor                = EXCLUDED.vendor,
+               status                = EXCLUDED.status,
+               tags                  = EXCLUDED.tags,
+               options               = EXCLUDED.options,
+               seo                   = COALESCE(EXCLUDED.seo,                   shopify_products.seo),
+               featured_image_url    = COALESCE(EXCLUDED.featured_image_url,    shopify_products.featured_image_url),
+               price_range           = COALESCE(EXCLUDED.price_range,           shopify_products.price_range),
+               compare_at_price_range = COALESCE(EXCLUDED.compare_at_price_range, shopify_products.compare_at_price_range),
+               published_at          = COALESCE(EXCLUDED.published_at,          shopify_products.published_at),
+               template_suffix       = COALESCE(EXCLUDED.template_suffix,       shopify_products.template_suffix),
+               has_only_default_variant = COALESCE(EXCLUDED.has_only_default_variant, shopify_products.has_only_default_variant),
+               total_inventory       = COALESCE(EXCLUDED.total_inventory,       shopify_products.total_inventory),
+               created_at_shopify    = COALESCE(EXCLUDED.created_at_shopify,    shopify_products.created_at_shopify),
+               updated_at_shopify    = COALESCE(EXCLUDED.updated_at_shopify,    shopify_products.updated_at_shopify),
+               synced_at             = now(),
+               updated_at            = now()
+             RETURNING id`,
+            [
+              session.shopId,
+              p.id,
+              legacyId,
+              p.title,
+              p.handle,
+              p.description,
+              p.descriptionHtml,
+              p.vendor,
+              p.status,
+              p.tags,
+              JSON.stringify(p.options),
+              p.seo ? JSON.stringify(p.seo) : null,
+              p.featuredImage?.url ?? null,
+              priceRange ? JSON.stringify(priceRange) : null,
+              p.compareAtPriceRange ? JSON.stringify(p.compareAtPriceRange) : null,
+              p.publishedAt ?? null,
+              p.templateSuffix ?? null,
+              p.hasOnlyDefaultVariant,
+              p.totalInventory ?? null,
+              p.createdAt,
+              p.updatedAt,
+            ]
+          );
+
+          const upsertedProductId = productRow.rows[0]?.id;
+          if (!upsertedProductId) throw new Error('Failed to upsert product');
+
+          // 4. Upsert each variant
+          for (const v of p.variants.nodes) {
+            const vLegacyId = Number(v.legacyResourceId);
+            await dbClient.query(
+              `INSERT INTO shopify_variants (
+                 shop_id,
+                 product_id,
+                 shopify_gid,
+                 legacy_resource_id,
+                 title,
+                 sku,
+                 barcode,
+                 price,
+                 compare_at_price,
+                 inventory_quantity,
+                 selected_options,
+                 image_url,
+                 created_at_shopify,
+                 updated_at_shopify,
+                 synced_at,
+                 created_at,
+                 updated_at
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), now(), now(), now(), now())
+               ON CONFLICT (shop_id, shopify_gid)
+               DO UPDATE SET
+                 product_id         = EXCLUDED.product_id,
+                 legacy_resource_id = EXCLUDED.legacy_resource_id,
+                 title              = EXCLUDED.title,
+                 sku                = EXCLUDED.sku,
+                 barcode            = EXCLUDED.barcode,
+                 price              = EXCLUDED.price,
+                 compare_at_price   = EXCLUDED.compare_at_price,
+                 inventory_quantity = EXCLUDED.inventory_quantity,
+                 selected_options   = EXCLUDED.selected_options,
+                 image_url          = COALESCE(EXCLUDED.image_url, shopify_variants.image_url),
+                 updated_at_shopify = now(),
+                 synced_at          = now(),
+                 updated_at         = now()`,
+              [
+                session.shopId,
+                upsertedProductId,
+                v.id,
+                vLegacyId,
+                v.title,
+                v.sku ?? null,
+                v.barcode ?? null,
+                v.price,
+                v.compareAtPrice ?? v.price,
+                v.inventoryQuantity ?? 0,
+                JSON.stringify(v.selectedOptions),
+                v.image?.url ?? null,
+              ]
+            );
+          }
+
+          // 5. PIM sync — mirrors what runPimSyncFromBulkRun does per product
+          // Always executed on manual force sync regardless of feature flags.
+
+          // 5a. Ensure prod_source row for direct syncs
+          const sourceRow = await dbClient.query<{ id: string }>(
+            `INSERT INTO prod_sources (name, source_type, priority, trust_score, is_active, created_at, updated_at)
+             VALUES ('shopify_direct_sync', 'bulk_import', 50, 0.7, true, now(), now())
+             ON CONFLICT (name) DO UPDATE SET updated_at = now()
+             RETURNING id`
+          );
+          const sourceId = sourceRow.rows[0]?.id;
+          if (!sourceId) throw new Error('Failed to upsert prod_source');
+
+          // 5b. internal_sku: prefer GTIN (variant barcode), fallback to shopify:{shopId}:{legacyId}
+          const firstBarcode =
+            p.variants.nodes.find((v) => v.barcode?.trim())?.barcode?.trim() ?? null;
+          const internalSku = firstBarcode
+            ? `gtin:${firstBarcode}`
+            : `shopify:${session.shopId}:${String(legacyId)}`;
+
+          // 5c. Upsert prod_master
+          const masterRow = await dbClient.query<{ id: string }>(
+            `INSERT INTO prod_master (
+               internal_sku, canonical_title, brand, gtin,
+               primary_source_id, dedupe_status, data_quality_level,
+               needs_review, review_notes, created_at, updated_at
+             )
+             VALUES ($1, $2, $3, $4, $5, 'unique', 'bronze', false, NULL, now(), now())
+             ON CONFLICT (internal_sku) DO UPDATE SET
+               gtin  = COALESCE(prod_master.gtin,  EXCLUDED.gtin),
+               brand = COALESCE(prod_master.brand, EXCLUDED.brand),
+               updated_at = now()
+             RETURNING id`,
+            [internalSku, p.title, p.vendor ?? null, firstBarcode, sourceId]
+          );
+          const masterId = masterRow.rows[0]?.id;
+          if (!masterId) throw new Error('Failed to upsert prod_master');
+
+          // 5d. Upsert prod_channel_mappings (links shopify product ↔ prod_master)
+          await dbClient.query(
+            `INSERT INTO prod_channel_mappings (
+               product_id, channel, shop_id, external_id,
+               sync_status, last_pulled_at, channel_meta, created_at, updated_at
+             )
+             VALUES ($1, 'shopify', $2, $3, 'synced', now(),
+               '{"source":"direct_sync","reason":"force_sync"}'::jsonb, now(), now())
+             ON CONFLICT (channel, shop_id, external_id) DO UPDATE SET
+               product_id     = EXCLUDED.product_id,
+               sync_status    = 'synced',
+               last_pulled_at = now(),
+               updated_at     = now()`,
+            [masterId, session.shopId, p.id]
+          );
+
+          // Bubble masterId out so we can enqueue consensus outside this transaction
+          pimMasterId = masterId;
+        });
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Sync failed';
+      logger.error({ shopId: session.shopId, productId, message }, 'product_direct_sync_failed');
+      void reply.status(502).send(errorEnvelope(request.id, 502, 'SYNC_FAILED', message));
+      return;
+    }
+
+    // 6. Enqueue consensus job — await so we can return the jobId to the frontend for polling
+    let consensusJobId: string | null = null;
+    if (pimMasterId) {
+      try {
+        const jobId = await enqueueConsensusJob({
+          shopId: session.shopId,
+          productId: pimMasterId,
+          trigger: 'direct_sync',
+        });
+        consensusJobId = jobId != null ? String(jobId) : null;
+      } catch (err) {
+        logger.warn(
+          { err, shopId: session.shopId, masterId: pimMasterId },
+          'product_direct_sync_consensus_enqueue_failed'
+        );
+      }
+    }
+
+    let similaritySearchJobId: string | null = null;
+    try {
+      const jobId = await enqueueSimilaritySearchJob({
+        shopId: session.shopId,
+        productId,
+      });
+      similaritySearchJobId = jobId != null ? String(jobId) : null;
+    } catch (err) {
+      logger.warn(
+        { err, shopId: session.shopId, productId },
+        'product_direct_sync_similarity_search_enqueue_failed'
+      );
+    }
+
+    logger.info(
+      { shopId: session.shopId, productId, pimMasterId, consensusJobId, similaritySearchJobId },
+      'product_direct_sync_completed'
+    );
+    void reply.status(200).send(
+      successEnvelope(request.id, {
+        ok: true,
+        syncedAt: new Date().toISOString(),
+        masterId: pimMasterId,
+        consensusJobId,
+        similaritySearchJobId,
+      })
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /products/:id/sync-status — poll the full PIM processing chain
+  // Uses pre-created queue handles (cached at plugin level) — no new Redis
+  // connections per request.
+  // ---------------------------------------------------------------------------
+  server.get('/products/:id/sync-status', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
+    if (!session) {
+      void reply
+        .status(401)
+        .send(errorEnvelope(request.id, 401, 'UNAUTHORIZED', 'Session required'));
+      return;
+    }
+
+    const query = (request.query ?? {}) as Record<string, unknown>;
+    const masterId = typeof query['masterId'] === 'string' ? query['masterId'].trim() : null;
+    const consensusJobId =
+      typeof query['consensusJobId'] === 'string' ? query['consensusJobId'].trim() : null;
+
+    if (!masterId) {
+      void reply
+        .status(400)
+        .send(errorEnvelope(request.id, 400, 'BAD_REQUEST', 'Missing masterId'));
+      return;
+    }
+
+    interface JobStepState {
+      status:
+        | 'waiting'
+        | 'active'
+        | 'completed'
+        | 'failed'
+        | 'delayed'
+        | 'unknown'
+        | 'not_found'
+        | 'skipped';
+      progress: number | null;
+      processedOn: number | null;
+      finishedOn: number | null;
+      attemptsMade: number;
+      failedReason?: string;
+    }
+
+    const NOT_FOUND: JobStepState = {
+      status: 'not_found',
+      progress: null,
+      processedOn: null,
+      finishedOn: null,
+      attemptsMade: 0,
+    };
+    const UNKNOWN: JobStepState = {
+      status: 'unknown',
+      progress: null,
+      processedOn: null,
+      finishedOn: null,
+      attemptsMade: 0,
+    };
+
+    // sinceMs: epoch ms when the user triggered this sync session.
+    // BullMQ keeps completed jobs with removeOnComplete:{count:1000}, so
+    // deterministic job IDs (pim-description-${masterId}-manual etc.) will
+    // return the PREVIOUS run's completed job on the first few polls.
+    // Any job whose finishedOn < sinceMs belongs to a prior run — treat it
+    // as not_found so the UI correctly shows it as waiting/pending.
+    const sinceRaw = typeof query['sinceMs'] === 'string' ? Number(query['sinceMs']) : NaN;
+    const sinceMs = Number.isFinite(sinceRaw) && sinceRaw > 0 ? sinceRaw : 0;
+
+    type SyncStatusQueueKey = keyof typeof syncStatusQueues;
+
+    async function getDlqJobState(
+      queueKey: SyncStatusQueueKey,
+      jobId: string
+    ): Promise<JobStepState> {
+      try {
+        const queueName = syncStatusQueueNames[queueKey];
+        const dlqQueue = syncStatusDlqQueues[queueKey];
+        const dlqJob = await dlqQueue.getJob(buildDlqLookupJobId(queueName, jobId));
+        if (!dlqJob) return NOT_FOUND;
+
+        const dlqData =
+          dlqJob.data && typeof dlqJob.data === 'object'
+            ? (dlqJob.data as {
+                attemptsMade?: unknown;
+                failedReason?: unknown;
+                occurredAt?: unknown;
+              })
+            : null;
+        const occurredAtMs =
+          typeof dlqData?.occurredAt === 'string' ? Date.parse(dlqData.occurredAt) : NaN;
+        const finishedOn = Number.isFinite(occurredAtMs)
+          ? occurredAtMs
+          : (dlqJob.finishedOn ?? null);
+        if (sinceMs > 0 && finishedOn != null && finishedOn < sinceMs) {
+          return NOT_FOUND;
+        }
+
+        const attemptsMade =
+          typeof dlqData?.attemptsMade === 'number'
+            ? dlqData.attemptsMade
+            : (dlqJob.attemptsMade ?? 0);
+        const failedReason =
+          typeof dlqData?.failedReason === 'string'
+            ? dlqData.failedReason
+            : (dlqJob.failedReason ?? undefined);
+        return {
+          status: 'failed',
+          progress: 100,
+          processedOn: null,
+          finishedOn,
+          attemptsMade,
+          ...(failedReason ? { failedReason } : {}),
+        };
+      } catch {
+        return UNKNOWN;
+      }
+    }
+
+    async function getJobState(queueKey: SyncStatusQueueKey, jobId: string): Promise<JobStepState> {
+      try {
+        const queue = syncStatusQueues[queueKey];
+        const job = await queue.getJob(jobId);
+        if (!job) {
+          return await getDlqJobState(queueKey, jobId);
+        }
+        const state = await job.getState();
+        // If this job finished before the current sync session started, it is a
+        // stale result from a previous run — ignore it completely.
+        if (
+          sinceMs > 0 &&
+          (state === 'completed' || state === 'failed') &&
+          job.finishedOn != null &&
+          job.finishedOn < sinceMs
+        ) {
+          return NOT_FOUND;
+        }
+        const normalised =
+          state === 'active' ||
+          state === 'completed' ||
+          state === 'failed' ||
+          state === 'waiting' ||
+          state === 'delayed'
+            ? state
+            : 'unknown';
+        const obj: JobStepState = {
+          status: normalised,
+          progress: typeof job.progress === 'number' ? Math.round(job.progress) : null,
+          processedOn: job.processedOn ?? null,
+          finishedOn: job.finishedOn ?? null,
+          attemptsMade: job.attemptsMade,
+        };
+        if (state === 'failed' && job.failedReason) obj.failedReason = job.failedReason;
+        return obj;
+      } catch {
+        return UNKNOWN;
+      }
+    }
+
+    function mergeState(a: JobStepState, b: JobStepState): JobStepState {
+      return a.status !== 'not_found' ? a : b;
+    }
+
+    function mergeConsensusStates(...states: JobStepState[]): JobStepState {
+      const priority: JobStepState['status'][] = [
+        'active',
+        'waiting',
+        'delayed',
+        'failed',
+        'completed',
+        'unknown',
+      ];
+      for (const status of priority) {
+        const match = states.find((state) => state.status === status);
+        if (match) {
+          return match;
+        }
+      }
+      return NOT_FOUND;
+    }
+
+    const bootstrapConsensusJobId = buildConsensusLaneJobId(masterId, 'bootstrap');
+    const settlementConsensusJobId = buildConsensusLaneJobId(masterId, 'settlement');
+    const legacyConsensusJobId =
+      consensusJobId &&
+      consensusJobId !== bootstrapConsensusJobId &&
+      consensusJobId !== settlementConsensusJobId
+        ? consensusJobId
+        : null;
+
+    // All 9 lookups run in parallel — single Redis round-trip batch
+    const [
+      legacyConsensusState,
+      bootstrapConsensusState,
+      settlementConsensusState,
+      categoryManual,
+      descriptionManual,
+      metafieldManual,
+      categoryConsensus,
+      descriptionConsensus,
+      metafieldConsensus,
+    ] = await Promise.all([
+      legacyConsensusJobId
+        ? getJobState('consensus', legacyConsensusJobId)
+        : Promise.resolve(NOT_FOUND),
+      getJobState('consensus', bootstrapConsensusJobId),
+      getJobState('consensus', settlementConsensusJobId),
+      getJobState('category', `pim-category-${masterId}-manual`),
+      getJobState('description', `pim-description-${masterId}-manual`),
+      getJobState('metafield', `pim-metafield-${masterId}-manual`),
+      getJobState('category', `pim-category-${masterId}-consensus`),
+      getJobState('description', `pim-description-${masterId}-consensus`),
+      getJobState('metafield', `pim-metafield-${masterId}-consensus`),
+    ]);
+
+    const consensusState = mergeConsensusStates(
+      legacyConsensusState,
+      bootstrapConsensusState,
+      settlementConsensusState
+    );
+
+    const consensusTerminal =
+      consensusState.status === 'completed' ||
+      consensusState.status === 'failed' ||
+      consensusState.status === 'not_found';
+
+    let qualityLevel: LocalQualityLevel | null = null;
+    let latestMetafieldLog: {
+      status: 'success' | 'partial' | 'failed';
+      errorMessage: string | null;
+      pushedAtMs: number | null;
+    } | null = null;
+
+    if (consensusTerminal) {
+      const meta = await withTenantContext(session.shopId, async (client) => {
+        const result = await client.query<{
+          data_quality_level: LocalQualityLevel | null;
+          metafield_status: 'success' | 'partial' | 'failed' | null;
+          metafield_error_message: string | null;
+          metafield_pushed_at_ms: string | number | null;
+        }>(
+          `SELECT
+             pm.data_quality_level,
+             log.status AS metafield_status,
+             log.error_message AS metafield_error_message,
+             (EXTRACT(EPOCH FROM log.pushed_at) * 1000)::bigint AS metafield_pushed_at_ms
+           FROM prod_master pm
+           LEFT JOIN LATERAL (
+             SELECT status, error_message, pushed_at
+             FROM pim_metafield_push_log
+             WHERE product_id = $1
+               AND ($2::bigint <= 0 OR pushed_at >= to_timestamp($2::double precision / 1000.0))
+             ORDER BY pushed_at DESC
+             LIMIT 1
+           ) log ON true
+           WHERE pm.id = $1
+           LIMIT 1`,
+          [masterId, sinceMs]
+        );
+        return result.rows[0] ?? null;
+      });
+
+      qualityLevel = meta?.data_quality_level ?? null;
+      if (meta?.metafield_status) {
+        latestMetafieldLog = {
+          status: meta.metafield_status,
+          errorMessage: meta.metafield_error_message ?? null,
+          pushedAtMs:
+            meta.metafield_pushed_at_ms != null ? Number(meta.metafield_pushed_at_ms) : null,
+        };
+      }
+    }
+
+    let metafieldState = mergeState(metafieldManual, metafieldConsensus);
+    if (latestMetafieldLog) {
+      if (latestMetafieldLog.status === 'success' && metafieldState.status === 'not_found') {
+        metafieldState = {
+          ...metafieldState,
+          status: 'completed',
+          progress: 100,
+          finishedOn: latestMetafieldLog.pushedAtMs,
+        };
+      } else if (
+        latestMetafieldLog.status === 'failed' ||
+        latestMetafieldLog.status === 'partial'
+      ) {
+        metafieldState = {
+          ...metafieldState,
+          status: 'failed',
+          failedReason: latestMetafieldLog.errorMessage ?? latestMetafieldLog.status,
+          finishedOn: latestMetafieldLog.pushedAtMs,
+        };
+      }
+    } else if (
+      consensusTerminal &&
+      metafieldState.status === 'not_found' &&
+      qualityLevel != null &&
+      qualityLevel !== 'silver' &&
+      qualityLevel !== 'golden'
+    ) {
+      metafieldState = {
+        ...metafieldState,
+        status: 'skipped',
+        progress: 100,
+      };
+    }
+
+    const steps = [
+      { id: 'consensus', label: 'Calcul calitate & consens PIM', ...consensusState },
+      {
+        id: 'category',
+        label: 'Clasificare taxonomie',
+        ...mergeState(categoryManual, categoryConsensus),
+      },
+      {
+        id: 'description',
+        label: 'Generare descriere',
+        ...mergeState(descriptionManual, descriptionConsensus),
+      },
+      { id: 'metafield', label: 'Push metafields Shopify', ...metafieldState },
+    ];
+
+    // A step is terminal only when it has actually completed or failed.
+    // `not_found` means the job hasn't been enqueued yet (e.g. consensus is still
+    // running and hasn't dispatched downstream jobs). Treating not_found as terminal
+    // would cause the frontend to stop polling before the pipeline even starts.
+    //
+    // Special case: metafield push is optional — it is only enqueued for silver/golden
+    // products. If consensus is terminal and metafield is not_found it is legitimately
+    // absent, so we exclude metafield from the "all must complete" check.
+    const downstreamSteps = steps.filter((s) => s.id !== 'consensus');
+    const allTerminal =
+      consensusTerminal &&
+      downstreamSteps.every((s) => {
+        if (s.id === 'metafield') {
+          // metafield is optional: not_found is acceptable once consensus is done.
+          return (
+            s.status === 'completed' ||
+            s.status === 'failed' ||
+            s.status === 'not_found' ||
+            s.status === 'skipped'
+          );
+        }
+        // category and description must actually complete or fail — not_found here
+        // means the job hasn't been enqueued yet and we should keep polling.
+        return s.status === 'completed' || s.status === 'failed';
+      });
+    const anyFailed = steps.some((s) => s.status === 'failed');
+
+    void reply.status(200).send(successEnvelope(request.id, { steps, allTerminal, anyFailed }));
   });
 
   return Promise.resolve();

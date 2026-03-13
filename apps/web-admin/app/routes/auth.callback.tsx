@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-import { Loader2 } from 'lucide-react';
-
 import {
   buildShopifyAdminAppUrl,
   isValidShopDomain,
@@ -10,6 +8,10 @@ import {
   useShopifyAppBridge,
   withShopifyQuery,
 } from '../shopify';
+import { ErrorState } from '../components/patterns/error-state.js';
+import { LoadingState } from '../components/patterns/loading-state.js';
+import { Button } from '../components/ui/button';
+import { Card, CardContent, CardHeader } from '../components/ui/card';
 
 const ALLOWED_ERROR_CODES = new Set([
   'INVALID_CALLBACK',
@@ -126,75 +128,74 @@ export default function AuthCallbackPage() {
         : 'Te rugăm să aștepți câteva secunde.';
 
   return (
-    <div className="mx-auto max-w-xl space-y-4 rounded-lg border bg-card p-6 shadow-sm">
-      <div className="space-y-1">
+    <Card variant="glass" padding="lg" className="mx-auto max-w-xl">
+      <CardHeader className="space-y-1 border-b-0 pb-0">
         <div className="text-h5">{title}</div>
         <div className="text-body text-muted">{subtitle}</div>
-      </div>
+      </CardHeader>
 
-      {phase === 'loading' ? (
-        <div className="inline-flex items-center gap-2 text-muted">
-          <Loader2 className="size-4 animate-spin" />
-          <span className="text-caption">Se incarca…</span>
-        </div>
-      ) : null}
+      <CardContent className="mt-6">
+        {phase === 'loading' ? <LoadingState label="Se incarcă…" /> : null}
 
-      {phase === 'error' ? (
-        <div className="space-y-2">
-          <div className="rounded-md border border-error/30 bg-error/10 p-3 text-error">
-            <div className="text-caption font-medium">Eroare</div>
-            <div className="text-body text-foreground/90">
-              {error ? `Cod: ${error}` : 'Nu am putut confirma instalarea.'}
+        {phase === 'error' ? (
+          <div className="space-y-2">
+            <ErrorState
+              message="Nu am putut confirma instalarea."
+              {...(error ? { errorCode: error } : {})}
+            />
+
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                variant="primary"
+                onClick={() => {
+                  window.location.href = getRetryAuthUrl(shop);
+                }}
+              >
+                Reîncearcă instalarea
+              </Button>
+
+              {primaryCta ? (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    window.open(primaryCta, '_top');
+                  }}
+                >
+                  Deschide în Shopify Admin
+                </Button>
+              ) : null}
+
+              <ShopifyLink
+                className="group relative inline-flex h-9 items-center justify-center overflow-hidden whitespace-nowrap rounded-md border border-border bg-card px-4 py-2 text-sm font-medium text-foreground shadow-[var(--shadow-sm)] transition-all duration-normal ease-out-enterprise focus-ring-standard hover:-translate-y-0.5 hover:border-accent-border hover:bg-subtle/60 hover:shadow-[var(--shadow-md)] active:translate-y-0"
+                to="/"
+              >
+                Dashboard
+              </ShopifyLink>
             </div>
           </div>
+        ) : null}
 
-          <div className="flex flex-wrap items-center gap-3">
-            <a
-              className="rounded-md bg-primary px-3 py-2 text-caption text-primary-foreground hover:opacity-90"
-              href={getRetryAuthUrl(shop)}
-              rel="noreferrer"
+        {phase === 'success' ? (
+          <div className="flex items-center gap-3">
+            <ShopifyLink
+              className="group relative inline-flex h-9 items-center justify-center overflow-hidden whitespace-nowrap rounded-md border border-transparent bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-[var(--shadow-sm)] transition-all duration-normal ease-out-enterprise focus-ring-standard hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-[var(--shadow-md)] active:translate-y-0"
+              to="/"
             >
-              Reîncearcă instalarea
-            </a>
-
+              Continuă
+            </ShopifyLink>
             {primaryCta ? (
-              <a
-                className="rounded-md border px-3 py-2 text-caption hover:bg-muted"
-                href={primaryCta}
-                target="_top"
-                rel="noreferrer"
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  window.open(primaryCta, '_top');
+                }}
               >
                 Deschide în Shopify Admin
-              </a>
+              </Button>
             ) : null}
-
-            <ShopifyLink className="rounded-md border px-3 py-2 text-caption hover:bg-muted" to="/">
-              Dashboard
-            </ShopifyLink>
           </div>
-        </div>
-      ) : null}
-
-      {phase === 'success' ? (
-        <div className="flex items-center gap-3">
-          <ShopifyLink
-            className="rounded-md bg-primary px-3 py-2 text-caption text-primary-foreground"
-            to="/"
-          >
-            Continuă
-          </ShopifyLink>
-          {primaryCta ? (
-            <a
-              className="rounded-md border px-3 py-2 text-caption hover:bg-muted"
-              href={primaryCta}
-              target="_top"
-              rel="noreferrer"
-            >
-              Deschide în Shopify Admin
-            </a>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }

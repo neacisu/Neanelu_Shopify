@@ -5,13 +5,14 @@ import { InfoTooltip } from '../ui/info-tooltip';
 import { MultiSelect, type MultiSelectOption } from '../ui/MultiSelect';
 import { VirtualizedList } from '../ui/VirtualizedList';
 import { Badge } from '../ui/badge';
+import { StreamingIndicator } from '../ui/streaming-indicator.js';
 import type { LogEntry, LogLevel } from '../../types/log';
 
 const levelColors: Record<LogLevel, string> = {
-  debug: 'text-gray-400',
-  info: 'text-blue-400',
-  warn: 'text-amber-400',
-  error: 'text-red-500',
+  debug: 'text-muted',
+  info: 'text-info',
+  warn: 'text-warning',
+  error: 'text-error',
 };
 
 const levelLabels: Record<LogLevel, string> = {
@@ -149,12 +150,12 @@ export function LogConsole({
             <Badge tone={statusTone ?? 'warning'}>{statusLabel}</Badge>
           ) : connected !== undefined ? (
             <span className="inline-flex items-center gap-1.5">
-              {connected ? (
-                <span
-                  className="size-2 rounded-full bg-green-500 motion-safe:animate-[pulse_2s_ease-in-out_infinite]"
-                  aria-hidden
-                />
-              ) : null}
+              <StreamingIndicator
+                active={!!connected}
+                label={connected ? 'Live' : 'Offline'}
+                variant={connected ? 'success' : 'warning'}
+                showLabel
+              />
               <Badge tone={connected ? 'success' : 'warning'}>
                 {connected ? 'Live' : 'Offline'}
               </Badge>
@@ -206,28 +207,30 @@ export function LogConsole({
 
       <div
         ref={containerRef}
-        className="rounded-md border border-slate-800 bg-gray-950 px-2 py-2 text-xs text-gray-100 dark:border-slate-700"
+        className="rounded-md border border-border bg-background px-2 py-2 text-xs text-foreground"
       >
         <VirtualizedList
           items={filteredLogs}
           height={320}
           estimateSize={20}
           className="log-console-scroll font-mono"
-          emptyState={<div className="p-3 text-gray-500">Nu există încă loguri.</div>}
+          emptyState={<div className="p-3 text-muted">Nu există încă loguri.</div>}
           renderItem={(log) => (
             <div className="flex flex-wrap items-start gap-2 px-2 py-0.5">
-              <span className="text-gray-500">[{formatTimestamp(log.timestamp)}]</span>
+              <span className="text-muted">[{formatTimestamp(log.timestamp)}]</span>
               <span className={levelColors[log.level]}>[{levelLabels[log.level]}]</span>
-              {log.stepName ? <span className="text-gray-400">[{log.stepName}]</span> : null}
+              {log.stepName ? <span className="text-muted">[{log.stepName}]</span> : null}
               <span className="whitespace-pre-wrap wrap-break-word">{log.message}</span>
               {log.traceId ? (
-                <button
+                <Button
                   type="button"
-                  className="text-gray-400 underline-offset-4 hover:underline"
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted underline-offset-4 hover:text-foreground hover:underline p-0 h-auto"
                   onClick={() => handleTraceClick(log.traceId ?? '')}
                 >
                   trace:{log.traceId}
-                </button>
+                </Button>
               ) : null}
             </div>
           )}

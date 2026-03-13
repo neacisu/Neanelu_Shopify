@@ -1,33 +1,34 @@
-import { InfoTooltip } from '../ui/info-tooltip';
+import { Badge } from '../ui/badge.js';
+import { InfoTooltip } from '../ui/info-tooltip.js';
 
-type Status = 'sent' | 'pending' | 'failed' | 'retrying';
+type WebhookDeliveryStatus = 'sent' | 'pending' | 'failed' | 'retrying';
 
-const LABELS: Record<Status, string> = {
+const LABELS: Record<WebhookDeliveryStatus, string> = {
   sent: 'Trimis',
   pending: 'În așteptare',
   failed: 'Eșuat',
   retrying: 'Reîncercare',
 };
 
-const PALETTES: Record<Status, string> = {
-  sent: 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
-  pending:
-    'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
-  failed:
-    'border-red-300 bg-red-50 text-red-700 dark:border-red-700 dark:bg-red-900/30 dark:text-red-300',
-  retrying:
-    'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-900/30 dark:text-sky-300',
+const TONES: Record<WebhookDeliveryStatus, 'success' | 'warning' | 'critical' | 'info'> = {
+  sent: 'success',
+  pending: 'warning',
+  failed: 'critical',
+  retrying: 'info',
 };
 
-export function WebhookDeliveryStatusBadge(props: { status: Status; title?: string }) {
+export function WebhookDeliveryStatusBadge(props: {
+  status: WebhookDeliveryStatus;
+  title?: string;
+}) {
   return (
     <span className="inline-flex items-center gap-1">
-      <span
-        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-transform duration-150 hover:scale-105 ${PALETTES[props.status]}`}
-      >
-        <span className="inline-block size-1.5 rounded-full bg-current" />
-        {LABELS[props.status]}
-      </span>
+      <Badge tone={TONES[props.status]}>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-block size-1.5 rounded-full bg-current" aria-hidden />
+          {LABELS[props.status]}
+        </span>
+      </Badge>
       <InfoTooltip title="Status livrare webhook">
         Acest indicator arată starea livrării webhook-ului către aplicația ta. „Trimis" înseamnă că
         webhook-ul a fost livrat cu succes — serverul a răspuns cu cod 2xx. „În așteptare" înseamnă

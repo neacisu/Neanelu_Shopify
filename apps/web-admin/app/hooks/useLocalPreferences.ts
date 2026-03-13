@@ -58,6 +58,14 @@ export function useLocalPreferences(api: ApiClient) {
   const hydratedRef = useRef(false);
 
   useEffect(() => {
+    return () => {
+      if (debounceRef.current != null) {
+        window.clearTimeout(debounceRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     let active = true;
 
     const load = async () => {

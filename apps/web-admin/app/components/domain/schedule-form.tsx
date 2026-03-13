@@ -4,6 +4,7 @@ import { addHours, format } from 'date-fns';
 import { CronExpressionParser } from 'cron-parser';
 
 import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
 import { InfoTooltip } from '../ui/info-tooltip';
 import { DateRangePicker } from '../ui/DateRangePicker';
 import { Select } from '../ui/select';
@@ -163,15 +164,12 @@ export function ScheduleForm({ schedule, onSubmit, onCancel, saving }: ScheduleF
 
       {preset === 'daily' ? (
         <div className="grid gap-3 md:grid-cols-2">
-          <div>
-            <label className="text-caption text-muted dark:text-slate-400">Ora (HH:MM)</label>
-            <input
-              type="time"
-              value={dailyTime}
-              onChange={(e) => updateDailyCron(e.target.value)}
-              className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 dark:focus:ring-blue-400/50"
-            />
-          </div>
+          <TextField
+            label="Ora (HH:MM)"
+            type="time"
+            value={dailyTime}
+            onChange={(e) => updateDailyCron(e.target.value)}
+          />
         </div>
       ) : null}
 
@@ -191,15 +189,12 @@ export function ScheduleForm({ schedule, onSubmit, onCancel, saving }: ScheduleF
             ]}
             onChange={(e) => updateWeeklyCron((e.target as HTMLSelectElement).value, weeklyTime)}
           />
-          <div>
-            <label className="text-caption text-muted dark:text-slate-400">Ora (HH:MM)</label>
-            <input
-              type="time"
-              value={weeklyTime}
-              onChange={(e) => updateWeeklyCron(weeklyDay, e.target.value)}
-              className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 dark:focus:ring-blue-400/50"
-            />
-          </div>
+          <TextField
+            label="Ora (HH:MM)"
+            type="time"
+            value={weeklyTime}
+            onChange={(e) => updateWeeklyCron(weeklyDay, e.target.value)}
+          />
         </div>
       ) : null}
 
@@ -211,8 +206,7 @@ export function ScheduleForm({ schedule, onSubmit, onCancel, saving }: ScheduleF
       />
 
       <div className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
+        <Checkbox
           checked={enabled}
           onChange={(e) => setEnabled(e.target.checked)}
           id="schedule-enabled"
@@ -224,10 +218,10 @@ export function ScheduleForm({ schedule, onSubmit, onCancel, saving }: ScheduleF
         </InfoTooltip>
       </div>
 
-      {error ? <div className="text-sm text-red-600 dark:text-red-400">{error}</div> : null}
+      {error ? <div className="text-sm text-error">{error}</div> : null}
 
-      <div className="rounded-md border bg-muted/5 p-3 text-sm dark:border-slate-700/60 dark:bg-slate-800/50">
-        <div className="text-caption text-muted dark:text-slate-400">Următoarele 5 rulări</div>
+      <div className="rounded-md border bg-muted/5 p-3 text-sm">
+        <div className="text-caption text-muted">Următoarele 5 rulări</div>
         {preview.length ? (
           <ul className="mt-2 space-y-1 font-mono text-xs">
             {preview.map((item) => (

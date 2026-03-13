@@ -31,18 +31,18 @@ function formatRelativeAge(refreshedAt: string | null): {
   if (ageMinutes < 60) {
     return {
       text: `acum ${ageMinutes} min`,
-      toneClass: 'text-emerald-600 dark:text-emerald-400',
+      toneClass: 'text-success',
     };
   }
   if (ageHours < 3) {
     return {
       text: `acum ${ageHours} h`,
-      toneClass: 'text-amber-600 dark:text-amber-400',
+      toneClass: 'text-warning',
     };
   }
   return {
     text: `acum ${ageHours} h`,
-    toneClass: 'text-red-600 dark:text-red-400',
+    toneClass: 'text-error',
   };
 }
 

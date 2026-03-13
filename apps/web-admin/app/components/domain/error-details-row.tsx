@@ -42,15 +42,18 @@ export function ErrorDetailsRow({ error, expanded, onToggle }: ErrorDetailsRowPr
   };
 
   return (
-    <div className="rounded-md border bg-muted/5 p-3 dark:border-slate-700/60 dark:bg-slate-800/50">
-      <button type="button" className="flex w-full items-center justify-between" onClick={onToggle}>
-        <div className="text-sm font-medium dark:text-slate-200">{error.errorMessage}</div>
-        {expanded ? (
-          <ChevronUp className="size-4 dark:text-slate-400" />
-        ) : (
-          <ChevronDown className="size-4 dark:text-slate-400" />
-        )}
-      </button>
+    <div className="rounded-md border bg-muted/5 p-3">
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={onToggle}
+        aria-label="Detalii eroare"
+        aria-expanded={expanded}
+        className="flex w-full items-center justify-between rounded-lg px-1 py-1"
+      >
+        <div className="text-sm font-medium">{error.errorMessage}</div>
+        {expanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+      </Button>
 
       {expanded ? (
         <div className="mt-3 space-y-3 text-sm motion-safe:animate-[fadeIn_0.2s_ease-out]">
@@ -73,7 +76,7 @@ export function ErrorDetailsRow({ error, expanded, onToggle }: ErrorDetailsRowPr
           </div>
 
           {error.suggestedFix ? (
-            <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/60 dark:bg-amber-900/20 dark:text-amber-300">
+            <div className="rounded-md border border-warning/30 bg-warning/10 p-2 text-warning">
               Sugestie remediere: {error.suggestedFix}
             </div>
           ) : null}
@@ -83,8 +86,8 @@ export function ErrorDetailsRow({ error, expanded, onToggle }: ErrorDetailsRowPr
           ) : null}
 
           {error.stackTrace ? (
-            <div className="rounded-md border bg-gray-950 p-3 font-mono text-xs text-gray-100">
-              <div className="text-caption text-gray-400">Stack trace</div>
+            <div className="rounded-md border border-border bg-background p-3 font-mono text-xs text-foreground">
+              <div className="text-caption text-muted">Stack trace</div>
               <pre className="mt-2 whitespace-pre-wrap wrap-break-word">{error.stackTrace}</pre>
             </div>
           ) : null}

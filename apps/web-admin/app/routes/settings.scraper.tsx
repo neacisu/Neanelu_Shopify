@@ -14,12 +14,17 @@ import type {
 } from '@app/types';
 
 import { SubmitButton } from '../components/forms/submit-button';
+import { Button } from '../components/ui/button';
+import { Checkbox } from '../components/ui/checkbox';
+import { TextField } from '../components/ui/text-field';
+import { Select, type SelectOption } from '../components/ui/select';
 import { ConfirmDialog } from '../components/domain/confirm-dialog';
 import { DataFreshnessIndicator } from '../components/domain/DataFreshnessIndicator';
 import { GaugeChart } from '../components/charts/GaugeChart';
 import { Sparkline } from '../components/charts/Sparkline';
 import { DashboardSkeleton } from '../components/patterns/DashboardSkeleton';
 import { EmptyState } from '../components/patterns/empty-state';
+import { ErrorState } from '../components/patterns/error-state';
 import { useApiClient } from '../hooks/use-api';
 import { ScraperActivityChart } from '../components/domain/ScraperActivityChart';
 import { ScraperDomainPerformanceTable } from '../components/domain/ScraperDomainPerformanceTable';
@@ -39,18 +44,18 @@ const STATUS_LABELS: Record<BrowserStatus, string> = {
   error: 'Eroare',
 };
 const STATUS_STYLES: Record<BrowserStatus, string> = {
-  available: 'bg-success/15 text-success dark:bg-emerald-900/30 dark:text-emerald-400',
-  unavailable: 'bg-error/15 text-error dark:bg-red-900/30 dark:text-red-400',
-  not_installed: 'bg-warning/15 text-warning dark:bg-amber-900/30 dark:text-amber-400',
-  error: 'bg-error/15 text-error dark:bg-red-900/30 dark:text-red-400',
+  available: 'bg-success/15 text-success',
+  unavailable: 'bg-error/15 text-error',
+  not_installed: 'bg-warning/15 text-warning',
+  error: 'bg-error/15 text-error',
 };
 const RUN_STATUS_STYLES: Record<RunStatus, string> = {
-  pending: 'bg-muted/20 text-muted dark:bg-slate-700/30 dark:text-slate-400',
-  running: 'bg-blue-500/15 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400',
-  completed: 'bg-success/15 text-success dark:bg-emerald-900/30 dark:text-emerald-400',
-  failed: 'bg-error/15 text-error dark:bg-red-900/30 dark:text-red-400',
-  cancelled: 'bg-muted/20 text-muted dark:bg-slate-700/30 dark:text-slate-400',
-  deduped: 'bg-muted/20 text-muted dark:bg-slate-700/30 dark:text-slate-400',
+  pending: 'bg-muted/20 text-muted',
+  running: 'bg-primary/15 text-primary',
+  completed: 'bg-success/15 text-success',
+  failed: 'bg-error/15 text-error',
+  cancelled: 'bg-muted/20 text-muted',
+  deduped: 'bg-muted/20 text-muted',
 };
 const RUN_STATUS_LABELS: Record<RunStatus, string> = {
   pending: 'În așteptare',
@@ -60,6 +65,18 @@ const RUN_STATUS_LABELS: Record<RunStatus, string> = {
   cancelled: 'Anulat',
   deduped: 'Deduplicat',
 };
+
+const PAGINATION_OPTIONS: SelectOption[] = [
+  { value: '10', label: '10' },
+  { value: '25', label: '25' },
+  { value: '50', label: '50' },
+];
+
+const SCRAPER_TYPE_OPTIONS: SelectOption[] = [
+  { value: 'PLAYWRIGHT', label: 'PLAYWRIGHT' },
+  { value: 'CHEERIO', label: 'CHEERIO' },
+  { value: 'PUPPETEER', label: 'PUPPETEER' },
+];
 
 export default function SettingsScraper() {
   const api = useApiClient();
@@ -367,24 +384,18 @@ export default function SettingsScraper() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-lg border border-muted/20 bg-muted/5 p-4 dark:border-slate-700 dark:bg-slate-800">
-        <h3 className="font-medium text-body dark:text-slate-100">
-          Scraper fallback - Playwright + robots.txt
-        </h3>
-        <p className="mt-1 text-sm text-muted dark:text-slate-400">
+      <div className="rounded-lg border border-muted/20 bg-muted/5 p-4">
+        <h3 className="font-medium text-foreground">Scraper fallback - Playwright + robots.txt</h3>
+        <p className="mt-1 text-sm text-muted">
           Fallback pentru pagini JS-heavy. Respectă automat robots.txt și aplică limitare de rată pe
           domeniu.
         </p>
       </div>
 
-      {error ? (
-        <div className="rounded-md border border-error/30 bg-error/10 p-4 text-error shadow-sm dark:border-red-700/50 dark:bg-red-900/20">
-          {error}
-        </div>
-      ) : null}
+      {error ? <ErrorState message={error} /> : null}
 
-      <div className="rounded-lg border border-muted/20 bg-background p-4 text-sm dark:border-slate-700 dark:bg-slate-900/80">
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted dark:text-slate-400">
+      <div className="rounded-lg border border-border bg-background p-4 text-sm">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
           <span className="inline-flex items-center gap-1">
             Status browser
             <InfoTooltip title="Status browser" side="bottom" portalToBody>
@@ -410,17 +421,20 @@ export default function SettingsScraper() {
       {settings ? (
         <>
           <div className="grid gap-4 md:grid-cols-4">
-            <div className="rounded-lg border border-muted/20 bg-background p-4 dark:border-slate-700 dark:bg-slate-900/80">
-              <div className="flex items-center justify-between text-xs text-muted dark:text-slate-400">
+            <div className="rounded-lg border border-border bg-background p-4">
+              <div className="flex items-center justify-between text-xs text-muted">
                 <span>Pagini azi</span>
-                <Sparkline data={settings.weekTrends.pagesScraped} color="#2563eb" />
+                <Sparkline
+                  data={settings.weekTrends.pagesScraped}
+                  color="rgb(var(--color-primary))"
+                />
               </div>
-              <div className="text-h5 dark:text-slate-100">
+              <div className="text-h5">
                 {settings.todayStats.pagesScraped.toLocaleString('ro-RO')}
               </div>
             </div>
-            <div className="rounded-lg border border-muted/20 bg-background p-4 dark:border-slate-700 dark:bg-slate-900/80">
-              <div className="text-xs text-muted dark:text-slate-400">Rata succes</div>
+            <div className="rounded-lg border border-border bg-background p-4">
+              <div className="text-xs text-muted">Rata succes</div>
               <div className="mt-2">
                 <GaugeChart
                   value={Math.round(settings.todayStats.successRate * 100)}
@@ -429,21 +443,21 @@ export default function SettingsScraper() {
                 />
               </div>
             </div>
-            <div className="rounded-lg border border-muted/20 bg-background p-4 dark:border-slate-700 dark:bg-slate-900/80">
-              <div className="flex items-center justify-between text-xs text-muted dark:text-slate-400">
+            <div className="rounded-lg border border-border bg-background p-4">
+              <div className="flex items-center justify-between text-xs text-muted">
                 <span>Latență medie</span>
-                <Sparkline data={settings.weekTrends.failed} color="#f59e0b" />
+                <Sparkline data={settings.weekTrends.failed} color="rgb(var(--color-warning))" />
               </div>
-              <div className="text-h5 dark:text-slate-100">
+              <div className="text-h5">
                 {settings.todayStats.avgLatencyMs.toLocaleString('ro-RO', {
                   maximumFractionDigits: 0,
                 })}{' '}
                 ms
               </div>
             </div>
-            <div className="rounded-lg border border-muted/20 bg-background p-4 dark:border-slate-700 dark:bg-slate-900/80">
-              <div className="text-xs text-muted dark:text-slate-400">Cale rapidă Cheerio</div>
-              <div className="text-h5 dark:text-slate-100">
+            <div className="rounded-lg border border-border bg-background p-4">
+              <div className="text-xs text-muted">Cale rapidă Cheerio</div>
+              <div className="text-h5">
                 {settings.todayStats.cheerioFastPath}
                 <span className="ml-2 rounded-full bg-success/15 px-2 py-1 text-xs text-success">
                   Rapid
@@ -459,16 +473,11 @@ export default function SettingsScraper() {
 
       <form
         onSubmit={(event) => void onSubmit(event)}
-        className="space-y-4 rounded-lg border border-muted/20 bg-background p-4 dark:border-slate-700 dark:bg-slate-900/80"
+        className="space-y-4 rounded-lg border border-border bg-background p-4"
       >
         <span className="inline-flex items-center gap-2">
-          <label className="flex items-center gap-2 text-body dark:text-slate-200">
-            <input
-              type="checkbox"
-              className="size-4 accent-primary"
-              checked={enabled}
-              onChange={(event) => setEnabled(event.target.checked)}
-            />
+          <label className="flex items-center gap-2 text-foreground">
+            <Checkbox checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
             Activează scraper fallback
           </label>
           <InfoTooltip title="Scraper fallback" side="bottom" portalToBody>
@@ -481,8 +490,8 @@ export default function SettingsScraper() {
         </span>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <label className="space-y-1 text-sm">
-            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+          <div className="space-y-1 text-sm">
+            <span className="text-muted inline-flex items-center gap-1">
               Limită rată per domeniu
               <InfoTooltip title="Limită rată per domeniu" side="bottom" portalToBody>
                 Numărul maxim de cereri pe secundă către un singur domeniu. Limitează viteza de
@@ -491,17 +500,16 @@ export default function SettingsScraper() {
                 permit.
               </InfoTooltip>
             </span>
-            <input
+            <TextField
               type="number"
               min={1}
               max={5}
-              value={rateLimit}
+              value={String(rateLimit)}
               onChange={(e) => setRateLimit(Number(e.target.value))}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
             />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+          </div>
+          <div className="space-y-1 text-sm">
+            <span className="text-muted inline-flex items-center gap-1">
               Timeout (ms)
               <InfoTooltip title="Timeout încărcare pagină" side="bottom" portalToBody>
                 Timpul maxim de așteptare pentru încărcarea unei pagini înainte de abandon. Paginile
@@ -509,20 +517,19 @@ export default function SettingsScraper() {
                 reduceți pentru site-uri rapide, creșteți pentru cele grele.
               </InfoTooltip>
             </span>
-            <input
+            <TextField
               type="number"
               min={10000}
               max={120000}
-              value={timeoutMs}
+              value={String(timeoutMs)}
               onChange={(e) => setTimeoutMs(Number(e.target.value))}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
             />
-          </label>
+          </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <label className="space-y-1 text-sm">
-            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+          <div className="space-y-1 text-sm">
+            <span className="text-muted inline-flex items-center gap-1">
               Pagini concurente max
               <InfoTooltip title="Pagini concurente max" side="bottom" portalToBody>
                 Numărul maxim de pagini Chromium deschise simultan. Mai multe pagini accelerează
@@ -530,17 +537,16 @@ export default function SettingsScraper() {
                 pe servere cu resurse limitate.
               </InfoTooltip>
             </span>
-            <input
+            <TextField
               type="number"
               min={1}
               max={10}
-              value={maxPages}
+              value={String(maxPages)}
               onChange={(e) => setMaxPages(Number(e.target.value))}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
             />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+          </div>
+          <div className="space-y-1 text-sm">
+            <span className="text-muted inline-flex items-center gap-1">
               Cache robots.txt (sec)
               <InfoTooltip title="Cache robots.txt" side="bottom" portalToBody>
                 Cât timp se păstrează regulile robots.txt în cache înainte de reîmprospătare.
@@ -548,19 +554,18 @@ export default function SettingsScraper() {
                 reduceți dacă site-urile își actualizează regulile des.
               </InfoTooltip>
             </span>
-            <input
+            <TextField
               type="number"
               min={60}
               max={604800}
-              value={robotsTtl}
+              value={String(robotsTtl)}
               onChange={(e) => setRobotsTtl(Number(e.target.value))}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
             />
-          </label>
+          </div>
         </div>
 
-        <label className="space-y-1 text-sm block">
-          <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+        <div className="space-y-1 text-sm block">
+          <span className="text-muted inline-flex items-center gap-1">
             User-Agent
             <InfoTooltip title="User-Agent" side="bottom" portalToBody>
               Identificatorul trimis de scraper către site-urile vizitate. Site-urile pot bloca sau
@@ -569,15 +574,10 @@ export default function SettingsScraper() {
               aveți un motiv specific de modificare.
             </InfoTooltip>
           </span>
-          <input
-            type="text"
-            value={userAgent}
-            onChange={(e) => setUserAgent(e.target.value)}
-            className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
-          />
-        </label>
+          <TextField type="text" value={userAgent} onChange={(e) => setUserAgent(e.target.value)} />
+        </div>
 
-        <div className="rounded-md border border-muted/20 bg-muted/5 p-3 text-xs text-muted dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 inline-flex items-center gap-1">
+        <div className="rounded-md border border-muted/20 bg-muted/5 p-3 text-xs text-muted inline-flex items-center gap-1">
           Respect robots.txt: <span className="font-medium text-success">Întotdeauna activ</span>{' '}
           (RFC 9309)
           <InfoTooltip title="Respect robots.txt" side="bottom" portalToBody>
@@ -590,14 +590,15 @@ export default function SettingsScraper() {
         <div className="flex flex-wrap items-center gap-3">
           <SubmitButton state={submitState}>Salvează setări scraper</SubmitButton>
           <span className="inline-flex items-center gap-1">
-            <button
+            <Button
               type="button"
+              variant="secondary"
               onClick={() => void runHealthCheck()}
-              className="rounded-md border border-muted/20 px-4 py-2 text-sm font-medium shadow-sm transition-shadow duration-200 hover:bg-muted/10 focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:focus:ring-blue-400/50"
+              loading={healthLoading}
               disabled={healthLoading}
             >
               {healthLoading ? 'Se testează...' : 'Test browser'}
-            </button>
+            </Button>
             <InfoTooltip title="Test browser" side="bottom" portalToBody>
               Verifică dacă Chromium (Playwright) este instalat și funcțional pe server. Testul
               lansează o instanță browser și măsoară timpul de pornire. De exemplu, un test reușit
@@ -605,13 +606,9 @@ export default function SettingsScraper() {
               confirma disponibilitatea scraper-ului.
             </InfoTooltip>
           </span>
-          <button
-            type="button"
-            onClick={() => setDisableConfirmOpen(true)}
-            className="rounded-md border border-error/40 px-4 py-2 text-sm font-medium text-error shadow-sm hover:bg-error/5 dark:border-red-700/50 dark:text-red-400 dark:hover:bg-red-900/20"
-          >
+          <Button type="button" variant="destructive" onClick={() => setDisableConfirmOpen(true)}>
             Deconectează
-          </button>
+          </Button>
           {health ? (
             <span
               className={`text-xs ${health.status === 'available' ? 'text-success' : 'text-error'}`}
@@ -624,26 +621,27 @@ export default function SettingsScraper() {
         </div>
       </form>
 
-      <div className="rounded-lg border border-muted/20 bg-background p-4 space-y-3 dark:border-slate-700 dark:bg-slate-900/80">
-        <div className="text-sm font-medium flex items-center gap-2 dark:text-slate-100">
+      <div className="rounded-lg border border-border bg-background p-4 space-y-3">
+        <div className="text-sm font-medium flex items-center gap-2">
           <ShieldCheck className="h-4 w-4" />
           Tester URL robots.txt
         </div>
         <div className="flex flex-wrap gap-2">
-          <input
+          <TextField
             value={robotsTestUrl}
             onChange={(event) => setRobotsTestUrl(event.target.value)}
             placeholder="https://example.com/product-page"
-            className="min-w-[280px] flex-1 rounded-md border border-muted/20 bg-background px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+            className="min-w-[280px] flex-1"
           />
-          <button
+          <Button
             type="button"
+            variant="secondary"
             onClick={() => void runRobotsTest()}
             disabled={robotsLoading || !robotsTestUrl.trim()}
-            className="rounded-md border border-muted/20 px-4 py-2 text-sm font-medium shadow-sm hover:bg-muted/10 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/50"
+            loading={robotsLoading}
           >
             {robotsLoading ? 'Se testează...' : 'Testează robots.txt'}
-          </button>
+          </Button>
         </div>
         {robotsResult ? (
           <div
@@ -657,52 +655,50 @@ export default function SettingsScraper() {
 
       <ScraperDomainPerformanceTable rows={settings?.domainPerformance ?? []} />
 
-      <div className="rounded-lg border border-muted/20 bg-background p-4 space-y-3 dark:border-slate-700 dark:bg-slate-900/80">
+      <div className="rounded-lg border border-border bg-background p-4 space-y-3">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-medium dark:text-slate-100">Status coadă scraper</div>
+          <div className="text-sm font-medium">Status coadă scraper</div>
           <div className="flex gap-2">
-            <button
+            <Button
               type="button"
-              className="rounded-md border border-muted/20 px-3 py-1 text-xs dark:border-slate-600 dark:text-slate-300"
+              variant="secondary"
+              size="sm"
               onClick={() => setPurgeConfirmOpen(true)}
             >
               Curăță eșuate
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="rounded-md border border-muted/20 px-3 py-1 text-xs dark:border-slate-600 dark:text-slate-300"
+              variant="secondary"
+              size="sm"
               onClick={() => void retryFailedQueue()}
             >
               Relansează toate eșuate
-            </button>
+            </Button>
           </div>
         </div>
-        <div className="grid gap-2 md:grid-cols-4 text-sm dark:text-slate-200">
-          <div className="rounded border border-muted/20 p-3 dark:border-slate-700 dark:bg-slate-800/50">
+        <div className="grid gap-2 md:grid-cols-4 text-sm">
+          <div className="rounded border border-muted/20 p-3">
             În așteptare: {queueStatus?.pending?.toLocaleString('ro-RO') ?? 0}
           </div>
-          <div className="rounded border border-muted/20 p-3 dark:border-slate-700 dark:bg-slate-800/50">
+          <div className="rounded border border-muted/20 p-3">
             În procesare: {queueStatus?.processing?.toLocaleString('ro-RO') ?? 0}
           </div>
-          <div className="rounded border border-muted/20 p-3 dark:border-slate-700 dark:bg-slate-800/50">
+          <div className="rounded border border-muted/20 p-3">
             Finalizate: {queueStatus?.completed?.toLocaleString('ro-RO') ?? 0}
           </div>
-          <div className="rounded border border-muted/20 p-3 dark:border-slate-700 dark:bg-slate-800/50">
+          <div className="rounded border border-muted/20 p-3">
             Eșuate: {queueStatus?.failed?.toLocaleString('ro-RO') ?? 0}
           </div>
         </div>
       </div>
 
-      <div className="rounded-lg border border-muted/20 bg-background p-4 dark:border-slate-700 dark:bg-slate-900/80">
+      <div className="rounded-lg border border-border bg-background p-4">
         <div className="mb-2 flex items-center justify-between gap-2">
-          <div className="text-xs text-muted dark:text-slate-400">Configurații scraper active</div>
-          <button
-            type="button"
-            className="rounded-md border border-muted/20 bg-background px-3 py-1 text-xs shadow-sm hover:bg-muted/10 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700/50"
-            onClick={openCreateConfig}
-          >
+          <div className="text-xs text-muted">Configurații scraper active</div>
+          <Button type="button" variant="secondary" size="sm" onClick={openCreateConfig}>
             Adaugă configurație
-          </button>
+          </Button>
         </div>
         {!configRows.length ? (
           <EmptyState
@@ -713,9 +709,9 @@ export default function SettingsScraper() {
             onAction={openCreateConfig}
           />
         ) : (
-          <div className="overflow-auto rounded-md border dark:border-slate-700">
-            <table className="w-full text-sm dark:text-slate-200">
-              <thead className="bg-muted/20 dark:bg-slate-800/50">
+          <div className="overflow-auto rounded-md border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/20">
                 <tr>
                   <th className="px-3 py-2 text-left">Nume</th>
                   <th className="px-3 py-2 text-left">Sursa</th>
@@ -724,6 +720,7 @@ export default function SettingsScraper() {
                   <th className="px-3 py-2 text-right">
                     <button
                       type="button"
+                      className="interactive inline-flex items-center gap-1 rounded px-1 hover:text-foreground focus-ring-standard"
                       onClick={() => {
                         if (configSortKey === 'successRate')
                           setConfigSortDirection(configSortDirection === 'asc' ? 'desc' : 'asc');
@@ -739,6 +736,7 @@ export default function SettingsScraper() {
                   <th className="px-3 py-2 text-right">
                     <button
                       type="button"
+                      className="interactive inline-flex items-center gap-1 rounded px-1 hover:text-foreground focus-ring-standard"
                       onClick={() => {
                         if (configSortKey === 'lastRunAt')
                           setConfigSortDirection(configSortDirection === 'asc' ? 'desc' : 'asc');
@@ -756,7 +754,7 @@ export default function SettingsScraper() {
               </thead>
               <tbody>
                 {configRows.map((config) => (
-                  <tr key={config.id} className="border-t border-muted/20 dark:border-slate-700">
+                  <tr key={config.id} className="border-t border-muted/20">
                     <td className="px-3 py-2">{config.name}</td>
                     <td className="px-3 py-2">{config.sourceName ?? '-'}</td>
                     <td className="px-3 py-2">{config.scraperType}</td>
@@ -768,20 +766,22 @@ export default function SettingsScraper() {
                       {config.lastRunAt ? new Date(config.lastRunAt).toLocaleString('ro-RO') : '-'}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <button
+                      <Button
                         type="button"
-                        className="mr-3 text-xs text-primary"
+                        variant="ghost"
+                        size="sm"
                         onClick={() => openEditConfig(config)}
                       >
-                        Editeaza
-                      </button>
-                      <button
+                        Editează
+                      </Button>
+                      <Button
                         type="button"
-                        className="text-error text-xs"
+                        variant="destructive"
+                        size="sm"
                         onClick={() => setDeactivateConfigId(config.id)}
                       >
-                        Dezactiveaza
-                      </button>
+                        Dezactivează
+                      </Button>
                     </td>
                   </tr>
                 ))}
@@ -791,13 +791,14 @@ export default function SettingsScraper() {
         )}
       </div>
 
-      <div className="rounded-lg border border-muted/20 bg-background p-4 dark:border-slate-700 dark:bg-slate-900/80">
+      <div className="rounded-lg border border-border bg-background p-4">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-xs text-muted dark:text-slate-400">Rulări recente</div>
+          <div className="text-xs text-muted">Rulări recente</div>
           <div className="flex items-center gap-2 text-xs">
-            <button
+            <Button
               type="button"
-              className="rounded border border-muted/20 px-2 py-1 dark:border-slate-600 dark:text-slate-300"
+              variant="secondary"
+              size="sm"
               disabled={page <= 1}
               onClick={() => {
                 const next = Math.max(1, page - 1);
@@ -806,11 +807,12 @@ export default function SettingsScraper() {
               }}
             >
               Anterior
-            </button>
+            </Button>
             <span>Pagina {page}</span>
-            <button
+            <Button
               type="button"
-              className="rounded border border-muted/20 px-2 py-1 dark:border-slate-600 dark:text-slate-300"
+              variant="secondary"
+              size="sm"
               onClick={() => {
                 const next = page + 1;
                 setPage(next);
@@ -818,21 +820,17 @@ export default function SettingsScraper() {
               }}
             >
               Următor
-            </button>
-            <select
-              value={limit}
+            </Button>
+            <Select
+              value={String(limit)}
               onChange={(e) => {
                 const nextLimit = Number(e.target.value);
                 setLimit(nextLimit);
                 setPage(1);
                 void loadAll(1, nextLimit);
               }}
-              className="rounded border border-muted/20 bg-background px-2 py-1 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300"
-            >
-              <option value={10}>10</option>
-              <option value={25}>25</option>
-              <option value={50}>50</option>
-            </select>
+              options={PAGINATION_OPTIONS}
+            />
           </div>
         </div>
 
@@ -843,13 +841,14 @@ export default function SettingsScraper() {
             description="Runs vor aparea dupa primele executii scraper."
           />
         ) : (
-          <div className="overflow-auto rounded-md border dark:border-slate-700">
-            <table className="w-full text-sm dark:text-slate-200">
-              <thead className="bg-muted/20 dark:bg-slate-800/50">
+          <div className="overflow-auto rounded-md border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/20">
                 <tr>
                   <th className="px-3 py-2 text-left">
                     <button
                       type="button"
+                      className="interactive inline-flex items-center gap-1 rounded px-1 hover:text-foreground focus-ring-standard"
                       onClick={() => {
                         if (runSortKey === 'startedAt')
                           setRunSortDirection(runSortDirection === 'asc' ? 'desc' : 'asc');
@@ -867,6 +866,7 @@ export default function SettingsScraper() {
                   <th className="px-3 py-2 text-left">
                     <button
                       type="button"
+                      className="interactive inline-flex items-center gap-1 rounded px-1 hover:text-foreground focus-ring-standard"
                       onClick={() => {
                         if (runSortKey === 'status')
                           setRunSortDirection(runSortDirection === 'asc' ? 'desc' : 'asc');
@@ -885,6 +885,7 @@ export default function SettingsScraper() {
                   <th className="px-3 py-2 text-right">
                     <button
                       type="button"
+                      className="interactive inline-flex items-center gap-1 rounded px-1 hover:text-foreground focus-ring-standard"
                       onClick={() => {
                         if (runSortKey === 'durationMs')
                           setRunSortDirection(runSortDirection === 'asc' ? 'desc' : 'asc');
@@ -901,7 +902,7 @@ export default function SettingsScraper() {
               </thead>
               <tbody>
                 {runRows.map((run) => (
-                  <tr key={run.id} className="border-t border-muted/20 dark:border-slate-700">
+                  <tr key={run.id} className="border-t border-muted/20">
                     <td className="px-3 py-2">
                       {run.startedAt ? new Date(run.startedAt).toLocaleString('ro-RO') : '-'}
                     </td>
@@ -947,30 +948,22 @@ export default function SettingsScraper() {
       </div>
 
       <Modal open={configModalOpen} onClose={() => setConfigModalOpen(false)}>
-        <div className="space-y-4 p-4 dark:text-slate-200">
-          <div className="text-h3 dark:text-slate-100">
+        <div className="space-y-4 p-4">
+          <div className="text-h3">
             {configEditingId ? 'Editează configurația scraper' : 'Adaugă configurație scraper'}
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">
             <div>
-              <label className="text-caption text-muted dark:text-slate-400">
-                Sursa (prod_sources)
-              </label>
-              <select
-                className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              <Select
+                label="Sursa (prod_sources)"
                 value={configDraft.sourceId}
-                onChange={(e) =>
-                  setConfigDraft((p) => ({ ...p, sourceId: (e.target as HTMLSelectElement).value }))
-                }
-              >
-                <option value="">Selecteaza sursa</option>
-                {sources.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+                onChange={(e) => setConfigDraft((p) => ({ ...p, sourceId: e.target.value }))}
+                options={[
+                  { value: '', label: 'Selecteaza sursa' },
+                  ...sources.map((s) => ({ value: s.id, label: s.name })),
+                ]}
+              />
               {sources.length === 0 ? (
                 <div className="mt-1 text-xs text-muted">
                   Nu exista surse disponibile in `prod_sources` pentru acest shop.
@@ -979,46 +972,37 @@ export default function SettingsScraper() {
             </div>
 
             <div>
-              <label className="text-caption text-muted dark:text-slate-400">Tip scraper</label>
-              <select
-                className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              <Select
+                label="Tip scraper"
                 value={configDraft.scraperType}
                 onChange={(e) =>
                   setConfigDraft((p) => ({
                     ...p,
-                    scraperType: (e.target as HTMLSelectElement)
-                      .value as ScraperConfigResponse['scraperType'],
+                    scraperType: e.target.value as ScraperConfigResponse['scraperType'],
                   }))
                 }
-              >
-                <option value="PLAYWRIGHT">PLAYWRIGHT</option>
-                <option value="CHEERIO">CHEERIO</option>
-                <option value="PUPPETEER">PUPPETEER</option>
-              </select>
+                options={SCRAPER_TYPE_OPTIONS}
+              />
             </div>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">
             <div>
-              <label className="text-caption text-muted dark:text-slate-400">Nume</label>
-              <input
-                className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              <TextField
+                label="Nume"
                 value={configDraft.name}
-                onChange={(e) =>
-                  setConfigDraft((p) => ({ ...p, name: (e.target as HTMLInputElement).value }))
-                }
+                onChange={(e) => setConfigDraft((p) => ({ ...p, name: e.target.value }))}
               />
             </div>
             <div>
-              <label className="text-caption text-muted dark:text-slate-400">Pattern URL</label>
-              <input
-                className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              <TextField
+                label="Pattern URL"
                 placeholder="https://example.com/product-page"
                 value={configDraft.targetUrlPattern}
                 onChange={(e) =>
                   setConfigDraft((p) => ({
                     ...p,
-                    targetUrlPattern: (e.target as HTMLInputElement).value,
+                    targetUrlPattern: e.target.value,
                   }))
                 }
               />
@@ -1026,8 +1010,7 @@ export default function SettingsScraper() {
           </div>
 
           <label className="inline-flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={configDraft.isActive}
               onChange={(e) =>
                 setConfigDraft((p) => ({ ...p, isActive: (e.target as HTMLInputElement).checked }))
@@ -1037,22 +1020,23 @@ export default function SettingsScraper() {
           </label>
 
           <div className="flex justify-end gap-2">
-            <button
+            <Button
               type="button"
-              className="rounded-md border border-muted/20 bg-background px-4 py-2 text-sm hover:bg-muted/10 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700/50"
+              variant="ghost"
               onClick={() => setConfigModalOpen(false)}
               disabled={configSaving}
             >
-              Renunta
-            </button>
-            <button
+              Renunță
+            </Button>
+            <Button
               type="button"
-              className="rounded-md bg-primary px-4 py-2 text-sm text-background shadow-sm hover:bg-primary/90 disabled:opacity-50"
+              variant="secondary"
               onClick={() => void saveConfig()}
               disabled={configSaving}
+              loading={configSaving}
             >
-              {configSaving ? 'Salvez...' : 'Salveaza'}
-            </button>
+              {configSaving ? 'Salvez...' : 'Salvează'}
+            </Button>
           </div>
         </div>
       </Modal>

@@ -55,7 +55,7 @@ export function BudgetAlertsPanel({
 }: BudgetAlertsPanelProps) {
   if (!budget) {
     return (
-      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 text-sm text-slate-500 dark:bg-slate-900/80 dark:border-slate-700/60 dark:text-slate-400">
+      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 text-sm text-muted">
         Bugetul nu este configurat in baza de date.
       </div>
     );
@@ -71,19 +71,19 @@ export function BudgetAlertsPanel({
   const thresholds =
     budget.warningThreshold != null && budget.criticalThreshold != null
       ? [
-          { value: budget.warningThreshold * 100, color: '#ffc453' },
-          { value: budget.criticalThreshold * 100, color: '#d72c0d' },
+          { value: budget.warningThreshold * 100, color: 'rgb(var(--color-warning))' },
+          { value: budget.criticalThreshold * 100, color: 'rgb(var(--color-error))' },
         ]
       : undefined;
 
   return (
-    <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-md dark:bg-slate-900/80 dark:border-slate-700/60">
+    <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-md)]">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm font-medium text-slate-800 dark:text-slate-100">
+        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
           <AlertTriangle className="h-4 w-4 text-warning" />
           {statusText}
         </div>
-        <div className="text-xs text-slate-500 dark:text-slate-400">
+        <div className="text-xs text-muted">
           {budget.used.toFixed(2)} / {budget.daily.toFixed(2)}
         </div>
       </div>
@@ -161,17 +161,17 @@ export function BudgetAlertsPanel({
                   ? 'warning'
                   : 'ok';
               const providerThresholds = [
-                { value: provider.alertThreshold * 100, color: '#ffc453' },
-                { value: 100, color: '#d72c0d' },
+                { value: provider.alertThreshold * 100, color: 'rgb(var(--color-warning))' },
+                { value: 100, color: 'rgb(var(--color-error))' },
               ];
               return (
                 <div
                   key={provider.provider}
-                  className="rounded border border-muted/20 bg-white/50 p-3 dark:border-slate-700 dark:bg-slate-800/50"
+                  className="rounded border border-muted/20 bg-card/50 p-3"
                 >
-                  <div className="mb-2 flex items-center justify-between text-xs text-slate-800 dark:text-slate-200">
+                  <div className="mb-2 flex items-center justify-between text-xs text-foreground">
                     <span>{providerLabel}</span>
-                    <span className="text-slate-500 dark:text-slate-400">
+                    <span className="text-muted">
                       {provider.primary.used > 0
                         ? `${provider.primary.used.toFixed(2)} / ${provider.primary.limit.toFixed(2)}`
                         : 'Nicio utilizare astazi'}
@@ -188,10 +188,10 @@ export function BudgetAlertsPanel({
                     <span
                       className={`text-xs ${
                         providerStatus === 'critical'
-                          ? 'text-red-500'
+                          ? 'text-error'
                           : providerStatus === 'warning'
-                            ? 'text-amber-500'
-                            : 'text-emerald-500'
+                            ? 'text-warning'
+                            : 'text-success'
                       }`}
                     >
                       {providerStatus === 'critical'

@@ -6,21 +6,21 @@ export function ComponentErrorFallback({ error, resetErrorBoundary }: FallbackPr
   const message = error instanceof Error ? (error.message ?? fallbackMessage) : fallbackMessage;
 
   return (
-    <div className="rounded-xl border border-red-200 bg-red-50/80 p-4 shadow-[var(--shadow-sm)] dark:border-red-800/50 dark:bg-red-900/20">
+    <div className="rounded-xl border border-error/30 bg-error/5 p-4 shadow-[var(--shadow-sm)]">
       <div className="flex items-start gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-red-100 dark:bg-red-900/40">
-          <AlertTriangle className="size-5 text-red-600 dark:text-red-400" />
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-error/10">
+          <AlertTriangle className="size-5 text-error" />
         </div>
         <div>
-          <div className="text-sm font-semibold text-red-800 dark:text-red-200">
+          <div className="text-sm font-semibold text-error">
             Această secțiune nu a putut fi încărcată
           </div>
-          <div className="mt-1 text-sm text-red-700/80 dark:text-red-300/80">{message}</div>
+          <div className="mt-1 text-sm text-error/80">{message}</div>
         </div>
       </div>
       <button
         type="button"
-        className="mt-4 inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:bg-red-700 focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_rgba(239,68,68,0.3)] dark:bg-red-500 dark:hover:bg-red-600"
+        className="mt-4 inline-flex items-center gap-2 rounded-xl bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground shadow-[var(--shadow-sm)] transition-all duration-200 hover:bg-error focus-ring-standard"
         onClick={resetErrorBoundary}
         aria-label="Reîncearcă încărcarea secțiunii"
       >

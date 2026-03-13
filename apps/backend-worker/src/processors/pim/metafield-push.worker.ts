@@ -1,6 +1,7 @@
 import { loadEnv } from '@app/config';
 import { withTenantContext } from '@app/database';
 import type { Logger } from '@app/logger';
+import { UnrecoverableError } from 'bullmq';
 import { configFromEnv, createWorker, withJobTelemetryContext } from '@app/queue-manager';
 import { withTokenRetry } from '../../auth/token-lifecycle.js';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
@@ -128,7 +129,7 @@ async function processMetafieldPush(payload: MetafieldPushPayload, logger: Logge
       status: 'failed',
       errorMessage: 'shopify_product_gid_missing',
     });
-    return;
+    throw new UnrecoverableError('shopify_product_gid_missing');
   }
 
   const selectedMappings = new Map<string, MappingRow>();
@@ -199,8 +200,35 @@ async function processMetafieldPush(payload: MetafieldPushPayload, logger: Logge
       status,
       errorMessage: errorMessage || null,
     });
+    if (errorMessage) {
+      logger.warn(
+        {
+          shopId: payload.shopId,
+          productId: payload.productId,
+          shopifyProductGid: product.shopify_product_gid,
+          metafieldsCount: metafields.length,
+          errorMessage,
+        },
+        'metafield_push_user_errors'
+      );
+      throw new UnrecoverableError(`metafield_push_user_errors:${errorMessage}`);
+    }
   } catch (error) {
+    if (error instanceof UnrecoverableError) {
+      throw error;
+    }
     const message = error instanceof Error ? error.message : String(error);
+    logger.error(
+      {
+        shopId: payload.shopId,
+        productId: payload.productId,
+        shopifyProductGid: product.shopify_product_gid,
+        metafieldsCount: metafields.length,
+        error: message,
+        stack: error instanceof Error ? error.stack : undefined,
+      },
+      'metafield_push_failed'
+    );
     await writePushLog({
       shopId: payload.shopId,
       productId: payload.productId,
@@ -209,6 +237,7 @@ async function processMetafieldPush(payload: MetafieldPushPayload, logger: Logge
       status: 'failed',
       errorMessage: message,
     });
+    throw error instanceof Error ? error : new Error(message);
   }
 }
 

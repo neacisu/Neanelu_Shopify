@@ -35,6 +35,12 @@ export function HITLReviewQueue({ matches, onReview, onSkip }: HITLReviewQueuePr
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (!current) return;
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement ||
+        event.target instanceof HTMLSelectElement
+      )
+        return;
       const key = event.key.toLowerCase();
       if (['1', '2', '3', '4', '5'].includes(key)) {
         const nextIndex = Number(key) - 1;
@@ -73,16 +79,16 @@ export function HITLReviewQueue({ matches, onReview, onSkip }: HITLReviewQueuePr
 
   if (!current) {
     return (
-      <div className="rounded-lg border border-muted/20 dark:border-slate-700 bg-muted/5 dark:bg-slate-800/50 p-4 text-sm text-muted dark:text-slate-400">
+      <div className="rounded-lg border border-muted/20 bg-muted/5 p-4 text-sm text-muted">
         Nu există items pentru HITL review.
       </div>
     );
   }
 
   return (
-    <div className="rounded-lg border border-muted/20 dark:border-slate-700 bg-white dark:bg-slate-900/80 p-4">
+    <div className="rounded-lg border border-muted/20 bg-card p-4">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-body dark:text-slate-100">
+        <div className="flex items-center gap-1.5 text-body">
           Coada review HITL
           <InfoTooltip title="HITL Review">
             Human-In-The-Loop: procesează potrivirile rapid cu scurtături de tastatură. C confirmă
@@ -93,26 +99,27 @@ export function HITLReviewQueue({ matches, onReview, onSkip }: HITLReviewQueuePr
           Omite
         </Button>
       </div>
-      <div className="mt-2 text-xs text-muted dark:text-slate-400">
+      <div className="mt-2 text-xs text-muted">
         Progress: {index + 1} / {matches.length} ({progress}%)
       </div>
-      <div className="mt-1 text-[11px] text-muted dark:text-slate-500">
+      <div className="mt-1 text-[11px] text-muted">
         Scurtături: 1-5 selectează • C confirmă • R respinge • S omite • U undo • D detalii • N note
       </div>
-      <div className="mt-3 text-sm text-muted dark:text-slate-300">
-        {current.source_title ?? current.source_url}
-      </div>
-      <div className="mt-3 text-xs text-muted dark:text-slate-400">
+      <div className="mt-3 text-sm text-muted">{current.source_title ?? current.source_url}</div>
+      <div className="mt-3 text-xs text-muted">
         Similarity: {Number(current.similarity_score).toFixed(2)} • Method:{' '}
         {current.match_method ?? '-'}
       </div>
       <div className="mt-3">
-        <label className="text-xs text-muted dark:text-slate-400">Note (opțional)</label>
+        <label htmlFor="hitl-notes" className="text-xs text-muted">
+          Note (opțional)
+        </label>
         <textarea
           ref={notesRef}
+          id="hitl-notes"
           value={notes}
           onChange={(event) => setNotes(event.target.value)}
-          className="mt-1 w-full rounded-md border border-muted/20 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm dark:text-slate-200 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50"
+          className="mt-1 w-full rounded-md border border-muted/20 bg-card px-3 py-2 text-sm transition-shadow duration-200 focus-ring-standard"
           rows={3}
         />
       </div>

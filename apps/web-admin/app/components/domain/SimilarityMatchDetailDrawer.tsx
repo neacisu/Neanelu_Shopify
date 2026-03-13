@@ -1,6 +1,5 @@
-import { useEffect, useCallback } from 'react';
-
 import { Button } from '../ui/button';
+import { Drawer } from '../ui/drawer';
 import { InfoTooltip } from '../ui/info-tooltip';
 import { AIAuditStatusPanel } from './AIAuditStatusPanel';
 import { ExtractionStatusBadge } from './ExtractionStatusBadge';
@@ -43,19 +42,6 @@ export function SimilarityMatchDetailDrawer({
   isExtracting,
   extractionError,
 }: SimilarityMatchDetailDrawerProps) {
-  const handleEscape = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    },
-    [onClose]
-  );
-
-  useEffect(() => {
-    if (!isOpen) return;
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [isOpen, handleEscape]);
-
   if (!isOpen || !match) return null;
   const breakdown = getScoreBreakdown(match);
   const triage = getTriageDecision(match);
@@ -91,57 +77,25 @@ export function SimilarityMatchDetailDrawer({
   ].filter((item) => item.value);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div
-        className="absolute inset-0 bg-black/30 backdrop-blur-sm"
-        style={{ animation: 'fadeIn 0.2s ease-out both' }}
-        onClick={onClose}
-        onKeyDown={(e) => e.key === 'Enter' && onClose()}
-        role="button"
-        tabIndex={0}
-        aria-label="Închide panoul"
-      />
-      <div
-        className="relative h-full w-full max-w-2xl overflow-y-auto border-l border-white/20 bg-white/90 backdrop-blur-xl p-4 shadow-xl dark:border-white/10 dark:bg-slate-900/90"
-        style={{
-          animation: 'slide-in-right 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards',
-          boxShadow: '-8px 0 24px rgba(15,23,42,0.12)',
-        }}
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-1.5 text-lg font-semibold text-slate-800 dark:text-slate-100">
-              Detalii potrivire
-              <InfoTooltip title="Detalii potrivire">
-                Panoul de detalii arată informații complete despre potrivire. Include produsul
-                local, sursa externă, scorul de similaritate și statusul extracției. De exemplu,
-                poți vedea dacă brandul și prețul corespund. Sfat: folosește butoanele de acțiune
-                din partea de jos.
-              </InfoTooltip>
-            </div>
-            <div className="mt-1 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-              <MatchStatusBadge
-                status={
-                  match.match_confidence === 'pending' ||
-                  match.match_confidence === 'confirmed' ||
-                  match.match_confidence === 'rejected' ||
-                  match.match_confidence === 'uncertain'
-                    ? match.match_confidence
-                    : 'pending'
-                }
-              />
-              {triage ? <TriageStatusBadge status={triage} /> : null}
-              <span>Scor: {Number(match.similarity_score).toFixed(2)}</span>
-            </div>
-          </div>
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            Închide
-          </Button>
-        </div>
-
+    <Drawer open={isOpen} onClose={onClose} title="Detalii potrivire" side="right" size="xl">
+      <div className="p-4">
+        <div className="flex items-center gap-2 text-xs text-muted">
+          <MatchStatusBadge
+            status={
+              match.match_confidence === 'pending' ||
+              match.match_confidence === 'confirmed' ||
+              match.match_confidence === 'rejected' ||
+              match.match_confidence === 'uncertain'
+                ? match.match_confidence
+                : 'pending'
+            }
+          />
+          {triage ? <TriageStatusBadge status={triage} /> : null}
+          <span>Scor: {Number(match.similarity_score).toFixed(2)}</span>
+        </div>{' '}
         <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <div className="rounded-lg border border-slate-200/80 bg-white/80 backdrop-blur-sm p-3 transition-colors hover:border-slate-300 dark:border-slate-700/60 dark:bg-slate-800/60 dark:hover:border-slate-600">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+          <div className="rounded-lg border border-border bg-card/80 backdrop-blur-sm p-3 transition-colors hover:border-border">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-muted">
               Produs local
               <InfoTooltip title="Produs local">
                 Produsul din catalogul tău căruia i s-a găsit această potrivire externă. Verifică
@@ -157,21 +111,17 @@ export function SimilarityMatchDetailDrawer({
                   className="h-14 w-14 rounded object-cover"
                 />
               ) : (
-                <div className="h-14 w-14 rounded bg-slate-100 dark:bg-slate-800" />
+                <div className="h-14 w-14 rounded bg-subtle" />
               )}
               <div>
-                <div className="text-sm font-medium text-slate-800 dark:text-slate-100">
-                  {match.product_title}
-                </div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">
-                  PIM ID: {match.product_id}
-                </div>
+                <div className="text-sm font-medium text-foreground">{match.product_title}</div>
+                <div className="text-xs text-muted">PIM ID: {match.product_id}</div>
               </div>
             </div>
           </div>
 
-          <div className="rounded-lg border border-slate-200/80 bg-white/80 backdrop-blur-sm p-3 transition-colors hover:border-slate-300 dark:border-slate-700/60 dark:bg-slate-800/60 dark:hover:border-slate-600">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+          <div className="rounded-lg border border-border bg-card/80 backdrop-blur-sm p-3 transition-colors hover:border-border">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-muted">
               Sursă externă
               <InfoTooltip title="Sursă externă">
                 Produsul găsit pe site-uri externe care se potrivește cu al tău. Include detalii
@@ -180,25 +130,20 @@ export function SimilarityMatchDetailDrawer({
               </InfoTooltip>
             </div>
             <div className="mt-3 space-y-1 text-sm">
-              <div className="font-medium text-slate-800 dark:text-slate-100">
+              <div className="font-medium text-foreground">
                 {match.source_title ?? match.source_url}
               </div>
-              <div className="text-xs text-slate-500 dark:text-slate-400">{match.source_url}</div>
-              <div className="text-xs text-slate-500 dark:text-slate-400">
-                Brand: {match.source_brand ?? '—'}
-              </div>
-              <div className="text-xs text-slate-500 dark:text-slate-400">
-                GTIN: {match.source_gtin ?? '—'}
-              </div>
-              <div className="text-xs text-slate-500 dark:text-slate-400">
+              <div className="text-xs text-muted">{match.source_url}</div>
+              <div className="text-xs text-muted">Brand: {match.source_brand ?? '—'}</div>
+              <div className="text-xs text-muted">GTIN: {match.source_gtin ?? '—'}</div>
+              <div className="text-xs text-muted">
                 Preț: {match.source_price ?? '—'} {match.source_currency ?? ''}
               </div>
             </div>
           </div>
         </div>
-
-        <div className="mt-4 rounded-lg border border-slate-200/80 bg-white/80 backdrop-blur-sm p-3 transition-colors hover:border-slate-300 dark:border-slate-700/60 dark:bg-slate-800/60 dark:hover:border-slate-600">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+        <div className="mt-4 rounded-lg border border-border bg-card/80 backdrop-blur-sm p-3 transition-colors hover:border-border">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-muted">
             Detalii scor similaritate
             <InfoTooltip title="Detalii scor">
               Scorul total se calculează din mai multe componente. Fiecare componentă contribuie la
@@ -207,26 +152,22 @@ export function SimilarityMatchDetailDrawer({
             </InfoTooltip>
           </div>
           {breakdown ? (
-            <div className="mt-3 grid gap-2 text-xs text-slate-500 dark:text-slate-400">
+            <div className="mt-3 grid gap-2 text-xs text-muted">
               <div>GTIN: {breakdown.gtinMatch ?? '—'}</div>
               <div>Titlu: {breakdown.titleSimilarity ?? '—'}</div>
               <div>Brand: {breakdown.brandMatch ?? '—'}</div>
               <div>Preț: {breakdown.priceProximity ?? '—'}</div>
             </div>
           ) : (
-            <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-              Detalii indisponibile.
-            </div>
+            <div className="mt-2 text-xs text-muted">Detalii indisponibile.</div>
           )}
         </div>
-
         <div className="mt-4">
           <AIAuditStatusPanel auditResult={audit} isProcessing={triage === 'ai_audit' && !audit} />
         </div>
-
-        <div className="mt-4 rounded-lg border border-slate-200/80 bg-white/80 backdrop-blur-sm p-3 transition-colors hover:border-slate-300 dark:border-slate-700/60 dark:bg-slate-800/60 dark:hover:border-slate-600">
+        <div className="mt-4 rounded-lg border border-border bg-card/80 backdrop-blur-sm p-3 transition-colors hover:border-border">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-muted">
               Extracție
               <InfoTooltip title="Extracție date">
                 Extracția colectează date (specificații, preț, brand) din sursa externă. Contează
@@ -237,7 +178,7 @@ export function SimilarityMatchDetailDrawer({
             </div>
             <ExtractionStatusBadge status={extractionStatus} />
           </div>
-          <div className="mt-2 grid gap-2 text-xs text-slate-500 dark:text-slate-400">
+          <div className="mt-2 grid gap-2 text-xs text-muted">
             <div>Sesiune: {match.extraction_session_id ?? '—'}</div>
             <div>Ultim scrap: {match.scraped_at ?? '—'}</div>
             <div>
@@ -276,18 +217,17 @@ export function SimilarityMatchDetailDrawer({
                 </InfoTooltip>
               </span>
             ) : null}
-            <span className="text-xs text-slate-500 dark:text-slate-400">
+            <span className="text-xs text-muted">
               La aprobare prin AI Audit, extracția pornește automat.
             </span>
           </div>
           {extractionError ? (
-            <div className="mt-2 text-xs text-red-600 dark:text-red-400">{extractionError}</div>
+            <div className="mt-2 text-xs text-error">{extractionError}</div>
           ) : null}
         </div>
-
         {timeline.length > 0 ? (
-          <div className="mt-4 rounded-lg border border-slate-200/80 bg-white/80 backdrop-blur-sm p-3 transition-colors hover:border-slate-300 dark:border-slate-700/60 dark:bg-slate-800/60 dark:hover:border-slate-600">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+          <div className="mt-4 rounded-lg border border-border bg-card/80 backdrop-blur-sm p-3 transition-colors hover:border-border">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-muted">
               Cronologie
               <InfoTooltip title="Cronologie">
                 Cronologia arată evenimentele importante din viața potrivirii. Include momentele de
@@ -296,7 +236,7 @@ export function SimilarityMatchDetailDrawer({
                 procesare.
               </InfoTooltip>
             </div>
-            <div className="mt-2 space-y-1 text-xs text-slate-500 dark:text-slate-400">
+            <div className="mt-2 space-y-1 text-xs text-muted">
               {timeline.map((item) => (
                 <div key={item.label}>
                   {item.label}: {String(item.value)}
@@ -305,7 +245,6 @@ export function SimilarityMatchDetailDrawer({
             </div>
           </div>
         ) : null}
-
         <div className="mt-6 flex flex-wrap gap-2">
           <span className="inline-flex items-center gap-1">
             <Button size="sm" variant="secondary" onClick={onConfirm}>
@@ -362,6 +301,6 @@ export function SimilarityMatchDetailDrawer({
           </span>
         </div>
       </div>
-    </div>
+    </Drawer>
   );
 }

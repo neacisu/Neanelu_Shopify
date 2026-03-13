@@ -13,6 +13,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { useReducedMotion } from '../../hooks/use-reduced-motion';
+import { useChartTheme } from '../charts/theme';
 
 import { InfoTooltip } from '../ui/info-tooltip';
 
@@ -35,20 +37,6 @@ export interface QueueStatusDistribution {
 const CHART_HEIGHT = 200;
 const PIE_SIZE = 160;
 
-const COLORS = {
-  throughput: '#3b82f6',
-  throughputFill: 'url(#throughputGradient)',
-  completed: '#22c55e',
-  completedFill: 'url(#completedGradient)',
-  failed: '#ef4444',
-  failedFill: 'url(#failedGradient)',
-  waiting: '#f59e0b',
-  active: '#3b82f6',
-  delayed: '#a855f7',
-  distFailed: '#ef4444',
-  distCompleted: '#22c55e',
-} as const;
-
 function formatTs(ts: number): string {
   try {
     return new Date(ts).toLocaleTimeString('ro-RO', {
@@ -62,22 +50,38 @@ function formatTs(ts: number): string {
 }
 
 const cardBase =
-  'overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 backdrop-blur-sm p-4 shadow-[var(--shadow-sm)] transition-shadow hover:shadow-[var(--shadow-md)] dark:border-slate-700/60 dark:bg-slate-900/80';
-
-const tooltipContentStyle = {
-  padding: '10px 14px',
-  borderRadius: '10px',
-  border: '1px solid rgb(226 232 240)',
-  background: 'white',
-  boxShadow: '0 4px 12px rgb(0 0 0 / 0.08)',
-  fontSize: '12px',
-};
+  'overflow-hidden rounded-xl border border-border bg-card p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm transition-[box-shadow,border-color] duration-normal hover:border-accent-border/70 hover:shadow-[var(--shadow-md)]';
 
 export function QueueMetricsCharts(props: {
   points: QueueMetricsPoint[];
   distribution?: QueueStatusDistribution | null;
 }) {
+  const reducedMotion = useReducedMotion();
+  const theme = useChartTheme();
   const { points, distribution = null } = props;
+
+  const COLORS = {
+    throughput: theme.palette[1] ?? 'rgb(var(--chart-2))',
+    throughputFill: 'url(#throughputGradient)',
+    completed: theme.semantic.success,
+    completedFill: 'url(#completedGradient)',
+    failed: theme.semantic.danger,
+    failedFill: 'url(#failedGradient)',
+    waiting: theme.semantic.warning,
+    active: theme.palette[0] ?? 'rgb(var(--chart-1))',
+    delayed: theme.palette[3] ?? 'rgb(var(--chart-4))',
+    distFailed: theme.semantic.danger,
+    distCompleted: theme.semantic.success,
+  };
+
+  const tooltipContentStyle = {
+    padding: '10px 14px',
+    borderRadius: '10px',
+    border: `1px solid ${theme.semantic.tooltipBorder}`,
+    background: theme.semantic.tooltipBg,
+    boxShadow: 'var(--shadow-md)',
+    fontSize: '12px',
+  };
 
   const distData = distribution
     ? [
@@ -94,7 +98,7 @@ export function QueueMetricsCharts(props: {
   return (
     <>
       <article className={cardBase}>
-        <h3 className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <h3 className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-muted">
           Throughput (jobs/s)
           <InfoTooltip title="Throughput" side="bottom" maxWidth={320}>
             Numărul de job-uri finalizate pe secundă în ultimele minute. O valoare ridicată înseamnă
@@ -106,7 +110,7 @@ export function QueueMetricsCharts(props: {
             <AreaChart
               data={points}
               margin={{ left: 0, right: 8, top: 8, bottom: 0 }}
-              style={{ animation: 'chartFadeIn 0.5s ease-out' }}
+              style={reducedMotion ? {} : { animation: 'chartFadeIn 0.5s ease-out' }}
             >
               <defs>
                 <linearGradient id="throughputGradient" x1="0" y1="0" x2="0" y2="1">
@@ -116,21 +120,21 @@ export function QueueMetricsCharts(props: {
               </defs>
               <CartesianGrid
                 strokeDasharray="3 3"
-                className="[&_line]:stroke-slate-200 dark:[&_line]:stroke-slate-700"
-                stroke="#e2e8f0"
+                className="[&_line]:stroke-border dark:[&_line]:stroke-border"
+                stroke={theme.grid}
                 vertical={false}
               />
               <XAxis
                 dataKey="ts"
                 tickFormatter={formatTs}
                 tick={{ fontSize: 11 }}
-                className="[&_text]:fill-slate-500 dark:[&_text]:fill-slate-400"
-                axisLine={{ stroke: '#e2e8f0' }}
+                className="[&_text]:fill-muted"
+                axisLine={{ stroke: theme.grid }}
                 tickLine={false}
               />
               <YAxis
                 tick={{ fontSize: 11 }}
-                className="[&_text]:fill-slate-500 dark:[&_text]:fill-slate-400"
+                className="[&_text]:fill-muted"
                 axisLine={false}
                 tickLine={false}
                 width={28}
@@ -145,13 +149,13 @@ export function QueueMetricsCharts(props: {
               />
               <ReferenceLine
                 y={50}
-                stroke="#ef4444"
+                stroke={theme.semantic.danger}
                 strokeDasharray="4 4"
                 strokeOpacity={0.8}
                 label={{
                   value: 'Limit 50',
                   position: 'insideTopRight',
-                  fill: '#ef4444',
+                  fill: theme.semantic.danger,
                   fontSize: 10,
                 }}
               />
@@ -171,7 +175,7 @@ export function QueueMetricsCharts(props: {
       </article>
 
       <article className={cardBase}>
-        <h3 className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <h3 className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-muted">
           Rezultate (delta)
           <InfoTooltip title="Rezultate" side="bottom" maxWidth={320}>
             Modificarea numărului de job-uri finalizate (verde) și eșuate (roșu) între măsurători.
@@ -183,7 +187,7 @@ export function QueueMetricsCharts(props: {
             <LineChart
               data={points}
               margin={{ left: 0, right: 8, top: 8, bottom: 0 }}
-              style={{ animation: 'chartFadeIn 0.5s ease-out 0.05s both' }}
+              style={reducedMotion ? {} : { animation: 'chartFadeIn 0.5s ease-out 0.05s both' }}
             >
               <defs>
                 <linearGradient id="completedGradient" x1="0" y1="0" x2="1" y2="0">
@@ -195,16 +199,16 @@ export function QueueMetricsCharts(props: {
                   <stop offset="100%" stopColor={COLORS.failed} stopOpacity={0.6} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} vertical={false} />
               <XAxis
                 dataKey="ts"
                 tickFormatter={formatTs}
-                tick={{ fontSize: 11, fill: '#64748b' }}
-                axisLine={{ stroke: '#e2e8f0' }}
+                tick={{ fontSize: 11, fill: theme.text.axis }}
+                axisLine={{ stroke: theme.grid }}
                 tickLine={false}
               />
               <YAxis
-                tick={{ fontSize: 11, fill: '#64748b' }}
+                tick={{ fontSize: 11, fill: theme.text.axis }}
                 axisLine={false}
                 tickLine={false}
                 width={28}
@@ -243,7 +247,7 @@ export function QueueMetricsCharts(props: {
       </article>
 
       <article className={cardBase}>
-        <h3 className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <h3 className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-muted">
           Distribuție status
           <InfoTooltip title="Distribuție status" side="bottom" maxWidth={340}>
             Repartiția job-urilor pe stări: în așteptare, active, amânate, finalizate, eșuate. Oferă
@@ -257,9 +261,13 @@ export function QueueMetricsCharts(props: {
           >
             <ResponsiveContainer width="100%" height={PIE_SIZE + 24} minWidth={1} minHeight={1}>
               <PieChart
-                style={{
-                  animation: 'chartFadeIn 0.5s ease-out 0.1s both',
-                }}
+                style={
+                  reducedMotion
+                    ? {}
+                    : {
+                        animation: 'chartFadeIn 0.5s ease-out 0.1s both',
+                      }
+                }
               >
                 <Tooltip
                   contentStyle={tooltipContentStyle}
@@ -293,17 +301,13 @@ export function QueueMetricsCharts(props: {
             </ResponsiveContainer>
             {totalDist > 0 && (
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-                <span className="text-2xl font-bold tabular-nums text-slate-800 dark:text-slate-100">
-                  {totalDist}
-                </span>
-                <span className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  total
-                </span>
+                <span className="text-2xl font-bold tabular-nums text-foreground">{totalDist}</span>
+                <span className="text-[10px] uppercase tracking-wide text-muted">total</span>
               </div>
             )}
           </div>
         ) : (
-          <div className="flex h-[200px] items-center justify-center text-sm text-slate-500 dark:text-slate-400">
+          <div className="flex h-[200px] items-center justify-center text-sm text-muted">
             Fără date de distribuție
           </div>
         )}

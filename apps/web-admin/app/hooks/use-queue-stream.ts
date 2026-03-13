@@ -76,6 +76,9 @@ export function useQueueStream(options: {
           return;
         }
         const url = new URL('/api/queues/ws', window.location.origin);
+        // NOTE: JWT in URL query string is logged in server/proxy logs and browser history.
+        // Acceptable for WebSocket handshake (no Authorization header support); mitigate by
+        // using short-lived tokens and ensuring TLS in production.
         url.searchParams.set('token', token);
         url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
         socket = new WebSocket(url.toString());

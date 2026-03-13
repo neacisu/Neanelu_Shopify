@@ -157,8 +157,9 @@ export async function upsertOfflineShopCredentials(params: {
       modelId: 'Qwen/Qwen2.5-14B-Instruct-AWQ',
       type: 'chat',
       enabled: true,
-      maxConcurrentRequests: 8,
-      timeoutMs: 30000,
+      // Both chat endpoints share the same GPU host, so conservative defaults prevent bursts.
+      maxConcurrentRequests: 1,
+      timeoutMs: 90_000,
     },
     {
       id: 'selfhosted-chat-reasoning',
@@ -167,8 +168,8 @@ export async function upsertOfflineShopCredentials(params: {
       modelId: 'Qwen/QwQ-32B-AWQ',
       type: 'chat',
       enabled: true,
-      maxConcurrentRequests: 4,
-      timeoutMs: 45000,
+      maxConcurrentRequests: 1,
+      timeoutMs: 120_000,
     },
     {
       id: 'selfhosted-embedding',

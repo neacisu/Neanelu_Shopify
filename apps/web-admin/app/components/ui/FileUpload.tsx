@@ -335,10 +335,10 @@ export function FileUpload(props: FileUploadProps) {
       <div
         {...getRootProps({
           className:
-            'mt-2 group rounded-xl border-2 border-dashed bg-card p-6 text-center text-sm transition-all duration-200 focus-visible:shadow-[0_0_0_3px_rgba(59,130,246,0.15)] dark:focus-visible:shadow-[0_0_0_3px_rgba(96,165,250,0.2)] ' +
+            'mt-2 group rounded-xl border-2 border-dashed bg-card p-6 text-center text-sm transition-all duration-200 focus-ring-standard ' +
             (isDragActive
-              ? 'border-blue-400 bg-blue-50/50 dark:border-blue-500 dark:bg-blue-900/20 motion-safe:animate-[pulse-border_1s_ease-in-out_infinite]'
-              : 'border-border hover:border-slate-400 dark:hover:border-slate-500') +
+              ? 'border-primary bg-primary/5 motion-safe:animate-[pulse-border_1s_ease-in-out_infinite]'
+              : 'border-border hover:border-primary/40') +
             (disabled ? ' opacity-60 cursor-not-allowed' : ' cursor-pointer'),
           role: 'button',
           tabIndex: disabled ? -1 : 0,
@@ -358,7 +358,7 @@ export function FileUpload(props: FileUploadProps) {
         })}
       >
         <input {...getInputProps()} />
-        <div className="mx-auto mb-2 flex size-10 items-center justify-center rounded-xl bg-slate-100 text-slate-400 transition-colors group-hover:bg-blue-100 group-hover:text-blue-500 dark:bg-slate-800 dark:text-slate-500 dark:group-hover:bg-blue-900/40 dark:group-hover:text-blue-400">
+        <div className="mx-auto mb-2 flex size-10 items-center justify-center rounded-xl bg-subtle text-muted transition-colors group-hover:bg-primary/10 group-hover:text-primary">
           <Upload className="size-5" />
         </div>
         <div className="font-medium text-foreground">
@@ -376,7 +376,7 @@ export function FileUpload(props: FileUploadProps) {
           id={errorId}
           role="alert"
           aria-live="assertive"
-          className="mt-2 rounded-xl border border-red-200 bg-red-50/80 px-3 py-2 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-300"
+          className="mt-2 rounded-xl border border-error/30 bg-error/5 px-3 py-2 text-sm text-error"
         >
           {globalError}
         </div>
@@ -395,7 +395,7 @@ export function FileUpload(props: FileUploadProps) {
             {items.map((item) => (
               <li
                 key={item.id}
-                className="flex items-center gap-3 rounded-xl border border-border bg-card p-2.5 transition-colors dark:border-slate-700 dark:bg-slate-800/50"
+                className="flex items-center gap-3 rounded-xl border border-border bg-card p-2.5 transition-colors"
               >
                 {item.previewUrl ? (
                   <img
@@ -404,11 +404,11 @@ export function FileUpload(props: FileUploadProps) {
                     className="size-10 rounded-lg object-cover"
                   />
                 ) : (
-                  <div className="flex size-10 items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-700/60">
+                  <div className="flex size-10 items-center justify-center rounded-lg bg-subtle">
                     {item.jsonlPreview ? (
-                      <span className="text-[10px] font-bold text-blue-500">JSONL</span>
+                      <span className="text-[10px] font-bold text-primary">JSONL</span>
                     ) : (
-                      <FileText className="size-4 text-slate-400 dark:text-slate-500" />
+                      <FileText className="size-4 text-muted" />
                     )}
                   </div>
                 )}
@@ -432,7 +432,7 @@ export function FileUpload(props: FileUploadProps) {
                     {item.status === 'error' && 'Eroare'}
                     {item.error ? ` · ${item.error}` : ''}
                   </div>
-                  <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-200/60 dark:bg-slate-700/60">
+                  <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-subtle">
                     <div
                       role="progressbar"
                       aria-label={`Progres pentru ${item.file.name}`}
@@ -442,10 +442,10 @@ export function FileUpload(props: FileUploadProps) {
                       className={
                         'h-full rounded-full transition-all duration-300 ' +
                         (item.status === 'error'
-                          ? 'bg-red-500'
+                          ? 'bg-error'
                           : item.status === 'done'
-                            ? 'bg-emerald-500'
-                            : 'bg-gradient-to-r from-blue-400 to-blue-600')
+                            ? 'bg-success'
+                            : 'bg-primary')
                       }
                       style={{ width: `${Math.max(0, Math.min(100, item.progress))}%` }}
                     />
@@ -455,7 +455,7 @@ export function FileUpload(props: FileUploadProps) {
                 <button
                   type="button"
                   onClick={() => remove(item.id)}
-                  className="rounded-lg p-1.5 text-muted transition-colors hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900/30 dark:hover:text-red-400"
+                  className="rounded-lg p-1.5 text-muted transition-colors hover:bg-error/10 hover:text-error focus-ring-standard"
                   aria-label={`Elimină ${item.file.name}`}
                 >
                   <X className="size-4" />
@@ -475,17 +475,14 @@ export function FileUpload(props: FileUploadProps) {
                   const cols = jp.rows[0] ? Object.keys(jp.rows[0]) : [];
                   const previewRows = jp.rows.slice(0, 10);
                   return (
-                    <div
-                      key={item.id}
-                      className="overflow-hidden rounded-xl border border-border dark:border-slate-700"
-                    >
-                      <div className="border-b border-border bg-slate-50/50 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-muted dark:border-slate-700 dark:bg-slate-800/50">
+                    <div key={item.id} className="overflow-hidden rounded-xl border border-border">
+                      <div className="border-b border-border bg-subtle px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-muted">
                         Previzualizare JSONL: {item.file.name}
                       </div>
                       <div className="overflow-x-auto">
                         <table className="w-full text-left text-xs">
                           <thead>
-                            <tr className="border-b border-border bg-slate-50/30 dark:border-slate-700 dark:bg-slate-800/30">
+                            <tr className="border-b border-border bg-subtle">
                               <th className="px-3 py-2 font-medium text-muted">#</th>
                               {cols.map((c) => (
                                 <th key={c} className="px-3 py-2 font-medium text-muted">
@@ -496,10 +493,7 @@ export function FileUpload(props: FileUploadProps) {
                           </thead>
                           <tbody>
                             {previewRows.map((row, i) => (
-                              <tr
-                                key={i}
-                                className="border-b border-border/50 last:border-0 dark:border-slate-700/50"
-                              >
+                              <tr key={i} className="border-b border-border/50 last:border-0">
                                 <td className="px-3 py-1.5 text-muted">{i + 1}</td>
                                 {cols.map((c) => {
                                   const val = row[c];
@@ -527,7 +521,7 @@ export function FileUpload(props: FileUploadProps) {
                           </tbody>
                         </table>
                       </div>
-                      <div className="border-t border-border px-3 py-1.5 text-xs text-muted dark:border-slate-700">
+                      <div className="border-t border-border px-3 py-1.5 text-xs text-muted">
                         {jp.totalLines} linii
                         {jp.errors.length > 0
                           ? ` · ${jp.errors.length} erori (ex: linia ${jp.errors[0]?.line})`

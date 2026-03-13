@@ -4,7 +4,9 @@ export type CollectionPendingChangeType =
   | 'field_update'
   | 'taxonomy_assign'
   | 'taxonomy_unassign'
-  | 'menu_assign';
+  | 'menu_assign'
+  | 'product_dissociate'
+  | 'metafield_definition_create';
 
 export type CollectionPendingChangeSource =
   | 'manual'
@@ -12,6 +14,7 @@ export type CollectionPendingChangeSource =
   | 'ai_translate'
   | 'ai_taxonomy'
   | 'ai_menu'
+  | 'ai_metafield'
   | 'sync';
 
 export type CollectionPendingChangeStatus =
@@ -23,9 +26,12 @@ export type CollectionPendingChangeStatus =
 
 export type CollectionPendingChangeMutation =
   | 'collectionUpdate'
+  | 'collectionRemoveProducts'
+  | 'tagsRemove'
   | 'metafieldsSet'
   | 'metafieldsDelete'
-  | 'menuUpdate';
+  | 'menuUpdate'
+  | 'metafieldDefinitionCreate';
 
 type QueryResult<T> = Readonly<{
   rows: T[];
@@ -41,6 +47,8 @@ export interface PendingChangeCounts {
   taxonomy_assign: number;
   taxonomy_unassign: number;
   menu_assign: number;
+  product_dissociate: number;
+  metafield_definition_create: number;
 }
 
 export interface CollectionPendingChangeRow {
@@ -75,6 +83,8 @@ const EMPTY_COUNTS: PendingChangeCounts = {
   taxonomy_assign: 0,
   taxonomy_unassign: 0,
   menu_assign: 0,
+  product_dissociate: 0,
+  metafield_definition_create: 0,
 };
 
 function normalizeMetadata(metadata: Record<string, unknown> | null | undefined): string {
@@ -355,6 +365,40 @@ export async function upsertMenuAssignPendingChange(
   );
 }
 
+export async function upsertProductDissociatePendingChange(
+  client: DbClientLike,
+  params: {
+    shopId: string;
+    collectionId: string;
+    productIds: string[];
+    productGids: string[];
+    collectionGid: string;
+    collectionType?: string;
+    source: CollectionPendingChangeSource;
+  }
+): Promise<void> {
+  const mutation: CollectionPendingChangeMutation =
+    params.collectionType === 'SMART' ? 'tagsRemove' : 'collectionRemoveProducts';
+  const metadata = {
+    productIds: params.productIds,
+    productGids: params.productGids,
+    collectionGid: params.collectionGid,
+    collectionType: params.collectionType ?? 'CUSTOM',
+  };
+  await client.query(
+    `INSERT INTO collection_pending_changes (
+       shop_id,
+       collection_id,
+       change_type,
+       metadata,
+       source,
+       shopify_mutation
+     )
+     VALUES ($1, $2, 'product_dissociate', $3::jsonb, $4, $5)`,
+    [params.shopId, params.collectionId, normalizeMetadata(metadata), params.source, mutation]
+  );
+}
+
 export async function listPendingCollectionChanges(
   shopId: string
 ): Promise<{ changes: CollectionPendingChangeRow[]; byType: PendingChangeCounts }> {
@@ -448,7 +492,9 @@ export async function getPendingCollectionChangeCounts(shopId: string): Promise<
         byType.field_update +
         byType.taxonomy_assign +
         byType.taxonomy_unassign +
-        byType.menu_assign,
+        byType.menu_assign +
+        byType.product_dissociate +
+        byType.metafield_definition_create,
       byType,
     };
   });
@@ -478,7 +524,9 @@ function sortApprovedChanges(rows: readonly ApprovedPendingChange[]): ApprovedPe
     taxonomy_unassign: 0,
     taxonomy_assign: 1,
     field_update: 2,
-    menu_assign: 3,
+    product_dissociate: 3,
+    metafield_definition_create: 4,
+    menu_assign: 5,
   };
   return [...rows].sort((a, b) => order[a.changeType] - order[b.changeType]);
 }

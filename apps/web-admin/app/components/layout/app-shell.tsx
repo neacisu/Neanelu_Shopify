@@ -1,5 +1,6 @@
 import type { PropsWithChildren } from 'react';
 import { useEffect, useMemo, useState } from 'react';
+import { useReducedMotion } from '../../hooks/use-reduced-motion';
 import {
   ChevronLeft,
   Command,
@@ -22,6 +23,8 @@ import { usePendingSimilarityMatchCount } from '../../hooks/use-similarity-match
 import { NotificationBell } from './notification-bell';
 import { InfoTooltip } from '../ui/info-tooltip';
 import { CommandPalette } from './command-palette';
+import { ActiveJobsBanner } from '../domain/ActiveJobsBanner.js';
+import { JobsProvider, useJobsContext, initJobsStore } from '../../contexts/jobs-context.js';
 
 export type AppShellProps = PropsWithChildren<{
   sidebarOpen?: boolean;
@@ -33,7 +36,6 @@ interface NavItem {
   label: string;
   icon?: Parameters<typeof NavLink>[0]['icon'];
   badge?: Parameters<typeof NavLink>[0]['badge'];
-  /** Detailed, non-technical explanation for new users. */
   tooltip?: string;
   tooltipTitle?: string;
 }
@@ -43,6 +45,29 @@ export function AppShell({
   sidebarOpen: controlledSidebarOpen,
   onSidebarToggle,
 }: AppShellProps) {
+  return (
+    <JobsProvider>
+      <AppShellInner
+        {...(controlledSidebarOpen !== undefined ? { sidebarOpen: controlledSidebarOpen } : {})}
+        {...(onSidebarToggle !== undefined ? { onSidebarToggle } : {})}
+      >
+        {children}
+      </AppShellInner>
+    </JobsProvider>
+  );
+}
+
+function AppShellInner({
+  children,
+  sidebarOpen: controlledSidebarOpen,
+  onSidebarToggle,
+}: AppShellProps) {
+  const reducedMotion = useReducedMotion();
+  const { jobs, addJob, updateJob, removeJob, dismissJob } = useJobsContext();
+
+  useEffect(() => {
+    initJobsStore(addJob, updateJob, removeJob);
+  }, [addJob, updateJob, removeJob]);
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -103,7 +128,7 @@ export function AppShell({
         label: 'Cozi',
         icon: Cpu,
         tooltip:
-          'Monitorizarea cozilor de job-uri: vezi toate cozile (sincronizare, webhooks, îmbogățiri etc.), câte job-uri sunt în așteptare, active sau eșuate. Poți pune coada pe pauză, o poți reporni, șterge job-urile eșuate sau relansa, promova și șterge job-uri individuale. Tab-ul „Workeri” arată ce procesoare sunt conectate.',
+          'Monitorizarea cozilor de job-uri: vezi toate cozile (sincronizare, webhooks, îmbogățiri etc.), câte job-uri sunt în așteptare, active sau eșuate. Poți pune coada pe pauză, o poți reporni, șterge job-urile eșuate sau relansa, promova și șterge job-uri individuale. Tab-ul „Workeri" arată ce procesoare sunt conectate.',
       },
       {
         to: '/ingestion',
@@ -117,7 +142,7 @@ export function AppShell({
         label: 'Căutare',
         icon: Search,
         tooltip:
-          'Căutare semantică în produse: introduci o frază în limbaj natural și aplicația găsește produse după semnificație (nu doar după cuvinte exacte). Poți filtra după furnizor, tip produs, preț și categorie, ajusta pragul de relevanță și numărul de rezultate, și exporta rezultatele. Util pentru a vedea cum „înțelege” catalogul aplicația.',
+          'Căutare semantică în produse: introduci o frază în limbaj natural și aplicația găsește produse după semnificație (nu doar după cuvinte exacte). Poți filtra după furnizor, tip produs, preț și categorie, ajusta pragul de relevanță și numărul de rezultate, și exporta rezultatele. Util pentru a vedea cum „înțelege" catalogul aplicația.',
       },
       {
         to: '/products',
@@ -145,7 +170,7 @@ export function AppShell({
         label: 'Coada review',
         icon: Workflow,
         tooltip:
-          'Coada de revizuiri umane: elemente care necesită confirmarea ta — fie potriviri între produsul tău și o sursă externă (confirmi sau respingi potrivirea), fie propuneri noi de atribute generate de sistem (aprobare sau respingere). Tab-ul „Coada HITL” este pentru cazuri trimise explicit pentru decizie umană.',
+          'Coada de revizuiri umane: elemente care necesită confirmarea ta — fie potriviri între produsul tău și o sursă externă (confirmi sau respingi potrivirea), fie propuneri noi de atribute generate de sistem (aprobare sau respingere). Tab-ul „Coada HITL" este pentru cazuri trimise explicit pentru decizie umană.',
       },
       {
         to: '/similarity-matches',
@@ -189,28 +214,33 @@ export function AppShell({
       </a>
 
       <div
-        className={`grid min-h-0 flex-1 grid-cols-1 ${
+        className={`grid min-h-0 flex-1 grid-cols-1 transition-[grid-template-columns] duration-300 ${
           sidebarCollapsed ? 'md:grid-cols-[76px_1fr]' : 'md:grid-cols-[280px_1fr]'
         }`}
       >
         <aside
           className={
-            'h-full min-h-0 flex-col border-r border-slate-200/90 bg-white/90 shadow-[var(--shadow-sm)] backdrop-blur-xl transition-[width] duration-300 md:flex dark:border-slate-700/90 dark:bg-slate-900/90 ' +
+            'h-full min-h-0 flex-col shadow-[var(--shadow-md)] backdrop-blur-xl transition-[width] duration-300 md:flex ' +
             (sidebarOpen ? 'flex' : 'hidden')
           }
+          style={{
+            background:
+              'linear-gradient(175deg, rgba(30, 96, 145, 0.20) 0%, rgb(var(--color-card)) 40%, rgb(var(--color-subtle)) 100%)',
+            borderRight: '1px solid rgba(30, 96, 145, 0.25)',
+          }}
         >
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <nav role="navigation" className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <div className="shrink-0 p-4 pb-2">
                 <div
-                  className={`text-lg font-semibold tracking-tight text-slate-800 transition-opacity dark:text-slate-100 ${
+                  className={`sidebar-logo text-xl font-extrabold tracking-tight transition-opacity ${
                     sidebarCollapsed ? 'opacity-0' : 'opacity-100'
                   }`}
                 >
                   Neanelu
                 </div>
                 <div
-                  className={`mt-0.5 text-xs text-slate-500 transition-opacity dark:text-slate-400 ${
+                  className={`mt-0.5 text-xs font-semibold uppercase tracking-widest text-primary/60 transition-opacity ${
                     sidebarCollapsed ? 'opacity-0' : 'opacity-100'
                   }`}
                 >
@@ -225,9 +255,13 @@ export function AppShell({
                     <div
                       key={item.to}
                       className="opacity-0"
-                      style={{
-                        animation: `sidebarLinkEnter 0.35s ease-out ${index * 35}ms forwards`,
-                      }}
+                      style={
+                        reducedMotion
+                          ? { opacity: 1 }
+                          : {
+                              animation: `sidebarLinkEnter 0.35s ease-out ${index * 35}ms forwards`,
+                            }
+                      }
                     >
                       <NavLink
                         to={item.to}
@@ -246,11 +280,17 @@ export function AppShell({
               </div>
             </nav>
           </div>
-          <footer className="shrink-0 border-t border-slate-200/80 bg-slate-50/70 px-3 py-2 dark:border-slate-700/80 dark:bg-slate-800/70">
+          <footer
+            className="shrink-0 px-3 py-2"
+            style={{
+              borderTop: '1px solid rgb(var(--color-primary) / 0.15)',
+              background: 'rgb(var(--color-primary) / 0.06)',
+            }}
+          >
             <div className="flex flex-col gap-2">
               {!sidebarCollapsed ? (
                 <>
-                  <div className="rounded-lg border border-slate-200/80 bg-white px-2.5 py-2 shadow-[var(--shadow-sm)] transition-all duration-200 hover:border-slate-300/80 hover:shadow-[var(--shadow-sm)] dark:border-slate-700/80 dark:bg-slate-800 dark:hover:border-slate-600/80">
+                  <div className="rounded-lg border border-border/70 bg-card px-2.5 py-2 shadow-[var(--shadow-sm)] transition-[border-color,box-shadow] duration-normal hover:border-accent-border hover:shadow-[var(--shadow-md)]">
                     <ShopSelector compact />
                   </div>
                   <div className="flex justify-end">
@@ -259,20 +299,18 @@ export function AppShell({
                       aplicație se actualizează după selecția ta.
                     </InfoTooltip>
                   </div>
-                  <div className="group/user flex items-center gap-2 rounded-lg border border-slate-200/80 bg-white px-2.5 py-2 shadow-[var(--shadow-sm)] transition-all duration-200 hover:border-slate-300/80 hover:shadow-[var(--shadow-sm)] dark:border-slate-700/80 dark:bg-slate-800 dark:hover:border-slate-600/80">
+                  <div className="group/user flex items-center gap-2 rounded-lg border border-border/70 bg-card px-2.5 py-2 shadow-[var(--shadow-sm)] transition-[border-color,box-shadow] duration-normal hover:border-accent-border hover:shadow-[var(--shadow-md)]">
                     <div
-                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 transition-colors duration-200 group-hover/user:bg-blue-50 group-hover/user:text-blue-600 dark:bg-slate-700 dark:text-slate-400 dark:group-hover/user:bg-blue-900/30 dark:group-hover/user:text-blue-400"
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted/10 text-muted transition-colors duration-fast group-hover/user:bg-primary/10 group-hover/user:text-primary"
                       aria-hidden
                     >
                       <UserRound className="size-3.5" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                      <div className="text-[10px] font-medium uppercase tracking-wider text-muted">
                         Utilizator
                       </div>
-                      <div className="truncate text-xs font-medium text-slate-700 dark:text-slate-200">
-                        Admin
-                      </div>
+                      <div className="truncate text-xs font-medium text-foreground">Admin</div>
                     </div>
                   </div>
                   <div className="flex justify-end">
@@ -284,8 +322,8 @@ export function AppShell({
                 </>
               ) : (
                 <div className="flex justify-center">
-                  <div className="rounded-lg border border-slate-200/80 bg-white p-2 shadow-[var(--shadow-sm)] dark:border-slate-700/80 dark:bg-slate-800">
-                    <UserRound className="size-4 text-slate-500 dark:text-slate-400" />
+                  <div className="rounded-lg border border-border/70 bg-card p-2 shadow-[var(--shadow-sm)]">
+                    <UserRound className="size-4 text-muted" />
                   </div>
                 </div>
               )}
@@ -294,11 +332,18 @@ export function AppShell({
         </aside>
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <header className="shrink-0 border-b border-slate-200/90 bg-white shadow-[var(--shadow-sm)] dark:border-slate-700 dark:bg-slate-900">
+          <header
+            className="shrink-0 shadow-[var(--shadow-sm)] backdrop-blur-sm"
+            style={{
+              background:
+                'linear-gradient(90deg, rgb(var(--color-card)) 0%, rgb(var(--color-card)) 70%, rgb(var(--color-primary) / 0.06) 100%)',
+              borderBottom: '1px solid rgb(var(--color-primary) / 0.15)',
+            }}
+          >
             <div className="flex items-center justify-between gap-3 px-4 py-3">
               <button
                 type="button"
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-200/90 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-[var(--shadow-sm)] transition-all duration-200 hover:bg-slate-50 hover:shadow-[var(--shadow-sm)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--color-ring))]/40 focus-visible:ring-offset-2 md:hidden dark:border-slate-700/90 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                className="interactive inline-flex items-center gap-2 rounded-lg border border-border/80 bg-card px-3 py-2 text-sm font-medium text-foreground shadow-[var(--shadow-sm)] focus-ring-standard md:hidden"
                 onClick={toggleSidebar}
                 aria-label="Deschide meniul"
               >
@@ -319,12 +364,12 @@ export function AppShell({
                   </InfoTooltip>
                   <button
                     type="button"
-                    className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-slate-600 shadow-[var(--shadow-xs)] transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--color-ring))]/40 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"
+                    className="interactive inline-flex items-center rounded-lg border border-border/70 bg-card px-2.5 py-2 text-muted shadow-[var(--shadow-xs)] focus-ring-standard"
                     onClick={() => setSidebarCollapsed((value) => !value)}
                     aria-label="Colapsează meniul lateral"
                   >
                     <ChevronLeft
-                      className={`size-4 transition-transform ${sidebarCollapsed ? 'rotate-180' : ''}`}
+                      className={`size-4 transition-transform duration-300 ${sidebarCollapsed ? 'rotate-180' : ''}`}
                     />
                   </button>
                 </div>
@@ -333,7 +378,7 @@ export function AppShell({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  className="hidden items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-medium text-slate-600 shadow-[var(--shadow-xs)] transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--color-ring))]/40 focus-visible:ring-offset-2 md:inline-flex dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"
+                  className="interactive hidden items-center gap-1.5 rounded-lg border border-border/70 bg-card px-2.5 py-2 text-xs font-medium text-muted shadow-[var(--shadow-xs)] focus-ring-standard md:inline-flex"
                   onClick={() => setPaletteOpen(true)}
                   aria-label="Deschide Command Palette"
                 >
@@ -346,7 +391,7 @@ export function AppShell({
                 </InfoTooltip>
                 <button
                   type="button"
-                  className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-slate-600 shadow-[var(--shadow-xs)] transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--color-ring))]/40 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"
+                  className="interactive inline-flex items-center rounded-lg border border-border/70 bg-card px-2.5 py-2 text-muted shadow-[var(--shadow-xs)] focus-ring-standard"
                   onClick={() => setDarkMode((value) => !value)}
                   aria-label="Comută tema"
                 >
@@ -361,8 +406,9 @@ export function AppShell({
             </div>
           </header>
 
-          <main id="main" className="min-w-0 flex-1 overflow-y-auto p-4 dark:bg-slate-950">
-            {children}
+          <main id="main" className="min-w-0 flex-1 overflow-y-auto bg-background">
+            <ActiveJobsBanner jobs={jobs} onDismiss={dismissJob} />
+            <div className="p-4">{children}</div>
           </main>
         </div>
       </div>
@@ -370,7 +416,7 @@ export function AppShell({
       {sidebarOpen ? (
         <button
           type="button"
-          className="fixed inset-0 z-40 bg-foreground/30 md:hidden"
+          className="fixed inset-0 z-40 bg-foreground/30 backdrop-blur-sm md:hidden"
           onClick={toggleSidebar}
           aria-label="Închide suprapunerea meniului"
         />

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { Button } from '../ui/button';
+import { TextField } from '../ui/text-field';
 
 export type BudgetEditValues = Readonly<{
   serperDailyBudget?: number;
@@ -164,7 +165,7 @@ export function BudgetEditModal({
   return (
     <dialog
       ref={ref}
-      className="w-full max-w-xl rounded-2xl border border-white/20 bg-white/90 p-0 shadow-xl backdrop-blur-xl motion-safe:animate-[scale-in_180ms_ease-out] dark:border-white/10 dark:bg-slate-900/90 backdrop:bg-black/30 backdrop:backdrop-blur-sm"
+      className="w-full max-w-xl rounded-2xl border border-border bg-card/90 p-0 shadow-[var(--shadow-xl)] backdrop-blur-xl motion-safe:animate-[scale-in_180ms_ease-out] backdrop:bg-overlay/35 backdrop:backdrop-blur-sm"
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
       aria-modal="true"
@@ -176,17 +177,17 @@ export function BudgetEditModal({
         if (e.target === ref.current) onClose();
       }}
     >
-      <div className="border-b border-slate-200/80 p-4 dark:border-slate-700/80">
-        <div id={titleId} className="text-base font-semibold text-slate-900 dark:text-slate-100">
+      <div className="border-b border-border p-4">
+        <div id={titleId} className="text-base font-semibold text-foreground">
           Editare bugete API
         </div>
-        <div id={descriptionId} className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+        <div id={descriptionId} className="mt-1 text-xs text-muted">
           Configurează limitele zilnice și pragurile de alertă pentru fiecare provider.
         </div>
       </div>
       <div className="grid gap-3 p-4">
         {Object.keys(errors).length > 0 ? (
-          <div className="rounded-md border border-red-400/50 bg-red-50 p-2 text-xs text-red-700 dark:border-red-700/50 dark:bg-red-950/30 dark:text-red-400">
+          <div className="rounded-md border border-error/60 bg-error/5 p-2 text-xs text-error">
             Corectează câmpurile marcate înainte de salvare.
           </div>
         ) : null}
@@ -194,36 +195,20 @@ export function BudgetEditModal({
           const fieldId = `budget-edit-${field.key}`;
           const error = errors[field.key];
           return (
-            <label
+            <TextField
               key={field.key}
-              className="grid gap-1 text-xs text-slate-700 dark:text-slate-300"
-              htmlFor={fieldId}
-            >
-              {field.label}
-              <input
-                id={fieldId}
-                inputMode="decimal"
-                className={`rounded border bg-white px-2 py-1 text-slate-900 dark:bg-slate-800 dark:text-slate-100 ${
-                  error
-                    ? 'border-red-500 dark:border-red-400'
-                    : 'border-slate-200 dark:border-slate-600'
-                }`}
-                value={form[field.key] ?? ''}
-                placeholder={field.placeholder}
-                aria-invalid={Boolean(error)}
-                aria-describedby={error ? `${fieldId}-error` : undefined}
-                onChange={(e) => setForm((prev) => ({ ...prev, [field.key]: e.target.value }))}
-              />
-              {error ? (
-                <span id={`${fieldId}-error`} className="text-[11px] text-red-600">
-                  {error}
-                </span>
-              ) : null}
-            </label>
+              id={fieldId}
+              label={field.label}
+              inputMode="decimal"
+              value={form[field.key] ?? ''}
+              placeholder={field.placeholder ?? ''}
+              onChange={(e) => setForm((prev) => ({ ...prev, [field.key]: e.target.value }))}
+              {...(error ? { error } : {})}
+            />
           );
         })}
       </div>
-      <div className="flex items-center justify-end gap-2 border-t border-slate-200/80 p-3 dark:border-slate-700/80">
+      <div className="flex items-center justify-end gap-2 border-t border-border p-3">
         <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
           Anulează
         </Button>

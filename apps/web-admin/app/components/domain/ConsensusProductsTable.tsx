@@ -1,4 +1,7 @@
 import type { ConsensusProductItem } from '@app/types';
+
+import type { DataTableColumn } from '../ui/data-table';
+import { DataTable } from '../ui/data-table';
 import { ConsensusStatusBadge } from './ConsensusStatusBadge';
 import { ConflictIndicator } from './ConflictIndicator';
 
@@ -7,50 +10,50 @@ type ConsensusProductsTableProps = Readonly<{
   onSelect?: (item: ConsensusProductItem) => void;
 }>;
 
-export function ConsensusProductsTable({ items, onSelect }: ConsensusProductsTableProps) {
-  if (items.length === 0) {
-    return (
-      <div className="text-sm text-slate-500 dark:text-slate-400">
-        Nu există produse disponibile.
-      </div>
-    );
-  }
+const columns: readonly DataTableColumn<ConsensusProductItem>[] = [
+  {
+    id: 'title',
+    header: 'Produs',
+    renderCell: (row) => <span className="max-w-[200px] truncate block">{row.title}</span>,
+  },
+  {
+    id: 'sourceCount',
+    header: 'Surse',
+    align: 'right',
+    renderCell: (row) => row.sourceCount,
+  },
+  {
+    id: 'consensusStatus',
+    header: 'Status',
+    align: 'right',
+    renderCell: (row) => <ConsensusStatusBadge status={row.consensusStatus} />,
+  },
+  {
+    id: 'qualityScore',
+    header: 'Calitate',
+    align: 'right',
+    renderCell: (row) => (row.qualityScore != null ? Number(row.qualityScore).toFixed(2) : '—'),
+  },
+  {
+    id: 'conflictsCount',
+    header: 'Conflicte',
+    align: 'right',
+    renderCell: (row) => <ConflictIndicator count={row.conflictsCount} />,
+  },
+];
 
+export function ConsensusProductsTable({ items, onSelect }: ConsensusProductsTableProps) {
+  const extraProps = onSelect ? { onRowClick: onSelect } : {};
   return (
-    <div className="overflow-hidden rounded-md border border-muted/20 dark:border-slate-700">
-      <table className="w-full text-sm">
-        <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-          <tr>
-            <th className="px-3 py-2 text-left font-medium">Produs</th>
-            <th className="px-3 py-2 text-right font-medium">Surse</th>
-            <th className="px-3 py-2 text-right font-medium">Status</th>
-            <th className="px-3 py-2 text-right font-medium">Calitate</th>
-            <th className="px-3 py-2 text-right font-medium">Conflicte</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item, idx) => (
-            <tr
-              key={item.productId}
-              className="cursor-pointer border-t border-muted/20 transition-colors hover:bg-muted/10 dark:border-slate-700 dark:hover:bg-slate-800/50 text-slate-800 dark:text-slate-200"
-              style={{ animation: `fadeSlideUp 0.3s ease-out ${idx * 50}ms both` }}
-              onClick={() => onSelect?.(item)}
-            >
-              <td className="px-3 py-2">{item.title}</td>
-              <td className="px-3 py-2 text-right">{item.sourceCount}</td>
-              <td className="px-3 py-2 text-right">
-                <ConsensusStatusBadge status={item.consensusStatus} />
-              </td>
-              <td className="px-3 py-2 text-right">
-                {item.qualityScore != null ? Number(item.qualityScore).toFixed(2) : '—'}
-              </td>
-              <td className="px-3 py-2 text-right">
-                <ConflictIndicator count={item.conflictsCount} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <DataTable
+      data={items}
+      columns={columns}
+      rowKey={(row) => row.productId}
+      {...extraProps}
+      emptyState={
+        <div className="py-6 text-center text-sm text-muted">Nu există produse disponibile.</div>
+      }
+      className="rounded-md border-muted/20"
+    />
   );
 }

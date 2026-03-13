@@ -22,8 +22,8 @@ export function AIAuditStatusPanel({ auditResult, isProcessing }: AIAuditStatusP
     return (
       <div
         ref={panelRef}
-        className="rounded-lg border border-muted/20 bg-slate-50 p-4 text-sm text-slate-500
-          motion-safe:animate-[fadeIn_0.4s_ease-out] dark:bg-slate-800/50 dark:border-slate-700 dark:text-slate-400"
+        className="rounded-lg border border-muted/20 bg-subtle p-4 text-sm text-muted
+ motion-safe:animate-[fadeIn_0.4s_ease-out]"
       >
         Verificare AI în curs…
       </div>
@@ -34,8 +34,8 @@ export function AIAuditStatusPanel({ auditResult, isProcessing }: AIAuditStatusP
     return (
       <div
         ref={panelRef}
-        className="rounded-lg border border-muted/20 bg-slate-50 p-4 text-sm text-slate-500
-          motion-safe:animate-[fadeIn_0.4s_ease-out] dark:bg-slate-800/50 dark:border-slate-700 dark:text-slate-400"
+        className="rounded-lg border border-muted/20 bg-subtle p-4 text-sm text-muted
+ motion-safe:animate-[fadeIn_0.4s_ease-out]"
       >
         Nu există încă rezultat de audit AI.
       </div>
@@ -49,10 +49,10 @@ export function AIAuditStatusPanel({ auditResult, isProcessing }: AIAuditStatusP
   return (
     <div
       ref={panelRef}
-      className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 text-slate-800
-        motion-safe:animate-[fadeSlideUp_0.35s_ease-out] dark:bg-slate-900/80 dark:border-slate-700/60 dark:text-slate-100"
+      className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 text-foreground
+ motion-safe:animate-[fadeSlideUp_0.35s_ease-out]"
     >
-      <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+      <div className="flex items-center justify-between text-xs text-muted">
         <span className="flex items-center gap-1.5">
           Auditor AI
           <InfoTooltip title="Auditor AI" side="bottom" maxWidth={380} boundaryRef={panelRef}>
@@ -72,14 +72,14 @@ export function AIAuditStatusPanel({ auditResult, isProcessing }: AIAuditStatusP
 
       <div className="mt-2 flex items-center gap-1.5 text-sm font-semibold">
         <span>Decizie:</span>
-        <span className="text-slate-800 dark:text-slate-100">{auditResult.decision}</span>
+        <span className="text-foreground">{auditResult.decision}</span>
         <InfoTooltip title="Decizie audit" side="bottom" maxWidth={360} boundaryRef={panelRef}>
           Recomandarea AI: aprobare automată, trimitere la revizuire umană sau respingere. Aceasta
           ghidează fluxul de confirmare a potrivirilor.
         </InfoTooltip>
       </div>
 
-      <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+      <div className="mt-1 flex items-center gap-1.5 text-xs text-muted">
         <span>
           Încredere: {confidencePct}% · {confidenceLabel}
         </span>
@@ -90,7 +90,7 @@ export function AIAuditStatusPanel({ auditResult, isProcessing }: AIAuditStatusP
       </div>
 
       <div
-        className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted/20 dark:bg-slate-700"
+        className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted/20"
         role="progressbar"
         aria-valuenow={confidencePct}
         aria-valuemin={0}
@@ -104,7 +104,7 @@ export function AIAuditStatusPanel({ auditResult, isProcessing }: AIAuditStatusP
         />
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
         <span className="flex items-center gap-1">
           Același produs: {auditResult.isSameProduct ?? '—'}
           <InfoTooltip title="Același produs" side="bottom" maxWidth={320} boundaryRef={panelRef}>
@@ -127,11 +127,11 @@ export function AIAuditStatusPanel({ auditResult, isProcessing }: AIAuditStatusP
         </span>
       </div>
 
-      <div className="mt-3 text-sm text-slate-800 dark:text-slate-200">{auditResult.reasoning}</div>
+      <div className="mt-3 text-sm text-foreground">{auditResult.reasoning}</div>
 
       {auditResult.criticalDiscrepancies?.length ? (
         <div className="mt-3">
-          <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+          <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted">
             Diferențe importante
             <InfoTooltip
               title="Diferențe importante"
@@ -143,7 +143,7 @@ export function AIAuditStatusPanel({ auditResult, isProcessing }: AIAuditStatusP
               lipsă). Merită verificate înainte de aprobare.
             </InfoTooltip>
           </p>
-          <ul className="list-disc space-y-1 pl-4 text-xs text-slate-500 dark:text-slate-400">
+          <ul className="list-disc space-y-1 pl-4 text-xs text-muted">
             {auditResult.criticalDiscrepancies.map((item) => (
               <li key={item}>{item}</li>
             ))}
@@ -152,9 +152,7 @@ export function AIAuditStatusPanel({ auditResult, isProcessing }: AIAuditStatusP
       ) : null}
 
       {auditResult.auditedAt ? (
-        <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-          Auditat: {auditResult.auditedAt}
-        </div>
+        <div className="mt-2 text-xs text-muted">Auditat: {auditResult.auditedAt}</div>
       ) : null}
     </div>
   );

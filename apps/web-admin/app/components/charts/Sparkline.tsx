@@ -13,6 +13,8 @@ export type SparklineProps = Readonly<{
   trend?: 'up' | 'down' | 'flat';
   /** Show gradient area fill beneath the line. */
   areaFill?: boolean;
+  /** Accessibility label for assistive technologies. */
+  ariaLabel?: string;
 }>;
 
 function computeTrend(values: readonly number[]): 'up' | 'down' | 'flat' {
@@ -32,15 +34,15 @@ const trendLabels: Record<'up' | 'down' | 'flat', string> = {
 };
 
 const trendArrowColorsLight: Record<'up' | 'down' | 'flat', string> = {
-  up: '#16a34a',
-  down: '#dc2626',
-  flat: '#64748b',
+  up: 'rgb(var(--color-success))',
+  down: 'rgb(var(--color-error))',
+  flat: 'rgb(var(--color-muted))',
 };
 
 const trendArrowColorsDark: Record<'up' | 'down' | 'flat', string> = {
-  up: '#4ade80',
-  down: '#f87171',
-  flat: '#94a3b8',
+  up: 'rgb(var(--color-success))',
+  down: 'rgb(var(--color-error))',
+  flat: 'rgb(var(--color-muted))',
 };
 
 export function Sparkline({
@@ -51,10 +53,11 @@ export function Sparkline({
   showChange = false,
   trend,
   areaFill = true,
+  ariaLabel,
 }: SparklineProps) {
   const uid = useId().replace(/:/g, '');
   const { isDark, palette } = useChartTheme();
-  const resolvedColor = color ?? palette[0];
+  const resolvedColor = color ?? palette[0] ?? 'rgb(var(--chart-1))';
   const points = useMemo(() => data.map((v, i) => ({ i, v })), [data]);
   const resolvedTrend = trend ?? computeTrend(data);
   const delta = (data[data.length - 1] ?? 0) - (data[0] ?? 0);
@@ -65,7 +68,11 @@ export function Sparkline({
   const gradientId = `sparkline-grad-${uid}`;
 
   return (
-    <div className="inline-flex items-center gap-1 animate-[chartFadeIn_0.35s_ease-out_both]">
+    <div
+      role="img"
+      aria-label={ariaLabel ?? `Sparkline cu ${data.length} puncte de date, trend ${trendLabel}`}
+      className="inline-flex items-center gap-1 motion-safe:animate-[chartFadeIn_0.35s_ease-out_both]"
+    >
       {areaFill ? (
         <AreaChart width={width} height={height} data={points}>
           <defs>

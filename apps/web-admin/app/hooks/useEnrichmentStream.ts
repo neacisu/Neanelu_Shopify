@@ -19,7 +19,7 @@ export function useEnrichmentStream(options: UseEnrichmentStreamOptions = {}) {
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const retryRef = useRef(0);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timeoutRef = useRef<number | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const connectIdRef = useRef(0);
 
@@ -35,7 +35,7 @@ export function useEnrichmentStream(options: UseEnrichmentStreamOptions = {}) {
       }
       retryRef.current += 1;
       const delay = Math.min(30_000, 1000 * 2 ** Math.min(retryRef.current - 1, 6));
-      timeoutRef.current = setTimeout(() => {
+      timeoutRef.current = window.setTimeout(() => {
         timeoutRef.current = null;
         if (!closed) connect();
       }, delay);
@@ -64,6 +64,8 @@ export function useEnrichmentStream(options: UseEnrichmentStreamOptions = {}) {
         const token = await getSessionToken();
         if (closed || connectIdRef.current !== connectId) return;
         const url = new URL('/api/pim/events/ws', window.location.origin);
+        // NOTE: JWT in URL query string is logged in server/proxy logs and browser history.
+        // Acceptable for WebSocket handshake; mitigate with short-lived tokens + TLS.
         if (token) url.searchParams.set('token', token);
         url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
         const socket = new WebSocket(url.toString());
@@ -99,7 +101,7 @@ export function useEnrichmentStream(options: UseEnrichmentStreamOptions = {}) {
       socketRef.current?.close();
       socketRef.current = null;
       if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
+        window.clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
       }
     };

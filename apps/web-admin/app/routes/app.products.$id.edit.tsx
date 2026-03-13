@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useFetcher, useLocation, useParams, type ActionFunctionArgs } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
@@ -11,6 +11,9 @@ import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { PageHeader } from '../components/layout/page-header';
 import { Button } from '../components/ui/button';
 import { InfoTooltip } from '../components/ui/info-tooltip';
+import { TextField } from '../components/ui/text-field';
+import { LoadingState } from '../components/patterns/loading-state';
+import { ErrorState } from '../components/patterns/error-state';
 import { useApiClient } from '../hooks/use-api';
 
 const schema = z.object({
@@ -33,6 +36,8 @@ export default function ProductEditPage() {
   const api = useApiClient();
   const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const [product, setProduct] = useState<ProductDetail | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -60,21 +65,35 @@ export default function ProductEditPage() {
 
   useEffect(() => {
     const id = params.id;
-    if (!id) return;
-    void api.getApi<ProductDetail>(`/products/${id}`).then((data) => {
-      setProduct(data);
-      form.reset({
-        titleMaster: data.pim?.titleMaster ?? data.title,
-        descriptionMaster: data.pim?.descriptionMaster ?? data.description ?? '',
-        descriptionShort: data.pim?.descriptionShort ?? '',
-        taxonomyId: data.pim?.taxonomyId ?? '',
-        brand: data.pim?.brand ?? '',
-        manufacturer: data.pim?.manufacturer ?? '',
-        gtin: data.pim?.gtin ?? '',
-        mpn: data.pim?.mpn ?? '',
-        metafields: data.metafields ? JSON.stringify(data.metafields, null, 2) : '',
+    if (!id) {
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
+    setLoadError(null);
+    void api
+      .getApi<ProductDetail>(`/products/${id}`)
+      .then((data) => {
+        setProduct(data);
+        form.reset({
+          titleMaster: data.pim?.titleMaster ?? data.title,
+          descriptionMaster: data.pim?.descriptionMaster ?? data.description ?? '',
+          descriptionShort: data.pim?.descriptionShort ?? '',
+          taxonomyId: data.pim?.taxonomyId ?? '',
+          brand: data.pim?.brand ?? '',
+          manufacturer: data.pim?.manufacturer ?? '',
+          gtin: data.pim?.gtin ?? '',
+          mpn: data.pim?.mpn ?? '',
+          metafields: data.metafields ? JSON.stringify(data.metafields, null, 2) : '',
+        });
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : 'Eroare la încărcarea produsului';
+        setLoadError(msg);
+      })
+      .finally(() => {
+        setIsLoading(false);
       });
-    });
   }, [api, form, params.id]);
 
   const onSubmit = (values: FormValues) => {
@@ -99,136 +118,239 @@ export default function ProductEditPage() {
     }
   }, [fetcher.data, fetcher.state]);
 
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <Breadcrumbs items={breadcrumbs} />
+        <PageHeader title="Editează produs" description="Actualizeaza doar metadata PIM." />
+        <LoadingState />
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="space-y-6">
+        <Breadcrumbs items={breadcrumbs} />
+        <PageHeader title="Editează produs" description="Actualizeaza doar metadata PIM." />
+        <ErrorState message={loadError} />
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6 dark:text-slate-100">
+    <div className="space-y-6">
       <Breadcrumbs items={breadcrumbs} />
-      <PageHeader title="Editeaza produs" description="Actualizeaza doar metadata PIM." />
+      <PageHeader title="Editează produs" description="Actualizeaza doar metadata PIM." />
 
       <form
         onSubmit={handleFormSubmit}
-        className="space-y-4 rounded-lg border border-border dark:border-slate-700 bg-white dark:bg-slate-900/80 p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-sm)]"
+        className="space-y-4 rounded-lg border border-border bg-card p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-sm)]"
       >
         <div className="grid gap-3">
-          <label className="flex items-center gap-1 text-xs text-muted dark:text-slate-400">
+          <div className="flex items-center gap-1 text-xs text-muted">
             Titlu (master)
             <InfoTooltip title="Titlu master">
               Titlul principal al produsului în sistemul PIM. Se folosește pentru căutare și
               afișare.
             </InfoTooltip>
-          </label>
-          <input
-            className="h-10 rounded-md border border-border dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm dark:text-slate-200 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50"
-            {...form.register('titleMaster')}
+          </div>
+          <Controller
+            name="titleMaster"
+            control={form.control}
+            render={({ field, fieldState }) => (
+              <TextField
+                label="Titlu (master)"
+                value={field.value ?? ''}
+                onChange={field.onChange}
+                onBlur={field.onBlur}
+                aria-invalid={fieldState.invalid ? true : undefined}
+                {...(fieldState.error?.message ? { error: fieldState.error.message } : {})}
+              />
+            )}
           />
-          {form.formState.errors.titleMaster ? (
-            <div className="text-xs text-error">{form.formState.errors.titleMaster.message}</div>
-          ) : null}
         </div>
 
         <div className="grid gap-3">
-          <label className="flex items-center gap-1 text-xs text-muted dark:text-slate-400">
+          <label htmlFor="descriptionMaster" className="flex items-center gap-1 text-xs text-muted">
             Descriere (master)
             <InfoTooltip title="Descriere master">
               Descrierea completă a produsului. Apare în paginile de produs din magazin.
             </InfoTooltip>
           </label>
-          <textarea
-            className="min-h-[120px] rounded-md border border-border dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm dark:text-slate-200 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50"
-            {...form.register('descriptionMaster')}
+          <Controller
+            name="descriptionMaster"
+            control={form.control}
+            render={({ field, fieldState }) => (
+              <textarea
+                id="descriptionMaster"
+                className="focus-ring-standard min-h-[120px] rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground transition-[border-color,box-shadow,background-color] duration-normal hover:border-accent-border aria-[invalid=true]:border-error"
+                aria-invalid={fieldState.invalid ? true : undefined}
+                {...field}
+              />
+            )}
           />
         </div>
 
         <div className="grid gap-3">
-          <label className="flex items-center gap-1 text-xs text-muted dark:text-slate-400">
+          <div className="flex items-center gap-1 text-xs text-muted">
             Descriere scurtă
             <InfoTooltip title="Descriere scurtă">
               Rezumat pentru liste și rezultate de căutare. Până la câteva propoziții.
             </InfoTooltip>
-          </label>
-          <input
-            className="h-10 rounded-md border border-border dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm dark:text-slate-200 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50"
-            {...form.register('descriptionShort')}
+          </div>
+          <Controller
+            name="descriptionShort"
+            control={form.control}
+            render={({ field, fieldState }) => (
+              <TextField
+                label="Descriere scurtă"
+                value={field.value ?? ''}
+                onChange={field.onChange}
+                onBlur={field.onBlur}
+                aria-invalid={fieldState.invalid ? true : undefined}
+                {...(fieldState.error?.message ? { error: fieldState.error.message } : {})}
+              />
+            )}
           />
         </div>
 
         <div className="grid gap-3">
-          <label className="flex items-center gap-1 text-xs text-muted dark:text-slate-400">
+          <label htmlFor="metafields" className="flex items-center gap-1 text-xs text-muted">
             Metafields (JSON)
             <InfoTooltip title="Metafields JSON">
               Câmpuri personalizate în format JSON. Modificările se aplică doar în baza locală PIM.
             </InfoTooltip>
           </label>
-          <textarea
-            className="min-h-[140px] rounded-md border border-border dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-xs dark:text-slate-200 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50"
-            {...form.register('metafields')}
+          <Controller
+            name="metafields"
+            control={form.control}
+            render={({ field, fieldState }) => (
+              <textarea
+                id="metafields"
+                className="focus-ring-standard min-h-[140px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground transition-[border-color,box-shadow,background-color] duration-normal hover:border-accent-border aria-[invalid=true]:border-error"
+                aria-invalid={fieldState.invalid ? true : undefined}
+                {...field}
+              />
+            )}
           />
         </div>
 
         <div className="grid gap-3">
-          <label className="flex items-center gap-1 text-xs text-muted dark:text-slate-400">
+          <div className="flex items-center gap-1 text-xs text-muted">
             ID taxonomie
             <InfoTooltip title="Taxonomie">
               Categoria din schema de clasificare a produsului (ex. electronice, îmbrăcăminte).
             </InfoTooltip>
-          </label>
-          <input
-            className="h-10 rounded-md border border-border dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm dark:text-slate-200 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50"
-            {...form.register('taxonomyId')}
+          </div>
+          <Controller
+            name="taxonomyId"
+            control={form.control}
+            render={({ field, fieldState }) => (
+              <TextField
+                label="ID taxonomie"
+                value={field.value ?? ''}
+                onChange={field.onChange}
+                onBlur={field.onBlur}
+                aria-invalid={fieldState.invalid ? true : undefined}
+                {...(fieldState.error?.message ? { error: fieldState.error.message } : {})}
+              />
+            )}
           />
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div className="grid gap-3">
-            <label className="flex items-center gap-1 text-xs text-muted dark:text-slate-400">
+            <div className="flex items-center gap-1 text-xs text-muted">
               Marcă
               <InfoTooltip title="Marcă produs">
                 Brandul comercial al produsului. Ajută la identificare și filtrare în catalog.
                 Exemplu: „Nike", „Samsung". Completează cât mai corect pentru căutări precise.
               </InfoTooltip>
-            </label>
-            <input
-              className="h-10 rounded-md border border-border dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm dark:text-slate-200 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50"
-              {...form.register('brand')}
+            </div>
+            <Controller
+              name="brand"
+              control={form.control}
+              render={({ field, fieldState }) => (
+                <TextField
+                  label="Marcă"
+                  value={field.value ?? ''}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  aria-invalid={fieldState.invalid ? true : undefined}
+                  {...(fieldState.error?.message ? { error: fieldState.error.message } : {})}
+                />
+              )}
             />
           </div>
           <div className="grid gap-3">
-            <label className="flex items-center gap-1 text-xs text-muted dark:text-slate-400">
+            <div className="flex items-center gap-1 text-xs text-muted">
               Producător
               <InfoTooltip title="Producător">
                 Compania care fabrică produsul. Poate diferi de marcă (ex. producătorul poate fi o
                 fabrică terță). Util pentru evidențe interne și traceabilitate.
               </InfoTooltip>
-            </label>
-            <input
-              className="h-10 rounded-md border border-border dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm dark:text-slate-200 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50"
-              {...form.register('manufacturer')}
+            </div>
+            <Controller
+              name="manufacturer"
+              control={form.control}
+              render={({ field, fieldState }) => (
+                <TextField
+                  label="Producător"
+                  value={field.value ?? ''}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  aria-invalid={fieldState.invalid ? true : undefined}
+                  {...(fieldState.error?.message ? { error: fieldState.error.message } : {})}
+                />
+              )}
             />
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div className="grid gap-3">
-            <label className="flex items-center gap-1 text-xs text-muted dark:text-slate-400">
+            <div className="flex items-center gap-1 text-xs text-muted">
               GTIN
               <InfoTooltip title="GTIN">
                 Cod de bare global (EAN/UPC). Identifică unic produsul în sistemele de retail.
               </InfoTooltip>
-            </label>
-            <input
-              className="h-10 rounded-md border border-border dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm dark:text-slate-200 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50"
-              {...form.register('gtin')}
+            </div>
+            <Controller
+              name="gtin"
+              control={form.control}
+              render={({ field, fieldState }) => (
+                <TextField
+                  label="GTIN"
+                  value={field.value ?? ''}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  aria-invalid={fieldState.invalid ? true : undefined}
+                  {...(fieldState.error?.message ? { error: fieldState.error.message } : {})}
+                />
+              )}
             />
           </div>
           <div className="grid gap-3">
-            <label className="flex items-center gap-1 text-xs text-muted dark:text-slate-400">
+            <div className="flex items-center gap-1 text-xs text-muted">
               MPN
               <InfoTooltip title="MPN">
                 Număr de piesă producător. Cod intern al fabricantului pentru identificare.
               </InfoTooltip>
-            </label>
-            <input
-              className="h-10 rounded-md border border-border dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm dark:text-slate-200 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50"
-              {...form.register('mpn')}
+            </div>
+            <Controller
+              name="mpn"
+              control={form.control}
+              render={({ field, fieldState }) => (
+                <TextField
+                  label="MPN"
+                  value={field.value ?? ''}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  aria-invalid={fieldState.invalid ? true : undefined}
+                  {...(fieldState.error?.message ? { error: fieldState.error.message } : {})}
+                />
+              )}
             />
           </div>
         </div>

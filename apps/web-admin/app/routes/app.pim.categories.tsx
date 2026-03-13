@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { CategoryNode } from '@app/types';
 import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
 import { TreeView, type TreeNode } from '../components/ui/TreeView';
+import { Select, type SelectOption } from '../components/ui/select';
+import { TextField } from '../components/ui/text-field';
+import { LoadingState } from '../components/patterns/loading-state';
+import { ErrorState } from '../components/patterns/error-state';
+import { EmptyState } from '../components/patterns/empty-state';
 import { useApiClient } from '../hooks/use-api';
 
 type Assignment = Readonly<{
@@ -31,6 +37,13 @@ function toTreeNodes(nodes: readonly CategoryNode[]): TreeNode[] {
   }));
 }
 
+const STATUS_OPTIONS: SelectOption[] = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'approved', label: 'Aprobate' },
+  { value: 'rejected', label: 'Respinse' },
+  { value: 'manual', label: 'Manual' },
+];
+
 export default function PimCategoriesPage() {
   const api = useApiClient();
   const [stats, setStats] = useState<Stats | null>(null);
@@ -38,12 +51,14 @@ export default function PimCategoriesPage() {
   const [statusFilter, setStatusFilter] = useState<string>('pending');
   const [minConfidence, setMinConfidence] = useState<number>(0.5);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [taxonomyTree, setTaxonomyTree] = useState<TreeNode[]>([]);
   const [reassignProductId, setReassignProductId] = useState<string | null>(null);
   const [selectedTaxonomyId, setSelectedTaxonomyId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
+    setError(null);
     try {
       const [statsData, assignmentsData, filters] = await Promise.all([
         api.getApi<Stats>('/pim/categories/stats'),
@@ -55,6 +70,8 @@ export default function PimCategoriesPage() {
       setStats(statsData);
       setAssignments(assignmentsData.assignments);
       setTaxonomyTree(toTreeNodes(filters.categories));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Eroare la încărcarea categoriilor');
     } finally {
       setLoading(false);
     }
@@ -83,37 +100,33 @@ export default function PimCategoriesPage() {
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-5">
         {summaryCards.map((card) => (
-          <div
+          <Card
             key={card.label}
-            className="rounded-md border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900"
+            padding="sm"
+            className="transition-shadow duration-200 hover:shadow-[var(--shadow-md)]"
           >
-            <div className="text-xs text-slate-500 dark:text-slate-400">{card.label}</div>
-            <div className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-              {card.value}
-            </div>
-          </div>
+            <div className="text-xs text-muted">{card.label}</div>
+            <div className="text-xl font-semibold text-foreground">{card.value}</div>
+          </Card>
         ))}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <select
+      <div className="flex flex-wrap items-end gap-2">
+        <Select
+          label="Status"
+          options={STATUS_OPTIONS}
           value={statusFilter}
-          onChange={(event) => setStatusFilter(event.target.value)}
-          className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
-        >
-          <option value="pending">pending</option>
-          <option value="approved">approved</option>
-          <option value="rejected">rejected</option>
-          <option value="manual">manual</option>
-        </select>
-        <input
+          onChange={(e) => setStatusFilter(e.target.value)}
+        />
+        <TextField
+          label="Confidence min."
           type="number"
           min={0}
           max={1}
           step={0.05}
-          value={minConfidence}
-          onChange={(event) => setMinConfidence(Number(event.target.value))}
-          className="w-32 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+          value={String(minConfidence)}
+          onChange={(e) => setMinConfidence(Number(e.target.value))}
+          className="w-36"
         />
         <Button
           variant="secondary"
@@ -126,73 +139,92 @@ export default function PimCategoriesPage() {
               .then(() => load())
           }
         >
-          Aprobă toate {'>'}=0.85
+          Aprobă toate &ge;0.85
         </Button>
       </div>
 
-      <div className="overflow-x-auto rounded-md border border-slate-200 dark:border-slate-700">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 dark:bg-slate-800">
-            <tr>
-              <th className="px-3 py-2 text-left">Produs</th>
-              <th className="px-3 py-2 text-left">Categorie</th>
-              <th className="px-3 py-2 text-left">Confidence</th>
-              <th className="px-3 py-2 text-left">Metodă</th>
-              <th className="px-3 py-2 text-left">Status</th>
-              <th className="px-3 py-2 text-left">Acțiuni</th>
-            </tr>
-          </thead>
-          <tbody>
-            {assignments.map((item) => (
-              <tr key={item.product_id} className="border-t border-slate-200 dark:border-slate-700">
-                <td className="px-3 py-2">{item.canonical_title}</td>
-                <td className="px-3 py-2">{item.taxonomy_name ?? '—'}</td>
-                <td className="px-3 py-2">{item.taxonomy_ai_confidence ?? '0'}</td>
-                <td className="px-3 py-2">{item.taxonomy_ai_method ?? '—'}</td>
-                <td className="px-3 py-2">{item.taxonomy_ai_status ?? '—'}</td>
-                <td className="px-3 py-2">
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() =>
-                        void api
-                          .postApi(`/pim/categories/assignments/${item.product_id}/approve`, {})
-                          .then(load)
-                      }
-                    >
-                      Aprobă
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() =>
-                        void api
-                          .postApi(`/pim/categories/assignments/${item.product_id}/reject`, {})
-                          .then(load)
-                      }
-                    >
-                      Respinge
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setReassignProductId(item.product_id)}
-                    >
-                      Reatribuie
-                    </Button>
-                  </div>
-                </td>
+      {error ? (
+        <ErrorState message={error} onRetry={() => void load()} />
+      ) : loading && assignments.length === 0 ? (
+        <LoadingState label="Se încarcă categoriile..." />
+      ) : !loading && assignments.length === 0 ? (
+        <EmptyState
+          title="Nu există atribuiri"
+          description={`Nu există atribuiri cu statusul „${statusFilter}". Ajustează filtrele.`}
+        />
+      ) : (
+        <div className="overflow-x-auto rounded-md border border-border">
+          <table className="w-full text-sm">
+            <thead className="bg-subtle">
+              <tr>
+                <th className="px-3 py-2 text-left font-medium text-muted">Produs</th>
+                <th className="px-3 py-2 text-left font-medium text-muted">Categorie</th>
+                <th className="px-3 py-2 text-left font-medium text-muted">Confidence</th>
+                <th className="px-3 py-2 text-left font-medium text-muted">Metodă</th>
+                <th className="px-3 py-2 text-left font-medium text-muted">Status</th>
+                <th className="px-3 py-2 text-left font-medium text-muted">Acțiuni</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {assignments.map((item) => (
+                <tr key={item.product_id} className="table-row-interactive border-t border-border">
+                  <td className="px-3 py-2 font-medium text-foreground">{item.canonical_title}</td>
+                  <td className="px-3 py-2 text-muted">{item.taxonomy_name ?? '—'}</td>
+                  <td className="px-3 py-2 text-muted">{item.taxonomy_ai_confidence ?? '0'}</td>
+                  <td className="px-3 py-2 text-muted">{item.taxonomy_ai_method ?? '—'}</td>
+                  <td className="px-3 py-2 text-muted">{item.taxonomy_ai_status ?? '—'}</td>
+                  <td className="px-3 py-2">
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() =>
+                          void api
+                            .postApi(`/pim/categories/assignments/${item.product_id}/approve`, {})
+                            .then(load)
+                        }
+                      >
+                        Aprobă
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() =>
+                          void api
+                            .postApi(`/pim/categories/assignments/${item.product_id}/reject`, {})
+                            .then(load)
+                        }
+                      >
+                        Respinge
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setReassignProductId(item.product_id)}
+                      >
+                        Reatribuie
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
-      {loading ? <div className="text-sm text-slate-500">Se încarcă...</div> : null}
+      {loading && assignments.length > 0 ? (
+        <div className="flex items-center gap-2 text-sm text-muted">
+          <span
+            className="inline-flex h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent"
+            aria-hidden
+          />
+          Se actualizează...
+        </div>
+      ) : null}
 
       {reassignProductId ? (
-        <div className="rounded-md border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+        <Card padding="sm">
           <div className="mb-2 text-sm font-medium">Selectează taxonomia nouă</div>
           <TreeView
             data={taxonomyTree}
@@ -221,7 +253,7 @@ export default function PimCategoriesPage() {
               Anulează
             </Button>
           </div>
-        </div>
+        </Card>
       ) : null}
     </div>
   );

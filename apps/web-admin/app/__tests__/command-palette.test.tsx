@@ -59,36 +59,33 @@ describe('CommandPalette', () => {
   it('ArrowDown changes highlighted item', () => {
     render(<CommandPalette open onClose={vi.fn()} items={items} />);
 
-    const dialog = screen.getByRole('dialog');
-    const innerContainer = dialog.querySelector('.max-w-2xl')!;
+    const innerContainer = screen.getByTestId('command-palette-container');
 
     const firstItem = screen.getByText('Panou principal').closest('button')!;
-    expect(firstItem.className).toContain('bg-slate-100');
+    expect(firstItem.className).toContain('bg-primary/10');
 
     fireEvent.keyDown(innerContainer, { key: 'ArrowDown' });
 
     const secondItem = screen.getByText('Cozi').closest('button')!;
-    expect(secondItem.className).toContain('bg-slate-100');
+    expect(secondItem.className).toContain('bg-primary/10');
   });
 
   it('ArrowUp wraps to last item from first', () => {
     render(<CommandPalette open onClose={vi.fn()} items={items} />);
 
-    const dialog = screen.getByRole('dialog');
-    const innerContainer = dialog.querySelector('.max-w-2xl')!;
+    const innerContainer = screen.getByTestId('command-palette-container');
 
     fireEvent.keyDown(innerContainer, { key: 'ArrowUp' });
 
     const lastItem = screen.getByText('Căutare').closest('button')!;
-    expect(lastItem.className).toContain('bg-slate-100');
+    expect(lastItem.className).toContain('bg-primary/10');
   });
 
   it('Enter navigates to the selected item and calls onClose', () => {
     const onClose = vi.fn();
     render(<CommandPalette open onClose={onClose} items={items} />);
 
-    const dialog = screen.getByRole('dialog');
-    const innerContainer = dialog.querySelector('.max-w-2xl')!;
+    const innerContainer = screen.getByTestId('command-palette-container');
 
     fireEvent.keyDown(innerContainer, { key: 'ArrowDown' });
     fireEvent.keyDown(innerContainer, { key: 'Enter' });

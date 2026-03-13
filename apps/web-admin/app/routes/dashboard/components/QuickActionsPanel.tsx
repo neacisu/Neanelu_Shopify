@@ -9,7 +9,7 @@ import type { DashboardClearCacheResponse, DashboardStartSyncResponse } from '@a
 import { createApiClient } from '../../../lib/api-client';
 import { getSessionAuthHeaders } from '../../../lib/session-auth';
 import { Button } from '../../../components/ui/button';
-import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
+import { ConfirmDialog } from '../../../components/domain/confirm-dialog';
 import { InfoTooltip } from '../../../components/ui/info-tooltip';
 
 const api = createApiClient({ getAuthHeaders: getSessionAuthHeaders });
@@ -100,9 +100,9 @@ export function QuickActionsPanel() {
   ];
 
   return (
-    <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm transition-shadow hover:shadow-[var(--shadow-md)] dark:border-slate-700/90 dark:bg-slate-900/80">
+    <article className="overflow-hidden rounded-xl border border-border bg-card p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm transition-[box-shadow,border-color] duration-normal hover:border-primary/30 hover:shadow-[var(--shadow-md)]">
       <div>
-        <h3 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-primary">
           Acțiuni rapide
           <InfoTooltip title="Acțiuni rapide" side="bottom">
             CE ESTE: Panoul cu operații frecvente disponibile direct din dashboard. DE CE CONTEAZĂ:
@@ -111,9 +111,7 @@ export function QuickActionsPanel() {
             singur click. SFAT: Fiecare buton are propriul tooltip cu explicații detaliate.
           </InfoTooltip>
         </h3>
-        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-          Operații frecvente fără a părăsi dashboard-ul
-        </p>
+        <p className="mt-0.5 text-xs text-muted">Operații frecvente fără a părăsi dashboard-ul</p>
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -124,7 +122,7 @@ export function QuickActionsPanel() {
           return (
             <div
               key={action.id}
-              className="group/action flex flex-col gap-2 rounded-lg border border-slate-100 bg-slate-50/50 p-3 transition-colors hover:border-slate-200 hover:bg-slate-50 dark:border-slate-700/60 dark:bg-slate-800/40 dark:hover:border-slate-600 dark:hover:bg-slate-800/70"
+              className="group/action flex flex-col gap-2 rounded-lg border border-border bg-subtle/40 p-3 transition-[colors,border-color] duration-normal hover:border-primary/30 hover:bg-subtle/70 hover:shadow-[var(--shadow-sm)]"
             >
               <Button
                 variant={action.variant}
@@ -154,11 +152,11 @@ export function QuickActionsPanel() {
       <ConfirmDialog
         open={confirmOpen}
         title="Golești cache-ul Redis?"
-        description="Se vor șterge cheile de cache selectate din Redis. Datele cozilor și cheile de lungă durată nu sunt afectate."
+        message="Se vor șterge cheile de cache selectate din Redis. Datele cozilor și cheile de lungă durată nu sunt afectate."
         confirmLabel="Golește"
         cancelLabel="Anulare"
-        destructive
-        onClose={() => setConfirmOpen(false)}
+        confirmTone="critical"
+        onCancel={() => setConfirmOpen(false)}
         onConfirm={() => {
           void (async () => {
             setLoadingId('clear-cache');

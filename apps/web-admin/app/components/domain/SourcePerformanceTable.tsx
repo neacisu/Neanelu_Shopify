@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import type { DataTableColumn } from '../ui/data-table';
+import { DataTable } from '../ui/data-table';
 
 export type SourcePerformanceRow = Readonly<{
   sourceName: string;
@@ -17,163 +18,112 @@ export type SourcePerformanceTableProps = Readonly<{
   rows: readonly SourcePerformanceRow[];
 }>;
 
-type SortKey = 'successRate' | 'trustScore' | 'totalHarvests';
-type SortDirection = 'asc' | 'desc';
-
 function formatPercent(value: number) {
   return `${value.toFixed(1)}%`;
 }
 
 function getRateClasses(value: number): { text: string; bar: string } {
-  if (value >= 90) {
-    return { text: 'text-success', bar: 'bg-success' };
-  }
-  if (value >= 70) {
-    return { text: 'text-warning', bar: 'bg-warning' };
-  }
-  return { text: 'text-danger', bar: 'bg-danger' };
+  if (value >= 90) return { text: 'text-success', bar: 'bg-success' };
+  if (value >= 70) return { text: 'text-warning', bar: 'bg-warning' };
+  return { text: 'text-error', bar: 'bg-error' };
 }
 
+const columns: readonly DataTableColumn<SourcePerformanceRow>[] = [
+  {
+    id: 'sourceName',
+    header: 'Sursă',
+    renderCell: (row) => <span className="font-medium">{row.sourceName}</span>,
+  },
+  {
+    id: 'sourceType',
+    header: 'Tip',
+    renderCell: (row) => <span className="text-muted">{row.sourceType}</span>,
+  },
+  {
+    id: 'totalHarvests',
+    header: 'Recoltări',
+    sortable: true,
+    align: 'right',
+    renderCell: (row) => (
+      <span className="tabular-nums">
+        {row.successfulHarvests}/{row.totalHarvests}
+      </span>
+    ),
+  },
+  {
+    id: 'successRate',
+    header: 'Rata succes',
+    sortable: true,
+    align: 'right',
+    renderCell: (row) => {
+      const style = getRateClasses(row.successRate);
+      return (
+        <div className="flex items-center justify-end gap-2">
+          <div className="h-1.5 w-20 overflow-hidden rounded-full bg-border/60" aria-hidden="true">
+            <div
+              className={`h-full rounded-full transition-[width] duration-slow ${style.bar}`}
+              style={{ width: `${Math.max(0, Math.min(100, row.successRate))}%` }}
+            />
+          </div>
+          <span className={`w-12 text-right tabular-nums text-sm font-medium ${style.text}`}>
+            {formatPercent(row.successRate)}
+          </span>
+        </div>
+      );
+    },
+  },
+  {
+    id: 'trustScore',
+    header: 'Trust',
+    sortable: true,
+    align: 'right',
+    renderCell: (row) => <span className="tabular-nums">{row.trustScore.toFixed(2)}</span>,
+  },
+  {
+    id: 'isActive',
+    header: 'Status',
+    align: 'right',
+    renderCell: (row) => (
+      <span
+        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
+          row.isActive
+            ? 'bg-success/15 text-success ring-1 ring-success/20'
+            : 'bg-muted/10 text-muted ring-1 ring-border/80'
+        }`}
+      >
+        <span
+          className={`size-1.5 rounded-full ${row.isActive ? 'bg-success motion-safe:animate-[status-dot-pulse_2s_ease-in-out_infinite]' : 'bg-muted'}`}
+          aria-hidden
+        />
+        {row.isActive ? 'Activ' : 'Inactiv'}
+      </span>
+    ),
+  },
+  {
+    id: 'lastHarvestAt',
+    header: 'Ultima recoltare',
+    align: 'right',
+    renderCell: (row) => (
+      <span className="text-muted">
+        {row.lastHarvestAt ? new Date(row.lastHarvestAt).toLocaleString('ro-RO') : '-'}
+      </span>
+    ),
+  },
+];
+
 export function SourcePerformanceTable({ rows }: SourcePerformanceTableProps) {
-  const [sortKey, setSortKey] = useState<SortKey>('successRate');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
-
-  const sortedRows = useMemo(() => {
-    return [...rows].sort((a, b) => {
-      const left = sortKey === 'totalHarvests' ? a.totalHarvests : a[sortKey];
-      const right = sortKey === 'totalHarvests' ? b.totalHarvests : b[sortKey];
-      const diff = Number(left) - Number(right);
-      return sortDirection === 'asc' ? diff : -diff;
-    });
-  }, [rows, sortDirection, sortKey]);
-
-  function handleSort(key: SortKey) {
-    if (key === sortKey) {
-      setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'));
-      return;
-    }
-    setSortKey(key);
-    setSortDirection('desc');
-  }
-
-  function sortLabel(key: SortKey): string {
-    if (sortKey !== key) {
-      return 'Sortare descrescătoare';
-    }
-    return sortDirection === 'asc' ? 'Sortare crescătoare' : 'Sortare descrescătoare';
-  }
-
   return (
-    <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-md dark:bg-slate-900/80 dark:border-slate-700/60">
-      <div className="mb-2 text-xs text-slate-500 dark:text-slate-400">Performanță surse</div>
-      <div className="overflow-auto rounded-md border dark:border-slate-700">
-        <table className="w-full border-collapse text-sm">
-          <thead className="bg-slate-50 dark:bg-slate-800">
-            <tr>
-              <th className="px-3 py-2 text-left text-slate-800 dark:text-slate-100">Sursă</th>
-              <th className="px-3 py-2 text-left text-slate-800 dark:text-slate-100">Tip</th>
-              <th className="px-3 py-2 text-right">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1"
-                  onClick={() => handleSort('totalHarvests')}
-                  aria-label="Sort by harvests"
-                >
-                  Recoltări
-                  <span className="text-xs text-muted">
-                    {sortKey === 'totalHarvests' ? sortLabel('totalHarvests') : ''}
-                  </span>
-                </button>
-              </th>
-              <th className="px-3 py-2 text-right">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1"
-                  onClick={() => handleSort('successRate')}
-                  aria-label="Sort by success rate"
-                >
-                  Rata succes
-                  <span className="text-xs text-muted">
-                    {sortKey === 'successRate' ? sortLabel('successRate') : ''}
-                  </span>
-                </button>
-              </th>
-              <th className="px-3 py-2 text-right">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1"
-                  onClick={() => handleSort('trustScore')}
-                  aria-label="Sort by trust score"
-                >
-                  Trust
-                  <span className="text-xs text-muted">
-                    {sortKey === 'trustScore' ? sortLabel('trustScore') : ''}
-                  </span>
-                </button>
-              </th>
-              <th className="px-3 py-2 text-right">Status</th>
-              <th className="px-3 py-2 text-right">Ultima recoltare</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={7}
-                  className="px-3 py-6 text-center text-slate-500 dark:text-slate-400"
-                >
-                  Nu există date de performanță încă.
-                </td>
-              </tr>
-            ) : (
-              sortedRows.map((row) => {
-                const style = getRateClasses(row.successRate);
-                return (
-                  <tr
-                    key={`${row.sourceName}-${row.sourceType}`}
-                    className="border-t border-muted/20 dark:border-slate-700 text-slate-800 dark:text-slate-200"
-                  >
-                    <td className="px-3 py-2">{row.sourceName}</td>
-                    <td className="px-3 py-2">{row.sourceType}</td>
-                    <td className="px-3 py-2 text-right">
-                      {row.successfulHarvests}/{row.totalHarvests}
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex items-center justify-end gap-2">
-                        <div
-                          className="h-2 w-20 overflow-hidden rounded-full bg-muted/30 dark:bg-slate-700"
-                          aria-hidden="true"
-                        >
-                          <div
-                            className={`h-full ${style.bar}`}
-                            style={{ width: `${Math.max(0, Math.min(100, row.successRate))}%` }}
-                          />
-                        </div>
-                        <span className={`w-12 text-right tabular-nums ${style.text}`}>
-                          {formatPercent(row.successRate)}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {row.trustScore.toFixed(2)}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      <span className={row.isActive ? 'text-success' : 'text-muted'}>
-                        {row.isActive ? 'Activ' : 'Inactiv'}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {row.lastHarvestAt
-                        ? new Date(row.lastHarvestAt).toLocaleString('ro-RO')
-                        : '-'}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <DataTable
+      data={rows}
+      columns={columns}
+      rowKey={(row) => `${row.sourceName}-${row.sourceType}`}
+      caption="Performanță surse"
+      emptyState={
+        <div className="py-6 text-center text-sm text-muted">
+          Nu există date de performanță încă.
+        </div>
+      }
+      className="rounded-lg shadow-[var(--shadow-sm)] transition-[box-shadow,border-color] duration-normal hover:shadow-[var(--shadow-md)]"
+    />
   );
 }

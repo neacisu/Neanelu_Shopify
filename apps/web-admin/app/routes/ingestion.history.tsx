@@ -15,8 +15,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
+import { PageHeader } from '../components/layout/page-header';
 import { Tabs } from '../components/ui/tabs';
+import { Card } from '../components/ui/card';
 import { ErrorDetailsRow, IngestionHistoryTable, RetryDialog } from '../components/domain/index.js';
+import { EmptyState } from '../components/patterns/empty-state.js';
 import { apiAction, type ActionData, createActionApiClient } from '../utils/actions';
 import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
 
@@ -212,15 +215,8 @@ export default function IngestionHistoryPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="space-y-1">
-          <Breadcrumbs items={breadcrumbs} />
-          <h1 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-slate-100 motion-safe:animate-[fadeSlideUp_0.5s_ease-out_both]">
-            Istoric ingestie
-          </h1>
-          <p className="text-sm text-slate-500">Rulări trecute, filtre și reîncercare</p>
-        </div>
-      </header>
+      <Breadcrumbs items={breadcrumbs} />
+      <PageHeader title="Istoric ingestie" description="Rulări trecute, filtre și reîncercare" />
 
       <div className="flex flex-wrap items-center gap-4">
         <Tabs
@@ -233,7 +229,7 @@ export default function IngestionHistoryPage() {
         />
       </div>
 
-      <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white p-4 shadow-[var(--shadow-sm)]">
+      <Card variant="glass" padding="md" className="overflow-hidden">
         <IngestionHistoryTable
           runs={runs}
           total={total}
@@ -245,9 +241,14 @@ export default function IngestionHistoryPage() {
           expandedRunId={errorsForRunId}
           expandedContent={(runId) => (
             <div className="space-y-3">
-              <h4 className="text-sm font-semibold text-slate-800">Erori pentru rularea {runId}</h4>
+              <h4 className="text-sm font-semibold text-foreground">
+                Erori pentru rularea {runId}
+              </h4>
               {errors.length === 0 ? (
-                <p className="text-sm text-slate-500">Nu există detalii de eroare.</p>
+                <EmptyState
+                  title="Nu există detalii"
+                  description="Nu există detalii de eroare pentru această rulare."
+                />
               ) : (
                 errors.map((error) => (
                   <ErrorDetailsRow
@@ -299,9 +300,7 @@ export default function IngestionHistoryPage() {
             void navigate(`/ingestion?runId=${encodeURIComponent(runId)}`);
           }}
         />
-
-        {errorsForRunId ? null : null}
-      </article>
+      </Card>
 
       <RetryDialog
         open={Boolean(retryRunId)}

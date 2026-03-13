@@ -10,14 +10,20 @@ export function SafeComponent({
   onError,
 }: {
   children: ReactNode;
-  fallback?: ReactNode;
+  fallback?: ((resetErrorBoundary: () => void) => ReactNode) | ReactNode;
   onError?: (error: Error, info: ErrorInfo) => void;
 }) {
   return (
     <ErrorBoundary
-      fallbackRender={({ error, resetErrorBoundary }) =>
-        fallback ?? <ComponentErrorFallback error={error} resetErrorBoundary={resetErrorBoundary} />
-      }
+      fallbackRender={({ error, resetErrorBoundary }) => {
+        if (typeof fallback === 'function') {
+          return fallback(resetErrorBoundary) as React.ReactElement;
+        }
+        if (fallback != null) {
+          return fallback as React.ReactElement;
+        }
+        return <ComponentErrorFallback error={error} resetErrorBoundary={resetErrorBoundary} />;
+      }}
       onError={(error, info) => {
         const err = error instanceof Error ? error : new Error(String(error));
         reportUiError(err, { source: 'component' });

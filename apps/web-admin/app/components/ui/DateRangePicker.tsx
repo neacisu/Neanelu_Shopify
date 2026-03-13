@@ -119,7 +119,7 @@ export function DateRangePicker(props: DateRangePickerProps) {
           aria-expanded={open}
           aria-controls={open ? popupId : undefined}
           onClick={() => setOpen((v) => !v)}
-          className="inline-flex w-full items-center justify-between gap-2 rounded-xl border border-border bg-white/70 px-4 py-2.5 text-left text-sm font-medium text-foreground shadow-[var(--shadow-sm)] backdrop-blur-sm transition-all duration-200 hover:bg-subtle/50 focus-visible:shadow-[0_0_0_3px_rgba(59,130,246,0.15)] dark:border-slate-700 dark:bg-slate-900/70 dark:text-foreground dark:focus-visible:shadow-[0_0_0_3px_rgba(96,165,250,0.2)] sm:w-auto"
+          className="inline-flex w-full items-center justify-between gap-2 rounded-xl border border-border bg-card/70 px-4 py-2.5 text-left text-sm font-medium text-foreground shadow-[var(--shadow-sm)] backdrop-blur-sm transition-all duration-200 hover:bg-subtle/50 focus-ring-standard sm:w-auto"
         >
           <span className="inline-flex items-center gap-2">
             <Calendar className="size-4 text-muted" aria-hidden />
@@ -138,7 +138,7 @@ export function DateRangePicker(props: DateRangePickerProps) {
             aria-label={label}
             id={popupId}
             aria-modal="false"
-            className="date-range-picker-card mt-3 w-full min-w-0 max-w-[min(720px,100%)] rounded-2xl border border-white/20 bg-white/90 shadow-xl backdrop-blur-xl motion-safe:animate-[fadeSlideUp_0.25s_ease-out] dark:border-white/10 dark:bg-slate-900/90"
+            className="date-range-picker-card mt-3 w-full min-w-0 max-w-[min(720px,100%)] rounded-2xl border border-border bg-card/90 shadow-xl backdrop-blur-xl motion-safe:animate-[fadeSlideUp_0.25s_ease-out]"
             onKeyDown={(e) => {
               if (e.key === 'Escape') {
                 e.preventDefault();
@@ -152,7 +152,7 @@ export function DateRangePicker(props: DateRangePickerProps) {
                 <button
                   type="button"
                   onClick={close}
-                  className="rounded-lg p-1.5 text-muted transition-colors hover:bg-subtle hover:text-foreground focus:outline-none focus:ring-2 focus:ring-accent/40"
+                  className="rounded-lg p-1.5 text-muted transition-colors hover:bg-subtle hover:text-foreground focus-ring-standard"
                   aria-label="Închide"
                 >
                   <X className="size-4" />
@@ -172,7 +172,7 @@ export function DateRangePicker(props: DateRangePickerProps) {
             ) : null}
 
             <div className="flex flex-col gap-0 md:flex-row">
-              <aside className="shrink-0 border-b border-border bg-subtle/30 px-4 py-4 md:w-48 md:border-b-0 md:border-r dark:bg-subtle/20">
+              <aside className="shrink-0 border-b border-border bg-subtle/30 px-4 py-4 md:w-48 md:border-b-0 md:border-r">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">
                   Rapid
                 </p>
@@ -186,7 +186,7 @@ export function DateRangePicker(props: DateRangePickerProps) {
                         onChange(p.range);
                         close();
                       }}
-                      className="rounded-lg px-3 py-2 text-left text-sm font-medium text-foreground transition-all duration-200 hover:bg-card hover:shadow-[var(--shadow-sm)] focus-visible:ring-2 focus-visible:ring-accent/30"
+                      className="rounded-lg px-3 py-2 text-left text-sm font-medium text-foreground transition-all duration-200 hover:bg-card hover:shadow-[var(--shadow-sm)] focus-ring-standard"
                     >
                       {p.label}
                     </button>
@@ -207,12 +207,12 @@ export function DateRangePicker(props: DateRangePickerProps) {
                   {...(locale ? { locale } : {})}
                 />
 
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-subtle/30 px-4 py-3 dark:bg-subtle/20">
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-subtle/30 px-4 py-3">
                   <button
                     type="button"
                     ref={clearButtonRef}
                     onClick={() => setDraft(undefined)}
-                    className="text-sm font-medium text-muted transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent/30"
+                    className="text-sm font-medium text-muted transition-colors hover:text-foreground focus-ring-standard"
                   >
                     Șterge
                   </button>

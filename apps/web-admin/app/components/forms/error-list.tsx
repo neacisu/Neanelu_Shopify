@@ -11,10 +11,7 @@ export function ErrorList({ errors }: { errors: Record<string, string[]> }) {
   }, []);
 
   return (
-    <ul
-      className="mt-2 list-disc space-y-1 pl-6 text-sm text-red-700 dark:text-red-300"
-      role="list"
-    >
+    <ul className="mt-2 list-disc space-y-1 pl-6 text-sm text-error" role="list">
       {entries.flatMap(([field, msgs]) =>
         msgs.map((msg, index) => {
           const key = `${field}-${index}`;
@@ -27,7 +24,7 @@ export function ErrorList({ errors }: { errors: Record<string, string[]> }) {
             <li key={key}>
               <a
                 href={`#${field}`}
-                className="rounded px-0.5 py-0.5 text-red-600 underline-offset-2 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:text-red-400"
+                className="rounded px-0.5 py-0.5 text-error underline-offset-2 transition-colors hover:underline focus-ring-standard"
                 onClick={(event) => {
                   event.preventDefault();
                   onNavigate(field);

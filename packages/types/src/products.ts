@@ -27,6 +27,9 @@ export type QualityLevel = 'bronze' | 'silver' | 'golden' | 'review_needed';
 export interface ProductPimData {
   masterId: string;
   taxonomyId: string | null;
+  taxonomyAiStatus: string | null;
+  taxonomyAiConfidence: number | null;
+  taxonomyAiMethod: string | null;
   qualityLevel: QualityLevel;
   qualityScore: number | null;
   qualityScoreBreakdown: {
@@ -54,11 +57,31 @@ export interface ProductDetail extends Product {
   tags: string[];
   featuredImageUrl: string | null;
   priceRange: { min: string; max: string; currency: string } | null;
+  compareAtPriceRange: Record<string, unknown> | null;
   metafields: Record<string, unknown>;
   categoryId: string | null;
   syncedAt: string | null;
   createdAtShopify: string | null;
   updatedAtShopify: string | null;
+  publishedAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  shopifyGid: string | null;
+  legacyResourceId: string | null;
+  isGiftCard: boolean;
+  hasOnlyDefaultVariant: boolean;
+  hasOutOfStockVariants: boolean;
+  requiresSellingPlan: boolean;
+  options: unknown[];
+  seo: Record<string, unknown> | null;
+  templateSuffix: string | null;
+  collectionTaxonomy: {
+    collectionId: string;
+    collectionTitle: string;
+    taxonomyId: string;
+    taxonomyName: string;
+    taxonomyPath: string | null;
+  } | null;
   pim?: ProductPimData | null;
   variants: ProductVariantDetail[];
 }

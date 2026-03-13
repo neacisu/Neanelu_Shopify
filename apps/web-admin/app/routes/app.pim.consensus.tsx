@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
 import { InfoTooltip } from '../components/ui/info-tooltip';
 import { Tabs } from '../components/ui/tabs';
 import { ConsensusStatsCards } from '../components/domain/ConsensusStatsCards';
@@ -9,9 +10,10 @@ import { ConsensusProductsTable } from '../components/domain/ConsensusProductsTa
 import { ConsensusSourcesChart } from '../components/domain/ConsensusSourcesChart';
 import { ConsensusDetailDrawer } from '../components/domain/ConsensusDetailDrawer';
 import { DonutChart } from '../components/charts/DonutChart';
-import { DashboardSkeleton } from '../components/patterns/DashboardSkeleton';
-import { ErrorState } from '../components/patterns/error-state';
-import { LoadingState } from '../components/patterns/loading-state';
+import { DashboardSkeleton } from '../components/patterns/DashboardSkeleton.js';
+import { EmptyState } from '../components/patterns/empty-state.js';
+import { ErrorState } from '../components/patterns/error-state.js';
+import { LoadingState } from '../components/patterns/loading-state.js';
 import { toast } from 'sonner';
 import { useConsensusStats } from '../hooks/use-consensus-stats';
 import { useConsensusProducts } from '../hooks/use-consensus-products';
@@ -119,8 +121,8 @@ export default function PimConsensusPage() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <ConsensusSourcesChart data={sourcesChartData} />
-        <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60">
-          <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+        <Card padding="md">
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-primary">
             Evenimente consens în timp real
             <InfoTooltip title="Evenimente consens">
               Fluxul de evenimente în timp real arată acțiunile de consens pe măsură ce apar. De ce
@@ -129,22 +131,24 @@ export default function PimConsensusPage() {
               evenimentele după ce rulezi o recalculare.
             </InfoTooltip>
           </div>
-          <div className="max-h-64 space-y-2 overflow-y-auto text-xs text-slate-500 dark:text-slate-400">
+          <div className="max-h-64 space-y-2 overflow-y-auto text-xs text-muted">
             {stream.events.slice(0, 10).map((event, idx) => (
               <div key={`${event.type}-${idx}`} className="flex flex-col gap-1">
-                <span className="font-medium text-slate-800 dark:text-slate-100">{event.type}</span>
+                <span className="font-medium text-foreground">{event.type}</span>
                 {event.payload ? (
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  <span className="text-[11px] text-muted">
                     {JSON.stringify(event.payload).slice(0, 120)}
                   </span>
                 ) : null}
               </div>
             ))}
-            {stream.events.length === 0 ? <div>Nu există evenimente încă.</div> : null}
+            {stream.events.length === 0 ? (
+              <EmptyState title="Nu există evenimente" description="Nu există evenimente încă." />
+            ) : null}
           </div>
-        </div>
-        <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60">
-          <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+        </Card>
+        <Card padding="md">
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-primary">
             Distribuție conflicte
             <InfoTooltip title="Distribuție conflicte">
               Graficul arată proporția produselor cu conflicte, calcul finalizat și cele în
@@ -154,7 +158,7 @@ export default function PimConsensusPage() {
             </InfoTooltip>
           </div>
           <DonutChart data={conflictDistribution} height={220} showLegend />
-        </div>
+        </Card>
       </div>
 
       <div className="space-y-4">
@@ -167,6 +171,11 @@ export default function PimConsensusPage() {
             { value: 'conflicts', label: 'Conflicte' },
           ]}
         />
+        <p className="sr-only" aria-live="polite" aria-atomic="true">
+          {productsQuery.loading
+            ? 'Se încarcă...'
+            : `${products.length} produse cu date de consens`}
+        </p>
         {productsQuery.loading && !productsQuery.data ? (
           <LoadingState label="Se incarca lista de produse…" />
         ) : null}
@@ -178,22 +187,50 @@ export default function PimConsensusPage() {
             }}
           />
         ) : null}
-        {productsQuery.loading && productsQuery.data ? (
-          <div className="text-caption text-muted">Actualizez lista…</div>
+        {tab === 'all' ? (
+          products.length === 0 && !productsQuery.loading ? (
+            <EmptyState
+              title="Nu există produse"
+              description="Nu există produse cu date de consens disponibile."
+            />
+          ) : (
+            <div
+              className={
+                productsQuery.loading && productsQuery.data
+                  ? 'pointer-events-none opacity-60'
+                  : undefined
+              }
+            >
+              <ConsensusProductsTable items={products} onSelect={handleSelect} />
+            </div>
+          )
         ) : null}
-        {tab === 'all' ? <ConsensusProductsTable items={products} onSelect={handleSelect} /> : null}
-        {tab === 'pending' ? (
-          <ConsensusProductsTable
-            items={products.filter((item) => item.consensusStatus === 'pending')}
-            onSelect={handleSelect}
-          />
-        ) : null}
-        {tab === 'conflicts' ? (
-          <ConsensusProductsTable
-            items={products.filter((item) => item.consensusStatus === 'conflicts')}
-            onSelect={handleSelect}
-          />
-        ) : null}
+        {tab === 'pending'
+          ? (() => {
+              const filtered = products.filter((item) => item.consensusStatus === 'pending');
+              return filtered.length === 0 && !productsQuery.loading ? (
+                <EmptyState
+                  title="Nu există produse în așteptare"
+                  description="Toate produsele au fost procesate."
+                />
+              ) : (
+                <ConsensusProductsTable items={filtered} onSelect={handleSelect} />
+              );
+            })()
+          : null}
+        {tab === 'conflicts'
+          ? (() => {
+              const filtered = products.filter((item) => item.consensusStatus === 'conflicts');
+              return filtered.length === 0 && !productsQuery.loading ? (
+                <EmptyState
+                  title="Nu există conflicte"
+                  description="Nu există produse cu conflicte de consens."
+                />
+              ) : (
+                <ConsensusProductsTable items={filtered} onSelect={handleSelect} />
+              );
+            })()
+          : null}
       </div>
 
       {selected && detailLoading && !detail ? (

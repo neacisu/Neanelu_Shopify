@@ -764,6 +764,48 @@
       "when": 1773253200000,
       "tag": "0108_collection_pending_changes",
       "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1773339600000,
+      "tag": "0109_staging_category_and_meta_chain",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1773426000000,
+      "tag": "0110_fix_collection_pending_changes_perms",
+      "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1773512400000,
+      "tag": "0111_collection_pending_image",
+      "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1773598800000,
+      "tag": "0112_add_product_dissociate_change_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1773685200000,
+      "tag": "0113_metafield_definition_ai",
+      "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1773771600000,
+      "tag": "0114_selfhosted_timeout_increase",
+      "breakpoints": true
     }
   ]
 }

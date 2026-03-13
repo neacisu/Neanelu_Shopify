@@ -42,7 +42,7 @@ export function ConnectionStatus({
         >
           {status === 'connected' ? (
             <span
-              className="size-2 rounded-full bg-green-500 motion-safe:animate-[pulse_2s_ease-in-out_infinite]"
+              className="size-2 rounded-full bg-success motion-safe:animate-[pulse_2s_ease-in-out_infinite]"
               aria-hidden
             />
           ) : null}

@@ -16,13 +16,18 @@ export type CollectionShopifySyncChangeType =
   | 'field_update'
   | 'taxonomy_assign'
   | 'taxonomy_unassign'
-  | 'menu_assign';
+  | 'menu_assign'
+  | 'product_dissociate'
+  | 'metafield_definition_create';
 
 export type CollectionShopifySyncMutation =
   | 'collectionUpdate'
+  | 'collectionRemoveProducts'
+  | 'tagsRemove'
   | 'metafieldsSet'
   | 'metafieldsDelete'
-  | 'menuUpdate';
+  | 'menuUpdate'
+  | 'metafieldDefinitionCreate';
 
 export interface CollectionShopifySyncJobData {
   shopId: string;

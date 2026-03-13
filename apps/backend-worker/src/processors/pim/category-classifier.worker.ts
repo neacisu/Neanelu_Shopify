@@ -84,6 +84,11 @@ async function processCategoryClassification(
   logger: Logger
 ): Promise<void> {
   const env = loadEnv();
+  const startedAt = Date.now();
+  logger.info(
+    { productId: payload.productId, shopId: payload.shopId, trigger: payload.trigger },
+    'category_classification_started'
+  );
 
   const product = await withTenantContext(payload.shopId, async (client) => {
     const res = await client.query<ProductContext>(
@@ -101,7 +106,13 @@ async function processCategoryClassification(
     );
     return res.rows[0] ?? null;
   });
-  if (!product) return;
+  if (!product) {
+    logger.warn(
+      { productId: payload.productId, shopId: payload.shopId },
+      'category_classification_product_not_found'
+    );
+    return;
+  }
 
   const provider = await resolveEmbeddingsProvider({
     shopId: payload.shopId,
@@ -109,11 +120,23 @@ async function processCategoryClassification(
     logger,
   });
   if (!provider.isAvailable()) {
+    logger.warn(
+      {
+        productId: payload.productId,
+        shopId: payload.shopId,
+        reason: 'embeddings_provider_unavailable',
+      },
+      'category_classification_provider_unavailable'
+    );
     return;
   }
 
   const classificationText = buildClassificationText(product);
   if (!classificationText) {
+    logger.warn(
+      { productId: payload.productId, title: product.canonical_title },
+      'category_classification_text_empty'
+    );
     return;
   }
 
@@ -121,8 +144,17 @@ async function processCategoryClassification(
   let selectedMethod: 'embedding' | 'llm' | 'manual' = 'manual';
   let selectedConfidence: number | null = null;
 
+  const embedStartedAt = Date.now();
   const [embedding] = await provider.embedTexts([classificationText]);
   if (embedding && embedding.length > 0) {
+    logger.info(
+      {
+        productId: payload.productId,
+        embeddingDims: embedding.length,
+        durationMs: Date.now() - embedStartedAt,
+      },
+      'category_classification_embedding_generated'
+    );
     const candidates = await withTenantContext(payload.shopId, async (client) => {
       return await findTaxonomyByEmbedding(client, embedding, provider.model.name);
     });
@@ -131,7 +163,25 @@ async function processCategoryClassification(
       selectedTaxonomyId = top.id;
       selectedMethod = 'embedding';
       selectedConfidence = Number(top.similarity.toFixed(2));
+      logger.info(
+        {
+          productId: payload.productId,
+          taxonomyId: top.id,
+          taxonomyName: top.name,
+          similarity: top.similarity,
+          method: 'embedding',
+        },
+        'category_classification_embedding_match'
+      );
     } else {
+      logger.info(
+        {
+          productId: payload.productId,
+          topSimilarity: top?.similarity ?? 0,
+          candidateCount: candidates.length,
+        },
+        'category_classification_llm_fallback_triggered'
+      );
       const xaiResult = await classifyWithLLMFallback({
         shopId: payload.shopId,
         classificationText,
@@ -143,8 +193,32 @@ async function processCategoryClassification(
         selectedTaxonomyId = xaiResult.taxonomyId;
         selectedMethod = 'llm';
         selectedConfidence = xaiResult.confidence;
+        logger.info(
+          {
+            productId: payload.productId,
+            taxonomyId: xaiResult.taxonomyId,
+            confidence: xaiResult.confidence,
+            method: 'llm',
+          },
+          'category_classification_llm_result'
+        );
+      } else {
+        logger.warn(
+          { productId: payload.productId, topSimilarity: top?.similarity ?? 0 },
+          'category_classification_no_match'
+        );
       }
     }
+  } else {
+    logger.warn(
+      {
+        productId: payload.productId,
+        embeddingDims: 0,
+        textLength: classificationText.length,
+        durationMs: Date.now() - embedStartedAt,
+      },
+      'category_classification_embedding_empty'
+    );
   }
 
   await withTenantContext(payload.shopId, async (client) => {
@@ -211,6 +285,17 @@ async function processCategoryClassification(
       [payload.productId]
     );
   });
+  logger.info(
+    {
+      productId: payload.productId,
+      shopId: payload.shopId,
+      selectedMethod,
+      selectedTaxonomyId,
+      selectedConfidence,
+      totalDurationMs: Date.now() - startedAt,
+    },
+    'category_classification_completed'
+  );
 }
 
 function buildClassificationText(product: ProductContext): string {

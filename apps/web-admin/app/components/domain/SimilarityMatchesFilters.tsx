@@ -1,4 +1,7 @@
+import { useReducedMotion } from '../../hooks/use-reduced-motion';
 import { InfoTooltip } from '../ui/info-tooltip';
+import { Checkbox } from '../ui/checkbox';
+import { TextField } from '../ui/text-field';
 
 type MatchStatus = 'pending' | 'confirmed' | 'rejected' | 'uncertain';
 type TriageDecision = 'auto_approve' | 'ai_audit' | 'hitl_required' | 'rejected';
@@ -78,6 +81,7 @@ export function SimilarityMatchesFilters({
   onChange,
   onClear,
 }: SimilarityMatchesFiltersProps) {
+  const reducedMotion = useReducedMotion();
   const statusValues = isStringArray(filters.status) ? filters.status.filter(isStatusOption) : [];
   const triageValues = isStringArray(filters.triageDecision)
     ? filters.triageDecision.filter(isTriageOption)
@@ -94,76 +98,67 @@ export function SimilarityMatchesFilters({
 
   return (
     <div
-      className="rounded-lg border border-slate-200/80 bg-white/80 backdrop-blur-sm p-4 dark:border-slate-700/60 dark:bg-slate-900/80"
-      style={{ animation: 'fadeSlideUp 0.4s ease-out both' }}
+      className="rounded-lg border border-border bg-card/80 backdrop-blur-sm p-4"
+      style={reducedMotion ? undefined : { animation: 'fadeSlideUp 0.4s ease-out both' }}
     >
       <div className="grid gap-4 md:grid-cols-3">
-        <label className="space-y-1 text-sm">
-          <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
-            Căutare
-            <InfoTooltip title="Căutare text">
-              Caută text liber în titluri, URL-uri sau brand. Filtrează instantaneu potrivirile
-              afișate. De exemplu, scrie „Nike" pentru a vedea doar potrivirile cu acest brand.
-              Sfat: poți folosi și fragmente de URL.
-            </InfoTooltip>
-          </span>
-          <input
+        <span className="inline-flex items-start gap-1.5 text-sm">
+          <TextField
+            label="Căutare"
             type="text"
             value={filters.search ?? ''}
             onChange={(event) => onChange({ ...filters, search: event.target.value })}
             placeholder="Titlu, URL, brand..."
-            className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-slate-800 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:focus:ring-blue-400/50"
           />
-        </label>
+          <InfoTooltip title="Căutare text">
+            Caută text liber în titluri, URL-uri sau brand. Filtrează instantaneu potrivirile
+            afișate. De exemplu, scrie „Nike" pentru a vedea doar potrivirile cu acest brand. Sfat:
+            poți folosi și fragmente de URL.
+          </InfoTooltip>
+        </span>
 
-        <label className="space-y-1 text-sm">
-          <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
-            Similarity min
-            <InfoTooltip title="Similarity minim">
-              Scorul minim de similaritate exclude potrivirile cu scor prea mic. Valoarea implicită
-              e 0.9 (foarte similare). De exemplu, 0.95 arată doar potriviri aproape identice. Sfat:
-              scade la 0.85 dacă vrei mai multe rezultate.
-            </InfoTooltip>
-          </span>
-          <input
+        <span className="inline-flex items-start gap-1.5 text-sm">
+          <TextField
+            label="Similarity min"
             type="number"
             min={0.9}
             max={1}
             step={0.01}
-            value={filters.similarityMin ?? 0.9}
+            value={String(filters.similarityMin ?? 0.9)}
             onChange={(event) =>
               onChange({ ...filters, similarityMin: Number(event.target.value) })
             }
-            className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-slate-800 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:focus:ring-blue-400/50"
           />
-        </label>
+          <InfoTooltip title="Similarity minim">
+            Scorul minim de similaritate exclude potrivirile cu scor prea mic. Valoarea implicită e
+            0.9 (foarte similare). De exemplu, 0.95 arată doar potriviri aproape identice. Sfat:
+            scade la 0.85 dacă vrei mai multe rezultate.
+          </InfoTooltip>
+        </span>
 
-        <label className="space-y-1 text-sm">
-          <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
-            Similarity max
-            <InfoTooltip title="Similarity maxim">
-              Scorul maxim limitează rezultatele. Implicit 1 = include toate. Util dacă vrei să
-              excluzi potriviri exacte (1.0). De exemplu, setează 0.99 pentru a investiga doar
-              potrivirile parțiale. Sfat: în majoritatea cazurilor, lasă 1.
-            </InfoTooltip>
-          </span>
-          <input
+        <span className="inline-flex items-start gap-1.5 text-sm">
+          <TextField
+            label="Similarity max"
             type="number"
             min={0.9}
             max={1}
             step={0.01}
-            value={filters.similarityMax ?? 1}
+            value={String(filters.similarityMax ?? 1)}
             onChange={(event) =>
               onChange({ ...filters, similarityMax: Number(event.target.value) })
             }
-            className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-slate-800 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:focus:ring-blue-400/50"
           />
-        </label>
+          <InfoTooltip title="Similarity maxim">
+            Scorul maxim limitează rezultatele. Implicit 1 = include toate. Util dacă vrei să
+            excluzi potriviri exacte (1.0). De exemplu, setează 0.99 pentru a investiga doar
+            potrivirile parțiale. Sfat: în majoritatea cazurilor, lasă 1.
+          </InfoTooltip>
+        </span>
       </div>
 
       <div className="mt-4 grid gap-4 md:grid-cols-3">
         <div>
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-muted">
             Status
             <InfoTooltip title="Filtru status">
               Filtrează potrivirile după statusul de confirmare. Selectează una sau mai multe
@@ -176,10 +171,10 @@ export function SimilarityMatchesFilters({
               <button
                 key={status}
                 type="button"
-                className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                className={`rounded-full border px-3 py-1 text-xs transition-colors focus-ring-standard ${
                   statusValues.includes(status)
-                    ? 'border-blue-500/60 bg-blue-500/10 text-slate-800 dark:border-blue-400/60 dark:bg-blue-400/10 dark:text-slate-200'
-                    : 'border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800'
+                    ? 'border-primary/50 bg-primary/5 text-foreground'
+                    : 'border-border text-muted hover:bg-subtle'
                 }`}
                 onClick={() => onChange({ ...filters, status: toggleList(statusValues, status) })}
               >
@@ -190,7 +185,7 @@ export function SimilarityMatchesFilters({
         </div>
 
         <div>
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-muted">
             Triage
             <InfoTooltip title="Filtru triage">
               Filtrează după decizia de triage automată. Auto-approve = scor mare, AI audit = review
@@ -203,10 +198,10 @@ export function SimilarityMatchesFilters({
               <button
                 key={triage}
                 type="button"
-                className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                className={`rounded-full border px-3 py-1 text-xs transition-colors focus-ring-standard ${
                   triageValues.includes(triage)
-                    ? 'border-blue-500/60 bg-blue-500/10 text-slate-800 dark:border-blue-400/60 dark:bg-blue-400/10 dark:text-slate-200'
-                    : 'border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800'
+                    ? 'border-primary/50 bg-primary/5 text-foreground'
+                    : 'border-border text-muted hover:bg-subtle'
                 }`}
                 onClick={() =>
                   onChange({ ...filters, triageDecision: toggleList(triageValues, triage) })
@@ -219,7 +214,7 @@ export function SimilarityMatchesFilters({
         </div>
 
         <div>
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-muted">
             Metodă potrivire
             <InfoTooltip title="Filtru metodă potrivire">
               Filtrează după cum a fost găsită potrivirea. GTIN = cod de bare, MPN = cod producător,
@@ -234,8 +229,8 @@ export function SimilarityMatchesFilters({
                 type="button"
                 className={`rounded-full border px-3 py-1 text-xs transition-colors ${
                   methodValues.includes(method)
-                    ? 'border-blue-500/60 bg-blue-500/10 text-slate-800 dark:border-blue-400/60 dark:bg-blue-400/10 dark:text-slate-200'
-                    : 'border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800'
+                    ? 'border-primary/50 bg-primary/5 text-foreground'
+                    : 'border-border text-muted hover:bg-subtle'
                 }`}
                 onClick={() =>
                   onChange({ ...filters, matchMethod: toggleList(methodValues, method) })
@@ -250,7 +245,7 @@ export function SimilarityMatchesFilters({
 
       <div className="mt-4 grid gap-4 md:grid-cols-3">
         <div>
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-muted">
             Tip sursă
             <InfoTooltip title="Filtru tip sursă">
               Filtrează după tipul sursei externe. Organic = rezultate web, Shopping = Google
@@ -265,8 +260,8 @@ export function SimilarityMatchesFilters({
                 type="button"
                 className={`rounded-full border px-3 py-1 text-xs transition-colors ${
                   sourceValues.includes(source)
-                    ? 'border-blue-500/60 bg-blue-500/10 text-slate-800 dark:border-blue-400/60 dark:bg-blue-400/10 dark:text-slate-200'
-                    : 'border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800'
+                    ? 'border-primary/50 bg-primary/5 text-foreground'
+                    : 'border-border text-muted hover:bg-subtle'
                 }`}
                 onClick={() =>
                   onChange({ ...filters, sourceType: toggleList(sourceValues, source) })
@@ -279,7 +274,7 @@ export function SimilarityMatchesFilters({
         </div>
 
         <label className="space-y-1 text-sm">
-          <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+          <span className="flex items-center gap-1.5 text-muted">
             Creat de la
             <InfoTooltip title="Dată de început">
               Filtrează potrivirile create după această dată. Util pentru a vedea doar cele recente.
@@ -291,12 +286,12 @@ export function SimilarityMatchesFilters({
             type="date"
             value={filters.createdFrom ?? ''}
             onChange={(event) => onChange({ ...filters, createdFrom: event.target.value })}
-            className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-slate-800 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:focus:ring-blue-400/50"
+            className="w-full rounded-md border border-border bg-card px-3 py-2 text-foreground transition-shadow duration-200 focus-ring-standard focus:outline-none"
           />
         </label>
 
         <label className="space-y-1 text-sm">
-          <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+          <span className="flex items-center gap-1.5 text-muted">
             Creat până la
             <InfoTooltip title="Dată de sfârșit">
               Filtrează potrivirile create înainte de această dată. Util pentru analiza unui
@@ -308,15 +303,14 @@ export function SimilarityMatchesFilters({
             type="date"
             value={filters.createdTo ?? ''}
             onChange={(event) => onChange({ ...filters, createdTo: event.target.value })}
-            className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-slate-800 transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:focus:ring-blue-400/50"
+            className="w-full rounded-md border border-border bg-card px-3 py-2 text-foreground transition-shadow duration-200 focus-ring-standard focus:outline-none"
           />
         </label>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-4 text-sm text-slate-700 dark:text-slate-300">
+      <div className="mt-4 flex flex-wrap items-center gap-4 text-sm text-foreground">
         <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={filters.hasAIAudit === true}
             aria-label="Filtru doar cu AI audit"
             onChange={(event) =>
@@ -326,8 +320,7 @@ export function SimilarityMatchesFilters({
           Doar cu AI audit
         </label>
         <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={filters.hasExtraction === true}
             aria-label="Filtru doar cu extracție"
             onChange={(event) =>
@@ -337,8 +330,7 @@ export function SimilarityMatchesFilters({
           Doar cu extracție
         </label>
         <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={filters.requiresHumanReview === true}
             aria-label="Filtru necesită review uman"
             onChange={(event) =>
@@ -350,14 +342,14 @@ export function SimilarityMatchesFilters({
         <button
           type="button"
           onClick={onClear}
-          className="rounded-md border border-slate-200 px-3 py-1 text-xs text-slate-500 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+          className="rounded-md border border-border px-3 py-1 text-xs text-muted transition-colors hover:bg-subtle focus-ring-standard"
         >
           Reset filtre
         </button>
       </div>
 
       <div className="mt-4">
-        <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-muted">
           Status extracție
           <InfoTooltip title="Filtru status extracție">
             Filtrează după statusul extracției de date. Pending = neinceput, in_progress = în curs,
@@ -370,10 +362,10 @@ export function SimilarityMatchesFilters({
             <button
               key={status}
               type="button"
-              className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+              className={`rounded-full border px-3 py-1 text-xs transition-colors focus-ring-standard ${
                 extractionStatusValues.includes(status)
-                  ? 'border-blue-500/60 bg-blue-500/10 text-slate-800 dark:border-blue-400/60 dark:bg-blue-400/10 dark:text-slate-200'
-                  : 'border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800'
+                  ? 'border-primary/50 bg-primary/5 text-foreground'
+                  : 'border-border text-muted hover:bg-subtle'
               }`}
               onClick={() =>
                 onChange({

@@ -7,10 +7,7 @@ type ConflictIndicatorProps = Readonly<{
 export function ConflictIndicator({ count }: ConflictIndicatorProps) {
   if (!count || count <= 0) return null;
 
-  const tone =
-    count >= 3
-      ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
-      : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300';
+  const tone = count >= 3 ? 'bg-error/10 text-error' : 'bg-warning/10 text-warning';
 
   return (
     <span className="inline-flex items-center gap-1">

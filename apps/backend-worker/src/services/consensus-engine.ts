@@ -2,7 +2,10 @@ import { buildChatCompletionsUrl, type ChatModelCredentials } from '@app/pim';
 import type { AppEnv } from '@app/config';
 import type { Logger } from '@app/logger';
 import {
+  acquireSelfhostedSlot,
   getAiRoutingRedis,
+  getChatTaskMaxTokensOverride,
+  getChatTaskTimeoutMs,
   recordConsensusCircuitBreakerFailure,
   recordConsensusCircuitBreakerSuccess,
   resolveChatTaskCredentials,
@@ -202,6 +205,39 @@ export function findMajority<T>(params: {
   return ranked[0] ?? null;
 }
 
+function buildSingleFallbackConfig(params: {
+  creds: ChatModelCredentials;
+  env: AppEnv;
+  taskType: ChatTaskType;
+}): ConsensusChatModelConfig {
+  const endpointId = `${params.creds.provider}:${params.creds.model}`;
+  const maxTokensOverride = getChatTaskMaxTokensOverride({
+    taskType: params.taskType,
+    provider: params.creds.provider,
+    model: params.creds.model,
+    endpointId,
+  });
+  return {
+    ...params.creds,
+    endpointId,
+    timeoutMs: getChatTaskTimeoutMs({
+      taskType: params.taskType,
+      provider: params.creds.provider,
+      model: params.creds.model,
+      endpointId,
+      timeoutMs: params.env.openAiTimeoutMs,
+    }),
+    ...(params.creds.provider === 'selfhosted' &&
+    (params.taskType === 'extraction' || params.taskType === 'description')
+      ? {
+          executionGroupId: buildSelfhostedExecutionGroupId(params.creds.baseUrl),
+          maxConcurrentGroupSlots: 1,
+          ...(maxTokensOverride !== undefined ? { maxTokensOverride } : {}),
+        }
+      : {}),
+  };
+}
+
 async function singleCallFallback<T>(params: ConsensusCallConfig<T>): Promise<ConsensusResult<T>> {
   const creds = await resolveChatTaskCredentials({
     shopId: params.shopId,
@@ -224,11 +260,11 @@ async function singleCallFallback<T>(params: ConsensusCallConfig<T>): Promise<Co
   }
 
   const raw = await singleModelFetch({
-    config: {
-      ...creds,
-      endpointId: `${creds.provider}:${creds.model}`,
-      timeoutMs: params.env.openAiTimeoutMs,
-    },
+    config: buildSingleFallbackConfig({
+      creds,
+      env: params.env,
+      taskType: params.taskType,
+    }),
     messages: [
       { role: 'system', content: params.systemPrompt },
       { role: 'user', content: inputScan.sanitizedText },
@@ -238,6 +274,7 @@ async function singleCallFallback<T>(params: ConsensusCallConfig<T>): Promise<Co
     env: params.env,
     logger: params.logger,
   });
+
   const outputScan = await scanOutput({
     shopId: params.shopId,
     prompt: inputScan.sanitizedText,
@@ -248,8 +285,11 @@ async function singleCallFallback<T>(params: ConsensusCallConfig<T>): Promise<Co
   if (!outputScan.isValid) {
     throw new Error(`guardrails_blocked_consensus_output:${outputScan.reason ?? 'unknown'}`);
   }
-  const parser = params.parseResponse ?? ((value: string) => JSON.parse(value) as T);
-  const result = parser(outputScan.sanitizedText);
+  const result = parseConsensusResult({
+    raw: outputScan.sanitizedText,
+    responseFormat: params.responseFormat,
+    parseResponse: params.parseResponse,
+  });
   const durationMs = Date.now() - startedAt;
   recordConsensusMetrics({
     taskType: params.taskType,
@@ -290,9 +330,11 @@ export function buildArbitrationPrompt(params: {
     classification:
       'Evaluate which answer is the safest and most accurate classification. False positives are worse than low-confidence abstention.',
     extraction:
-      'Evaluate factual completeness and accuracy. You may synthesize the best fields when the original response format is JSON.',
+      'Evaluate factual completeness and accuracy. For long-form product descriptions, synthesize the richest correct answer from the original prompt and the candidate responses. Do not compress a rich source description into a shorter summary when the task expects a Golden Record. You may synthesize the best fields when the original response format is JSON.',
     audit:
       'Evaluate which audit decision best protects against false positives. Critical discrepancies must outweigh weak similarity signals.',
+    description:
+      'Synthesize the richest and most complete product description from the candidate responses. The Golden Record description must preserve all factual detail from the source. Never compress or summarise at the expense of product information. Prefer the response that is longest, most informative, and best structured. Return the full text in the finalResult field.',
   };
 
   return {
@@ -366,6 +408,300 @@ function parseArbitrationFinalResult<T>(params: {
   }
 }
 
+type ExecutionStage = Readonly<{
+  stage: number;
+  configs: readonly ConsensusChatModelConfig[];
+}>;
+
+type ExecutionErrorType = 'capacity' | 'timeout' | 'transport' | 'application';
+
+class SelfhostedCapacityWaitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SelfhostedCapacityWaitError';
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function buildSelfhostedExecutionGroupId(baseUrl: string): string | null {
+  try {
+    return `selfhosted-chat-host:${new URL(baseUrl).hostname}`;
+  } catch {
+    return null;
+  }
+}
+
+function buildExecutionStages(
+  calls: readonly ConsensusChatModelConfig[]
+): readonly ExecutionStage[] {
+  const stageMap = new Map<number, ConsensusChatModelConfig[]>();
+  for (const config of calls) {
+    const stage = Math.max(1, config.executionStage ?? 1);
+    const bucket = stageMap.get(stage);
+    if (bucket) {
+      bucket.push(config);
+    } else {
+      stageMap.set(stage, [config]);
+    }
+  }
+
+  return [...stageMap.entries()]
+    .sort((left, right) => left[0] - right[0])
+    .map(([stage, configs]) => ({ stage, configs }));
+}
+
+function buildExecutionGroups(
+  configs: readonly ConsensusChatModelConfig[]
+): readonly (readonly ConsensusChatModelConfig[])[] {
+  const groups = new Map<string, ConsensusChatModelConfig[]>();
+  for (const [index, config] of configs.entries()) {
+    const key = config.executionGroupId ?? `independent:${config.endpointId}:${index}`;
+    const bucket = groups.get(key);
+    if (bucket) {
+      bucket.push(config);
+    } else {
+      groups.set(key, [config]);
+    }
+  }
+  return [...groups.values()];
+}
+
+async function acquireConsensusExecutionSlot(params: {
+  config: ConsensusChatModelConfig;
+  env: AppEnv;
+}): Promise<{ release: () => Promise<void> }> {
+  if (
+    params.config.provider !== 'selfhosted' ||
+    !params.config.executionGroupId ||
+    !params.config.maxConcurrentGroupSlots
+  ) {
+    return { release: async () => await Promise.resolve() };
+  }
+
+  const redis = getAiRoutingRedis(params.env);
+  const waitTimeoutMs = Math.min(Math.max(Math.floor(params.config.timeoutMs / 3), 5_000), 45_000);
+  const pollIntervalMs = 500;
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < waitTimeoutMs) {
+    const slot = await acquireSelfhostedSlot({
+      redis,
+      redisPrefix: params.env.redisPrefix,
+      endpointId: params.config.executionGroupId,
+      maxConcurrent: Math.max(1, params.config.maxConcurrentGroupSlots),
+    });
+    if (slot.acquired) {
+      return { release: slot.release };
+    }
+
+    const remainingMs = waitTimeoutMs - (Date.now() - startedAt);
+    if (remainingMs <= 0) {
+      break;
+    }
+    await sleep(Math.min(pollIntervalMs, remainingMs));
+  }
+
+  throw new SelfhostedCapacityWaitError(
+    `selfhosted_capacity_wait_timeout:${params.config.executionGroupId}`
+  );
+}
+
+function parseConsensusModelErrorStatus(error: Error): number | null {
+  const match = /^consensus_model_error:(\d+):/.exec(error.message);
+  if (!match?.[1]) return null;
+  const status = Number(match[1]);
+  return Number.isFinite(status) ? status : null;
+}
+
+function classifyExecutionError(error: unknown): {
+  type: ExecutionErrorType;
+  countForCircuitBreaker: boolean;
+  message: string;
+} {
+  if (error instanceof SelfhostedCapacityWaitError) {
+    return {
+      type: 'capacity',
+      countForCircuitBreaker: false,
+      message: error.message,
+    };
+  }
+
+  if (error instanceof Error) {
+    if (error.name === 'AbortError' || error.message.includes('aborted')) {
+      return {
+        type: 'timeout',
+        countForCircuitBreaker: true,
+        message: error.message,
+      };
+    }
+
+    if (error.message.includes('fetch failed')) {
+      return {
+        type: 'transport',
+        countForCircuitBreaker: true,
+        message: error.message,
+      };
+    }
+
+    const status = parseConsensusModelErrorStatus(error);
+    if (status != null && (status === 408 || status === 429 || status >= 500)) {
+      return {
+        type: 'transport',
+        countForCircuitBreaker: true,
+        message: error.message,
+      };
+    }
+
+    return {
+      type: 'application',
+      countForCircuitBreaker: false,
+      message: error.message,
+    };
+  }
+
+  return {
+    type: 'application',
+    countForCircuitBreaker: false,
+    message: String(error),
+  };
+}
+
+async function executeParticipantCall<T>(params: {
+  config: ConsensusChatModelConfig;
+  callConfig: ConsensusCallConfig<T>;
+  sanitizedPrompt: string;
+  messages: readonly ChatMessage[];
+  redis: ReturnType<typeof getAiRoutingRedis>;
+}): Promise<ParsedParticipant<T> | null> {
+  const startedAt = Date.now();
+  try {
+    const raw = await singleModelFetch({
+      config: params.config,
+      messages: params.messages,
+      responseFormat: params.callConfig.responseFormat,
+      maxTokens: params.callConfig.maxTokens,
+      env: params.callConfig.env,
+      logger: params.callConfig.logger,
+    });
+    await recordConsensusCircuitBreakerSuccess({
+      redis: params.redis,
+      redisPrefix: params.callConfig.env.redisPrefix,
+      endpointId: params.config.endpointId,
+    });
+    const outputScan = await scanOutput({
+      shopId: params.callConfig.shopId,
+      prompt: params.sanitizedPrompt,
+      output: raw,
+      env: params.callConfig.env,
+      logger: params.callConfig.logger,
+    });
+    if (!outputScan.isValid) {
+      return null;
+    }
+    const parsed = parseConsensusResult({
+      raw: outputScan.sanitizedText,
+      responseFormat: params.callConfig.responseFormat,
+      parseResponse: params.callConfig.parseResponse,
+    });
+    return {
+      parsed,
+      raw: outputScan.sanitizedText,
+      model: params.config.model,
+      endpointId: params.config.endpointId,
+      provider: params.config.provider,
+    } satisfies ParsedParticipant<T>;
+  } catch (error) {
+    const classified = classifyExecutionError(error);
+    if (classified.countForCircuitBreaker) {
+      const opened = await recordConsensusCircuitBreakerFailure({
+        redis: params.redis,
+        redisPrefix: params.callConfig.env.redisPrefix,
+        endpointId: params.config.endpointId,
+      });
+      if (opened) {
+        recordConsensusCircuitBreakerTrip(params.config.endpointId);
+      }
+    }
+
+    params.callConfig.logger.warn(
+      {
+        shopId: params.callConfig.shopId,
+        endpointId: params.config.endpointId,
+        errorType: classified.type,
+        timeoutMs: params.config.timeoutMs,
+        durationMs: Date.now() - startedAt,
+        circuitBreakerCounted: classified.countForCircuitBreaker,
+        executionStage: params.config.executionStage ?? 1,
+        executionGroupId: params.config.executionGroupId ?? null,
+        error,
+      },
+      classified.type === 'capacity'
+        ? 'consensus_participant_capacity_exhausted'
+        : classified.type === 'timeout'
+          ? 'consensus_participant_timed_out'
+          : 'consensus_participant_failed'
+    );
+    return null;
+  }
+}
+
+async function executeConsensusStages<T>(params: {
+  calls: readonly ConsensusChatModelConfig[];
+  callConfig: ConsensusCallConfig<T>;
+  sanitizedPrompt: string;
+  messages: readonly ChatMessage[];
+}): Promise<ParsedParticipant<T>[]> {
+  const redis = getAiRoutingRedis(params.callConfig.env);
+  const stages = buildExecutionStages(params.calls);
+  const participants: ParsedParticipant<T>[] = [];
+
+  for (const [index, stage] of stages.entries()) {
+    const stageGroups = buildExecutionGroups(stage.configs);
+    params.callConfig.logger.info(
+      {
+        shopId: params.callConfig.shopId,
+        taskType: params.callConfig.taskType,
+        stage: stage.stage,
+        stageIndex: index + 1,
+        totalStages: stages.length,
+        participantCount: stage.configs.length,
+        groups: stageGroups.map((group) => ({
+          executionGroupId: group[0]?.executionGroupId ?? null,
+          participantCount: group.length,
+          endpoints: group.map((config) => config.endpointId),
+        })),
+      },
+      'consensus_execution_stage_started'
+    );
+
+    const stageResults = await Promise.all(
+      stageGroups.map(async (group) => {
+        const groupResults: ParsedParticipant<T>[] = [];
+        for (const config of group) {
+          const result = await executeParticipantCall({
+            config,
+            callConfig: params.callConfig,
+            sanitizedPrompt: params.sanitizedPrompt,
+            messages: params.messages,
+            redis,
+          });
+          if (result) {
+            groupResults.push(result);
+          }
+        }
+        return groupResults;
+      })
+    );
+
+    participants.push(...stageResults.flat());
+  }
+
+  return participants;
+}
+
 export async function singleModelFetch(params: {
   config: ConsensusChatModelConfig;
   messages: readonly ChatMessage[];
@@ -374,38 +710,53 @@ export async function singleModelFetch(params: {
   env: AppEnv;
   logger: Logger;
 }): Promise<string> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), params.config.timeoutMs);
+  const slot = await acquireConsensusExecutionSlot({
+    config: params.config,
+    env: params.env,
+  });
+  const effectiveMaxTokens =
+    params.maxTokens == null
+      ? (params.config.maxTokensOverride ?? undefined)
+      : params.config.maxTokensOverride == null
+        ? params.maxTokens
+        : Math.min(params.maxTokens, params.config.maxTokensOverride);
+
   try {
-    const response = await fetch(buildChatCompletionsUrl(params.config.baseUrl), {
-      method: 'POST',
-      headers: {
-        ...(params.config.apiKey ? { Authorization: `Bearer ${params.config.apiKey}` } : {}),
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: params.config.model,
-        temperature: params.config.temperature,
-        ...(params.maxTokens ? { max_tokens: params.maxTokens } : {}),
-        ...(params.responseFormat ? { response_format: params.responseFormat } : {}),
-        messages: params.messages,
-      }),
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      throw new Error(`consensus_model_error:${response.status}:${body}`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), params.config.timeoutMs);
+    try {
+      const response = await fetch(buildChatCompletionsUrl(params.config.baseUrl), {
+        method: 'POST',
+        headers: {
+          ...(params.config.apiKey ? { Authorization: `Bearer ${params.config.apiKey}` } : {}),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: params.config.model,
+          temperature: params.config.temperature,
+          ...(effectiveMaxTokens ? { max_tokens: effectiveMaxTokens } : {}),
+          ...(params.responseFormat ? { response_format: params.responseFormat } : {}),
+          messages: params.messages,
+        }),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        throw new Error(`consensus_model_error:${response.status}:${body}`);
+      }
+      const payload = (await response.json()) as {
+        choices?: { message?: { content?: string | null } | null }[];
+      };
+      const content = payload.choices?.[0]?.message?.content?.trim() ?? '';
+      if (!content) {
+        throw new Error('consensus_empty_content');
+      }
+      return content;
+    } finally {
+      clearTimeout(timeout);
     }
-    const payload = (await response.json()) as {
-      choices?: { message?: { content?: string | null } | null }[];
-    };
-    const content = payload.choices?.[0]?.message?.content?.trim() ?? '';
-    if (!content) {
-      throw new Error('consensus_empty_content');
-    }
-    return content;
   } finally {
-    clearTimeout(timeout);
+    await slot.release();
   }
 }
 
@@ -440,71 +791,41 @@ export async function consensusChatCompletion<T>(
 
   const messages = buildMessages(params.systemPrompt, inputScan.sanitizedText);
   const calls = consensus.calls.slice(0, Math.max(1, params.env.consensusN));
+  const stages = buildExecutionStages(calls);
   onProgress?.({
     step: 'consensus_start',
     message: `${calls.length} agenti evalueaza raspunsul...`,
   });
 
-  const redis = getAiRoutingRedis(params.env);
-  const settled = await Promise.allSettled(
-    calls.map(async (config) => {
-      try {
-        const raw = await singleModelFetch({
-          config,
-          messages,
-          responseFormat: params.responseFormat,
-          maxTokens: params.maxTokens,
-          env: params.env,
-          logger: params.logger,
-        });
-        await recordConsensusCircuitBreakerSuccess({
-          redis,
-          redisPrefix: params.env.redisPrefix,
-          endpointId: config.endpointId,
-        });
-        const outputScan = await scanOutput({
-          shopId: params.shopId,
-          prompt: inputScan.sanitizedText,
-          output: raw,
-          env: params.env,
-          logger: params.logger,
-        });
-        if (!outputScan.isValid) {
-          return null;
-        }
-        const parsed = parseConsensusResult({
-          raw: outputScan.sanitizedText,
-          responseFormat: params.responseFormat,
-          parseResponse: params.parseResponse,
-        });
-        return {
-          parsed,
-          raw: outputScan.sanitizedText,
-          model: config.model,
-          endpointId: config.endpointId,
-          provider: config.provider,
-        } satisfies ParsedParticipant<T>;
-      } catch (error) {
-        const opened = await recordConsensusCircuitBreakerFailure({
-          redis,
-          redisPrefix: params.env.redisPrefix,
-          endpointId: config.endpointId,
-        });
-        if (opened) {
-          recordConsensusCircuitBreakerTrip(config.endpointId);
-        }
-        params.logger.warn(
-          { shopId: params.shopId, endpointId: config.endpointId, error },
-          'consensus_participant_failed'
-        );
-        return null;
-      }
-    })
+  params.logger.info(
+    {
+      shopId: params.shopId,
+      taskType: params.taskType,
+      participantCount: calls.length,
+      endpoints: calls.map((c) => ({
+        endpointId: c.endpointId,
+        model: c.model,
+        timeoutMs: c.timeoutMs,
+        temperature: c.temperature,
+        executionStage: c.executionStage ?? 1,
+        executionGroupId: c.executionGroupId ?? null,
+        maxConcurrentGroupSlots: c.maxConcurrentGroupSlots ?? null,
+        maxTokensOverride: c.maxTokensOverride ?? null,
+      })),
+      arbitrationEndpoint: consensus.arbitration.endpointId,
+      arbitrationModel: consensus.arbitration.model,
+      arbitrationTimeoutMs: consensus.arbitration.timeoutMs,
+      executionStageCount: stages.length,
+      consensusN: params.env.consensusN,
+    },
+    'consensus_participants_resolved'
   );
 
-  const participants = settled.flatMap((result) => {
-    if (result.status !== 'fulfilled' || !result.value) return [];
-    return [result.value];
+  const participants = await executeConsensusStages({
+    calls,
+    callConfig: params,
+    sanitizedPrompt: inputScan.sanitizedText,
+    messages,
   });
 
   if (participants.length === 0) {

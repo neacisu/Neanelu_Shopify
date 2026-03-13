@@ -33,7 +33,7 @@ export function QualityTrendChart({ data, rangeLabel }: QualityTrendChartProps) 
 
   return (
     <div className="rounded-lg border border-muted/20 bg-background p-4 transition-colors hover:border-muted/40">
-      <div className="mb-2 text-xs text-muted">
+      <div className="mb-2 text-xs text-primary">
         {rangeLabel ? `Evoluție calitate (${rangeLabel})` : 'Evoluție calitate'}
       </div>
       <LineChart
@@ -41,9 +41,14 @@ export function QualityTrendChart({ data, rangeLabel }: QualityTrendChartProps) 
         xAxisKey="date"
         tooltipContent={tooltipContent}
         lines={[
-          { dataKey: 'bronze', name: 'Bronze', color: '#CD7F32', areaFill: true },
-          { dataKey: 'silver', name: 'Silver', color: '#C0C0C0', areaFill: true },
-          { dataKey: 'golden', name: 'Golden Record', color: '#FFD700', areaFill: true },
+          { dataKey: 'bronze', name: 'Bronze', color: 'rgb(var(--color-bronze))', areaFill: true },
+          { dataKey: 'silver', name: 'Silver', color: 'rgb(var(--color-silver))', areaFill: true },
+          {
+            dataKey: 'golden',
+            name: 'Golden Record',
+            color: 'rgb(var(--color-golden))',
+            areaFill: true,
+          },
         ]}
       />
     </div>

@@ -30,6 +30,8 @@ export type StartBulkQueryOptions = Readonly<{
   graphqlQuery: string;
   idempotencyKey?: string;
   triggeredBy?: BulkJobTriggeredBy;
+  /** Delay the BullMQ job by N milliseconds before it becomes active. */
+  delayMs?: number;
 }>;
 
 /**
@@ -39,7 +41,7 @@ export async function startBulkQuery(
   shopId: string,
   options: StartBulkQueryOptions
 ): Promise<void> {
-  await enqueueBulkOrchestratorJob({
+  const payload = {
     shopId,
     operationType: options.operationType,
     queryType: options.queryType,
@@ -48,7 +50,12 @@ export async function startBulkQuery(
     ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
     triggeredBy: options.triggeredBy ?? 'system',
     requestedAt: Date.now(),
-  });
+  };
+  if (options.delayMs != null) {
+    await enqueueBulkOrchestratorJob(payload, { delayMs: options.delayMs });
+  } else {
+    await enqueueBulkOrchestratorJob(payload);
+  }
 }
 
 export type StartBulkQueryFromContractOptions = Readonly<{
@@ -57,6 +64,8 @@ export type StartBulkQueryFromContractOptions = Readonly<{
   version?: BulkQueryVersion;
   idempotencyKey?: string;
   triggeredBy?: BulkJobTriggeredBy;
+  /** Delay the BullMQ job by N milliseconds before it becomes active. */
+  delayMs?: number;
 }>;
 
 /**
@@ -80,6 +89,7 @@ export async function startBulkQueryFromContract(
     graphqlQuery: contract.graphqlQuery,
     ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
     ...(options.triggeredBy ? { triggeredBy: options.triggeredBy } : {}),
+    ...(options.delayMs != null ? { delayMs: options.delayMs } : {}),
   });
 }
 

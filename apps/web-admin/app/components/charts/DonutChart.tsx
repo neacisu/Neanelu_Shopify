@@ -10,6 +10,7 @@ export type DonutChartProps = Readonly<{
   innerRadius?: number | string;
   centerLabel?: ReactNode;
   onSliceClick?: (datum: PieChartDatum) => void;
+  ariaLabel?: string;
 }>;
 
 export function DonutChart({ innerRadius = '55%', ...rest }: DonutChartProps) {

@@ -17,11 +17,11 @@ export function CostBreakdownChart({ data }: CostBreakdownChartProps) {
   const hasData = data.length > 0;
   return (
     <div
-      className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-md dark:bg-slate-900/80 dark:border-slate-700/60"
+      className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-md)]"
       role="img"
       aria-label="Grafic costuri zilnice pe categorii: cautare, audit, extractie si embedding."
     >
-      <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+      <div className="mb-2 flex items-center gap-1.5 text-xs text-muted">
         <span>Distribuție zilnică costuri</span>
         <InfoTooltip title="Distribuție costuri">
           Distribuția zilnică arată costurile pe categorii: Căutare (Serper), AI Audit, Extracție și
@@ -36,14 +36,14 @@ export function CostBreakdownChart({ data }: CostBreakdownChartProps) {
           xAxisKey="date"
           stacked
           bars={[
-            { dataKey: 'search', name: 'Cautare', color: '#3b82f6' },
-            { dataKey: 'audit', name: 'AI Audit', color: '#8b5cf6' },
-            { dataKey: 'extraction', name: 'Extractie', color: '#22c55e' },
-            { dataKey: 'embedding', name: 'Embedding', color: '#f97316' },
+            { dataKey: 'search', name: 'Cautare', color: 'rgb(var(--chart-2))' },
+            { dataKey: 'audit', name: 'AI Audit', color: 'rgb(var(--chart-6))' },
+            { dataKey: 'extraction', name: 'Extractie', color: 'rgb(var(--color-success))' },
+            { dataKey: 'embedding', name: 'Embedding', color: 'rgb(var(--color-warning))' },
           ]}
         />
       ) : (
-        <div className="rounded-md border border-dashed border-muted/30 p-4 text-sm text-slate-500 dark:border-slate-600 dark:text-slate-400">
+        <div className="rounded-md border border-dashed border-muted/30 p-4 text-sm text-muted">
           Nu exista date pentru perioada selectata.
         </div>
       )}

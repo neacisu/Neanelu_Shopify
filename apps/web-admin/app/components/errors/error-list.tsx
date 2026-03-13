@@ -9,7 +9,7 @@ export function ErrorList(props: { errors: Record<string, string[]> }) {
       aria-live="polite"
       aria-atomic="true"
       aria-label="Listă erori formulare"
-      className="rounded-lg border border-red-200/50 bg-red-50/30 px-4 py-3 text-red-700 dark:border-red-800/30 dark:bg-red-900/10 dark:text-red-300"
+      className="rounded-lg border border-error/30 bg-error/5 px-4 py-3 text-error"
     >
       <BaseErrorList errors={props.errors} />
     </div>

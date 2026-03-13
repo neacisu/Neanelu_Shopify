@@ -33,6 +33,7 @@ export type LineChartProps<TData extends Record<string, unknown>> = Readonly<{
   showLegend?: boolean;
   tooltipProps?: Omit<ChartTooltipProps, 'content'>;
   tooltipContent?: ChartTooltipProps['content'];
+  ariaLabel?: string;
 }>;
 
 export function LineChart<TData extends Record<string, unknown>>({
@@ -45,6 +46,7 @@ export function LineChart<TData extends Record<string, unknown>>({
   showLegend = true,
   tooltipProps,
   tooltipContent,
+  ariaLabel,
 }: LineChartProps<TData>) {
   const safeHeight = Math.max(1, height);
   const { palette, text, grid } = useChartTheme();
@@ -61,7 +63,12 @@ export function LineChart<TData extends Record<string, unknown>>({
 
   return (
     <div
-      className="animate-[chartFadeIn_0.5s_ease-out_0.05s_both]"
+      role="img"
+      aria-label={
+        ariaLabel ??
+        `Grafic linie cu ${data.length} puncte de date și ${lines.length} serie${lines.length > 1 ? 'i' : ''}`
+      }
+      className="motion-safe:animate-[chartFadeIn_0.5s_ease-out_0.05s_both]"
       style={{ width: '100%', height: safeHeight, minHeight: safeHeight, minWidth: 1 }}
     >
       <ResponsiveContainer width="100%" height={safeHeight} minWidth={1} minHeight={safeHeight}>
@@ -90,7 +97,8 @@ export function LineChart<TData extends Record<string, unknown>>({
           {showLegend ? <ChartLegend /> : null}
 
           {lines.map((line, index) => {
-            const color = line.color ?? palette[index % palette.length] ?? '#64748b';
+            const color =
+              line.color ?? palette[index % palette.length] ?? 'rgb(var(--color-muted))';
             const strokeWidth = line.strokeWidth ?? 2;
             const dot = line.showDots ? { r: 2 } : false;
             const seriesOpacity =

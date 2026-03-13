@@ -21,19 +21,61 @@ import {
   Upload,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { InfoTooltip } from '../components/ui/info-tooltip';
 import { Button } from '../components/ui/button';
+import { Checkbox } from '../components/ui/checkbox';
 import { SearchInput } from '../components/ui/SearchInput';
 import { ProgressBar } from '../components/ui/progress-bar';
 import { EmptyState } from '../components/patterns';
+import { ErrorState } from '../components/patterns/error-state';
+import { LoadingState } from '../components/patterns/loading-state.js';
 import { Badge } from '../components/ui/badge';
 import { Modal } from '../components/ui/modal';
+import { Select, type SelectOption } from '../components/ui/select.js';
+import { TextField } from '../components/ui/text-field.js';
 import { useApiClient } from '../hooks/use-api';
+import { useReducedMotion } from '../hooks/use-reduced-motion';
 import { useScrollReveal } from '../hooks/useScrollReveal';
+
+const COLLECTION_TYPE_OPTIONS: SelectOption[] = [
+  { label: 'Toate tipurile', value: 'all' },
+  { label: 'Manual', value: 'MANUAL' },
+  { label: 'Smart', value: 'SMART' },
+];
+
+const TAXONOMY_OPTIONS: SelectOption[] = [
+  { label: 'Orice taxonomie', value: 'all' },
+  { label: 'Cu taxonomie', value: 'true' },
+  { label: 'Fără taxonomie', value: 'false' },
+];
+
+const MENU_LEVEL_OPTIONS: SelectOption[] = [
+  { label: 'Orice nivel', value: 'all' },
+  { label: 'În meniu', value: 'in_menu' },
+  { label: 'Root (părinte)', value: '0' },
+  { label: 'Nivel 1', value: '1' },
+  { label: 'Nivel 2', value: '2' },
+  { label: 'Neclasificate', value: 'none' },
+];
+
+const MENU_AI_STATE_OPTIONS: SelectOption[] = [
+  { label: 'Orice status menu AI', value: 'all' },
+  { label: 'Cu asocieri AI', value: 'has_assignments' },
+  { label: 'Cu propuneri în review', value: 'review_required' },
+  { label: 'Multiparent AI', value: 'multiparent' },
+];
+
+const PAGE_SIZE_OPTIONS: SelectOption[] = [
+  { label: '10 / pagină', value: '10' },
+  { label: '25 / pagină', value: '25' },
+  { label: '50 / pagină', value: '50' },
+  { label: '100 / pagină', value: '100' },
+];
 
 interface CollectionRow {
   id: string;
@@ -51,6 +93,7 @@ interface CollectionRow {
   description_html: string | null;
   description_en: string | null;
   image_url: string | null;
+  has_pending_image: boolean;
   parent_collection_id: string | null;
   parent_title: string | null;
   menu_level: number | null;
@@ -83,13 +126,21 @@ interface CollectionsStats {
   lastSyncedAt: string | null;
 }
 
-type PendingChangeType = 'field_update' | 'taxonomy_assign' | 'taxonomy_unassign' | 'menu_assign';
+type PendingChangeType =
+  | 'field_update'
+  | 'taxonomy_assign'
+  | 'taxonomy_unassign'
+  | 'menu_assign'
+  | 'product_dissociate'
+  | 'metafield_definition_create';
 
 interface PendingChangesByType {
   field_update: number;
   taxonomy_assign: number;
   taxonomy_unassign: number;
   menu_assign: number;
+  product_dissociate: number;
+  metafield_definition_create: number;
 }
 
 interface PendingChangeRow {
@@ -389,20 +440,20 @@ function CategoryTreeCell({
   const segments = useMemo(() => parseMenuPath(menuPath), [menuPath]);
 
   if (segments.length === 0) {
-    return <span className="text-slate-400 dark:text-slate-500">—</span>;
+    return <span className="text-muted">—</span>;
   }
 
   if (segments.length === 1) {
-    return <span className="text-xs text-slate-600 dark:text-slate-300">{segments[0]}</span>;
+    return <span className="text-xs text-muted">{segments[0]}</span>;
   }
 
   const parentLabel = segments[segments.length - 2] ?? segments[0];
 
   return (
-    <div className="min-w-[180px]" onClick={(e) => e.stopPropagation()}>
+    <div className="min-w-45" onClick={(e) => e.stopPropagation()}>
       <button
         type="button"
-        className="inline-flex items-center gap-1 text-left text-xs text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
+        className="inline-flex items-center gap-1 text-left text-xs text-muted hover:text-foreground"
         onClick={() => setExpanded((prev) => !prev)}
       >
         {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
@@ -416,13 +467,11 @@ function CategoryTreeCell({
               <div
                 key={`${segment}-${index}`}
                 className={`flex items-center gap-1 text-xs ${
-                  isCurrent
-                    ? 'font-semibold text-slate-900 dark:text-slate-100'
-                    : 'text-slate-500 dark:text-slate-400'
+                  isCurrent ? 'font-semibold text-foreground' : 'text-muted'
                 }`}
                 style={{ paddingLeft: `${index * 12}px` }}
               >
-                {index > 0 && <span className="text-slate-300 dark:text-slate-600">└─</span>}
+                {index > 0 && <span className="text-muted">└─</span>}
                 <span className="truncate">{isCurrent ? currentTitle : segment}</span>
               </div>
             );
@@ -468,15 +517,11 @@ function renderPendingChangeSummary(row: PendingChangeRow) {
   if (row.changeType === 'field_update') {
     return (
       <div className="space-y-1">
-        <div className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        <div className="text-xs font-medium uppercase tracking-wide text-muted">
           {row.fieldName === 'title' ? 'Titlu' : 'Descriere'}
         </div>
-        <div className="text-sm text-slate-500 line-through dark:text-slate-500">
-          {row.oldValue ?? '—'}
-        </div>
-        <div className="text-sm font-medium text-green-700 dark:text-green-400">
-          {row.newValue ?? '—'}
-        </div>
+        <div className="text-sm text-muted line-through">{row.oldValue ?? '—'}</div>
+        <div className="text-sm font-medium text-success">{row.newValue ?? '—'}</div>
       </div>
     );
   }
@@ -484,13 +529,13 @@ function renderPendingChangeSummary(row: PendingChangeRow) {
   if (row.changeType === 'taxonomy_assign') {
     return (
       <div className="space-y-1 text-sm">
-        <div className="font-medium text-slate-800 dark:text-slate-200">
+        <div className="font-medium text-foreground">
           {asDisplayText(row.metadata['taxonomyName'], 'Taxonomie nouă')}
         </div>
-        <div className="text-slate-500 dark:text-slate-400">
+        <div className="text-muted">
           Veche: {asDisplayText(row.metadata['previousTaxonomyName'])}
         </div>
-        <div className="text-slate-500 dark:text-slate-400">
+        <div className="text-muted">
           Metafields: {asDisplayText(row.metadata['metafieldCount'], '0')}
         </div>
       </div>
@@ -500,25 +545,70 @@ function renderPendingChangeSummary(row: PendingChangeRow) {
   if (row.changeType === 'taxonomy_unassign') {
     return (
       <div className="space-y-1 text-sm">
-        <div className="font-medium text-slate-800 dark:text-slate-200">
+        <div className="font-medium text-foreground">
           {asDisplayText(row.metadata['taxonomyName'], 'Taxonomie eliminată')}
         </div>
-        <div className="text-slate-500 dark:text-slate-400">
+        <div className="text-muted">
           Metafields de șters: {asDisplayText(row.metadata['metafieldCount'], '0')}
         </div>
       </div>
     );
   }
 
+  if (row.changeType === 'product_dissociate') {
+    const productGids = row.metadata['productGids'];
+    const count = Array.isArray(productGids) ? productGids.length : 0;
+    return (
+      <div className="space-y-1 text-sm">
+        <div className="font-medium text-foreground">
+          {count} produs(e) de dezasociat din Shopify
+        </div>
+        <div className="text-muted">
+          Colecție GID: {asDisplayText(row.metadata['collectionGid'])}
+        </div>
+      </div>
+    );
+  }
+
+  if (row.changeType === 'metafield_definition_create') {
+    const metafields = row.metadata['metafields'];
+    const count = Array.isArray(metafields) ? metafields.length : 0;
+    interface MfItem {
+      attr_code?: string;
+      display_name_ro?: string;
+      shopify_type?: string;
+    }
+    const items = Array.isArray(metafields) ? (metafields as MfItem[]) : [];
+    return (
+      <div className="space-y-1.5 text-sm">
+        <div className="font-medium text-foreground">
+          {count} definiție(ii) metafield de creat în Shopify
+        </div>
+        {items.slice(0, 5).map((mf) => (
+          <div key={mf.attr_code} className="flex items-center gap-1.5 text-xs text-muted">
+            <span className="font-mono">{mf.attr_code}</span>
+            {mf.display_name_ro && <span>— {mf.display_name_ro}</span>}
+            {mf.shopify_type && (
+              <span className="rounded bg-primary/10 px-1 py-0.5 font-mono text-[10px] text-primary">
+                {mf.shopify_type}
+              </span>
+            )}
+          </div>
+        ))}
+        {count > 5 && <div className="text-xs text-muted">+{count - 5} mai multe...</div>}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-1 text-sm">
-      <div className="font-medium text-slate-800 dark:text-slate-200">
+      <div className="font-medium text-foreground">
         {asDisplayText(row.metadata['action'], 'update')}
       </div>
-      <div className="text-slate-500 dark:text-slate-400">
+      <div className="text-muted">
         Path: {asDisplayText(row.metadata['parentPath'] ?? row.metadata['proposedPath'])}
       </div>
-      <div className="text-slate-500 dark:text-slate-400">
+      <div className="text-muted">
         Meniu: {asDisplayText(row.metadata['menuTitle'] ?? row.metadata['menuHandle'])}
       </div>
     </div>
@@ -539,39 +629,27 @@ function PendingChangesSection({
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</h3>
+        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
         <Badge tone="neutral">{rows.length}</Badge>
       </div>
-      <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
-        <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
-          <thead className="bg-slate-50 dark:bg-slate-800/70">
+      <div className="overflow-x-auto rounded-xl border border-border">
+        <table className="w-full table-fixed divide-y divide-border/60 text-sm">
+          <thead className="bg-subtle">
             <tr>
-              <th className="px-4 py-2 text-left font-medium text-slate-500 dark:text-slate-400">
-                Colecție
-              </th>
-              <th className="px-4 py-2 text-left font-medium text-slate-500 dark:text-slate-400">
-                Schimbare
-              </th>
-              <th className="px-4 py-2 text-left font-medium text-slate-500 dark:text-slate-400">
-                Sursă
-              </th>
-              <th className="px-4 py-2 text-left font-medium text-slate-500 dark:text-slate-400">
-                Data
-              </th>
-              <th className="px-4 py-2 text-right font-medium text-slate-500 dark:text-slate-400">
-                Acțiune
-              </th>
+              <th className="w-[15%] px-4 py-2 text-left font-medium text-muted">Colecție</th>
+              <th className="w-[45%] px-4 py-2 text-left font-medium text-muted">Schimbare</th>
+              <th className="w-[10%] px-4 py-2 text-left font-medium text-muted">Sursă</th>
+              <th className="w-[16%] px-4 py-2 text-left font-medium text-muted">Data</th>
+              <th className="w-[14%] px-4 py-2 text-right font-medium text-muted">Acțiune</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900/40">
+          <tbody className="divide-y divide-border/40 bg-card">
             {rows.map((row) => (
               <tr key={row.id}>
-                <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-200">
-                  {row.collectionTitle}
-                </td>
+                <td className="px-4 py-3 font-medium text-foreground">{row.collectionTitle}</td>
                 <td className="px-4 py-3">{renderPendingChangeSummary(row)}</td>
-                <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{row.source}</td>
-                <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
+                <td className="px-4 py-3 text-muted">{row.source}</td>
+                <td className="px-4 py-3 text-muted whitespace-nowrap">
                   {new Date(row.createdAt).toLocaleString('ro-RO')}
                 </td>
                 <td className="px-4 py-3 text-right">
@@ -590,6 +668,7 @@ function PendingChangesSection({
 
 export default function CollectionsPage() {
   const api = useApiClient();
+  const reducedMotion = useReducedMotion();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const page = parseInt(searchParams.get('page') ?? '1', 10) || 1;
@@ -608,6 +687,7 @@ export default function CollectionsPage() {
   const [collections, setCollections] = useState<CollectionRow[]>([]);
   const [pagination, setPagination] = useState<CollectionsPagination | null>(null);
   const [collectionsLoading, setCollectionsLoading] = useState(false);
+  const [collectionsError, setCollectionsError] = useState<string | null>(null);
 
   const [stats, setStats] = useState<CollectionsStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
@@ -635,6 +715,8 @@ export default function CollectionsPage() {
     taxonomy_assign: 0,
     taxonomy_unassign: 0,
     menu_assign: 0,
+    product_dissociate: 0,
+    metafield_definition_create: 0,
   });
   const [pendingChangesOpen, setPendingChangesOpen] = useState(false);
   const [pendingChangesLoading, setPendingChangesLoading] = useState(false);
@@ -703,8 +785,11 @@ export default function CollectionsPage() {
 
       setCollections(result.collections);
       setPagination(result.pagination);
+      setCollectionsError(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Eroare la încărcare colecții');
+      const msg = err instanceof Error ? err.message : 'Eroare la încărcare colecții';
+      setCollectionsError(msg);
+      toast.error(msg);
     } finally {
       setCollectionsLoading(false);
     }
@@ -748,6 +833,8 @@ export default function CollectionsPage() {
           taxonomy_assign: 0,
           taxonomy_unassign: 0,
           menu_assign: 0,
+          product_dissociate: 0,
+          metafield_definition_create: 0,
         }
       );
     } catch {
@@ -757,6 +844,8 @@ export default function CollectionsPage() {
         taxonomy_assign: 0,
         taxonomy_unassign: 0,
         menu_assign: 0,
+        product_dissociate: 0,
+        metafield_definition_create: 0,
       });
     }
   }, [api]);
@@ -775,6 +864,8 @@ export default function CollectionsPage() {
           taxonomy_assign: 0,
           taxonomy_unassign: 0,
           menu_assign: 0,
+          product_dissociate: 0,
+          metafield_definition_create: 0,
         }
       );
     } catch (err) {
@@ -1507,18 +1598,22 @@ export default function CollectionsPage() {
   return (
     <div
       ref={contentRef}
-      className="space-y-6 dark:text-slate-100"
-      style={{
-        animation: contentVisible ? 'fadeSlideUp 0.4s ease-out both' : 'none',
-      }}
+      className="space-y-6"
+      style={
+        reducedMotion
+          ? undefined
+          : {
+              animation: contentVisible ? 'fadeSlideUp 0.4s ease-out both' : 'none',
+            }
+      }
     >
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <Breadcrumbs items={breadcrumbs} />
-          <h1 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-slate-100 motion-safe:animate-[fadeSlideUp_0.5s_ease-out_both]">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground motion-safe:animate-[fadeSlideUp_0.5s_ease-out_both]">
             Gestionare Colecții
           </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
+          <p className="text-sm text-muted">
             Sincronizează, clasifică și gestionează colecțiile Shopify.
           </p>
         </div>
@@ -1554,8 +1649,8 @@ export default function CollectionsPage() {
             type="button"
             className={`text-xs ${
               canRestoreSyncPanel
-                ? 'text-blue-600 underline decoration-dotted underline-offset-2 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300'
-                : 'cursor-default text-slate-500 dark:text-slate-400'
+                ? 'text-primary underline decoration-dotted underline-offset-2 hover:text-primary/80'
+                : 'cursor-default text-muted'
             }`}
             onClick={() => {
               if (canRestoreSyncPanel) setSyncPanelHidden(false);
@@ -1743,15 +1838,13 @@ export default function CollectionsPage() {
         const cardBase = (active: boolean) =>
           `cursor-pointer overflow-hidden rounded-xl border shadow-[var(--shadow-sm)] backdrop-blur-sm transition-all duration-300 ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-md)] ${
             active
-              ? 'border-blue-400 bg-blue-50/80 ring-1 ring-blue-400/30 dark:border-blue-500 dark:bg-blue-950/40 dark:ring-blue-500/20'
-              : 'border-slate-200/90 bg-white/80 hover:border-slate-300/80 dark:border-slate-700/90 dark:bg-slate-900/80 dark:hover:border-slate-600/80'
+              ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
+              : 'border-border bg-card/80 hover:border-border'
           }`;
 
         const halfCardBase = (active: boolean) =>
           `cursor-pointer px-4 py-2 transition-colors duration-200 ${
-            active
-              ? 'bg-blue-50/80 dark:bg-blue-950/40'
-              : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+            active ? 'bg-primary/5' : 'hover:bg-subtle'
           }`;
 
         return (
@@ -1764,11 +1857,15 @@ export default function CollectionsPage() {
                 <div
                   key={pair.top.filterKey}
                   className={`${cardBase(wrapperActive)} flex flex-col`}
-                  style={{
-                    animation: statsLoading
-                      ? 'none'
-                      : `fadeSlideUp 0.4s ease-out ${pair.delay * 0.1}s both`,
-                  }}
+                  style={
+                    reducedMotion
+                      ? undefined
+                      : {
+                          animation: statsLoading
+                            ? 'none'
+                            : `fadeSlideUp 0.4s ease-out ${pair.delay * 0.1}s both`,
+                        }
+                  }
                 >
                   <div
                     className={`${halfCardBase(topActive)} flex-1 rounded-t-xl`}
@@ -1776,44 +1873,44 @@ export default function CollectionsPage() {
                   >
                     <div className="flex items-center justify-between">
                       <span
-                        className={`text-[10px] font-medium uppercase tracking-wider ${topActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400'}`}
+                        className={`text-[10px] font-medium uppercase tracking-wider ${topActive ? 'text-primary' : 'text-muted'}`}
                       >
                         {pair.top.label}
                       </span>
                       <pair.top.icon
-                        className={`size-3.5 ${topActive ? 'text-blue-500 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500'}`}
+                        className={`size-3.5 ${topActive ? 'text-primary' : 'text-muted'}`}
                       />
                     </div>
                     <p
-                      className={`mt-1 text-xl font-bold ${topActive ? 'text-blue-700 dark:text-blue-300' : 'text-slate-900 dark:text-slate-50'}`}
+                      className={`mt-1 text-xl font-bold ${topActive ? 'text-primary' : 'text-foreground'}`}
                     >
                       {statsLoading ? (
-                        <span className="inline-block h-6 w-12 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
+                        <span className="inline-block h-6 w-12 animate-pulse rounded bg-subtle" />
                       ) : (
                         pair.top.value.toLocaleString('ro-RO')
                       )}
                     </p>
                   </div>
-                  <div className="border-t border-slate-200/60 dark:border-slate-700/60" />
+                  <div className="border-t border-border" />
                   <div
                     className={`${halfCardBase(bottomActive)} flex-1 rounded-b-xl`}
                     onClick={() => applyFilter(pair.bottom.filterParam, pair.bottom.filterValue)}
                   >
                     <div className="flex items-center justify-between">
                       <span
-                        className={`text-[10px] font-medium uppercase tracking-wider ${bottomActive ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400 dark:text-slate-500'}`}
+                        className={`text-[10px] font-medium uppercase tracking-wider ${bottomActive ? 'text-warning' : 'text-muted'}`}
                       >
                         {pair.bottom.label}
                       </span>
                       <pair.bottom.icon
-                        className={`size-3.5 ${bottomActive ? 'text-amber-500 dark:text-amber-400' : 'text-slate-300 dark:text-slate-600'}`}
+                        className={`size-3.5 ${bottomActive ? 'text-warning' : 'text-muted'}`}
                       />
                     </div>
                     <p
-                      className={`mt-1 text-xl font-bold ${bottomActive ? 'text-amber-700 dark:text-amber-300' : 'text-slate-600 dark:text-slate-300'}`}
+                      className={`mt-1 text-xl font-bold ${bottomActive ? 'text-warning' : 'text-muted'}`}
                     >
                       {statsLoading ? (
-                        <span className="inline-block h-6 w-12 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
+                        <span className="inline-block h-6 w-12 animate-pulse rounded bg-subtle" />
                       ) : (
                         pair.bottom.value.toLocaleString('ro-RO')
                       )}
@@ -1829,40 +1926,40 @@ export default function CollectionsPage() {
       {/* Sync Progress */}
       {showSyncPanel && (
         <div
-          className={`rounded-xl border p-4 shadow-sm ${
+          className={`rounded-xl border p-4 shadow-(--shadow-sm) ${
             syncState.status === 'failed'
-              ? 'border-rose-200 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/40'
+              ? 'border-error/30 bg-error/10'
               : syncState.status === 'completed'
-                ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40'
-                : 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/40'
+                ? 'border-success/30 bg-success/5'
+                : 'border-primary/30 bg-primary/5'
           }`}
         >
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 {syncState.status === 'completed' ? (
-                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
+                  <CheckCircle2 className="size-4 text-success" />
                 ) : syncState.status === 'failed' ? (
-                  <AlertTriangle className="size-4 text-rose-600 dark:text-rose-400" />
+                  <AlertTriangle className="size-4 text-error" />
                 ) : syncState.status === 'waiting' || syncState.status === 'delayed' ? (
-                  <Clock3 className="size-4 text-blue-600 dark:text-blue-400" />
+                  <Clock3 className="size-4 text-primary" />
                 ) : (
-                  <LoaderCircle className="size-4 animate-spin text-blue-600 dark:text-blue-400" />
+                  <LoaderCircle className="size-4 animate-spin text-primary" />
                 )}
                 <span
                   className={`text-sm font-semibold ${
                     syncState.status === 'failed'
-                      ? 'text-rose-700 dark:text-rose-300'
+                      ? 'text-error'
                       : syncState.status === 'completed'
-                        ? 'text-emerald-700 dark:text-emerald-300'
-                        : 'text-blue-700 dark:text-blue-300'
+                        ? 'text-success'
+                        : 'text-primary'
                   }`}
                 >
                   {syncPhaseLabel}
                 </span>
                 <button
                   type="button"
-                  className="ml-1 inline-flex size-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-white/70 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-900/70 dark:hover:text-slate-200"
+                  className="ml-1 inline-flex size-7 items-center justify-center rounded-md text-muted transition hover:bg-card/70 hover:text-foreground"
                   onClick={() => setSyncPanelHidden(true)}
                   aria-label="Ascunde panoul de sincronizare"
                   title="Ascunde"
@@ -1870,21 +1967,17 @@ export default function CollectionsPage() {
                   <X className="size-4" />
                 </button>
               </div>
-              <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{syncMetaLabel}</p>
+              <p className="mt-1 text-xs text-muted">{syncMetaLabel}</p>
             </div>
 
             <div className="flex items-center gap-4 text-xs">
               <div className="text-right">
-                <div className="font-semibold text-slate-900 dark:text-slate-100">
-                  {Math.round(syncProgress)}%
-                </div>
-                <div className="text-slate-500 dark:text-slate-400">progres</div>
+                <div className="font-semibold text-foreground">{Math.round(syncProgress)}%</div>
+                <div className="text-muted">progres</div>
               </div>
               <div className="text-right">
-                <div className="font-semibold text-slate-900 dark:text-slate-100">
-                  {syncDurationLabel}
-                </div>
-                <div className="text-slate-500 dark:text-slate-400">durată</div>
+                <div className="font-semibold text-foreground">{syncDurationLabel}</div>
+                <div className="text-muted">durată</div>
               </div>
             </div>
           </div>
@@ -1894,31 +1987,31 @@ export default function CollectionsPage() {
           </div>
 
           <div className="mt-4 grid gap-2 md:grid-cols-4">
-            <div className="rounded-lg border border-white/60 bg-white/70 px-3 py-2 text-xs dark:border-slate-800/80 dark:bg-slate-900/60">
-              <div className="text-slate-500 dark:text-slate-400">Colecții importate</div>
-              <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">
+            <div className="rounded-lg border border-white/60 bg-card/70 px-3 py-2 text-xs">
+              <div className="text-muted">Colecții importate</div>
+              <div className="mt-1 font-semibold text-foreground">
                 {syncFetched != null ? syncFetched.toLocaleString('ro-RO') : '—'}
               </div>
             </div>
-            <div className="rounded-lg border border-white/60 bg-white/70 px-3 py-2 text-xs dark:border-slate-800/80 dark:bg-slate-900/60">
-              <div className="text-slate-500 dark:text-slate-400">Itemi meniu</div>
-              <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">
+            <div className="rounded-lg border border-white/60 bg-card/70 px-3 py-2 text-xs">
+              <div className="text-muted">Itemi meniu</div>
+              <div className="mt-1 font-semibold text-foreground">
                 {syncPayload?.menuItems != null
                   ? syncPayload.menuItems.toLocaleString('ro-RO')
                   : '—'}
               </div>
             </div>
-            <div className="rounded-lg border border-white/60 bg-white/70 px-3 py-2 text-xs dark:border-slate-800/80 dark:bg-slate-900/60">
-              <div className="text-slate-500 dark:text-slate-400">Relații corelate</div>
-              <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">
+            <div className="rounded-lg border border-white/60 bg-card/70 px-3 py-2 text-xs">
+              <div className="text-muted">Relații corelate</div>
+              <div className="mt-1 font-semibold text-foreground">
                 {syncPayload?.correlated != null
                   ? syncPayload.correlated.toLocaleString('ro-RO')
                   : '—'}
               </div>
             </div>
-            <div className="rounded-lg border border-white/60 bg-white/70 px-3 py-2 text-xs dark:border-slate-800/80 dark:bg-slate-900/60">
-              <div className="text-slate-500 dark:text-slate-400">Embeddings meniu</div>
-              <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">
+            <div className="rounded-lg border border-white/60 bg-card/70 px-3 py-2 text-xs">
+              <div className="text-muted">Embeddings meniu</div>
+              <div className="mt-1 font-semibold text-foreground">
                 {syncPayload?.menuItemsEmbedded != null && syncPayload?.menuItemsTotal != null
                   ? `${syncPayload.menuItemsEmbedded.toLocaleString('ro-RO')}/${syncPayload.menuItemsTotal.toLocaleString('ro-RO')}`
                   : '—'}
@@ -1930,24 +2023,22 @@ export default function CollectionsPage() {
             {syncSteps.map((step) => (
               <div
                 key={step.key}
-                className="flex items-start gap-3 rounded-lg border border-white/60 bg-white/70 px-3 py-2 dark:border-slate-800/80 dark:bg-slate-900/60"
+                className="flex items-start gap-3 rounded-lg border border-white/60 bg-card/70 px-3 py-2"
               >
                 <span className="mt-0.5">
                   {step.status === 'done' ? (
-                    <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
+                    <CheckCircle2 className="size-4 text-success" />
                   ) : step.status === 'error' ? (
-                    <AlertTriangle className="size-4 text-rose-600 dark:text-rose-400" />
+                    <AlertTriangle className="size-4 text-error" />
                   ) : step.status === 'active' ? (
-                    <LoaderCircle className="size-4 animate-spin text-blue-600 dark:text-blue-400" />
+                    <LoaderCircle className="size-4 animate-spin text-primary" />
                   ) : (
-                    <Clock3 className="size-4 text-slate-400 dark:text-slate-500" />
+                    <Clock3 className="size-4 text-muted" />
                   )}
                 </span>
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                    {step.label}
-                  </div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">{step.detail}</div>
+                  <div className="text-sm font-medium text-foreground">{step.label}</div>
+                  <div className="text-xs text-muted">{step.detail}</div>
                 </div>
               </div>
             ))}
@@ -1963,62 +2054,37 @@ export default function CollectionsPage() {
           placeholder="Caută colecții..."
           loading={collectionsLoading}
         />
-        <select
-          className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+        <Select
+          options={COLLECTION_TYPE_OPTIONS}
           value={type}
           onChange={(e) => updateSearchParam('type', e.target.value)}
-        >
-          <option value="all">Toate tipurile</option>
-          <option value="MANUAL">Manual</option>
-          <option value="SMART">Smart</option>
-        </select>
-        <select
-          className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+        />
+        <Select
+          options={TAXONOMY_OPTIONS}
           value={hasTaxonomy}
           onChange={(e) => updateSearchParam('hasTaxonomy', e.target.value)}
-        >
-          <option value="all">Orice taxonomie</option>
-          <option value="true">Cu taxonomie</option>
-          <option value="false">Fără taxonomie</option>
-        </select>
-        <select
-          className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+        />
+        <Select
+          options={MENU_LEVEL_OPTIONS}
           value={menuLevel}
           onChange={(e) => updateSearchParam('menuLevel', e.target.value)}
-        >
-          <option value="all">Orice nivel</option>
-          <option value="in_menu">În meniu</option>
-          <option value="0">Root (părinte)</option>
-          <option value="1">Nivel 1</option>
-          <option value="2">Nivel 2</option>
-          <option value="none">Neclasificate</option>
-        </select>
-        <select
-          className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+        />
+        <Select
+          options={MENU_AI_STATE_OPTIONS}
           value={menuAiState}
           onChange={(e) => updateSearchParam('menuAiState', e.target.value)}
-        >
-          <option value="all">Orice status menu AI</option>
-          <option value="has_assignments">Cu asocieri AI</option>
-          <option value="review_required">Cu propuneri în review</option>
-          <option value="multiparent">Multiparent AI</option>
-        </select>
-        <select
-          className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-          value={limit}
+        />
+        <Select
+          options={PAGE_SIZE_OPTIONS}
+          value={String(limit)}
           onChange={(e) => updateSearchParam('limit', e.target.value)}
-        >
-          <option value="10">10 / pagină</option>
-          <option value="25">25 / pagină</option>
-          <option value="50">50 / pagină</option>
-          <option value="100">100 / pagină</option>
-        </select>
+        />
       </div>
 
       {/* Bulk Actions */}
       {selectedIds.length > 0 && (
-        <div className="sticky top-0 z-30 flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 shadow-sm dark:border-blue-800 dark:bg-blue-950/50">
-          <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+        <div className="sticky top-0 z-30 flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 shadow-(--shadow-sm)">
+          <span className="text-sm font-medium text-primary">
             {selectedIds.length}{' '}
             {selectedIds.length === 1 ? 'colecție selectată' : 'colecții selectate'}
           </span>
@@ -2060,14 +2126,15 @@ export default function CollectionsPage() {
 
       {/* Select All Banner */}
       {showExtendBanner && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm dark:border-amber-800 dark:bg-amber-950/50">
+        <div className="rounded-lg border border-warning/30 bg-warning/5 px-4 py-2 text-center text-sm">
           {selectAllMode === 'all' ? (
             <>
-              <span className="text-amber-800 dark:text-amber-200">
+              <span className="text-warning">
                 Toate cele {pagination.total.toLocaleString('ro-RO')} colecții sunt selectate.
               </span>{' '}
               <button
-                className="font-medium text-amber-700 underline hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100"
+                type="button"
+                className="font-medium text-warning underline hover:text-warning"
                 onClick={() => handleToggleAll(true)}
               >
                 Selectează doar pagina curentă
@@ -2075,11 +2142,12 @@ export default function CollectionsPage() {
             </>
           ) : (
             <>
-              <span className="text-amber-800 dark:text-amber-200">
+              <span className="text-warning">
                 Toate cele {collections.length} colecții de pe pagină sunt selectate.
               </span>{' '}
               <button
-                className="font-medium text-amber-700 underline hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100"
+                type="button"
+                className="font-medium text-warning underline hover:text-warning"
                 onClick={() => void handleExtendSelection()}
               >
                 Extinde selecția la toate cele {pagination.total.toLocaleString('ro-RO')} colecții
@@ -2091,30 +2159,29 @@ export default function CollectionsPage() {
 
       {/* Bulk AI Taxonomy Progress Panel */}
       {bulkProgress.length > 0 && (
-        <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+        <div className="rounded-lg border border-border bg-card p-4">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+            <h3 className="text-sm font-semibold text-foreground">
               {bulkRunning
                 ? 'Atribuire taxonomii AI în curs...'
                 : `Atribuire completă — ${bulkProgress.filter((e) => e.finalStatus === 'assigned').length} atribuite, ${bulkProgress.filter((e) => e.finalStatus === 'low_confidence').length} conf. scăzută, ${bulkProgress.filter((e) => e.finalStatus === 'error').length} erori`}
             </h3>
             {!bulkRunning && (
               <button
+                type="button"
                 onClick={() => setBulkProgress([])}
-                className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                className="text-xs text-muted hover:text-muted"
               >
                 Închide
               </button>
             )}
           </div>
-          <div className="space-y-1.5 max-h-[400px] overflow-y-auto">
+          <div className="space-y-1.5 max-h-100 overflow-y-auto">
             {bulkProgress.map((entry) => (
-              <div
-                key={entry.collectionId}
-                className="rounded border border-slate-100 dark:border-slate-800"
-              >
+              <div key={entry.collectionId} className="rounded border border-border">
                 <button
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                  type="button"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-subtle"
                   onClick={() =>
                     setBulkProgress((prev) =>
                       prev.map((e) =>
@@ -2123,27 +2190,27 @@ export default function CollectionsPage() {
                     )
                   }
                 >
-                  <span className="flex-shrink-0">
+                  <span className="shrink-0">
                     {entry.finalStatus === 'running' && (
-                      <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+                      <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                     )}
                     {entry.finalStatus === 'assigned' && (
-                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-green-500 text-[9px] text-white">
+                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-success text-[9px] text-success-foreground">
                         &#10003;
                       </span>
                     )}
                     {entry.finalStatus === 'low_confidence' && (
-                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-amber-500 text-[9px] text-white">
+                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-warning/50 text-[9px] text-warning-foreground">
                         !
                       </span>
                     )}
                     {entry.finalStatus === 'error' && (
-                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[9px] text-white">
+                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-error/50 text-[9px] text-error-foreground">
                         &#10007;
                       </span>
                     )}
                   </span>
-                  <span className="flex-1 truncate font-medium text-slate-700 dark:text-slate-300">
+                  <span className="flex-1 truncate font-medium text-foreground">
                     {entry.collectionTitle}
                   </span>
                   {entry.consensusScore != null && (
@@ -2158,57 +2225,51 @@ export default function CollectionsPage() {
                   )}
                   {entry.resultMessage && !entry.expanded && (
                     <span
-                      className={`truncate text-xs ${entry.finalStatus === 'assigned' ? 'text-green-600 dark:text-green-400' : entry.finalStatus === 'error' ? 'text-red-500' : 'text-amber-600 dark:text-amber-400'}`}
+                      className={`truncate text-xs ${entry.finalStatus === 'assigned' ? 'text-success' : entry.finalStatus === 'error' ? 'text-error' : 'text-warning'}`}
                     >
                       {entry.resultMessage}
                     </span>
                   )}
                   <span
-                    className={`text-xs text-slate-400 transition-transform ${entry.expanded ? 'rotate-180' : ''}`}
+                    className={`text-xs text-muted transition-transform ${entry.expanded ? 'rotate-180' : ''}`}
                   >
                     &#9660;
                   </span>
                 </button>
                 {entry.expanded && entry.steps.length > 0 && (
-                  <div className="border-t border-slate-100 bg-slate-50/50 px-3 py-2 dark:border-slate-800 dark:bg-slate-800/30">
+                  <div className="border-t border-border bg-subtle px-3 py-2">
                     <ul className="space-y-1">
                       {entry.steps.map((s, si) => (
                         <li key={`${s.step}-${si}`} className="flex items-start gap-1.5 text-xs">
-                          <span className="mt-0.5 flex-shrink-0">
+                          <span className="mt-0.5 shrink-0">
                             {s.status === 'in_progress' && (
-                              <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-blue-500 border-t-transparent" />
+                              <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-primary border-t-transparent" />
                             )}
                             {s.status === 'done' && (
-                              <span className="inline-flex h-3 w-3 items-center justify-center rounded-full bg-green-500 text-[8px] text-white">
+                              <span className="inline-flex h-3 w-3 items-center justify-center rounded-full bg-success text-[8px] text-success-foreground">
                                 &#10003;
                               </span>
                             )}
                             {s.status === 'error' && (
-                              <span className="inline-flex h-3 w-3 items-center justify-center rounded-full bg-red-500 text-[8px] text-white">
+                              <span className="inline-flex h-3 w-3 items-center justify-center rounded-full bg-error/50 text-[8px] text-error-foreground">
                                 &#10007;
                               </span>
                             )}
                           </span>
-                          <span
-                            className={
-                              s.status === 'error'
-                                ? 'text-red-600 dark:text-red-400'
-                                : 'text-slate-600 dark:text-slate-400'
-                            }
-                          >
+                          <span className={s.status === 'error' ? 'text-error' : 'text-muted'}>
                             {s.message}
                           </span>
                         </li>
                       ))}
                       {entry.resultMessage && (
                         <li
-                          className={`mt-1 text-xs font-medium ${entry.finalStatus === 'assigned' ? 'text-green-700 dark:text-green-400' : entry.finalStatus === 'error' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'}`}
+                          className={`mt-1 text-xs font-medium ${entry.finalStatus === 'assigned' ? 'text-success' : entry.finalStatus === 'error' ? 'text-error' : 'text-warning'}`}
                         >
                           {entry.resultMessage}
                         </li>
                       )}
                       {entry.consensusScore != null && (
-                        <li className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        <li className="mt-1 text-xs text-muted">
                           Consens: {formatConsensusMethod(entry.consensusMethod)} · scor{' '}
                           {formatConsensusScore(entry.consensusScore)}
                         </li>
@@ -2224,30 +2285,29 @@ export default function CollectionsPage() {
 
       {/* Bulk Menu AI Progress Panel */}
       {bulkMenuProgress.length > 0 && (
-        <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+        <div className="rounded-lg border border-border bg-card p-4">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+            <h3 className="text-sm font-semibold text-foreground">
               {bulkMenuRunning
                 ? 'Asignare categorii/meniu AI în curs...'
                 : `Asignare completă — ${bulkMenuProgress.filter((e) => e.finalStatus === 'assigned').length} atribuite, ${bulkMenuProgress.filter((e) => e.finalStatus === 'proposed' || e.finalStatus === 'review_required').length} propuse, ${bulkMenuProgress.filter((e) => e.finalStatus === 'error').length} erori`}
             </h3>
             {!bulkMenuRunning && (
               <button
+                type="button"
                 onClick={() => setBulkMenuProgress([])}
-                className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                className="text-xs text-muted hover:text-muted"
               >
                 Închide
               </button>
             )}
           </div>
-          <div className="space-y-1.5 max-h-[400px] overflow-y-auto">
+          <div className="space-y-1.5 max-h-100 overflow-y-auto">
             {bulkMenuProgress.map((entry) => (
-              <div
-                key={entry.collectionId}
-                className="rounded border border-slate-100 dark:border-slate-800"
-              >
+              <div key={entry.collectionId} className="rounded border border-border">
                 <button
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                  type="button"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-subtle"
                   onClick={() =>
                     setBulkMenuProgress((prev) =>
                       prev.map((e) =>
@@ -2256,28 +2316,28 @@ export default function CollectionsPage() {
                     )
                   }
                 >
-                  <span className="flex-shrink-0">
+                  <span className="shrink-0">
                     {entry.finalStatus === 'running' && (
-                      <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+                      <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                     )}
                     {entry.finalStatus === 'assigned' && (
-                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-green-500 text-[9px] text-white">
+                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-success text-[9px] text-success-foreground">
                         &#10003;
                       </span>
                     )}
                     {(entry.finalStatus === 'proposed' ||
                       entry.finalStatus === 'review_required') && (
-                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-amber-500 text-[9px] text-white">
+                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-warning/50 text-[9px] text-warning-foreground">
                         !
                       </span>
                     )}
                     {entry.finalStatus === 'error' && (
-                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[9px] text-white">
+                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-error/50 text-[9px] text-error-foreground">
                         &#10007;
                       </span>
                     )}
                   </span>
-                  <span className="flex-1 truncate font-medium text-slate-700 dark:text-slate-300">
+                  <span className="flex-1 truncate font-medium text-foreground">
                     {entry.collectionTitle}
                   </span>
                   {entry.consensusScore != null && (
@@ -2294,48 +2354,42 @@ export default function CollectionsPage() {
                     <span
                       className={`truncate text-xs ${
                         entry.finalStatus === 'assigned'
-                          ? 'text-green-600 dark:text-green-400'
+                          ? 'text-success'
                           : entry.finalStatus === 'error'
-                            ? 'text-red-500'
-                            : 'text-amber-600 dark:text-amber-400'
+                            ? 'text-error'
+                            : 'text-warning'
                       }`}
                     >
                       {entry.resultMessage}
                     </span>
                   )}
                   <span
-                    className={`text-xs text-slate-400 transition-transform ${entry.expanded ? 'rotate-180' : ''}`}
+                    className={`text-xs text-muted transition-transform ${entry.expanded ? 'rotate-180' : ''}`}
                   >
                     &#9660;
                   </span>
                 </button>
                 {entry.expanded && entry.steps.length > 0 && (
-                  <div className="border-t border-slate-100 bg-slate-50/50 px-3 py-2 dark:border-slate-800 dark:bg-slate-800/30">
+                  <div className="border-t border-border bg-subtle px-3 py-2">
                     <ul className="space-y-1">
                       {entry.steps.map((s, si) => (
                         <li key={`${s.step}-${si}`} className="flex items-start gap-1.5 text-xs">
-                          <span className="mt-0.5 flex-shrink-0">
+                          <span className="mt-0.5 shrink-0">
                             {s.status === 'in_progress' && (
-                              <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-blue-500 border-t-transparent" />
+                              <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-primary border-t-transparent" />
                             )}
                             {s.status === 'done' && (
-                              <span className="inline-flex h-3 w-3 items-center justify-center rounded-full bg-green-500 text-[8px] text-white">
+                              <span className="inline-flex h-3 w-3 items-center justify-center rounded-full bg-success text-[8px] text-success-foreground">
                                 &#10003;
                               </span>
                             )}
                             {s.status === 'error' && (
-                              <span className="inline-flex h-3 w-3 items-center justify-center rounded-full bg-red-500 text-[8px] text-white">
+                              <span className="inline-flex h-3 w-3 items-center justify-center rounded-full bg-error/50 text-[8px] text-error-foreground">
                                 &#10007;
                               </span>
                             )}
                           </span>
-                          <span
-                            className={
-                              s.status === 'error'
-                                ? 'text-red-600 dark:text-red-400'
-                                : 'text-slate-600 dark:text-slate-400'
-                            }
-                          >
+                          <span className={s.status === 'error' ? 'text-error' : 'text-muted'}>
                             {s.message}
                           </span>
                         </li>
@@ -2344,17 +2398,17 @@ export default function CollectionsPage() {
                         <li
                           className={`mt-1 text-xs font-medium ${
                             entry.finalStatus === 'assigned'
-                              ? 'text-green-700 dark:text-green-400'
+                              ? 'text-success'
                               : entry.finalStatus === 'error'
-                                ? 'text-red-600 dark:text-red-400'
-                                : 'text-amber-600 dark:text-amber-400'
+                                ? 'text-error'
+                                : 'text-warning'
                           }`}
                         >
                           {entry.resultMessage}
                         </li>
                       )}
                       {entry.consensusScore != null && (
-                        <li className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        <li className="mt-1 text-xs text-muted">
                           Consens: {formatConsensusMethod(entry.consensusMethod)} · scor{' '}
                           {formatConsensusScore(entry.consensusScore)}
                         </li>
@@ -2370,30 +2424,29 @@ export default function CollectionsPage() {
 
       {/* Bulk Translate Progress Panel */}
       {translateProgress.length > 0 && (
-        <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+        <div className="rounded-lg border border-border bg-card p-4">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+            <h3 className="text-sm font-semibold text-foreground">
               {translateRunning
                 ? 'Traducere în curs...'
                 : `Traducere completă — ${translateProgress.filter((e) => e.finalStatus === 'assigned').length} traduse, ${translateProgress.filter((e) => e.finalStatus === 'error').length} erori`}
             </h3>
             {!translateRunning && (
               <button
+                type="button"
                 onClick={() => setTranslateProgress([])}
-                className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                className="text-xs text-muted hover:text-muted"
               >
                 Închide
               </button>
             )}
           </div>
-          <div className="space-y-1.5 max-h-[400px] overflow-y-auto">
+          <div className="space-y-1.5 max-h-100 overflow-y-auto">
             {translateProgress.map((entry) => (
-              <div
-                key={entry.collectionId}
-                className="rounded border border-slate-100 dark:border-slate-800"
-              >
+              <div key={entry.collectionId} className="rounded border border-border">
                 <button
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                  type="button"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-subtle"
                   onClick={() =>
                     setTranslateProgress((prev) =>
                       prev.map((e) =>
@@ -2402,22 +2455,22 @@ export default function CollectionsPage() {
                     )
                   }
                 >
-                  <span className="flex-shrink-0">
+                  <span className="shrink-0">
                     {entry.finalStatus === 'running' && (
-                      <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+                      <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                     )}
                     {entry.finalStatus === 'assigned' && (
-                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-green-500 text-[9px] text-white">
+                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-success text-[9px] text-success-foreground">
                         &#10003;
                       </span>
                     )}
                     {entry.finalStatus === 'error' && (
-                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[9px] text-white">
+                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-error/50 text-[9px] text-error-foreground">
                         &#10007;
                       </span>
                     )}
                   </span>
-                  <span className="flex-1 truncate font-medium text-slate-700 dark:text-slate-300">
+                  <span className="flex-1 truncate font-medium text-foreground">
                     {entry.collectionTitle}
                   </span>
                   {entry.consensusScore != null && (
@@ -2432,57 +2485,51 @@ export default function CollectionsPage() {
                   )}
                   {entry.resultMessage && !entry.expanded && (
                     <span
-                      className={`truncate text-xs ${entry.finalStatus === 'assigned' ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}
+                      className={`truncate text-xs ${entry.finalStatus === 'assigned' ? 'text-success' : 'text-error'}`}
                     >
                       {entry.resultMessage}
                     </span>
                   )}
                   <span
-                    className={`text-xs text-slate-400 transition-transform ${entry.expanded ? 'rotate-180' : ''}`}
+                    className={`text-xs text-muted transition-transform ${entry.expanded ? 'rotate-180' : ''}`}
                   >
                     &#9660;
                   </span>
                 </button>
                 {entry.expanded && entry.steps.length > 0 && (
-                  <div className="border-t border-slate-100 bg-slate-50/50 px-3 py-2 dark:border-slate-800 dark:bg-slate-800/30">
+                  <div className="border-t border-border bg-subtle px-3 py-2">
                     <ul className="space-y-1">
                       {entry.steps.map((s, si) => (
                         <li key={`${s.step}-${si}`} className="flex items-start gap-1.5 text-xs">
-                          <span className="mt-0.5 flex-shrink-0">
+                          <span className="mt-0.5 shrink-0">
                             {s.status === 'in_progress' && (
-                              <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-blue-500 border-t-transparent" />
+                              <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-primary border-t-transparent" />
                             )}
                             {s.status === 'done' && (
-                              <span className="inline-flex h-3 w-3 items-center justify-center rounded-full bg-green-500 text-[8px] text-white">
+                              <span className="inline-flex h-3 w-3 items-center justify-center rounded-full bg-success text-[8px] text-success-foreground">
                                 &#10003;
                               </span>
                             )}
                             {s.status === 'error' && (
-                              <span className="inline-flex h-3 w-3 items-center justify-center rounded-full bg-red-500 text-[8px] text-white">
+                              <span className="inline-flex h-3 w-3 items-center justify-center rounded-full bg-error/50 text-[8px] text-error-foreground">
                                 &#10007;
                               </span>
                             )}
                           </span>
-                          <span
-                            className={
-                              s.status === 'error'
-                                ? 'text-red-600 dark:text-red-400'
-                                : 'text-slate-600 dark:text-slate-400'
-                            }
-                          >
+                          <span className={s.status === 'error' ? 'text-error' : 'text-muted'}>
                             {s.message}
                           </span>
                         </li>
                       ))}
                       {entry.resultMessage && (
                         <li
-                          className={`mt-1 text-xs font-medium ${entry.finalStatus === 'assigned' ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}
+                          className={`mt-1 text-xs font-medium ${entry.finalStatus === 'assigned' ? 'text-success' : 'text-error'}`}
                         >
                           {entry.resultMessage}
                         </li>
                       )}
                       {entry.consensusScore != null && (
-                        <li className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        <li className="mt-1 text-xs text-muted">
                           Consens: {formatConsensusMethod(entry.consensusMethod)} · scor{' '}
                           {formatConsensusScore(entry.consensusScore)}
                         </li>
@@ -2496,23 +2543,29 @@ export default function CollectionsPage() {
         </div>
       )}
 
+      <p className="sr-only" aria-live="polite" aria-atomic="true">
+        {collectionsLoading
+          ? 'Se încarcă...'
+          : `${pagination?.total ?? collections.length} colecții găsite`}
+      </p>
+
       {/* Collections Table */}
-      {collections.length === 0 && !collectionsLoading ? (
+      {collectionsError ? (
+        <ErrorState message={collectionsError} />
+      ) : collections.length === 0 && !collectionsLoading ? (
         <EmptyState
           title="Nu există colecții"
           description="Sincronizează din Shopify pentru a importa colecțiile."
         />
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+        <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/50">
+            <thead className="border-b border-border bg-subtle">
               <tr>
                 <th className="w-10 px-3 py-3">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={allOnPageSelected && collections.length > 0}
                     onChange={(e) => handleToggleAll(e.target.checked)}
-                    className="size-4 rounded border-slate-300 dark:border-slate-600"
                   />
                 </th>
                 {[
@@ -2527,10 +2580,8 @@ export default function CollectionsPage() {
                 ].map((col) => (
                   <th
                     key={col.label}
-                    className={`px-3 py-3 text-left font-medium text-slate-600 dark:text-slate-300 ${
-                      col.key
-                        ? 'cursor-pointer select-none hover:text-slate-900 dark:hover:text-slate-100'
-                        : ''
+                    className={`px-3 py-3 text-left font-medium text-muted ${
+                      col.key ? 'cursor-pointer select-none hover:text-foreground' : ''
                     }`}
                     onClick={() => col.key && handleSort(col.key)}
                   >
@@ -2544,13 +2595,13 @@ export default function CollectionsPage() {
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+            <tbody className="divide-y divide-border/40">
               {collectionsLoading
                 ? Array.from({ length: 5 }).map((_, i) => (
                     <tr key={`skel-${i}`}>
                       {Array.from({ length: 9 }).map((__, j) => (
                         <td key={j} className="px-3 py-3">
-                          <div className="h-4 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
+                          <div className="h-4 animate-pulse rounded bg-subtle" />
                         </td>
                       ))}
                     </tr>
@@ -2558,30 +2609,28 @@ export default function CollectionsPage() {
                 : collections.map((c) => (
                     <tr
                       key={c.id}
-                      className="cursor-pointer transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                      className="cursor-pointer transition-colors hover:bg-subtle"
                       onClick={() => setSelectedCollection(c)}
                     >
                       <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           checked={selectedIds.includes(c.id)}
                           onChange={() => handleToggle(c.id)}
-                          className="size-4 rounded border-slate-300 dark:border-slate-600"
                         />
                       </td>
-                      <td className="px-3 py-3 font-medium text-slate-900 dark:text-slate-100">
+                      <td className="px-3 py-3 font-medium text-foreground">
                         <div className="flex items-center gap-2">
                           {c.image_url ? (
                             <img src={c.image_url} alt="" className="size-8 rounded object-cover" />
                           ) : (
-                            <div className="flex size-8 items-center justify-center rounded bg-slate-100 dark:bg-slate-800">
-                              <Package className="size-4 text-slate-400" />
+                            <div className="flex size-8 items-center justify-center rounded bg-subtle">
+                              <Package className="size-4 text-muted" />
                             </div>
                           )}
                           <div className="min-w-0">
                             <span className="block truncate">{c.title}</span>
                             {c.title_en && (
-                              <span className="block truncate text-xs font-normal italic text-slate-400 dark:text-slate-500">
+                              <span className="block truncate text-xs font-normal italic text-muted">
                                 {c.title_en}
                               </span>
                             )}
@@ -2593,20 +2642,20 @@ export default function CollectionsPage() {
                           {c.collection_type}
                         </Badge>
                       </td>
-                      <td className="px-3 py-3 text-slate-600 dark:text-slate-400">
+                      <td className="px-3 py-3 text-muted">
                         {c.products_count.toLocaleString('ro-RO')}
                       </td>
                       <td className="px-3 py-3">
                         {c.menu_level === null ? (
-                          <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                          <span className="inline-flex rounded-full bg-subtle px-2 py-0.5 text-[10px] font-medium text-muted">
                             —
                           </span>
                         ) : c.menu_level === 0 ? (
-                          <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                          <span className="inline-flex rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">
                             Root
                           </span>
                         ) : (
-                          <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                          <span className="inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
                             Nivel {c.menu_level}
                           </span>
                         )}
@@ -2617,31 +2666,27 @@ export default function CollectionsPage() {
                       <td className="px-3 py-3">
                         {c.menu_assignment_count > 0 || c.menu_review_count > 0 ? (
                           <div className="space-y-1">
-                            <span className="block text-xs text-slate-700 dark:text-slate-300">
+                            <span className="block text-xs text-foreground">
                               {buildMenuAssignmentSummary(c)}
                             </span>
                             {c.menu_review_count > 0 && (
-                              <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                              <span className="inline-flex rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning">
                                 {c.menu_review_count} review
                               </span>
                             )}
                           </div>
                         ) : (
-                          <span className="text-slate-400 dark:text-slate-500">—</span>
+                          <span className="text-muted">—</span>
                         )}
                       </td>
                       <td className="px-3 py-3">
                         {c.taxonomy_name ? (
-                          <span className="text-green-700 dark:text-green-400">
-                            {c.taxonomy_name}
-                          </span>
+                          <span className="text-success">{c.taxonomy_name}</span>
                         ) : (
-                          <span className="text-slate-400 dark:text-slate-500">—</span>
+                          <span className="text-muted">—</span>
                         )}
                       </td>
-                      <td className="px-3 py-3 text-slate-500 dark:text-slate-400">
-                        {formatRelativeDate(c.synced_at)}
-                      </td>
+                      <td className="px-3 py-3 text-muted">{formatRelativeDate(c.synced_at)}</td>
                     </tr>
                   ))}
             </tbody>
@@ -2649,8 +2694,8 @@ export default function CollectionsPage() {
 
           {/* Pagination */}
           {pagination && pagination.totalPages > 1 && (
-            <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 dark:border-slate-700">
-              <span className="text-sm text-slate-600 dark:text-slate-400">
+            <div className="flex items-center justify-between border-t border-border px-4 py-3">
+              <span className="text-sm text-muted">
                 Pagina {pagination.page} din {pagination.totalPages} (
                 {pagination.total.toLocaleString('ro-RO')} colecții)
               </span>
@@ -2693,23 +2738,19 @@ export default function CollectionsPage() {
       <Modal
         open={pendingChangesOpen}
         onClose={() => setPendingChangesOpen(false)}
-        className="max-w-5xl"
+        className="sm:max-w-4xl"
       >
-        <div className="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-            Modificări în așteptare
-          </h2>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+        <div className="border-b border-border px-6 py-4">
+          <h2 className="text-lg font-semibold text-foreground">Modificări în așteptare</h2>
+          <p className="mt-1 text-sm text-muted">
             Revizuiește schimbările locale înainte de sincronizarea în Shopify.
           </p>
         </div>
         <div className="max-h-[70vh] space-y-6 overflow-y-auto px-6 py-5">
           {pendingChangesLoading ? (
-            <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
-              Se încarcă modificările...
-            </div>
+            <LoadingState label="Se încarcă modificările..." />
           ) : pendingChangesRows.length === 0 ? (
-            <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
+            <div className="py-10 text-center text-sm text-muted">
               Nicio modificare în așteptare.
             </div>
           ) : (
@@ -2734,14 +2775,27 @@ export default function CollectionsPage() {
                 rows={pendingChangesRows.filter((row) => row.changeType === 'menu_assign')}
                 onReject={handleRejectPendingChange}
               />
+              <PendingChangesSection
+                title="Dezasocieri produse"
+                rows={pendingChangesRows.filter((row) => row.changeType === 'product_dissociate')}
+                onReject={handleRejectPendingChange}
+              />
+              <PendingChangesSection
+                title="Definiții metafield"
+                rows={pendingChangesRows.filter(
+                  (row) => row.changeType === 'metafield_definition_create'
+                )}
+                onReject={handleRejectPendingChange}
+              />
             </>
           )}
         </div>
-        <div className="flex items-center justify-between border-t border-slate-200 px-6 py-4 dark:border-slate-700">
-          <div className="text-xs text-slate-500 dark:text-slate-400">
+        <div className="flex items-center justify-between border-t border-border px-6 py-4">
+          <div className="text-xs text-muted">
             {pendingChangesByType.field_update} câmpuri, {pendingChangesByType.taxonomy_assign}{' '}
             atribuiri, {pendingChangesByType.taxonomy_unassign} ștergeri taxonomie,{' '}
-            {pendingChangesByType.menu_assign} meniuri
+            {pendingChangesByType.menu_assign} meniuri, {pendingChangesByType.product_dissociate}{' '}
+            dezasocieri, {pendingChangesByType.metafield_definition_create} metafields
           </div>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={() => setPendingChangesOpen(false)}>
@@ -2782,8 +2836,14 @@ function DetailsTab({
   dirtyFields,
   savingDetails,
   aiGeneratingField,
+  generatingImage,
+  approvingImage,
+  uploadingImage,
   onDraftFieldChange,
   onAiGenerate,
+  onGenerateImage,
+  onUploadImage,
+  onApproveImage,
   onSaveChanges,
 }: {
   collection: CollectionRow;
@@ -2792,8 +2852,14 @@ function DetailsTab({
   dirtyFields: string[];
   savingDetails: boolean;
   aiGeneratingField: string | null;
+  generatingImage: boolean;
+  approvingImage: boolean;
+  uploadingImage: boolean;
   onDraftFieldChange: (field: string, value: string) => void;
   onAiGenerate: (field: string) => Promise<void>;
+  onGenerateImage: () => Promise<void>;
+  onUploadImage: (file: File) => Promise<void>;
+  onApproveImage: () => Promise<void>;
   onSaveChanges: () => Promise<void>;
 }) {
   const editableFields: {
@@ -2857,17 +2923,138 @@ function DetailsTab({
     },
   ];
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageActionBusy = generatingImage || approvingImage || uploadingImage;
+
   return (
     <div className="space-y-4">
-      {collection.image_url && (
-        <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+      {collection.image_url ? (
+        <div className="overflow-hidden rounded-lg border border-border">
           <img
             src={collection.image_url}
             alt={collection.title}
             className="h-40 w-full object-cover"
           />
         </div>
+      ) : collection.has_pending_image ? (
+        <div className="space-y-2">
+          <div className="overflow-hidden rounded-lg border-2 border-dashed border-accent/60 bg-accent/5">
+            <img
+              src={`/api/collections/${collection.id}/pending-image?t=${Date.now()}`}
+              alt="Imagine pending"
+              className="h-40 w-full object-cover"
+            />
+          </div>
+          <p className="text-center text-xs font-medium text-amber-600">
+            Imagine în așteptare — necesită aprobare
+          </p>
+          <div className="flex items-center justify-center gap-2">
+            <button
+              type="button"
+              disabled={imageActionBusy}
+              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
+              onClick={() => void onApproveImage()}
+            >
+              {approvingImage ? (
+                <>
+                  <LoaderCircle className="size-3.5 animate-spin" /> Se trimite...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="size-3.5" /> Aprobă Imagine
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              disabled={imageActionBusy}
+              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50"
+              onClick={() => void onGenerateImage()}
+            >
+              {generatingImage ? (
+                <>
+                  <LoaderCircle className="size-3.5 animate-spin" /> Se regenerează...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="size-3.5" /> Regenerează
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              disabled={imageActionBusy}
+              className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:opacity-50"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {uploadingImage ? (
+                <>
+                  <LoaderCircle className="size-3.5 animate-spin" /> Se încarcă...
+                </>
+              ) : (
+                <>
+                  <Upload className="size-3.5" /> Încarcă alta
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex h-40 flex-col items-center justify-center gap-3 overflow-hidden rounded-lg border border-dashed border-amber-400 bg-amber-50">
+          <div className="flex items-center gap-2 text-amber-600">
+            <ImageIcon className="size-5" />
+            <span className="text-sm font-semibold">Imagine Lipsă</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={imageActionBusy}
+              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50"
+              onClick={() => void onGenerateImage()}
+            >
+              {generatingImage ? (
+                <>
+                  <LoaderCircle className="size-3.5 animate-spin" /> Se generează...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="size-3.5" /> Generează cu AI
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              disabled={imageActionBusy}
+              className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:opacity-50"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {uploadingImage ? (
+                <>
+                  <LoaderCircle className="size-3.5 animate-spin" /> Se încarcă...
+                </>
+              ) : (
+                <>
+                  <Upload className="size-3.5" /> Încarcă imagine
+                </>
+              )}
+            </button>
+          </div>
+        </div>
       )}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) {
+            void onUploadImage(file);
+            e.target.value = '';
+          }
+        }}
+      />
 
       {editableFields.map((field) => {
         const isAiGenerating = aiGeneratingField === field.key;
@@ -2877,14 +3064,12 @@ function DetailsTab({
         return (
           <div
             key={field.key}
-            className={`rounded-lg border bg-white p-3 dark:bg-slate-800/50 ${
-              isDirty
-                ? 'border-amber-300 dark:border-amber-700'
-                : 'border-slate-200 dark:border-slate-700'
+            className={`rounded-lg border bg-card p-3 ${
+              isDirty ? 'border-warning/50' : 'border-border'
             }`}
           >
             <div className="mb-1.5 flex items-center justify-between">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">
                 {field.label}
               </span>
               <div className="flex gap-1">
@@ -2895,8 +3080,8 @@ function DetailsTab({
                     disabled={isAiGenerating}
                     className={`rounded p-1 disabled:opacity-50 ${
                       field.aiMode === 'translate'
-                        ? 'text-blue-400 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/30 dark:hover:text-blue-300'
-                        : 'text-purple-400 hover:bg-purple-50 hover:text-purple-600 dark:hover:bg-purple-950/30 dark:hover:text-purple-300'
+                        ? 'text-primary/60 hover:bg-primary/5 hover:text-primary'
+                        : 'text-accent hover:bg-accent/5 hover:text-accent'
                     }`}
                     title={field.aiLabel ?? 'AI'}
                     onClick={() => void onAiGenerate(field.key)}
@@ -2914,15 +3099,13 @@ function DetailsTab({
             </div>
             {field.multiline ? (
               <textarea
-                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground focus-ring-standard"
                 rows={4}
                 value={value}
                 onChange={(e) => onDraftFieldChange(field.key, e.target.value)}
               />
             ) : (
-              <input
-                type="text"
-                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+              <TextField
                 value={value}
                 onChange={(e) => onDraftFieldChange(field.key, e.target.value)}
               />
@@ -2932,11 +3115,9 @@ function DetailsTab({
       })}
 
       {dirtyFields.length > 0 && (
-        <div className="sticky bottom-0 z-10 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/30">
+        <div className="sticky bottom-0 z-10 rounded-lg border border-warning/30 bg-warning/5 p-3">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm text-amber-800 dark:text-amber-200">
-              {dirtyFields.length} câmpuri modificate local.
-            </p>
+            <p className="text-sm text-warning">{dirtyFields.length} câmpuri modificate local.</p>
             <Button
               variant="secondary"
               onClick={() => void onSaveChanges()}
@@ -2949,21 +3130,15 @@ function DetailsTab({
       )}
 
       {collection.menu_path && (
-        <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800/50">
-          <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+        <div className="rounded-lg border border-border bg-card p-3">
+          <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-muted">
             Ierarhie categorii
           </span>
           <div className="flex flex-wrap items-center gap-1 text-sm">
             {parseMenuPath(collection.menu_path).map((segment, i, arr) => (
               <span key={`${segment}-${i}`} className="inline-flex items-center gap-1">
-                {i > 0 && <ChevronRight className="size-3 text-slate-400 dark:text-slate-500" />}
-                <span
-                  className={
-                    i === arr.length - 1
-                      ? 'font-medium text-blue-600 dark:text-blue-400'
-                      : 'text-slate-600 dark:text-slate-400'
-                  }
-                >
+                {i > 0 && <ChevronRight className="size-3 text-muted" />}
+                <span className={i === arr.length - 1 ? 'font-medium text-primary' : 'text-muted'}>
                   {segment}
                 </span>
               </span>
@@ -2972,17 +3147,17 @@ function DetailsTab({
         </div>
       )}
 
-      <div className="rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800/50">
-        <div className="border-b border-slate-100 px-3 py-2 dark:border-slate-700/50">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+      <div className="rounded-lg border border-border bg-card">
+        <div className="border-b border-border px-3 py-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">
             Informații suplimentare
           </span>
         </div>
-        <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
+        <div className="divide-y divide-border/40">
           {readonlyFields.map((rf) => (
             <div key={rf.label} className="flex items-center justify-between px-3 py-2">
-              <span className="text-xs text-slate-500 dark:text-slate-400">{rf.label}</span>
-              <span className="max-w-[60%] truncate text-right text-xs font-medium text-slate-700 dark:text-slate-300">
+              <span className="text-xs text-muted">{rf.label}</span>
+              <span className="max-w-[60%] truncate text-right text-xs font-medium text-foreground">
                 {rf.value ?? '—'}
               </span>
             </div>
@@ -2995,7 +3170,7 @@ function DetailsTab({
           href={`https://admin.shopify.com/store/neanelu/collections/${collection.legacy_resource_id}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary"
         >
           <ExternalLink className="size-3.5" />
           Deschide în Shopify
@@ -3026,17 +3201,46 @@ function CollectionDetailDrawerInline({
   const [products, setProducts] = useState<
     { id: string; title: string; products_count?: number; quality_level?: string }[]
   >([]);
-  const [metafields, setMetafields] = useState<Record<string, unknown> | null>(null);
+  interface SchemaMetafield {
+    attr_code: string;
+    shopify_namespace: string;
+    shopify_key: string;
+    shopify_type: string;
+    display_name: string | null;
+    display_name_en: string | null;
+    description: string | null;
+    is_required: boolean;
+    ai_generated: boolean;
+  }
+  interface MetafieldsData {
+    metafields: Record<string, unknown>;
+    schema: SchemaMetafield[];
+  }
+  const [metafieldsData, setMetafieldsData] = useState<MetafieldsData | null>(null);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [loadingMetafields, setLoadingMetafields] = useState(false);
   const [taxonomyName, setTaxonomyName] = useState<string | null>(collection.taxonomy_name);
+  const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
+  const [dissociating, setDissociating] = useState(false);
+  const [generatingImage, setGeneratingImage] = useState(false);
+  const [approvingImage, setApprovingImage] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   useEffect(() => {
     setActiveTab('details');
     setProducts([]);
-    setMetafields(null);
+    setMetafieldsData(null);
     setTaxonomyName(collection.taxonomy_name);
+    setSelectedProductIds(new Set());
   }, [collection.id, collection.taxonomy_name]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   const loadProducts = useCallback(async () => {
     setLoadingProducts(true);
@@ -3055,10 +3259,8 @@ function CollectionDetailDrawerInline({
   const loadMetafields = useCallback(async () => {
     setLoadingMetafields(true);
     try {
-      const result = await api.getApi<{ metafields: Record<string, unknown> }>(
-        `/collections/${collection.id}/metafields`
-      );
-      setMetafields(result.metafields);
+      const result = await api.getApi<MetafieldsData>(`/collections/${collection.id}/metafields`);
+      setMetafieldsData(result);
     } catch {
       toast.error('Eroare la încărcare metafields');
     } finally {
@@ -3114,6 +3316,22 @@ function CollectionDetailDrawerInline({
   const [menuAssignRunning, setMenuAssignRunning] = useState(false);
   const [menuAssignSteps, setMenuAssignSteps] = useState<ProgressStep[]>([]);
   const [menuActionBusyId, setMenuActionBusyId] = useState<string | null>(null);
+
+  // ─── Metafield AI generation ─────────────────────────────────────
+  interface MetafieldSuggestion {
+    attr_code: string;
+    display_name_ro: string;
+    display_name_en: string;
+    shopify_key: string;
+    shopify_type: string;
+    description: string;
+    is_required: boolean;
+  }
+  const [metafieldGenerating, setMetafieldGenerating] = useState(false);
+  const [metafieldSteps, setMetafieldSteps] = useState<ProgressStep[]>([]);
+  const [metafieldSuggestions, setMetafieldSuggestions] = useState<MetafieldSuggestion[]>([]);
+  const [selectedSuggestionCodes, setSelectedSuggestionCodes] = useState<Set<string>>(new Set());
+  const [acceptingMetafields, setAcceptingMetafields] = useState(false);
   const [draftFields, setDraftFields] = useState<Record<string, string>>({
     title: collection.title ?? '',
     title_en: collection.title_en ?? '',
@@ -3129,6 +3347,9 @@ function CollectionDetailDrawerInline({
     setMenuAssignments(null);
     setMenuAssignSteps([]);
     setMenuActionBusyId(null);
+    setMetafieldSuggestions([]);
+    setMetafieldSteps([]);
+    setSelectedSuggestionCodes(new Set());
     setDraftFields({
       title: collection.title ?? '',
       title_en: collection.title_en ?? '',
@@ -3355,6 +3576,83 @@ function CollectionDetailDrawerInline({
     }
   }, [api, collection.id, taxonomyName, onRefresh]);
 
+  const handleGenerateMetafieldsAi = useCallback(async () => {
+    setMetafieldGenerating(true);
+    setMetafieldSteps([]);
+    setMetafieldSuggestions([]);
+    setSelectedSuggestionCodes(new Set());
+    try {
+      await api.streamPost(`/collections/${collection.id}/generate-metafields-ai`, {}, (event) => {
+        const type = event['type'] as string;
+        if (type === 'progress') {
+          const step = event['step'] as string;
+          const message = event['message'] as string;
+          const rawStatus = event['status'] as string | undefined;
+          const status: ProgressStep['status'] =
+            rawStatus === 'done' ? 'done' : rawStatus === 'error' ? 'error' : 'in_progress';
+          setMetafieldSteps((prev) => {
+            const existing = prev.findIndex((s) => s.step === step);
+            if (existing >= 0) {
+              const updated = [...prev];
+              updated[existing] = { step, message, status };
+              return updated;
+            }
+            return [...prev, { step, message, status }];
+          });
+        }
+        if (type === 'result') {
+          const suggestions = event['suggestions'] as MetafieldSuggestion[] | undefined;
+          if (suggestions?.length) {
+            setMetafieldSuggestions(suggestions);
+            const allCodes = new Set(suggestions.map((s) => s.attr_code));
+            setSelectedSuggestionCodes(allCodes);
+            toast.success(`${suggestions.length} metafield-uri generate cu succes`);
+          }
+        }
+        if (type === 'error') {
+          const msg = (event['message'] as string) ?? 'Eroare la generarea metafield-urilor.';
+          setMetafieldSteps((prev) => [
+            ...prev.map((s) =>
+              s.status === 'in_progress' ? { ...s, status: 'error' as const } : s
+            ),
+            { step: 'error', message: msg, status: 'error' },
+          ]);
+          toast.error(msg);
+        }
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Eroare la generarea metafield-urilor.';
+      setMetafieldSteps((prev) => [
+        ...prev.map((s) => (s.status === 'in_progress' ? { ...s, status: 'error' as const } : s)),
+        { step: 'error', message: msg, status: 'error' },
+      ]);
+      toast.error(msg);
+    } finally {
+      setMetafieldGenerating(false);
+    }
+  }, [api, collection.id]);
+
+  const handleAcceptMetafields = useCallback(async () => {
+    const selected = metafieldSuggestions.filter((s) => selectedSuggestionCodes.has(s.attr_code));
+    if (selected.length === 0) return;
+    setAcceptingMetafields(true);
+    try {
+      await api.postApi(`/collections/${collection.id}/accept-metafields`, {
+        metafields: selected,
+      });
+      toast.success(`${selected.length} metafield-uri trimise în coada HITL`);
+      setMetafieldSuggestions([]);
+      setSelectedSuggestionCodes(new Set());
+      setMetafieldSteps([]);
+      setMetafieldsData(null);
+      onRefresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Eroare la acceptarea metafield-urilor.');
+    } finally {
+      setAcceptingMetafields(false);
+    }
+  }, [api, collection.id, metafieldSuggestions, selectedSuggestionCodes, onRefresh]);
+
   const handleAssignMenuAi = useCallback(async () => {
     setMenuAssignRunning(true);
     setMenuAssignSteps([]);
@@ -3436,6 +3734,27 @@ function CollectionDetailDrawerInline({
     }
   }, [api, collection.id, loadMenuAssignments, onRefresh]);
 
+  const handleDissociateProducts = useCallback(async () => {
+    if (selectedProductIds.size === 0) return;
+    setDissociating(true);
+    try {
+      const result = await api.postApi<
+        { removed: number; productTitles: string[] },
+        { productIds: string[] }
+      >(`/collections/${collection.id}/dissociate-products`, {
+        productIds: [...selectedProductIds],
+      });
+      toast.success(`${result.removed} produs(e) dezasociat(e) — trimis în HITL.`);
+      setSelectedProductIds(new Set());
+      void loadProducts();
+      onRefresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Eroare la dezasociere.');
+    } finally {
+      setDissociating(false);
+    }
+  }, [api, collection.id, selectedProductIds, loadProducts, onRefresh]);
+
   const runMenuAssignmentAction = useCallback(
     async (assignmentId: string, action: 'approve' | 'reject' | 'primary' | 'delete') => {
       setMenuActionBusyId(assignmentId);
@@ -3505,36 +3824,35 @@ function CollectionDetailDrawerInline({
     }
   }, [api, collection.id, dirtyFields, draftFields, onRefresh]);
 
-  return (
-    <div
-      className="fixed inset-0 z-50 flex justify-end bg-black/30 backdrop-blur-sm transition-opacity duration-200"
-      onClick={onClose}
-    >
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-9998" onClick={onClose}>
       <div
-        className="flex h-full w-[500px] flex-col border-l border-white/20 bg-white/90 shadow-xl backdrop-blur-xl motion-safe:animate-[slideInRight_0.3s_ease-out] dark:border-slate-800/90 dark:bg-slate-900/95"
+        className="pointer-events-none absolute inset-0 bg-overlay/[0.10] motion-safe:animate-[fadeIn_150ms_ease-out]"
+        aria-hidden
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={collection.title}
+        className="absolute inset-y-0 right-0 z-10 flex h-full w-130 flex-col overflow-hidden border-l border-border/30 shadow-(--shadow-xl) motion-safe:animate-[slideInRight_0.3s_ease-out]"
+        style={{ backgroundColor: 'rgb(var(--color-card))' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-              {collection.title}
-            </h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
+        <div className="flex shrink-0 items-start justify-between border-b border-border/60 px-5 py-4">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-base font-semibold text-foreground">{collection.title}</h2>
+            <p className="mt-0.5 text-sm text-muted">
               {collection.collection_type} · {collection.products_count} produse
             </p>
             {collection.menu_path && (
-              <div className="mt-2 flex flex-wrap items-center gap-1 text-xs text-slate-400 dark:text-slate-500">
+              <div className="mt-2 flex flex-wrap items-center gap-1 text-xs text-muted">
                 {parseMenuPath(collection.menu_path).map((segment, i, arr) => (
                   <span key={`${segment}-${i}`} className="inline-flex items-center gap-1">
                     {i > 0 && <ChevronRight className="size-3" />}
-                    <span
-                      className={
-                        i === arr.length - 1
-                          ? 'font-medium text-slate-600 dark:text-slate-300'
-                          : undefined
-                      }
-                    >
+                    <span className={i === arr.length - 1 ? 'font-medium text-muted' : undefined}>
                       {segment}
                     </span>
                   </span>
@@ -3544,7 +3862,7 @@ function CollectionDetailDrawerInline({
             {collection.parent_title && collection.parent_collection_id && (
               <button
                 type="button"
-                className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:text-primary"
                 onClick={() => void handleOpenParent()}
               >
                 <ChevronRight className="size-3" />
@@ -3552,13 +3870,13 @@ function CollectionDetailDrawerInline({
               </button>
             )}
             {collection.description && (
-              <div className="mt-3 rounded-md bg-slate-50 p-3 dark:bg-slate-800/50">
-                <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-400">
+              <div className="mt-3 rounded-md bg-subtle p-3">
+                <p className="text-xs leading-relaxed text-muted">
                   {collection.description.slice(0, 200)}
                   {collection.description.length > 200 ? '...' : ''}
                 </p>
                 {collection.description_en && (
-                  <p className="mt-1.5 text-xs italic leading-relaxed text-slate-500 dark:text-slate-500">
+                  <p className="mt-1.5 text-xs italic leading-relaxed text-muted">
                     {collection.description_en.slice(0, 200)}
                     {collection.description_en.length > 200 ? '...' : ''}
                   </p>
@@ -3567,15 +3885,20 @@ function CollectionDetailDrawerInline({
             )}
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+            aria-label="Închide"
+            className="ml-3 inline-flex shrink-0 items-center justify-center rounded-lg p-1.5 text-muted transition-colors hover:bg-subtle/60 hover:text-foreground focus-ring-standard"
           >
-            ✕
+            <X className="size-4" />
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-slate-200 dark:border-slate-700">
+        <div
+          className="flex shrink-0 border-b border-border/60"
+          style={{ backgroundColor: 'rgb(var(--color-subtle))' }}
+        >
           {(['details', 'products', 'taxonomy', 'menuAi', 'metafields'] as const).map((tab) => {
             const label =
               tab === 'details'
@@ -3587,24 +3910,30 @@ function CollectionDetailDrawerInline({
                     : tab === 'menuAi'
                       ? 'Categorii AI'
                       : 'Metafields';
+            const isActive = activeTab === tab;
             return (
               <button
+                type="button"
                 key={tab}
-                className={`flex-1 px-3 py-2.5 text-xs font-medium transition-colors ${
-                  activeTab === tab
-                    ? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400'
-                    : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                className={`relative flex-1 px-3 py-2.5 text-xs font-medium transition-colors ${
+                  isActive ? 'text-primary' : 'text-muted hover:text-foreground'
                 }`}
                 onClick={() => setActiveTab(tab)}
               >
                 {label}
+                {isActive && (
+                  <span className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-primary" />
+                )}
               </button>
             );
           })}
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-5">
+        <div
+          className="min-h-0 flex-1 overflow-y-auto p-5"
+          style={{ backgroundColor: 'rgb(var(--color-background))' }}
+        >
           {activeTab === 'details' && (
             <DetailsTab
               collection={collection}
@@ -3613,12 +3942,53 @@ function CollectionDetailDrawerInline({
               dirtyFields={dirtyFields}
               savingDetails={savingDetails}
               aiGeneratingField={aiGeneratingField}
+              generatingImage={generatingImage}
+              approvingImage={approvingImage}
+              uploadingImage={uploadingImage}
               onDraftFieldChange={(field, value) =>
                 setDraftFields((prev) => ({
                   ...prev,
                   [field]: value,
                 }))
               }
+              onGenerateImage={async () => {
+                setGeneratingImage(true);
+                try {
+                  await api.postApi(`/collections/${collection.id}/generate-image`, {});
+                  toast.success('Imagine generată! Verifică și aprobă.');
+                  onRefresh();
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : 'Eroare la generarea imaginii');
+                } finally {
+                  setGeneratingImage(false);
+                }
+              }}
+              onUploadImage={async (file: File) => {
+                setUploadingImage(true);
+                try {
+                  const formData = new FormData();
+                  formData.append('file', file);
+                  await api.postApi(`/collections/${collection.id}/upload-image`, formData);
+                  toast.success('Imagine încărcată! Verifică și aprobă.');
+                  onRefresh();
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : 'Eroare la încărcarea imaginii');
+                } finally {
+                  setUploadingImage(false);
+                }
+              }}
+              onApproveImage={async () => {
+                setApprovingImage(true);
+                try {
+                  await api.postApi(`/collections/${collection.id}/approve-image`, {});
+                  toast.success('Imagine aprobată și trimisă la Shopify!');
+                  onRefresh();
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : 'Eroare la aprobarea imaginii');
+                } finally {
+                  setApprovingImage(false);
+                }
+              }}
               onAiGenerate={async (field) => {
                 setAiGeneratingField(field);
                 try {
@@ -3676,29 +4046,90 @@ function CollectionDetailDrawerInline({
           )}
 
           {activeTab === 'products' && (
-            <div className="space-y-3">
+            <div className="relative">
               {loadingProducts ? (
                 <div className="space-y-2">
                   {Array.from({ length: 5 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="h-10 animate-pulse rounded bg-slate-200 dark:bg-slate-700"
-                    />
+                    <div key={i} className="h-10 animate-pulse rounded bg-subtle" />
                   ))}
                 </div>
               ) : products.length === 0 ? (
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Niciun produs în această colecție.
-                </p>
+                <EmptyState
+                  title="Niciun produs"
+                  description="Niciun produs în această colecție."
+                />
               ) : (
-                <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {products.map((p) => (
-                    <li key={p.id} className="flex items-center justify-between py-2 text-sm">
-                      <span className="text-slate-800 dark:text-slate-200">{p.title}</span>
-                      {p.quality_level && <Badge tone="neutral">{p.quality_level}</Badge>}
-                    </li>
-                  ))}
-                </ul>
+                <>
+                  {products.length > 1 && (
+                    <div className="flex items-center gap-2 border-b border-border/40 pb-2 mb-1">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-gray-300 accent-blue-600"
+                        checked={selectedProductIds.size === products.length}
+                        ref={(el) => {
+                          if (el)
+                            el.indeterminate =
+                              selectedProductIds.size > 0 &&
+                              selectedProductIds.size < products.length;
+                        }}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedProductIds(new Set(products.map((p) => p.id)));
+                          } else {
+                            setSelectedProductIds(new Set());
+                          }
+                        }}
+                      />
+                      <span className="text-xs text-muted">
+                        {selectedProductIds.size > 0
+                          ? `${selectedProductIds.size} din ${products.length} selectat(e)`
+                          : `Selectează toate (${products.length})`}
+                      </span>
+                    </div>
+                  )}
+                  <ul className="divide-y divide-border/40">
+                    {products.map((p) => (
+                      <li key={p.id} className="flex items-center gap-3 py-2 text-sm">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 shrink-0 rounded border-gray-300 accent-blue-600"
+                          checked={selectedProductIds.has(p.id)}
+                          onChange={(e) => {
+                            setSelectedProductIds((prev) => {
+                              const next = new Set(prev);
+                              if (e.target.checked) {
+                                next.add(p.id);
+                              } else {
+                                next.delete(p.id);
+                              }
+                              return next;
+                            });
+                          }}
+                        />
+                        <span className="flex-1 text-foreground truncate">{p.title}</span>
+                        {p.quality_level && <Badge tone="neutral">{p.quality_level}</Badge>}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+
+              {selectedProductIds.size > 0 && (
+                <div className="sticky bottom-0 z-10 -mx-6 border-t border-border bg-white px-6 py-3 shadow-[0_-2px_8px_rgba(0,0,0,0.08)]">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-700">
+                      {selectedProductIds.size} produs(e) selectat(e)
+                    </span>
+                    <button
+                      type="button"
+                      className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                      disabled={dissociating}
+                      onClick={() => void handleDissociateProducts()}
+                    >
+                      {dissociating ? 'Se dezasociază...' : 'Dezasociere'}
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           )}
@@ -3706,35 +4137,31 @@ function CollectionDetailDrawerInline({
           {activeTab === 'taxonomy' && (
             <div className="space-y-4">
               {/* Traducere EN */}
-              <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
-                <h3 className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">
-                  Traducere EN
-                </h3>
+              <div className="rounded-lg border border-border p-4">
+                <h3 className="mb-2 text-sm font-medium text-foreground">Traducere EN</h3>
                 {titleEn ? (
-                  <p className="text-sm font-medium text-green-700 dark:text-green-400">
-                    „{titleEn}"
-                  </p>
+                  <p className="text-sm font-medium text-success">„{titleEn}"</p>
                 ) : translateRunningLocal ? (
-                  <p className="text-sm text-amber-600 dark:text-amber-400">Se traduce...</p>
+                  <p className="text-sm text-warning">Se traduce...</p>
                 ) : (
-                  <p className="text-sm text-slate-400">Netradusă</p>
+                  <p className="text-sm text-muted">Netradusă</p>
                 )}
                 {translateSteps.length > 0 && (
-                  <div className="mt-3 rounded border border-slate-100 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
+                  <div className="mt-3 rounded border border-border bg-subtle p-3">
                     <ul className="space-y-1.5">
                       {translateSteps.map((s, i) => (
                         <li key={`${s.step}-${i}`} className="flex items-start gap-2 text-xs">
-                          <span className="mt-0.5 flex-shrink-0">
+                          <span className="mt-0.5 shrink-0">
                             {s.status === 'in_progress' && (
-                              <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+                              <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                             )}
                             {s.status === 'done' && (
-                              <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-green-500 text-[9px] text-white">
+                              <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-success text-[9px] text-success-foreground">
                                 &#10003;
                               </span>
                             )}
                             {s.status === 'error' && (
-                              <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[9px] text-white">
+                              <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-error/50 text-[9px] text-error-foreground">
                                 &#10007;
                               </span>
                             )}
@@ -3742,10 +4169,10 @@ function CollectionDetailDrawerInline({
                           <span
                             className={
                               s.status === 'error'
-                                ? 'text-red-600 dark:text-red-400'
+                                ? 'text-error'
                                 : s.status === 'done'
-                                  ? 'text-green-700 dark:text-green-400'
-                                  : 'text-slate-700 dark:text-slate-300'
+                                  ? 'text-success'
+                                  : 'text-foreground'
                             }
                           >
                             {s.message}
@@ -3773,40 +4200,36 @@ function CollectionDetailDrawerInline({
                 </div>
               </div>
 
-              <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
-                <h3 className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">
-                  Taxonomie atribuită
-                </h3>
+              <div className="rounded-lg border border-border p-4">
+                <h3 className="mb-2 text-sm font-medium text-foreground">Taxonomie atribuită</h3>
                 {taxonomyName ? (
-                  <p className="text-sm font-medium text-green-700 dark:text-green-400">
-                    {taxonomyName}
-                  </p>
+                  <p className="text-sm font-medium text-success">{taxonomyName}</p>
                 ) : assignRunning ? (
-                  <p className="text-sm text-amber-600 dark:text-amber-400">Se procesează...</p>
+                  <p className="text-sm text-warning">Se procesează...</p>
                 ) : (
-                  <p className="text-sm text-slate-400">Nicio taxonomie atribuită</p>
+                  <p className="text-sm text-muted">Nicio taxonomie atribuită</p>
                 )}
               </div>
 
               {progressSteps.length > 0 && (
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/50">
-                  <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <div className="rounded-lg border border-border bg-subtle p-4">
+                  <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">
                     Progres operații
                   </h4>
                   <ul className="space-y-2">
                     {progressSteps.map((s, i) => (
                       <li key={`${s.step}-${i}`} className="flex items-start gap-2 text-sm">
-                        <span className="mt-0.5 flex-shrink-0">
+                        <span className="mt-0.5 shrink-0">
                           {s.status === 'in_progress' && (
-                            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+                            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                           )}
                           {s.status === 'done' && (
-                            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-green-500 text-[10px] text-white">
+                            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-success text-[10px] text-success-foreground">
                               &#10003;
                             </span>
                           )}
                           {s.status === 'error' && (
-                            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">
+                            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-error/50 text-[10px] text-error-foreground">
                               &#10007;
                             </span>
                           )}
@@ -3814,10 +4237,10 @@ function CollectionDetailDrawerInline({
                         <span
                           className={
                             s.status === 'error'
-                              ? 'text-red-600 dark:text-red-400'
+                              ? 'text-error'
                               : s.status === 'done'
-                                ? 'text-green-700 dark:text-green-400'
-                                : 'text-slate-700 dark:text-slate-300'
+                                ? 'text-success'
+                                : 'text-foreground'
                           }
                         >
                           {s.message}
@@ -3844,15 +4267,185 @@ function CollectionDetailDrawerInline({
             </div>
           )}
 
+          {/* ─── Secțiunea Metafield-uri standardizate ─── */}
+          {activeTab === 'taxonomy' && (
+            <div className="rounded-lg border border-border p-4">
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <div>
+                  <h3 className="text-sm font-medium text-foreground">
+                    Metafield-uri standardizate
+                  </h3>
+                  <p className="mt-0.5 text-xs text-muted">
+                    Atribute tehnice standardizate moștenite de produsele din această colecție.
+                  </p>
+                </div>
+                <Button
+                  variant="secondary"
+                  onClick={() => void handleGenerateMetafieldsAi()}
+                  disabled={metafieldGenerating || acceptingMetafields || !titleEn || !taxonomyName}
+                  title={
+                    !titleEn
+                      ? 'Necesită traducere EN'
+                      : !taxonomyName
+                        ? 'Necesită taxonomie atribuită'
+                        : 'Generează metafield-uri tehnice cu AI'
+                  }
+                >
+                  {metafieldGenerating ? (
+                    <>
+                      <span className="mr-1.5 inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                      Se generează...
+                    </>
+                  ) : (
+                    'Generează Metafields AI'
+                  )}
+                </Button>
+              </div>
+
+              {/* Progress steps */}
+              {metafieldSteps.length > 0 && (
+                <div className="mb-4 rounded border border-border bg-subtle p-3">
+                  <ul className="space-y-1.5">
+                    {metafieldSteps.map((s, i) => (
+                      <li key={`${s.step}-${i}`} className="flex items-start gap-2 text-xs">
+                        <span className="mt-0.5 shrink-0">
+                          {s.status === 'in_progress' && (
+                            <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                          )}
+                          {s.status === 'done' && (
+                            <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-success text-[9px] text-success-foreground">
+                              &#10003;
+                            </span>
+                          )}
+                          {s.status === 'error' && (
+                            <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-error/50 text-[9px] text-error-foreground">
+                              &#10007;
+                            </span>
+                          )}
+                        </span>
+                        <span
+                          className={
+                            s.status === 'error'
+                              ? 'text-error'
+                              : s.status === 'done'
+                                ? 'text-success'
+                                : 'text-foreground'
+                          }
+                        >
+                          {s.message}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Sugestii generate */}
+              {metafieldSuggestions.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs text-muted mb-2">
+                    Selectează metafield-urile pe care vrei să le accepți și trimite-le în coada
+                    HITL:
+                  </p>
+                  {metafieldSuggestions.map((suggestion) => (
+                    <label
+                      key={suggestion.attr_code}
+                      className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-3 hover:bg-subtle"
+                    >
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-4 w-4 shrink-0 rounded border-border"
+                        checked={selectedSuggestionCodes.has(suggestion.attr_code)}
+                        onChange={(e) => {
+                          setSelectedSuggestionCodes((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) {
+                              next.add(suggestion.attr_code);
+                            } else {
+                              next.delete(suggestion.attr_code);
+                            }
+                            return next;
+                          });
+                        }}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-xs font-medium text-foreground">
+                            {suggestion.display_name_ro}
+                          </span>
+                          <span className="text-xs text-muted">/ {suggestion.display_name_en}</span>
+                          <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] text-primary">
+                            {suggestion.shopify_type}
+                          </span>
+                        </div>
+                        {suggestion.description && (
+                          <p className="mt-0.5 text-xs text-muted">{suggestion.description}</p>
+                        )}
+                        <p className="mt-0.5 font-mono text-[10px] text-muted">
+                          custom.{suggestion.shopify_key}
+                        </p>
+                      </div>
+                    </label>
+                  ))}
+
+                  <div className="mt-3 flex items-center gap-2">
+                    <Button
+                      variant="primary"
+                      onClick={() => void handleAcceptMetafields()}
+                      disabled={acceptingMetafields || selectedSuggestionCodes.size === 0}
+                    >
+                      {acceptingMetafields
+                        ? 'Se trimite...'
+                        : `Acceptă Selectate (${selectedSuggestionCodes.size})`}
+                    </Button>
+                    <button
+                      type="button"
+                      className="text-xs text-muted underline hover:text-foreground"
+                      onClick={() => {
+                        setSelectedSuggestionCodes(
+                          new Set(metafieldSuggestions.map((s) => s.attr_code))
+                        );
+                      }}
+                    >
+                      Selectează tot
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs text-muted underline hover:text-foreground"
+                      onClick={() => setSelectedSuggestionCodes(new Set())}
+                    >
+                      Deselectează tot
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Pre-condiții lipsă */}
+              {!metafieldGenerating &&
+                metafieldSuggestions.length === 0 &&
+                metafieldSteps.length === 0 && (
+                  <p className="text-xs text-muted">
+                    {!titleEn && !taxonomyName
+                      ? 'Necesită traducere EN și taxonomie atribuită pentru generare AI.'
+                      : !titleEn
+                        ? 'Necesită traducere EN pentru generare AI.'
+                        : !taxonomyName
+                          ? 'Necesită taxonomie atribuită pentru generare AI.'
+                          : 'Apasă "Generează Metafields AI" pentru a genera sugestii de atribute tehnice.'}
+                  </p>
+                )}
+            </div>
+          )}
+
           {activeTab === 'menuAi' && (
             <div className="space-y-4">
-              <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+              <div className="rounded-lg border border-border p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    <h3 className="text-sm font-medium text-foreground">
                       Asignare categorii/meniu AI
                     </h3>
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    <p className="mt-1 text-xs text-muted">
                       AI propune poziții existente în arborele Shopify și semnalează path-uri noi
                       doar pentru review uman.
                     </p>
@@ -3873,24 +4466,24 @@ function CollectionDetailDrawerInline({
               </div>
 
               {menuAssignSteps.length > 0 && (
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/50">
-                  <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <div className="rounded-lg border border-border bg-subtle p-4">
+                  <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">
                     Progres asignare AI
                   </h4>
                   <ul className="space-y-2">
                     {menuAssignSteps.map((step, index) => (
                       <li key={`${step.step}-${index}`} className="flex items-start gap-2 text-sm">
-                        <span className="mt-0.5 flex-shrink-0">
+                        <span className="mt-0.5 shrink-0">
                           {step.status === 'in_progress' && (
-                            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+                            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                           )}
                           {step.status === 'done' && (
-                            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-green-500 text-[10px] text-white">
+                            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-success text-[10px] text-success-foreground">
                               &#10003;
                             </span>
                           )}
                           {step.status === 'error' && (
-                            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">
+                            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-error/50 text-[10px] text-error-foreground">
                               &#10007;
                             </span>
                           )}
@@ -3898,10 +4491,10 @@ function CollectionDetailDrawerInline({
                         <span
                           className={
                             step.status === 'error'
-                              ? 'text-red-600 dark:text-red-400'
+                              ? 'text-error'
                               : step.status === 'done'
-                                ? 'text-green-700 dark:text-green-400'
-                                : 'text-slate-700 dark:text-slate-300'
+                                ? 'text-success'
+                                : 'text-foreground'
                           }
                         >
                           {step.message}
@@ -3912,41 +4505,33 @@ function CollectionDetailDrawerInline({
                 </div>
               )}
 
-              <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
-                <h3 className="mb-3 text-sm font-medium text-slate-700 dark:text-slate-300">
-                  Asocieri active
-                </h3>
+              <div className="rounded-lg border border-border p-4">
+                <h3 className="mb-3 text-sm font-medium text-foreground">Asocieri active</h3>
                 {loadingMenuAssignments ? (
                   <div className="space-y-2">
                     {Array.from({ length: 3 }).map((_, i) => (
-                      <div
-                        key={i}
-                        className="h-16 animate-pulse rounded bg-slate-200 dark:bg-slate-700"
-                      />
+                      <div key={i} className="h-16 animate-pulse rounded bg-subtle" />
                     ))}
                   </div>
                 ) : (menuAssignments?.activeAssignments.length ?? 0) === 0 ? (
-                  <p className="text-sm text-slate-400">Nu există asocieri active.</p>
+                  <EmptyState title="Nu există asocieri" description="Nu există asocieri active." />
                 ) : (
                   <div className="space-y-3">
                     {menuAssignments?.activeAssignments.map((assignment) => (
-                      <div
-                        key={assignment.id}
-                        className="rounded-lg border border-slate-200 p-3 dark:border-slate-700"
-                      >
+                      <div key={assignment.id} className="rounded-lg border border-border p-3">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="space-y-2">
                             <div className="flex flex-wrap items-center gap-2">
                               {parseMenuPath(assignment.menuItemPath).map((segment, index) => (
                                 <span
                                   key={`${segment}-${index}`}
-                                  className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                                  className="inline-flex items-center rounded-full bg-subtle px-2 py-0.5 text-[11px] font-medium text-muted"
                                 >
                                   {segment}
                                 </span>
                               ))}
                             </div>
-                            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
                               <Badge tone={assignment.isPrimary ? 'info' : 'neutral'}>
                                 {assignment.isPrimary ? 'Primary' : 'Secondary'}
                               </Badge>
@@ -3954,9 +4539,7 @@ function CollectionDetailDrawerInline({
                               <span>Sursă: {assignment.assignmentSource}</span>
                             </div>
                             {assignment.reasoning && (
-                              <p className="text-xs text-slate-500 dark:text-slate-400">
-                                {assignment.reasoning}
-                              </p>
+                              <p className="text-xs text-muted">{assignment.reasoning}</p>
                             )}
                           </div>
                           <div className="flex flex-wrap gap-2">
@@ -3986,14 +4569,15 @@ function CollectionDetailDrawerInline({
                 )}
               </div>
 
-              <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
-                <h3 className="mb-3 text-sm font-medium text-slate-700 dark:text-slate-300">
-                  Propuneri AI
-                </h3>
+              <div className="rounded-lg border border-border p-4">
+                <h3 className="mb-3 text-sm font-medium text-foreground">Propuneri AI</h3>
                 {(menuAssignments?.proposedAssignments.filter(
                   (assignment) => !assignment.proposedPath
                 ).length ?? 0) === 0 ? (
-                  <p className="text-sm text-slate-400">Nu există propuneri AI pentru review.</p>
+                  <EmptyState
+                    title="Nu există propuneri AI"
+                    description="Nu există propuneri AI pentru review."
+                  />
                 ) : (
                   <div className="space-y-3">
                     {menuAssignments?.proposedAssignments
@@ -4001,7 +4585,7 @@ function CollectionDetailDrawerInline({
                       .map((assignment) => (
                         <div
                           key={assignment.id}
-                          className="rounded-lg border border-amber-200 bg-amber-50/70 p-3 dark:border-amber-800 dark:bg-amber-950/30"
+                          className="rounded-lg border border-warning/30 bg-warning/5/70 p-3"
                         >
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div className="space-y-2">
@@ -4009,19 +4593,17 @@ function CollectionDetailDrawerInline({
                                 {parseMenuPath(assignment.menuItemPath).map((segment, index) => (
                                   <span
                                     key={`${segment}-${index}`}
-                                    className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-slate-900 dark:text-amber-300"
+                                    className="inline-flex items-center rounded-full bg-card px-2 py-0.5 text-[11px] font-medium text-warning"
                                   >
                                     {segment}
                                   </span>
                                 ))}
                               </div>
-                              <div className="text-xs text-amber-700 dark:text-amber-300">
+                              <div className="text-xs text-warning">
                                 Confidență: {formatConfidence(assignment.confidence)}
                               </div>
                               {assignment.reasoning && (
-                                <p className="text-xs text-amber-700 dark:text-amber-300">
-                                  {assignment.reasoning}
-                                </p>
+                                <p className="text-xs text-warning">{assignment.reasoning}</p>
                               )}
                             </div>
                             <div className="flex flex-wrap gap-2">
@@ -4051,14 +4633,15 @@ function CollectionDetailDrawerInline({
                 )}
               </div>
 
-              <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
-                <h3 className="mb-3 text-sm font-medium text-slate-700 dark:text-slate-300">
-                  Propuneri path nou
-                </h3>
+              <div className="rounded-lg border border-border p-4">
+                <h3 className="mb-3 text-sm font-medium text-foreground">Propuneri path nou</h3>
                 {(menuAssignments?.proposedAssignments.filter(
                   (assignment) => assignment.proposedPath
                 ).length ?? 0) === 0 ? (
-                  <p className="text-sm text-slate-400">Nu există path-uri noi propuse.</p>
+                  <EmptyState
+                    title="Nu există path-uri noi"
+                    description="Nu există path-uri noi propuse."
+                  />
                 ) : (
                   <div className="space-y-3">
                     {menuAssignments?.proposedAssignments
@@ -4066,7 +4649,7 @@ function CollectionDetailDrawerInline({
                       .map((assignment) => (
                         <div
                           key={assignment.id}
-                          className="rounded-lg border border-amber-200 bg-amber-50/70 p-3 dark:border-amber-800 dark:bg-amber-950/30"
+                          className="rounded-lg border border-warning/30 bg-warning/5/70 p-3"
                         >
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div className="space-y-2">
@@ -4074,19 +4657,17 @@ function CollectionDetailDrawerInline({
                                 {parseMenuPath(assignment.proposedPath).map((segment, index) => (
                                   <span
                                     key={`${segment}-${index}`}
-                                    className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-slate-900 dark:text-amber-300"
+                                    className="inline-flex items-center rounded-full bg-card px-2 py-0.5 text-[11px] font-medium text-warning"
                                   >
                                     {segment}
                                   </span>
                                 ))}
                               </div>
-                              <div className="text-xs text-amber-700 dark:text-amber-300">
+                              <div className="text-xs text-warning">
                                 Confidență: {formatConfidence(assignment.confidence)}
                               </div>
                               {assignment.reasoning && (
-                                <p className="text-xs text-amber-700 dark:text-amber-300">
-                                  {assignment.reasoning}
-                                </p>
+                                <p className="text-xs text-warning">{assignment.reasoning}</p>
                               )}
                             </div>
                             <div className="flex flex-wrap gap-2">
@@ -4119,27 +4700,119 @@ function CollectionDetailDrawerInline({
           )}
 
           {activeTab === 'metafields' && (
-            <div>
+            <div className="space-y-6">
               {loadingMetafields ? (
                 <div className="space-y-2">
                   {Array.from({ length: 3 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="h-8 animate-pulse rounded bg-slate-200 dark:bg-slate-700"
-                    />
+                    <div key={i} className="h-8 animate-pulse rounded bg-subtle" />
                   ))}
                 </div>
-              ) : metafields ? (
-                <pre className="max-h-96 overflow-auto rounded-lg bg-slate-100 p-4 text-xs dark:bg-slate-800">
-                  {JSON.stringify(metafields, null, 2)}
-                </pre>
+              ) : metafieldsData ? (
+                <>
+                  {/* Schema de atribute (din pim_taxonomy_metafield_schema) */}
+                  {metafieldsData.schema.length > 0 ? (
+                    <div>
+                      <h4 className="mb-3 text-sm font-semibold text-primary">
+                        Schema atribute produs ({metafieldsData.schema.length})
+                      </h4>
+                      <div className="overflow-hidden rounded-lg border border-default">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-default bg-subtle">
+                              <th className="px-3 py-2 text-left font-medium text-secondary">
+                                Cod atribut
+                              </th>
+                              <th className="px-3 py-2 text-left font-medium text-secondary">
+                                Nume RO
+                              </th>
+                              <th className="px-3 py-2 text-left font-medium text-secondary">
+                                Tip Shopify
+                              </th>
+                              <th className="px-3 py-2 text-left font-medium text-secondary">
+                                Namespace.Key
+                              </th>
+                              <th className="px-3 py-2 text-center font-medium text-secondary">
+                                AI
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-default">
+                            {metafieldsData.schema.map((s) => (
+                              <tr key={s.attr_code} className="hover:bg-hover">
+                                <td className="px-3 py-2 font-mono text-xs text-primary">
+                                  {s.attr_code}
+                                </td>
+                                <td className="px-3 py-2 text-primary">
+                                  {s.display_name ?? '—'}
+                                  {s.description && (
+                                    <span
+                                      className="ml-1 text-xs text-tertiary"
+                                      title={s.description}
+                                    >
+                                      ⓘ
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <span className="inline-block rounded bg-blue-100 px-1.5 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                    {s.shopify_type}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 font-mono text-xs text-secondary">
+                                  {s.shopify_namespace}.{s.shopify_key}
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  {s.ai_generated ? (
+                                    <span
+                                      className="text-purple-600 dark:text-purple-400"
+                                      title="Generat cu AI"
+                                    >
+                                      ✦
+                                    </span>
+                                  ) : (
+                                    <span className="text-tertiary">—</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-default bg-subtle p-4 text-center text-sm text-secondary">
+                      Nu există atribute definite în schema taxonomiei.
+                      <br />
+                      <span className="text-xs text-tertiary">
+                        Folosește tab-ul &quot;Taxonomie atribuită&quot; → &quot;Generează
+                        Metafields AI&quot; pentru a crea schema.
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Metafields brute Shopify (raw) */}
+                  {Object.keys(metafieldsData.metafields).length > 0 && (
+                    <div>
+                      <h4 className="mb-3 text-sm font-semibold text-primary">
+                        Metafields brute Shopify
+                      </h4>
+                      <pre className="max-h-64 overflow-auto rounded-lg bg-subtle p-4 text-xs">
+                        {JSON.stringify(metafieldsData.metafields, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                </>
               ) : (
-                <p className="text-sm text-slate-500 dark:text-slate-400">Nu există metafields.</p>
+                <EmptyState
+                  title="Nu există metafields"
+                  description="Nu există metafields pentru această colecție."
+                />
               )}
             </div>
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

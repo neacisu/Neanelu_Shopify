@@ -6,6 +6,14 @@ import type {
 } from '@app/types';
 import { InfoTooltip } from '../components/ui/info-tooltip';
 import { SubmitButton } from '../components/forms/submit-button';
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
+import { Checkbox } from '../components/ui/checkbox';
+import { TextField } from '../components/ui/text-field';
+import { Select } from '../components/ui/select';
+import { Slider } from '../components/ui/slider';
+import { LoadingState } from '../components/patterns/loading-state';
+import { ErrorState } from '../components/patterns/error-state';
 import { useApiClient } from '../hooks/use-api';
 
 type GeminiConnectionStatus =
@@ -26,12 +34,12 @@ const STATUS_LABELS: Record<GeminiConnectionStatus, string> = {
 };
 
 const STATUS_STYLES: Record<GeminiConnectionStatus, string> = {
-  unknown: 'bg-muted/20 text-muted dark:bg-slate-700/30 dark:text-slate-400',
-  connected: 'bg-success/15 text-success dark:bg-emerald-900/30 dark:text-emerald-400',
-  error: 'bg-error/15 text-error dark:bg-red-900/30 dark:text-red-400',
-  disabled: 'bg-warning/15 text-warning dark:bg-amber-900/30 dark:text-amber-400',
-  missing_key: 'bg-warning/15 text-warning dark:bg-amber-900/30 dark:text-amber-400',
-  pending: 'bg-blue-500/15 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400',
+  unknown: 'bg-muted/20 text-muted',
+  connected: 'bg-success/15 text-success',
+  error: 'bg-error/15 text-error',
+  disabled: 'bg-warning/15 text-warning',
+  missing_key: 'bg-warning/15 text-warning',
+  pending: 'bg-primary/15 text-primary',
 };
 
 function normalizeStatus(
@@ -287,22 +295,14 @@ export default function SettingsGemini() {
     }
   };
 
+  if (loading) return <LoadingState label="Se încarcă setările Gemini..." />;
+
   return (
     <div className="space-y-4">
-      {loading ? (
-        <div className="rounded-md border border-muted/20 bg-muted/5 p-4 text-sm text-muted dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-          Se încarcă setările Gemini...
-        </div>
-      ) : null}
+      {error ? <ErrorState message={error} /> : null}
 
-      {error ? (
-        <div className="rounded-md border border-error/30 bg-error/10 p-4 text-error shadow-sm dark:border-red-700/50 dark:bg-red-900/20">
-          {error}
-        </div>
-      ) : null}
-
-      <div className="rounded-lg border border-muted/20 bg-background p-4 text-sm dark:border-slate-700 dark:bg-slate-900/80">
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted dark:text-slate-400">
+      <Card className="p-4 text-sm">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
           <span>Status conexiune</span>
           <span className={`rounded-full px-2 py-1 text-xs font-medium ${statusStyle}`}>
             {statusLabel}
@@ -315,46 +315,44 @@ export default function SettingsGemini() {
           ) : null}
         </div>
         {lastError ? <div className="mt-1 text-xs text-error">{lastError}</div> : null}
-      </div>
+      </Card>
 
       {todayUsage ? (
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-lg border border-muted/20 p-4 dark:border-slate-700 dark:bg-slate-900/80">
-            <div className="text-sm text-muted dark:text-slate-400">Cereri azi</div>
-            <div className="mt-1 text-2xl font-semibold dark:text-slate-100">
+          <Card className="p-4">
+            <div className="text-sm text-muted">Cereri azi</div>
+            <div className="mt-1 text-2xl font-semibold">
               {todayUsage.requests.toLocaleString('ro-RO')}
             </div>
-          </div>
-          <div className="rounded-lg border border-muted/20 p-4 dark:border-slate-700 dark:bg-slate-900/80">
-            <div className="text-sm text-muted dark:text-slate-400">Tokeni intrare</div>
-            <div className="mt-1 text-2xl font-semibold dark:text-slate-100">
+          </Card>
+          <Card className="p-4">
+            <div className="text-sm text-muted">Tokeni intrare</div>
+            <div className="mt-1 text-2xl font-semibold">
               {todayUsage.inputTokens.toLocaleString('ro-RO')}
             </div>
-          </div>
-          <div className="rounded-lg border border-muted/20 p-4 dark:border-slate-700 dark:bg-slate-900/80">
-            <div className="text-sm text-muted dark:text-slate-400">Buget utilizat</div>
-            <div className="mt-1 text-2xl font-semibold dark:text-slate-100">
+          </Card>
+          <Card className="p-4">
+            <div className="text-sm text-muted">Buget utilizat</div>
+            <div className="mt-1 text-2xl font-semibold">
               {(todayUsage.percentUsed * 100).toLocaleString('ro-RO', {
                 minimumFractionDigits: 1,
                 maximumFractionDigits: 1,
               })}
               %
             </div>
-            <div className="mt-2 h-2 w-full rounded-full bg-muted/10 dark:bg-slate-700/50">
+            <div className="mt-2 h-2 w-full rounded-full bg-muted/10">
               <div
                 className="h-2 rounded-full bg-primary/60"
                 style={{ width: `${budgetPercent * 100}%` }}
               />
             </div>
-          </div>
+          </Card>
         </div>
       ) : null}
 
       <form onSubmit={(event) => void saveSettings(event)} className="space-y-4">
-        <label className="flex items-center gap-2 text-body dark:text-slate-200">
-          <input
-            type="checkbox"
-            className="size-4 accent-primary"
+        <label className="flex items-center gap-2 text-foreground">
+          <Checkbox
             checked={enabled}
             onChange={(event) => {
               setEnabled(event.target.checked);
@@ -372,7 +370,7 @@ export default function SettingsGemini() {
 
         <div>
           <label
-            className="text-caption text-muted dark:text-slate-400 inline-flex items-center gap-1"
+            className="text-caption text-muted inline-flex items-center gap-1"
             htmlFor="gemini-api-key"
           >
             Cheie API Gemini
@@ -381,7 +379,7 @@ export default function SettingsGemini() {
               (aistudio.google.com). Format: „AIza...". Sfat: cheia e stocată criptat.
             </InfoTooltip>
           </label>
-          <input
+          <TextField
             id="gemini-api-key"
             type="password"
             value={apiKey}
@@ -392,36 +390,27 @@ export default function SettingsGemini() {
               setLastTestedKey(null);
             }}
             placeholder={hasApiKey ? '••••••••' : 'AIza...'}
-            className="mt-1 w-full rounded-md border border-muted/20 bg-background px-3 py-2 text-body transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
           />
-          <p className="mt-1 text-xs text-muted dark:text-slate-400">
-            Cheia este stocată criptat în baza de date.
-          </p>
+          <p className="mt-1 text-xs text-muted">Cheia este stocată criptat în baza de date.</p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <label className="space-y-1 text-sm">
-            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+          <div className="space-y-1 text-sm">
+            <span className="text-muted inline-flex items-center gap-1">
               Model
               <InfoTooltip title="Model Gemini" side="bottom" portalToBody>
                 Modelul Gemini folosit. Flash e rapid și economic; Pro e mai precis pentru sarcini
                 complexe. Sfat: lista se actualizează după testul conexiunii.
               </InfoTooltip>
             </span>
-            <select
+            <Select
               value={model}
               onChange={(event) => setModel(event.target.value)}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
-            >
-              {availableModels.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+              options={availableModels.map((item) => ({ value: item, label: item }))}
+            />
+          </div>
+          <div className="space-y-1 text-sm">
+            <span className="text-muted inline-flex items-center gap-1">
               Tokeni max per cerere
               <InfoTooltip title="Tokeni max per cerere" side="bottom" portalToBody>
                 Limita maximă de tokeni pentru răspunsul modelului la o singură cerere. Valori mai
@@ -430,20 +419,19 @@ export default function SettingsGemini() {
                 suficient pentru majoritatea produselor.
               </InfoTooltip>
             </span>
-            <input
+            <TextField
               type="number"
               min={256}
               max={8000}
-              value={maxTokens}
+              value={String(maxTokens)}
               onChange={(event) => setMaxTokens(Number(event.target.value))}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
             />
-          </label>
+          </div>
         </div>
 
         <div>
           <label
-            className="text-caption text-muted dark:text-slate-400 inline-flex items-center gap-1"
+            className="text-caption text-muted inline-flex items-center gap-1"
             htmlFor="gemini-temperature"
           >
             Temperatură:{' '}
@@ -458,21 +446,21 @@ export default function SettingsGemini() {
               același JSON. Sfat: 0,1 e recomandat pentru reproductibilitate.
             </InfoTooltip>
           </label>
-          <input
+          <Slider
             id="gemini-temperature"
-            type="range"
             min={0}
             max={1}
             step={0.01}
             value={temperature}
-            onChange={(event) => setTemperature(Number(event.target.value))}
-            className="mt-2 w-full accent-primary"
+            showValue={false}
+            onChange={(val) => setTemperature(val)}
+            className="mt-2"
           />
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
-          <label className="space-y-1 text-sm">
-            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+          <div className="space-y-1 text-sm">
+            <span className="text-muted inline-flex items-center gap-1">
               Limită rată (cereri/min)
               <InfoTooltip title="Limită rată Gemini" side="bottom" portalToBody>
                 Câte cereri se pot trimite pe minut către Gemini API. Protejează contra depășirii
@@ -481,17 +469,16 @@ export default function SettingsGemini() {
                 de procesare.
               </InfoTooltip>
             </span>
-            <input
+            <TextField
               type="number"
               min={1}
               max={1000}
-              value={rateLimit}
+              value={String(rateLimit)}
               onChange={(event) => setRateLimit(Number(event.target.value))}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
             />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+          </div>
+          <div className="space-y-1 text-sm">
+            <span className="text-muted inline-flex items-center gap-1">
               Buget zilnic
               <InfoTooltip title="Buget zilnic Gemini" side="bottom" portalToBody>
                 Numărul maxim de cereri către Gemini pe zi. La atingerea limitei, procesarea AI se
@@ -499,17 +486,16 @@ export default function SettingsGemini() {
                 pagini de produs. Sfat: ajustează în funcție de volumul catalogului tău.
               </InfoTooltip>
             </span>
-            <input
+            <TextField
               type="number"
               min={0}
               max={100000}
-              value={dailyBudget}
+              value={String(dailyBudget)}
               onChange={(event) => setDailyBudget(Number(event.target.value))}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
             />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="text-muted dark:text-slate-400 inline-flex items-center gap-1">
+          </div>
+          <div className="space-y-1 text-sm">
+            <span className="text-muted inline-flex items-center gap-1">
               Prag alertă buget
               <InfoTooltip title="Prag alertă buget Gemini" side="bottom" portalToBody>
                 Procentul din bugetul zilnic la care primești o avertizare vizuală. Te ajută să
@@ -517,16 +503,15 @@ export default function SettingsGemini() {
                 1000, alerta apare după 800 cereri. Sfat: setează la 80–90% pentru marjă suficientă.
               </InfoTooltip>
             </span>
-            <input
+            <TextField
               type="number"
               min={0.5}
               max={0.99}
               step={0.01}
-              value={budgetAlertThreshold}
+              value={String(budgetAlertThreshold)}
               onChange={(event) => setBudgetAlertThreshold(Number(event.target.value))}
-              className="w-full rounded-md border border-muted/20 bg-background px-3 py-2 transition-shadow duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-400/50"
             />
-          </label>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -534,23 +519,24 @@ export default function SettingsGemini() {
             {isConnected ? 'Conexiune activă' : 'Salvează setări Gemini'}
           </SubmitButton>
           {isConnected ? (
-            <button
+            <Button
               type="button"
+              variant="destructive"
               onClick={() => void disconnectConnection()}
               disabled={saving}
-              className="rounded-md border border-error/40 px-4 py-2 text-sm font-medium text-error shadow-sm hover:bg-error/5 disabled:opacity-50 dark:border-red-700/50 dark:text-red-400 dark:hover:bg-red-900/20"
             >
               Deconectează
-            </button>
+            </Button>
           ) : null}
-          <button
+          <Button
             type="button"
+            variant="secondary"
             onClick={() => void testHealth()}
             disabled={!hasApiKey && !apiKeyDirty}
-            className="rounded-md border border-muted/20 px-4 py-2 text-sm font-medium shadow-sm transition-shadow duration-200 hover:bg-muted/10 focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:focus:ring-blue-400/50"
+            loading={healthLoading}
           >
             {healthLoading ? 'Se testează...' : 'Test conexiune'}
-          </button>
+          </Button>
           {healthResult ? (
             <span
               className={`text-xs ${healthResult.status === 'ok' ? 'text-success' : 'text-error'}`}
@@ -567,12 +553,12 @@ export default function SettingsGemini() {
         </div>
 
         {!canSave && !isConnected ? (
-          <div className="text-xs text-warning dark:text-amber-400">
+          <div className="text-xs text-warning">
             Pentru a salva conexiunea, testează mai întâi conexiunea Gemini.
           </div>
         ) : null}
         {success ? (
-          <div className="rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success shadow-sm dark:border-emerald-700/50 dark:bg-emerald-900/20">
+          <div className="rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success shadow-[var(--shadow-sm)]">
             Setările Gemini au fost salvate.
           </div>
         ) : null}

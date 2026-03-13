@@ -11,13 +11,13 @@ export interface PromotionRateCardProps {
 
 const toneByVariant: Record<NonNullable<PromotionRateCardProps['variant']>, string> = {
   default: 'border-muted/20',
-  warning: 'border-amber-300/80',
-  success: 'border-emerald-300/80',
+  warning: 'border-warning/50',
+  success: 'border-success/50',
 };
 
 function defaultIcon(variant: NonNullable<PromotionRateCardProps['variant']>) {
-  if (variant === 'warning') return <AlertTriangle className="h-4 w-4 text-amber-500" />;
-  if (variant === 'success') return <Trophy className="h-4 w-4 text-emerald-500" />;
+  if (variant === 'warning') return <AlertTriangle className="h-4 w-4 text-warning" />;
+  if (variant === 'success') return <Trophy className="h-4 w-4 text-success" />;
   return <ArrowUpRight className="h-4 w-4 text-muted" />;
 }
 
@@ -43,7 +43,7 @@ export function PromotionRateCard({
       aria-label={`${label}: ${value}`}
     >
       <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 text-xs text-muted">
+        <div className="flex items-center gap-1.5 text-xs text-primary">
           <span>{label}</span>
           <InfoTooltip title={label}>{tooltip}</InfoTooltip>
         </div>

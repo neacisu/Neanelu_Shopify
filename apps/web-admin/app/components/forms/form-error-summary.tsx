@@ -29,7 +29,7 @@ export function FormErrorSummary({
       ref={ref}
       tabIndex={-1}
       role="alert"
-      className="rounded-xl border border-red-200 bg-red-50/80 p-4 shadow-[var(--shadow-sm)] focus:outline-none dark:border-red-800/50 dark:bg-red-900/20"
+      className="rounded-xl border border-error/30 bg-error/5 p-4 shadow-[var(--shadow-sm)] focus-ring-standard"
     >
       <button
         type="button"
@@ -38,11 +38,11 @@ export function FormErrorSummary({
         aria-expanded={expanded}
       >
         <div className="flex items-center gap-2">
-          <AlertTriangle className="size-4 shrink-0 text-red-600 dark:text-red-400" />
-          <span className="text-sm font-semibold text-red-800 dark:text-red-200">{title}</span>
+          <AlertTriangle className="size-4 shrink-0 text-error" />
+          <span className="text-sm font-semibold text-error">{title}</span>
         </div>
         <ChevronDown
-          className={`size-4 text-red-600 transition-transform duration-200 dark:text-red-400 ${expanded ? 'rotate-180' : ''}`}
+          className={`size-4 text-error transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
         />
       </button>
       {expanded ? (

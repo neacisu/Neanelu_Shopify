@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { Modal } from '../ui/modal';
 import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
 
 type ExportFormat = 'csv' | 'json' | 'excel';
 
@@ -94,55 +95,65 @@ export function ProductsExportModal({
 
   return (
     <Modal open={open} onClose={onClose}>
-      <div className="space-y-4 p-4 bg-white/80 backdrop-blur-sm dark:bg-slate-900/80 rounded-lg">
+      <div className="space-y-4 p-4 bg-card/80 backdrop-blur-sm rounded-lg">
         <div>
-          <div className="text-h3 dark:text-slate-100">Export produse</div>
-          <p className="text-body text-muted dark:text-slate-400">
+          <div className="text-h3">Export produse</div>
+          <p className="text-body text-muted">
             Exportă {totalCount} produse cu filtrele curente aplicate.
           </p>
         </div>
 
-        <div className="space-y-2 text-sm dark:text-slate-300">
-          <div className="text-caption text-muted dark:text-slate-400">Format fișier</div>
-          <label className="flex items-center gap-2">
+        <div className="space-y-2 text-sm">
+          <div className="text-caption text-muted">Format fișier</div>
+          <label htmlFor="export-format-csv" className="flex items-center gap-2">
             <input
+              id="export-format-csv"
               type="radio"
               name="export-format"
               value="csv"
               checked={format === 'csv'}
+              className="accent-primary focus-ring-standard"
               onChange={() => setFormat('csv')}
             />
             CSV
           </label>
-          <label className="flex items-center gap-2">
+          <label htmlFor="export-format-json" className="flex items-center gap-2">
             <input
+              id="export-format-json"
               type="radio"
               name="export-format"
               value="json"
               checked={format === 'json'}
+              className="accent-primary focus-ring-standard"
               onChange={() => setFormat('json')}
             />
             JSON
           </label>
-          <label className="flex items-center gap-2">
+          <label htmlFor="export-format-excel" className="flex items-center gap-2">
             <input
+              id="export-format-excel"
               type="radio"
               name="export-format"
               value="excel"
               checked={format === 'excel'}
+              className="accent-primary focus-ring-standard"
               onChange={() => setFormat('excel')}
             />
             Excel
           </label>
         </div>
 
-        <div className="space-y-2 text-sm dark:text-slate-300">
-          <div className="text-caption text-muted dark:text-slate-400">Coloane</div>
+        <div className="space-y-2 text-sm">
+          <div className="text-caption text-muted">Coloane</div>
           <div className="grid grid-cols-2 gap-2">
             {defaultColumns.map((column) => (
-              <label key={column} className="flex items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
+              <label
+                key={column}
+                htmlFor={`export-col-${column}`}
+                className="flex items-center gap-2 text-xs"
+              >
+                <Checkbox
+                  id={`export-col-${column}`}
                   checked={columns.includes(column)}
                   onChange={(e) => toggleColumn(column, e.target.checked)}
                 />
@@ -152,18 +163,24 @@ export function ProductsExportModal({
           </div>
         </div>
 
-        <label className="flex cursor-pointer items-center gap-2 text-sm dark:text-slate-300 transition-colors hover:text-foreground dark:hover:text-slate-100">
-          <input
-            type="checkbox"
+        <label
+          htmlFor="export-include-variants"
+          className="flex cursor-pointer items-center gap-2 text-sm transition-colors hover:text-foreground"
+        >
+          <Checkbox
+            id="export-include-variants"
             checked={includeVariants}
             onChange={(e) => setIncludeVariants(e.target.checked)}
           />
           Include variante ca rânduri separate
         </label>
 
-        <label className="flex cursor-pointer items-center gap-2 text-sm dark:text-slate-300 transition-colors hover:text-foreground dark:hover:text-slate-100">
-          <input
-            type="checkbox"
+        <label
+          htmlFor="export-apply-filters"
+          className="flex cursor-pointer items-center gap-2 text-sm transition-colors hover:text-foreground"
+        >
+          <Checkbox
+            id="export-apply-filters"
             checked={applyFilters}
             onChange={(e) => setApplyFilters(e.target.checked)}
           />
@@ -171,8 +188,8 @@ export function ProductsExportModal({
         </label>
 
         {job ? (
-          <div className="rounded-md border border-border dark:border-slate-700 bg-muted/10 dark:bg-slate-800/50 p-3 text-sm">
-            <div className="text-caption text-muted dark:text-slate-400">Status</div>
+          <div className="rounded-md border border-border bg-muted/10 p-3 text-sm">
+            <div className="text-caption text-muted">Status</div>
             <div className="text-sm capitalize">
               {job.status === 'queued'
                 ? 'În coadă'
@@ -186,10 +203,10 @@ export function ProductsExportModal({
             </div>
             {typeof job.progress === 'number' ? (
               <div className="mt-2">
-                <div className="text-caption text-muted dark:text-slate-400">Progress</div>
-                <div className="mt-1 h-2 w-full overflow-hidden rounded bg-muted/30 dark:bg-slate-700">
+                <div className="text-caption text-muted">Progress</div>
+                <div className="mt-1 h-2 w-full overflow-hidden rounded bg-muted/30">
                   <div
-                    className="h-full bg-emerald-500"
+                    className="h-full bg-success"
                     style={{ width: `${Math.max(0, Math.min(100, job.progress))}%` }}
                   />
                 </div>
@@ -198,7 +215,7 @@ export function ProductsExportModal({
             {job.status === 'completed' && job.downloadUrl ? (
               <a
                 href={job.downloadUrl}
-                className="mt-3 inline-flex text-sm text-emerald-600 transition-colors hover:text-emerald-700 hover:underline dark:text-emerald-400 dark:hover:text-emerald-300"
+                className="mt-3 inline-flex text-sm text-success transition-colors hover:text-success hover:underline"
               >
                 Descarcă export
               </a>

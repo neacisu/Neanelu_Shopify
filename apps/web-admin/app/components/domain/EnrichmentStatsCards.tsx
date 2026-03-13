@@ -24,8 +24,8 @@ export function EnrichmentStatsCards({ stats }: EnrichmentStatsCardsProps) {
 
   return (
     <div className="grid gap-4 md:grid-cols-4">
-      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-md dark:bg-slate-900/80 dark:border-slate-700/60">
-        <div className="mb-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-md)]">
+        <div className="mb-2 flex items-center justify-between text-xs text-warning">
           <span className="flex items-center gap-1.5">
             În așteptare
             <InfoTooltip title="În așteptare">
@@ -35,13 +35,15 @@ export function EnrichmentStatsCards({ stats }: EnrichmentStatsCardsProps) {
               stagnează.
             </InfoTooltip>
           </span>
-          {pendingTrend.length ? <Sparkline data={pendingTrend} color="#f59e0b" /> : null}
+          {pendingTrend.length ? (
+            <Sparkline data={pendingTrend} color="rgb(var(--color-warning))" />
+          ) : null}
         </div>
-        <div className="text-h5 text-slate-800 dark:text-slate-100">{stats.pending}</div>
+        <div className="text-h5 text-foreground">{stats.pending}</div>
       </div>
 
-      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-md dark:bg-slate-900/80 dark:border-slate-700/60">
-        <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-md)]">
+        <div className="mb-2 flex items-center gap-1.5 text-xs text-primary">
           <span>În curs</span>
           <InfoTooltip title="În curs">
             Produsele în curs sunt cele aflate activ în procesare (căutare, audit AI, scraping,
@@ -50,11 +52,11 @@ export function EnrichmentStatsCards({ stats }: EnrichmentStatsCardsProps) {
             starea cozilor.
           </InfoTooltip>
         </div>
-        <div className="text-h5 text-slate-800 dark:text-slate-100">{stats.inProgress}</div>
+        <div className="text-h5 text-foreground">{stats.inProgress}</div>
       </div>
 
-      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-md dark:bg-slate-900/80 dark:border-slate-700/60">
-        <div className="mb-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-md)]">
+        <div className="mb-2 flex items-center justify-between text-xs text-success">
           <span className="flex items-center gap-1.5">
             Finalizate azi
             <InfoTooltip title="Finalizate azi">
@@ -64,13 +66,15 @@ export function EnrichmentStatsCards({ stats }: EnrichmentStatsCardsProps) {
               ritmul crește.
             </InfoTooltip>
           </span>
-          {completedTrend.length ? <Sparkline data={completedTrend} color="#10b981" /> : null}
+          {completedTrend.length ? (
+            <Sparkline data={completedTrend} color="rgb(var(--color-success))" />
+          ) : null}
         </div>
-        <div className="text-h5 text-slate-800 dark:text-slate-100">{stats.completedToday}</div>
+        <div className="text-h5 text-foreground">{stats.completedToday}</div>
       </div>
 
-      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-md dark:bg-slate-900/80 dark:border-slate-700/60">
-        <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-md)]">
+        <div className="mb-2 flex items-center gap-1.5 text-xs text-primary">
           <span>Rata succes</span>
           <InfoTooltip title="Rata succes">
             Rata de succes este procentul produselor finalizate cu succes din totalul celor

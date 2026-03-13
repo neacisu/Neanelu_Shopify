@@ -57,19 +57,19 @@ function getDayKey(date: Date): string {
 }
 
 const statusDotColors: Record<string, string> = {
-  success: 'bg-emerald-500 ring-emerald-200 dark:ring-emerald-800/50',
-  error: 'bg-red-500 ring-red-200 dark:ring-red-800/50',
-  warning: 'bg-amber-500 ring-amber-200 dark:ring-amber-800/50',
-  info: 'bg-blue-500 ring-blue-200 dark:ring-blue-800/50',
-  neutral: 'bg-slate-400 ring-slate-200 dark:bg-slate-500 dark:ring-slate-700/50',
+  success: 'bg-success ring-success/30',
+  error: 'bg-error ring-error/30',
+  warning: 'bg-warning ring-warning/30',
+  info: 'bg-info ring-info/30',
+  neutral: 'bg-card ring-border',
 };
 
 const statusTextColors: Record<string, string> = {
-  success: 'text-emerald-700 dark:text-emerald-400',
-  error: 'text-red-700 dark:text-red-400',
-  warning: 'text-amber-700 dark:text-amber-400',
-  info: 'text-blue-700 dark:text-blue-400',
-  neutral: 'text-slate-600 dark:text-slate-400',
+  success: 'text-success',
+  error: 'text-error',
+  warning: 'text-warning',
+  info: 'text-info',
+  neutral: 'text-foreground',
 };
 
 const defaultStatusIcons: Record<string, ReactNode> = {
@@ -113,37 +113,16 @@ function TimelineEventItem(props: {
     }
   }, [hasExpandableContent]);
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (hasExpandableContent && (e.key === 'Enter' || e.key === ' ')) {
-        e.preventDefault();
-        setExpanded((prev) => !prev);
-      }
-    },
-    [hasExpandableContent]
-  );
-
-  return (
-    <div
-      className={`relative flex gap-3 ${hasExpandableContent ? 'cursor-pointer' : ''}`}
-      onClick={handleClick}
-      onKeyDown={handleKeyDown}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      role={hasExpandableContent ? 'button' : undefined}
-      tabIndex={hasExpandableContent ? 0 : undefined}
-      aria-expanded={hasExpandableContent ? expanded : undefined}
-    >
+  const innerContent = (
+    <>
       <div className="flex flex-col items-center">
         <div
           className={`flex size-8 shrink-0 items-center justify-center rounded-full ring-2 transition-transform duration-200 ${dotColor} ${hovered ? 'scale-110' : ''}`}
           aria-hidden="true"
         >
-          {statusIcon ? <span className="text-white">{statusIcon}</span> : null}
+          {statusIcon ? <span className="text-foreground">{statusIcon}</span> : null}
         </div>
-        {!isLast ? (
-          <div className="w-px flex-1 bg-slate-200 dark:bg-slate-700" aria-hidden="true" />
-        ) : null}
+        {!isLast ? <div className="w-px flex-1 bg-subtle" aria-hidden="true" /> : null}
       </div>
 
       <div className={`flex-1 pb-5 ${isLast ? 'pb-0' : ''}`}>
@@ -173,7 +152,7 @@ function TimelineEventItem(props: {
             {event.description ? <p className="text-muted">{event.description}</p> : null}
 
             {event.metadata && Object.keys(event.metadata).length > 0 ? (
-              <div className="rounded-lg border border-slate-200/80 bg-slate-50/50 p-2.5 text-xs dark:border-slate-700/80 dark:bg-slate-800/50">
+              <div className="rounded-lg border border-border bg-subtle p-2.5 text-xs">
                 {Object.entries(event.metadata).map(([key, value]) => (
                   <div key={key} className="flex gap-2">
                     <span className="font-mono text-muted">{key}:</span>
@@ -195,7 +174,22 @@ function TimelineEventItem(props: {
           </p>
         ) : null}
       </div>
-    </div>
+    </>
+  );
+
+  return hasExpandableContent ? (
+    <button
+      type="button"
+      className="relative flex w-full gap-3 text-left"
+      onClick={handleClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      aria-expanded={expanded}
+    >
+      {innerContent}
+    </button>
+  ) : (
+    <div className="relative flex gap-3">{innerContent}</div>
   );
 }
 
@@ -294,10 +288,12 @@ export function Timeline(props: TimelineProps) {
                   className={`flex size-6 items-center justify-center rounded-full ring-2 ${dotColor}`}
                 >
                   {defaultStatusIcons[status] ? (
-                    <span className="text-white text-[10px]">{defaultStatusIcons[status]}</span>
+                    <span className="text-foreground text-[10px]">
+                      {defaultStatusIcons[status]}
+                    </span>
                   ) : null}
                 </div>
-                <div className="h-4 w-px bg-slate-200 dark:bg-slate-700" />
+                <div className="h-4 w-px bg-subtle" />
                 <div className="text-center">
                   <div className="text-sm font-medium text-foreground">{parsed.event.title}</div>
                   <div className="text-xs text-muted">

@@ -1,5 +1,6 @@
 import { formatDistanceToNow } from 'date-fns';
 import { X } from 'lucide-react';
+import { useReducedMotion } from '../../hooks/use-reduced-motion';
 
 import { InfoTooltip } from '../ui/info-tooltip';
 
@@ -21,17 +22,17 @@ export function RecentSearchesDropdown({
   onClear,
   className,
 }: RecentSearchesDropdownProps) {
+  const reducedMotion = useReducedMotion();
   if (searches.length === 0) return null;
 
   return (
     <div
       className={
-        'rounded-xl border border-slate-200/90 bg-white shadow-[var(--shadow-md)] ' +
-        (className ?? '')
+        'rounded-xl border border-border bg-card shadow-[var(--shadow-md)] ' + (className ?? '')
       }
-      style={{ animation: 'fadeSlideUp 0.25s ease-out both' }}
+      style={reducedMotion ? undefined : { animation: 'fadeSlideUp 0.25s ease-out both' }}
     >
-      <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2 text-xs font-medium text-slate-500">
+      <div className="flex items-center justify-between border-b border-border px-3 py-2 text-xs font-medium text-muted">
         <span className="flex items-center gap-1.5">
           Căutări recente
           <InfoTooltip title="Căutări recente">
@@ -41,7 +42,7 @@ export function RecentSearchesDropdown({
         <button
           type="button"
           onClick={onClear}
-          className="inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-xs text-slate-500 transition-all duration-200 hover:bg-slate-100 hover:text-slate-700 hover:scale-105"
+          className="inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-xs text-muted transition-all duration-200 hover:bg-subtle hover:text-foreground hover:scale-105"
           aria-label="Șterge căutările recente"
         >
           <X className="size-3" />
@@ -54,10 +55,10 @@ export function RecentSearchesDropdown({
             key={`${item.query}:${item.timestamp}`}
             type="button"
             onClick={() => onSelect(item.query)}
-            className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-sm text-slate-700 transition-all duration-200 hover:bg-slate-50 hover:pl-4"
+            className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-sm text-foreground transition-all duration-200 hover:bg-subtle hover:pl-4"
           >
             <span className="truncate">{item.query}</span>
-            <span className="shrink-0 text-[11px] text-slate-400">
+            <span className="shrink-0 text-[11px] text-muted">
               {formatDistanceToNow(item.timestamp, { addSuffix: true })}
             </span>
           </button>

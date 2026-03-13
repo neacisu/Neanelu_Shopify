@@ -42,6 +42,9 @@ void describe('PR-038 bulk query contract', () => {
     // Core must include variant.product.id (logical stitching key per plan).
     assert.ok(/product\s*{\s*id\s*}/.test(core.graphqlQuery));
 
+    // Core must include productCategory (category_id import).
+    assert.ok(core.graphqlQuery.includes('productCategory'), 'core must include productCategory');
+
     // Meta must include metafield.owner.id (logical stitching key per plan).
     assert.ok(meta.graphqlQuery.includes('owner'));
     assert.ok(meta.graphqlQuery.includes('... on Product'));

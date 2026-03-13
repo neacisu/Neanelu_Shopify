@@ -839,6 +839,7 @@ export type StagingProductRowShape = Readonly<{
   has_only_default_variant: boolean | null;
   total_inventory: number | null;
   collections: unknown;
+  category_id: string | null;
   raw_data: MinimalBulkJsonlObject;
 }>;
 
@@ -873,6 +874,16 @@ export function toStagingProductRowShape(
     collections && typeof collections === 'object'
       ? ((collections as Record<string, unknown>)['nodes'] ?? null)
       : null;
+  const productCategory = o['productCategory'];
+  const categoryId =
+    productCategory && typeof productCategory === 'object'
+      ? (() => {
+          const node = (productCategory as Record<string, unknown>)['productTaxonomyNode'];
+          return node && typeof node === 'object'
+            ? (asString((node as Record<string, unknown>)['id']) ?? null)
+            : null;
+        })()
+      : null;
   return {
     shopify_gid: id,
     title: asString(o['title']),
@@ -896,6 +907,7 @@ export function toStagingProductRowShape(
       typeof o['hasOnlyDefaultVariant'] === 'boolean' ? o['hasOnlyDefaultVariant'] : null,
     total_inventory: typeof o['totalInventory'] === 'number' ? o['totalInventory'] : null,
     collections: collectionsNodes,
+    category_id: categoryId,
     raw_data: product,
   };
 }

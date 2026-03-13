@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
+import { useReducedMotion } from '../../hooks/use-reduced-motion';
 
 import { InfoTooltip } from '../ui/info-tooltip';
+import { Checkbox } from '../ui/checkbox';
 import { MultiSelect } from '../ui/MultiSelect';
 import { TreeView, type TreeNode } from '../ui/TreeView';
 import { Button } from '../ui/button';
@@ -77,6 +79,7 @@ export function ProductsFilters({
   onChange,
   onReset,
 }: ProductsFiltersProps) {
+  const reducedMotion = useReducedMotion();
   const vendorOptions = useMemo(
     () => options.vendors.map((v) => ({ value: v, label: v })),
     [options.vendors]
@@ -95,14 +98,18 @@ export function ProductsFilters({
 
   return (
     <div
-      className="space-y-4 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4"
-      style={{
-        animation: 'fadeSlideUp 0.4s ease-out both',
-      }}
+      className="space-y-4 rounded-lg border border-border bg-card p-4"
+      style={
+        reducedMotion
+          ? undefined
+          : {
+              animation: 'fadeSlideUp 0.4s ease-out both',
+            }
+      }
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          <span className="text-sm font-semibold dark:text-slate-100">Filtre</span>
+          <span className="text-sm font-semibold">Filtre</span>
           <InfoTooltip title="Filtre produse">
             Aplică filtre pentru a restrânge lista de produse după furnizor, status, nivel calitate
             (Bronze/Silver/Golden), status sincronizare, categorie, GTIN sau status enrichment.
@@ -114,7 +121,7 @@ export function ProductsFilters({
       </div>
 
       <div className="space-y-2">
-        <div className="flex items-center gap-1.5 text-xs font-medium text-muted dark:text-slate-400">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-muted">
           <span>Furnizor</span>
           <InfoTooltip title="Furnizor">
             Filtrează produsele după furnizor (brand). Poți selecta mai mulți furnizori.
@@ -131,19 +138,25 @@ export function ProductsFilters({
       </div>
 
       <div className="space-y-2">
-        <div className="flex items-center gap-1.5 text-xs font-medium text-muted dark:text-slate-400">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-muted">
           <span>Status</span>
           <InfoTooltip title="Status produs">
             Status în Shopify: ACTIVE (public), DRAFT (ciornă), ARCHIVED (arhivat).
           </InfoTooltip>
         </div>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-3">
           {['ACTIVE', 'DRAFT', 'ARCHIVED'].map((status) => (
-            <label key={status} className="flex items-center gap-2 text-xs dark:text-slate-300">
+            <label
+              key={status}
+              htmlFor={`filter-status-${status}`}
+              className="flex items-center gap-2 text-xs"
+            >
               <input
+                id={`filter-status-${status}`}
                 type="radio"
                 name="status"
                 checked={filters.status === status}
+                className="accent-primary focus-ring-standard"
                 onChange={() => onChange({ ...filters, status })}
               />
               {status}
@@ -161,7 +174,7 @@ export function ProductsFilters({
       </div>
 
       <div className="space-y-2">
-        <div className="flex items-center gap-1.5 text-xs font-medium text-muted dark:text-slate-400">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-muted">
           <span>Nivel calitate</span>
           <InfoTooltip title="Nivel calitate PIM">
             Bronze: date minime. Silver: date îmbunătățite. Golden: date complete și validate.
@@ -170,9 +183,13 @@ export function ProductsFilters({
         </div>
         <div className="grid grid-cols-2 gap-2">
           {qualityOptions.map((option) => (
-            <label key={option.id} className="flex items-center gap-2 text-xs dark:text-slate-300">
-              <input
-                type="checkbox"
+            <label
+              key={option.id}
+              htmlFor={`filter-quality-${option.id}`}
+              className="flex items-center gap-2 text-xs"
+            >
+              <Checkbox
+                id={`filter-quality-${option.id}`}
                 checked={filters.qualityLevels.includes(option.id)}
                 onChange={(e) => {
                   const next = e.target.checked
@@ -188,7 +205,7 @@ export function ProductsFilters({
       </div>
 
       <div className="space-y-2">
-        <div className="flex items-center gap-1.5 text-xs font-medium text-muted dark:text-slate-400">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-muted">
           <span>Status sincronizare</span>
           <InfoTooltip title="Status sincronizare">
             Synced: sincronizat cu Shopify. Pending: în așteptare. Error: eroare la sync. Never: nu
@@ -197,11 +214,17 @@ export function ProductsFilters({
         </div>
         <div className="grid grid-cols-2 gap-2">
           {syncOptions.map((option) => (
-            <label key={option.id} className="flex items-center gap-2 text-xs dark:text-slate-300">
+            <label
+              key={option.id}
+              htmlFor={`filter-sync-${option.id}`}
+              className="flex items-center gap-2 text-xs"
+            >
               <input
+                id={`filter-sync-${option.id}`}
                 type="radio"
                 name="sync-status"
                 checked={filters.syncStatus === option.id}
+                className="accent-primary focus-ring-standard"
                 onChange={() => onChange({ ...filters, syncStatus: option.id })}
               />
               {option.label}
@@ -219,13 +242,13 @@ export function ProductsFilters({
       </div>
 
       <div className="space-y-2">
-        <div className="flex items-center gap-1.5 text-xs font-medium text-muted dark:text-slate-400">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-muted">
           <span>Categorie</span>
           <InfoTooltip title="Categorie taxonomie">
             Filtrează după categorie din taxonomia PIM. Selectează o categorie din arbore.
           </InfoTooltip>
         </div>
-        <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2">
+        <div className="rounded-md border border-border bg-card p-2">
           <TreeView
             nodes={categoryTree}
             selectedId={filters.categoryId ?? null}
@@ -246,9 +269,9 @@ export function ProductsFilters({
         ) : null}
       </div>
 
-      <label className="flex items-center gap-2 text-xs text-muted dark:text-slate-400">
-        <input
-          type="checkbox"
+      <label htmlFor="filter-has-gtin" className="flex items-center gap-2 text-xs text-muted">
+        <Checkbox
+          id="filter-has-gtin"
           checked={filters.hasGtin}
           onChange={(e) => onChange({ ...filters, hasGtin: e.target.checked })}
         />
@@ -262,7 +285,7 @@ export function ProductsFilters({
       </label>
 
       <div className="space-y-2">
-        <div className="flex items-center gap-1.5 text-xs font-medium text-muted dark:text-slate-400">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-muted">
           <span>Status enrichment</span>
           <InfoTooltip title="Status îmbogățire">
             Pending: în așteptare. In Progress: în curând procesare. Complete: îmbogățire
@@ -271,9 +294,13 @@ export function ProductsFilters({
         </div>
         <div className="grid grid-cols-2 gap-2">
           {enrichmentOptions.map((option) => (
-            <label key={option.id} className="flex items-center gap-2 text-xs dark:text-slate-300">
-              <input
-                type="checkbox"
+            <label
+              key={option.id}
+              htmlFor={`filter-enrichment-${option.id}`}
+              className="flex items-center gap-2 text-xs"
+            >
+              <Checkbox
+                id={`filter-enrichment-${option.id}`}
                 checked={filters.enrichmentStatus.includes(option.id)}
                 onChange={(e) => {
                   const next = e.target.checked

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useMemo } from 'react';
 import { ChevronDown, ChevronUp, RotateCw, ScrollText } from 'lucide-react';
+import { useReducedMotion } from '../../hooks/use-reduced-motion';
 
 import { Button } from '../ui/button';
 import { InfoTooltip } from '../ui/info-tooltip';
@@ -115,6 +116,7 @@ export function IngestionHistoryTable(props: IngestionHistoryTableProps) {
     onRetry,
     onViewLogs,
   } = props;
+  const reducedMotion = useReducedMotion();
 
   const pageCount = Math.max(1, Math.ceil(total / limit));
 
@@ -170,16 +172,17 @@ export function IngestionHistoryTable(props: IngestionHistoryTableProps) {
         </span>
       </div>
 
-      <div className="overflow-auto rounded-md border dark:border-slate-700">
-        <table className="w-full border-collapse text-sm">
-          <thead className="bg-muted/20 dark:bg-slate-800/80 sticky top-0 z-10">
-            <tr className="dark:border-slate-700">
+      <div className="overflow-x-auto rounded-md border border-border/80">
+        <table className="min-w-[700px] w-full border-collapse text-sm">
+          <thead className="bg-muted/20 sticky top-0 z-10">
+            <tr className="">
               {columns.map((col) => (
                 <th key={col.key} className="px-3 py-2 text-left">
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1 text-caption text-muted hover:text-foreground"
+                    className="interactive inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-caption text-muted hover:bg-subtle/50 hover:text-foreground"
                     onClick={() => onSortChange(col.key)}
+                    aria-label={`Sortează după ${col.label}`}
                   >
                     {col.label}
                     {sortIndicator(col.key)}
@@ -201,8 +204,12 @@ export function IngestionHistoryTable(props: IngestionHistoryTableProps) {
                 const rows = [
                   <tr
                     key={run.id}
-                    className="border-b last:border-b-0 transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/60 dark:border-slate-700/60"
-                    style={{ animation: `fadeSlideUp 0.3s ease-out ${idx * 50}ms both` }}
+                    className="table-row-interactive border-b border-border/60 last:border-b-0"
+                    style={
+                      reducedMotion
+                        ? undefined
+                        : { animation: `fadeSlideUp 0.3s ease-out ${idx * 50}ms both` }
+                    }
                   >
                     <td className="px-3 py-2 font-mono text-xs">
                       {formatDate(run.startedAt ?? run.createdAt)}
@@ -219,8 +226,10 @@ export function IngestionHistoryTable(props: IngestionHistoryTableProps) {
                     <td className="px-3 py-2">
                       <button
                         type="button"
-                        className="inline-flex items-center gap-1 text-primary hover:underline"
+                        className="interactive inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-primary hover:bg-primary/5"
                         onClick={() => onToggleErrors(run.id)}
+                        aria-label={`${expandedRunId === run.id ? 'Ascunde' : 'Afișează'} erorile pentru rularea ${run.id}`}
+                        aria-expanded={expandedRunId === run.id}
                       >
                         {typeof run.errorCount === 'number' ? run.errorCount : 0}
                         {expandedRunId === run.id ? (
@@ -266,7 +275,7 @@ export function IngestionHistoryTable(props: IngestionHistoryTableProps) {
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-caption text-muted">
-          Page {page + 1} of {pageCount}
+          Pagina {page + 1} din {pageCount}
         </div>
         <div className="flex items-center gap-2">
           <Button

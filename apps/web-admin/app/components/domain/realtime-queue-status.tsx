@@ -79,10 +79,10 @@ export function RealtimeQueueStatus({
     return (
       <div className="flex flex-wrap items-center gap-2">
         <span
-          className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/60 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-800 dark:border-amber-600/60 dark:bg-amber-900/30 dark:text-amber-300"
+          className="inline-flex items-center gap-1.5 rounded-full border border-warning/60 bg-warning/5 px-3 py-1.5 text-sm font-medium text-warning"
           aria-live="polite"
         >
-          <span className="size-2 rounded-full bg-amber-500" aria-hidden />
+          <span className="size-2 rounded-full bg-warning" aria-hidden />
           Offline
         </span>
         {errorLabel ? (
@@ -98,7 +98,7 @@ export function RealtimeQueueStatus({
 
   return (
     <div
-      className="flex flex-col gap-2 rounded-lg border border-green-200/80 bg-green-50/60 px-3 py-2 sm:flex-row sm:items-center sm:gap-4 dark:border-green-700/60 dark:bg-green-900/20"
+      className="flex flex-col gap-2 rounded-lg border border-success/30 bg-success/5 px-3 py-2 sm:flex-row sm:items-center sm:gap-4"
       aria-live="polite"
       aria-atomic="true"
     >
@@ -106,14 +106,14 @@ export function RealtimeQueueStatus({
         <span className="inline-flex items-center gap-1.5">
           <span
             className={`
-            inline-flex items-center gap-1.5 rounded-full border border-green-500/50 bg-green-100 px-3 py-1.5 text-sm font-medium text-green-800 dark:border-green-600/50 dark:bg-green-900/40 dark:text-green-300
-            ${showRefreshBurst ? 'motion-safe:animate-[queueRefreshBurst_0.6s_ease-out]' : ''}
-            ${!showRefreshBurst ? 'motion-safe:animate-[queueLivePulse_2.5s_ease-in-out_infinite]' : ''}
-          `}
+ inline-flex items-center gap-1.5 rounded-full border border-success/50 bg-success/10 px-3 py-1.5 text-sm font-medium text-success
+ ${showRefreshBurst ? 'motion-safe:animate-[queueRefreshBurst_0.6s_ease-out]' : ''}
+ ${!showRefreshBurst ? 'motion-safe:animate-[queueLivePulse_2.5s_ease-in-out_infinite]' : ''}
+ `}
             aria-hidden={showRefreshBurst}
           >
             <span
-              className="size-2 rounded-full bg-green-600 ring-2 ring-green-400/60 motion-safe:animate-[pulse_2s_ease-in-out_infinite] dark:bg-green-400 dark:ring-green-500/60"
+              className="size-2 rounded-full bg-success ring-2 ring-success/40 motion-safe:animate-[pulse_2s_ease-in-out_infinite]"
               aria-hidden
             />
             In timp real
@@ -131,7 +131,7 @@ export function RealtimeQueueStatus({
           >
             Ultimul refresh: la {format(lastSnapshotAt, 'HH:mm:ss', { locale: ro })}
             {snapshotError ? (
-              <span className="ml-1 text-amber-700" title={snapshotError}>
+              <span className="ml-1 text-warning" title={snapshotError}>
                 (eșuat)
               </span>
             ) : null}
@@ -143,7 +143,7 @@ export function RealtimeQueueStatus({
 
       <div className="flex min-w-0 flex-1 flex-col gap-1 sm:min-w-[140px]">
         <div
-          className="h-1.5 w-full overflow-hidden rounded-full bg-green-200/80 dark:bg-green-800/40"
+          className="h-1.5 w-full overflow-hidden rounded-full bg-success/20"
           role="progressbar"
           aria-valuenow={countdownRemainingSec}
           aria-valuemin={0}
@@ -151,7 +151,7 @@ export function RealtimeQueueStatus({
           aria-label={`Următorul refresh în ${countdownRemainingSec} secunde`}
         >
           <div
-            className="h-full rounded-full bg-green-500 transition-[width] duration-1000 ease-linear"
+            className="h-full rounded-full bg-success transition-[width] duration-1000 ease-linear"
             style={{ width: `${progressPct}%` }}
           />
         </div>

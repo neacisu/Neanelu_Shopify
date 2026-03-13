@@ -45,7 +45,7 @@ export function InfoTooltip({
   portalToBody = true,
 }: InfoTooltipProps) {
   const id = useId();
-  const triggerRef = useRef<HTMLSpanElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLSpanElement>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);
@@ -252,8 +252,8 @@ export function InfoTooltip({
 
   const arrowVertical =
     side === 'top'
-      ? 'top-full border-t-slate-800 border-x-transparent border-b-transparent'
-      : 'bottom-full border-b-slate-800 border-x-transparent border-t-transparent';
+      ? 'top-full border-t-card border-x-transparent border-b-transparent'
+      : 'bottom-full border-b-card border-x-transparent border-t-transparent';
 
   const arrowHorizontal =
     align === 'start'
@@ -282,22 +282,18 @@ export function InfoTooltip({
           : { width: maxWidth, maxWidth }),
       }}
       className={`
-        relative block rounded-lg bg-slate-800 px-4 py-3 text-left text-sm normal-case leading-relaxed text-slate-100
-        shadow-lg shadow-black/20 ring-1 ring-white/10
-        transition-all duration-200 ease-out
-        ${
-          open
-            ? 'pointer-events-auto scale-100 opacity-100'
-            : 'pointer-events-none scale-95 opacity-0'
-        }
-      `}
+ relative block rounded-lg bg-card px-4 py-3 text-left text-sm normal-case leading-relaxed text-muted
+      shadow-lg shadow-black/20 ring-1 ring-foreground/10
+ transition-all duration-200 ease-out
+ ${open ? 'pointer-events-auto scale-100 opacity-100' : 'pointer-events-none scale-95 opacity-0'}
+ `}
     >
       {effectivePortalPos != null ? (
         <span
           className={`absolute left-0 h-0 w-0 border-[6px] border-x-transparent ${
             effectivePortalPos.effectiveSide === 'top'
-              ? 'border-t-slate-800 border-b-transparent'
-              : 'border-b-slate-800 border-t-transparent'
+              ? 'border-t-card border-b-transparent'
+              : 'border-b-card border-t-transparent'
           }`}
           style={{
             ...(effectivePortalPos.effectiveSide === 'bottom'
@@ -311,12 +307,8 @@ export function InfoTooltip({
         <span className={`absolute ${arrowVertical} ${arrowHorizontal} h-0 w-0 border-[6px]`} />
       )}
 
-      <span className="mb-1.5 block text-[13px] font-semibold text-white dark:text-slate-100">
-        {title}
-      </span>
-      <span className="block text-[12.5px] leading-[1.6] text-slate-300 dark:text-slate-300">
-        {children}
-      </span>
+      <span className="mb-1.5 block text-[13px] font-semibold text-foreground">{title}</span>
+      <span className="block text-[12.5px] leading-[1.6] text-muted">{children}</span>
     </span>
   );
 
@@ -325,22 +317,22 @@ export function InfoTooltip({
 
   return (
     <span className="relative inline-flex">
-      <span
+      <button
         ref={triggerRef}
-        role="button"
+        type="button"
         tabIndex={0}
         aria-describedby={id}
         className="inline-flex cursor-pointer items-center justify-center rounded-full p-0.5
-                   text-muted/60 transition-all duration-200
-                   hover:text-primary hover:scale-110
-                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-1"
+        text-muted/60 transition-all duration-200
+        hover:text-primary hover:scale-110
+        focus-ring-standard"
         onMouseEnter={handleEnter}
         onMouseLeave={handleLeave}
         onFocus={handleEnter}
         onBlur={handleLeave}
       >
         <Info className="size-4" />
-      </span>
+      </button>
 
       {useBoundaryPortal && portalPosition != null && typeof document !== 'undefined'
         ? createPortal(
@@ -383,9 +375,9 @@ export function InfoTooltip({
       {!useBoundaryPortal && !useBodyPortal && boundaryRef == null && !portalToBody ? (
         <span
           className={`
-            absolute z-50 block ${verticalPos} ${horizontalPos}
-            ${open ? '' : 'invisible'}
-          `}
+ absolute z-50 block ${verticalPos} ${horizontalPos}
+ ${open ? '' : 'invisible'}
+ `}
         >
           {tooltipContent}
         </span>

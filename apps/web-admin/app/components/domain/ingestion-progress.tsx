@@ -61,10 +61,8 @@ export function IngestionProgress({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
-            Ingestie în curs
-          </h3>
-          <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+          <h3 className="text-lg font-semibold text-foreground">Ingestie în curs</h3>
+          <p className="mt-0.5 text-sm text-muted">
             {status === 'failed'
               ? 'Ultima rulare a eșuat. Verifică log-urile pentru a continua.'
               : status === 'completed'
@@ -102,27 +100,24 @@ export function IngestionProgress({
                 key={step}
                 className={`flex items-center gap-2 ${
                   isActive
-                    ? 'rounded-lg bg-blue-50/80 px-2 py-1 motion-safe:animate-[ingestionStepPulse_2s_ease-in-out_infinite] dark:bg-blue-900/30'
+                    ? 'rounded-lg bg-primary/10 px-2 py-1 motion-safe:animate-[ingestionStepPulse_2s_ease-in-out_infinite]'
                     : ''
                 }`}
               >
                 {isCompleted ? (
-                  <CheckCircle className="size-5 shrink-0 text-emerald-500" aria-hidden />
+                  <CheckCircle className="size-5 shrink-0 text-success" aria-hidden />
                 ) : isActive ? (
-                  <Loader2 className="size-5 shrink-0 animate-spin text-blue-500" aria-hidden />
+                  <Loader2 className="size-5 shrink-0 animate-spin text-primary" aria-hidden />
                 ) : (
-                  <Circle
-                    className="size-5 shrink-0 text-slate-300 dark:text-slate-600"
-                    aria-hidden
-                  />
+                  <Circle className="size-5 shrink-0 text-muted" aria-hidden />
                 )}
                 <span
                   className={
                     isActive
-                      ? 'text-sm font-medium text-slate-800 dark:text-slate-100'
+                      ? 'text-sm font-medium text-foreground'
                       : isCompleted
-                        ? 'text-sm text-slate-700 dark:text-slate-300'
-                        : 'text-sm text-slate-500 dark:text-slate-500'
+                        ? 'text-sm text-foreground'
+                        : 'text-sm text-muted'
                   }
                 >
                   {stepLabels[step]}
@@ -132,8 +127,8 @@ export function IngestionProgress({
           })}
         </div>
 
-        <div className="rounded-lg border border-slate-200/80 bg-white/80 backdrop-blur-sm px-4 py-3 dark:border-slate-700/60 dark:bg-slate-800/50">
-          <div className="flex items-center justify-between text-sm text-slate-600 dark:text-slate-300">
+        <div className="rounded-lg border border-border bg-card px-4 py-3 backdrop-blur-sm">
+          <div className="flex items-center justify-between text-sm text-foreground">
             <span>{overallLabel ?? 'Progres total'}</span>
             <span className="font-medium tabular-nums">
               {Math.min(Math.max(progress, 0), 100)}%
@@ -143,7 +138,7 @@ export function IngestionProgress({
             <ProgressBar progress={Math.min(Math.max(progress, 0), 100)} />
           </div>
           {overallProcessedLabel || overallTotalLabel || overallSpeedLabel || overallEtaLabel ? (
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
               <span>
                 {overallProcessedLabel ?? '—'}
                 {overallTotalLabel ? ` / ${overallTotalLabel}` : ''}
@@ -162,15 +157,13 @@ export function IngestionProgress({
               return (
                 <div
                   key={stage.id}
-                  className="rounded-lg border border-slate-200/80 bg-white/80 backdrop-blur-sm p-3 dark:border-slate-700/60 dark:bg-slate-800/50"
+                  className="rounded-lg border border-border bg-card p-3 backdrop-blur-sm"
                 >
-                  <div className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                    {stage.label}
-                  </div>
+                  <div className="text-sm font-medium text-foreground">{stage.label}</div>
                   <div className="mt-2">
                     <ProgressBar progress={normalizedProgress} />
                   </div>
-                  <div className="mt-2 space-y-1 text-xs text-slate-500 dark:text-slate-400">
+                  <div className="mt-2 space-y-1 text-xs text-muted">
                     <div>
                       {stage.processedLabel ?? '—'}
                       {stage.totalLabel ? ` / ${stage.totalLabel}` : ''}

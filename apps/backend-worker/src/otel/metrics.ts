@@ -946,7 +946,7 @@ export function recordSelfhostedRequest(durationSeconds: number, isError: boolea
 }
 
 export function recordSelfhostedFallbackToFrontier(
-  taskType: 'translation' | 'classification' | 'extraction' | 'audit' | 'embedding',
+  taskType: 'translation' | 'classification' | 'extraction' | 'audit' | 'description' | 'embedding',
   fallbackProvider: 'xai' | 'openai' | 'deepseek'
 ): void {
   selfhostedFallbackToFrontierTotal.add(1, { taskType, fallbackProvider });
@@ -971,7 +971,7 @@ export function recordSelfhostedEmbeddingRequest(
 
 export function recordAiProviderRouting(params: {
   provider: 'selfhosted' | 'xai' | 'openai' | 'deepseek';
-  taskType: 'translation' | 'classification' | 'extraction' | 'audit' | 'embedding';
+  taskType: 'translation' | 'classification' | 'extraction' | 'audit' | 'description' | 'embedding';
   outcome: 'primary' | 'fallback' | 'error';
 }): void {
   aiProviderRoutingTotal.add(1, {
@@ -982,7 +982,7 @@ export function recordAiProviderRouting(params: {
 }
 
 export function recordConsensusMetrics(params: {
-  taskType: 'translation' | 'classification' | 'extraction' | 'audit';
+  taskType: 'translation' | 'classification' | 'extraction' | 'audit' | 'description';
   method: 'unanimous' | 'majority' | 'arbitration' | 'single_fallback';
   durationMs: number;
   score: number;

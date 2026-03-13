@@ -15,6 +15,7 @@ import type { ComponentType } from 'react';
 import { useCallback, useMemo, useState } from 'react';
 
 import { useCountUp } from '../hooks/useCountUp';
+import { useReducedMotion } from '../hooks/use-reduced-motion';
 import { useScrollReveal } from '../hooks/useScrollReveal';
 import type { LoaderFunctionArgs } from 'react-router-dom';
 import { useLoaderData, useNavigate, useRevalidator } from 'react-router-dom';
@@ -27,6 +28,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 import { Button } from '../components/ui/button';
+import { Select } from '../components/ui/select';
 import { BarChart, ChartContainer, DonutChart, GaugeChart, Sparkline } from '../components/charts';
 import { DashboardSkeleton } from '../components/patterns/DashboardSkeleton';
 import { EmptyState } from '../components/patterns/empty-state';
@@ -38,6 +40,7 @@ import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/load
 import { ActivityTimeline } from './dashboard/components/ActivityTimeline';
 import { QuickActionsPanel } from './dashboard/components/QuickActionsPanel';
 import { SystemAlertsBanner } from './dashboard/components/SystemAlertsBanner';
+import { jobsStore } from '../contexts/jobs-context.js';
 
 const api = createApiClient({ getAuthHeaders: getSessionAuthHeaders });
 
@@ -68,11 +71,26 @@ function KpiCountUp({ value, format }: { value: number; format: (n: number) => s
   return <>{useCountUp(value, { format })}</>;
 }
 
+const KPI_ICON_COLORS: Record<string, string> = {
+  'total-products': 'icon-primary',
+  'active-bulk-runs': 'icon-chart3',
+  'api-error-rate': 'icon-error',
+  'api-latency': 'icon-warning',
+  'golden-rate': 'icon-golden',
+  'quality-score': 'icon-success',
+  'queue-backlog': 'icon-chart4',
+  'enrichment-success': 'icon-chart5',
+  'ai-costs-today': 'icon-chart7',
+  'webhooks-today': 'icon-accent',
+  'attention-products': 'icon-warning',
+};
+
 export default function DashboardIndex() {
   const { summary } = useLoaderData<RouteLoaderData>();
   const revalidator = useRevalidator();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const reducedMotion = useReducedMotion();
   const [refreshing, setRefreshing] = useState(false);
   const [globalRange, setGlobalRange] = useState<'azi' | '7z' | '30z'>('7z');
   const rangeDays = globalRange === 'azi' ? 1 : globalRange === '30z' ? 30 : 7;
@@ -309,16 +327,25 @@ export default function DashboardIndex() {
   const refreshAll = useCallback(() => {
     if (refreshing || revalidator.state === 'loading') return;
     setRefreshing(true);
-    toast.message('Reîncarc datele…');
+    const jobId = `dashboard-refresh-${Date.now()}`;
+    jobsStore.add({
+      id: jobId,
+      label: 'Reîncărcare date dashboard',
+      status: 'running',
+      progress: 0,
+      startedAt: Date.now(),
+    });
 
     void revalidator.revalidate();
 
     void queryClient
       .refetchQueries({ queryKey: ['dashboard'], type: 'active' })
       .then(() => {
-        toast.success('Date reîncărcate');
+        jobsStore.update(jobId, { status: 'completed', progress: 100 });
+        setTimeout(() => jobsStore.remove(jobId), 3000);
       })
       .catch((err: unknown) => {
+        jobsStore.update(jobId, { status: 'failed' });
         toast.error(err instanceof Error ? err.message : 'Reîncărcarea a eșuat');
       })
       .finally(() => {
@@ -526,10 +553,10 @@ export default function DashboardIndex() {
     },
   ];
   const qualityDonutData = [
-    { name: 'Golden', value: qualityValues.golden, color: '#f59e0b' },
-    { name: 'Silver', value: qualityValues.silver, color: '#a1a1aa' },
-    { name: 'Bronze', value: qualityValues.bronze, color: '#b45309' },
-    { name: 'Review', value: qualityValues.review, color: '#38bdf8' },
+    { name: 'Golden', value: qualityValues.golden, color: 'rgb(var(--color-golden))' },
+    { name: 'Silver', value: qualityValues.silver, color: 'rgb(var(--color-silver))' },
+    { name: 'Bronze', value: qualityValues.bronze, color: 'rgb(var(--color-bronze))' },
+    { name: 'Review', value: qualityValues.review, color: 'rgb(var(--color-review))' },
   ];
   const queueBars = useMemo(() => {
     const payload = queuesSummary.data ?? {};
@@ -580,32 +607,34 @@ export default function DashboardIndex() {
   return (
     <div className="space-y-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-slate-100 motion-safe:animate-[fadeSlideUp_0.5s_ease-out_both]">
-            {new Date().getHours() < 12
-              ? 'Bună dimineața'
-              : new Date().getHours() < 18
-                ? 'Bună ziua'
-                : 'Bună seara'}
-            , Admin
+        <div className="relative rounded-xl border border-primary/20 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent px-5 py-4 sm:border-none sm:bg-transparent sm:px-0 sm:py-0">
+          <h1 className="text-2xl font-extrabold tracking-tight text-foreground motion-safe:animate-[fadeSlideUp_0.5s_ease-out_both]">
+            <span className="sidebar-logo">
+              {new Date().getHours() < 12
+                ? 'Bună dimineața'
+                : new Date().getHours() < 18
+                  ? 'Bună ziua'
+                  : 'Bună seara'}
+            </span>
+            {', Admin'}
           </h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 motion-safe:animate-[fadeSlideUp_0.5s_ease-out_0.1s_both]">
+          <p className="mt-1 text-sm text-muted motion-safe:animate-[fadeSlideUp_0.5s_ease-out_0.1s_both]">
             Ai {numberFormatter.format(summary.activeBulkRuns)} procese active.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <span className="inline-flex items-center gap-1.5">
-            <select
+            <Select
               value={globalRange}
+              options={[
+                { value: 'azi', label: 'Azi' },
+                { value: '7z', label: 'Ultimele 7 zile' },
+                { value: '30z', label: 'Ultimele 30 zile' },
+              ]}
               onChange={(event) => setGlobalRange(event.target.value as 'azi' | '7z' | '30z')}
-              className="rounded-md border border-slate-200 bg-white px-2 py-2 text-xs text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300"
               aria-label="Interval global dashboard"
-            >
-              <option value="azi">Azi</option>
-              <option value="7z">Ultimele 7 zile</option>
-              <option value="30z">Ultimele 30 zile</option>
-            </select>
+            />
             <InfoTooltip title="Interval date" side="bottom">
               CE ESTE: Selectorul de perioadă pentru grafice și tendințe. DE CE CONTEAZĂ: Permite
               analiza pe termen scurt (azi) sau mediu (7/30 zile). EXEMPLU: „Ultimele 7 zile" arată
@@ -634,8 +663,8 @@ export default function DashboardIndex() {
             modificări în Shopify pentru a vedea impactul imediat. SFAT: Datele se actualizează
             automat la fiecare 30–60 secunde.
           </InfoTooltip>
-          <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
-            <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-[queueLivePulse_1.5s_ease-in-out_infinite]" />
+          <span className="inline-flex items-center gap-1 text-xs text-muted">
+            <span className="inline-block h-2 w-2 rounded-full bg-success/50 animate-[queueLivePulse_1.5s_ease-in-out_infinite]" />
             Live
           </span>
         </div>
@@ -650,385 +679,418 @@ export default function DashboardIndex() {
             actionLabel="Deschide Ingestie"
             onAction={() => go('/ingestion')}
           />
-        ) : null}
+        ) : (
+          <>
+            <SystemAlertsBanner />
 
-        <SystemAlertsBanner />
+            <div className="dashboard-bento">
+              <section
+                ref={kpiSectionRef}
+                aria-labelledby="dashboard-kpis-heading"
+                className="bento-kpis grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5"
+              >
+                <h2 id="dashboard-kpis-heading" className="sr-only">
+                  Indicatori cheie
+                </h2>
+                {kpis.map((kpi, index) => {
+                  const Icon = kpi.icon;
+                  const displayValue =
+                    kpi.numericValue != null && kpi.format ? (
+                      <KpiCountUp
+                        key={`countup-${kpi.key}`}
+                        value={kpi.numericValue}
+                        format={kpi.format}
+                      />
+                    ) : (
+                      kpi.value
+                    );
 
-        <div className="dashboard-bento">
-          <section
-            ref={kpiSectionRef}
-            aria-labelledby="dashboard-kpis-heading"
-            className="bento-kpis grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5"
-          >
-            <h2 id="dashboard-kpis-heading" className="sr-only">
-              Indicatori cheie
-            </h2>
-            {kpis.map((kpi, index) => {
-              const Icon = kpi.icon;
-              const displayValue =
-                kpi.numericValue != null && kpi.format ? (
-                  <KpiCountUp
-                    key={`countup-${kpi.key}`}
-                    value={kpi.numericValue}
-                    format={kpi.format}
-                  />
-                ) : (
-                  kpi.value
-                );
-
-              return (
-                <article
-                  key={kpi.key}
-                  className="group/kpi overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm transition-all duration-300 ease-out hover:-translate-y-0.5 hover:border-slate-300/80 hover:shadow-[var(--shadow-md)] focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:ring-offset-2 dark:border-slate-700/90 dark:bg-slate-900/80 dark:hover:border-slate-600/80 dark:focus-within:ring-offset-slate-900"
-                  style={{
-                    animation: kpiSectionVisible
-                      ? `fadeSlideUp 0.4s ease-out ${index * 80}ms both`
-                      : 'none',
-                  }}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex shrink-0 items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                        {kpi.title}
-                        <InfoTooltip title={kpi.title}>{kpi.tooltip}</InfoTooltip>
-                      </div>
-                      <p className="mt-1.5 text-xl font-bold tabular-nums text-slate-800 transition-colors duration-200 group-hover/kpi:text-blue-600 dark:text-slate-100 dark:group-hover/kpi:text-blue-400">
-                        {displayValue}
-                      </p>
-                      <div className="mt-2 flex items-center gap-2 text-[11px]">
-                        <span
-                          className={`inline-flex items-center gap-0.5 ${
-                            kpi.trend >= 0
-                              ? 'text-emerald-600 dark:text-emerald-400'
-                              : 'text-rose-600 dark:text-rose-400'
-                          }`}
+                  return (
+                    <article
+                      key={kpi.key}
+                      className="kpi-card-enterprise group/kpi overflow-hidden rounded-xl border border-border bg-card p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm transition-all duration-300 ease-out hover:-translate-y-1 hover:border-primary/40 hover:shadow-[var(--shadow-md)] focus-within:ring-2 focus-within:ring-ring/20 focus-within:ring-offset-2"
+                      style={
+                        reducedMotion
+                          ? undefined
+                          : {
+                              animation: kpiSectionVisible
+                                ? `fadeSlideUp 0.4s ease-out ${index * 80}ms both`
+                                : 'none',
+                            }
+                      }
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex shrink-0 items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted">
+                            {kpi.title}
+                            <InfoTooltip title={kpi.title}>{kpi.tooltip}</InfoTooltip>
+                          </div>
+                          <p className="mt-1.5 text-2xl font-extrabold tabular-nums text-foreground transition-colors duration-normal group-hover/kpi:text-primary">
+                            {displayValue}
+                          </p>
+                          <div className="mt-2 flex items-center gap-2 text-[11px]">
+                            <span
+                              className={`inline-flex items-center gap-0.5 font-semibold ${
+                                kpi.trend >= 0 ? 'text-success' : 'text-error'
+                              }`}
+                            >
+                              {kpi.trend >= 0 ? (
+                                <ArrowUpRight className="size-3" />
+                              ) : (
+                                <ArrowDownRight className="size-3" />
+                              )}
+                              {Math.abs(kpi.trend)}%
+                            </span>
+                            <Sparkline
+                              data={kpi.trendSeries.map((value) => Number(value))}
+                              color={
+                                kpi.trend >= 0
+                                  ? 'rgb(var(--color-success))'
+                                  : 'rgb(var(--color-error))'
+                              }
+                            />
+                          </div>
+                        </div>
+                        <div
+                          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-all duration-300 group-hover/kpi:scale-110 ${KPI_ICON_COLORS[kpi.key] ?? 'icon-primary'}`}
                         >
-                          {kpi.trend >= 0 ? (
-                            <ArrowUpRight className="size-3" />
-                          ) : (
-                            <ArrowDownRight className="size-3" />
-                          )}
-                          {Math.abs(kpi.trend)}%
-                        </span>
-                        <Sparkline
-                          data={kpi.trendSeries.map((value) => Number(value))}
-                          color={kpi.trend >= 0 ? '#10b981' : '#ef4444'}
-                        />
+                          <Icon className="size-5" />
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 transition-all duration-300 group-hover/kpi:bg-blue-50 group-hover/kpi:text-blue-600 dark:bg-slate-800 dark:text-slate-400 dark:group-hover/kpi:bg-blue-950 dark:group-hover/kpi:text-blue-400">
-                      <Icon className="size-5" />
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className="mt-3 w-full text-left text-xs text-slate-500 transition hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"
-                    onClick={kpi.onClick}
-                  >
-                    {kpi.subtext}
-                  </button>
-                </article>
-              );
-            })}
-          </section>
+                      <button
+                        type="button"
+                        className="mt-3 w-full text-left text-xs text-muted transition-colors duration-fast hover:text-primary"
+                        onClick={kpi.onClick}
+                      >
+                        {kpi.subtext}
+                      </button>
+                    </article>
+                  );
+                })}
+              </section>
 
-          {dashboardWidgetsLoading ? (
-            <DashboardSkeleton columns={3} rows={1} variant="chart" />
-          ) : (
-            <>
-              <div className="bento-quality">
+              {dashboardWidgetsLoading ? (
+                <DashboardSkeleton columns={3} rows={1} variant="chart" />
+              ) : (
+                <>
+                  <div className="bento-quality">
+                    <ChartContainer
+                      title="Distribuție calitate"
+                      description="Bronze / Silver / Golden / Review"
+                      height={220}
+                    >
+                      <DonutChart
+                        data={qualityDonutData}
+                        centerLabel={numberFormatter.format(qualityValues.total)}
+                        onSliceClick={() => {
+                          go('/pim/quality');
+                        }}
+                      />
+                    </ChartContainer>
+                  </div>
+                  <div className="bento-queues">
+                    <ChartContainer
+                      title="Status cozi"
+                      description="Top cozi după încărcare"
+                      height={220}
+                    >
+                      <BarChart
+                        data={queueBars}
+                        xAxisKey="name"
+                        bars={[
+                          {
+                            dataKey: 'waiting',
+                            name: 'Waiting',
+                            color: 'rgb(var(--color-warning))',
+                            stackId: 'q',
+                          },
+                          {
+                            dataKey: 'active',
+                            name: 'Active',
+                            color: 'rgb(var(--color-primary))',
+                            stackId: 'q',
+                          },
+                          {
+                            dataKey: 'failed',
+                            name: 'Failed',
+                            color: 'rgb(var(--color-error))',
+                            stackId: 'q',
+                          },
+                        ]}
+                        stacked
+                      />
+                    </ChartContainer>
+                  </div>
+                  <article className="bento-attention overflow-hidden rounded-xl border border-border bg-card p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm">
+                    <h3 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-primary">
+                      Produse ce necesită atenție
+                      <InfoTooltip title="Produse ce necesită atenție" side="bottom">
+                        CE ESTE: Produse cu date incomplete, în review sau care așteaptă îmbogățire
+                        AI. DE CE CONTEAZĂ: Aceste produse ar putea fi afișate greșit în magazin sau
+                        ar pierde oportunități de vânzare. EXEMPLU: 45 produse fără descriere sau
+                        imagini optimizate. SFAT: Click pe „Vezi produse" pentru a le filtra și
+                        prioritiza în pagina Calitate.
+                      </InfoTooltip>
+                    </h3>
+                    <p className="mt-0.5 text-xs text-muted">
+                      Produse cu date incomplete sau în review
+                    </p>
+                    <p className="mt-3 text-2xl font-bold text-foreground tabular-nums">
+                      <KpiCountUp
+                        value={attentionCount}
+                        format={(n) => numberFormatter.format(n)}
+                      />
+                    </p>
+                    <div className="mt-3 flex items-center gap-1.5">
+                      <Button
+                        className="flex-1"
+                        variant="secondary"
+                        onClick={() => go('/pim/quality')}
+                      >
+                        Vezi produse
+                      </Button>
+                      <InfoTooltip title="Vezi produse" side="bottom">
+                        CE ESTE: Navigare directă la pagina Calitate cu filtre active. DE CE
+                        CONTEAZĂ: Oferă acces rapid la produsele ce necesită revizuire manuală sau
+                        enrichment. EXEMPLU: Vei vedea lista filtrată cu toate produsele incomplete.
+                        SFAT: Poți trimite produsele direct la enrichment din acea pagină.
+                      </InfoTooltip>
+                    </div>
+                  </article>
+                </>
+              )}
+
+              <div className="bento-costs">
                 <ChartContainer
-                  title="Distribuție calitate"
-                  description="Bronze / Silver / Golden / Review"
-                  height={220}
-                >
-                  <DonutChart
-                    data={qualityDonutData}
-                    centerLabel={numberFormatter.format(qualityValues.total)}
-                    onSliceClick={() => {
-                      go('/pim/quality');
-                    }}
-                  />
-                </ChartContainer>
-              </div>
-              <div className="bento-queues">
-                <ChartContainer
-                  title="Status cozi"
-                  description="Top cozi după încărcare"
+                  title="Costuri API pe provider"
+                  description="Ziua curentă"
                   height={220}
                 >
                   <BarChart
-                    data={queueBars}
-                    xAxisKey="name"
+                    data={costsBarData}
+                    xAxisKey="provider"
                     bars={[
-                      { dataKey: 'waiting', name: 'Waiting', color: '#f59e0b', stackId: 'q' },
-                      { dataKey: 'active', name: 'Active', color: '#0ea5e9', stackId: 'q' },
-                      { dataKey: 'failed', name: 'Failed', color: '#ef4444', stackId: 'q' },
+                      { dataKey: 'cost', name: 'Cost USD', color: 'rgb(var(--color-accent))' },
                     ]}
-                    stacked
                   />
                 </ChartContainer>
               </div>
-              <article className="bento-attention overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm dark:border-slate-700/90 dark:bg-slate-900/80">
-                <h3 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  Produse ce necesită atenție
-                  <InfoTooltip title="Produse ce necesită atenție" side="bottom">
-                    CE ESTE: Produse cu date incomplete, în review sau care așteaptă îmbogățire AI.
-                    DE CE CONTEAZĂ: Aceste produse ar putea fi afișate greșit în magazin sau ar
-                    pierde oportunități de vânzare. EXEMPLU: 45 produse fără descriere sau imagini
-                    optimizate. SFAT: Click pe „Vezi produse" pentru a le filtra și prioritiza în
-                    pagina Calitate.
+              <article className="bento-budget overflow-hidden rounded-xl border border-border bg-card p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm">
+                <h3 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-primary">
+                  Buget AI azi
+                  <InfoTooltip title="Buget AI azi" side="bottom">
+                    CE ESTE: Gauge-ul consumului curent în USD pentru serviciile AI. DE CE CONTEAZĂ:
+                    Galben indică 70% din buget consumat, roșu peste 90%. Depășirea bugetului poate
+                    opri automat enrichment-ul. EXEMPLU: $35 din $50 limită = zonă galbenă,
+                    reducerea operațiilor e recomandată. SFAT: Configurează limite și alerte în
+                    pagina Costuri.
                   </InfoTooltip>
                 </h3>
-                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                  Produse cu date incomplete sau în review
-                </p>
-                <p className="mt-3 text-2xl font-bold text-slate-800 tabular-nums dark:text-slate-100">
-                  <KpiCountUp value={attentionCount} format={(n) => numberFormatter.format(n)} />
-                </p>
+                <p className="mt-0.5 text-xs text-muted">Consum curent și acțiune rapidă</p>
+                <div className="mt-3 flex items-center justify-center">
+                  <GaugeChart
+                    value={aiCostsToday}
+                    min={0}
+                    max={50}
+                    thresholds={[
+                      { value: 35, color: 'rgb(var(--color-warning))' },
+                      { value: 45, color: 'rgb(var(--color-error))' },
+                    ]}
+                    label="USD"
+                    formatValue={(value) => currencyFormatter.format(value)}
+                  />
+                </div>
                 <div className="mt-3 flex items-center gap-1.5">
-                  <Button className="flex-1" variant="secondary" onClick={() => go('/pim/quality')}>
-                    Vezi produse
+                  <Button className="flex-1" variant="secondary" onClick={() => go('/pim/costs')}>
+                    Vezi costuri detaliate
                   </Button>
-                  <InfoTooltip title="Vezi produse" side="bottom">
-                    CE ESTE: Navigare directă la pagina Calitate cu filtre active. DE CE CONTEAZĂ:
-                    Oferă acces rapid la produsele ce necesită revizuire manuală sau enrichment.
-                    EXEMPLU: Vei vedea lista filtrată cu toate produsele incomplete. SFAT: Poți
-                    trimite produsele direct la enrichment din acea pagină.
+                  <InfoTooltip title="Vezi costuri detaliate" side="bottom">
+                    CE ESTE: Link direct la pagina de management costuri AI. DE CE CONTEAZĂ: Permite
+                    vizualizarea breakdown-ului pe provider, configurarea limitelor zilnice și
+                    pragurilor de alertă. EXEMPLU: Poți vedea că OpenAI consumă 60% din buget iar
+                    Serper doar 5%. SFAT: Pune cozile pe pauză automat când bugetul e depășit.
                   </InfoTooltip>
                 </div>
               </article>
-            </>
-          )}
 
-          <div className="bento-costs">
-            <ChartContainer title="Costuri API pe provider" description="Ziua curentă" height={220}>
-              <BarChart
-                data={costsBarData}
-                xAxisKey="provider"
-                bars={[{ dataKey: 'cost', name: 'Cost USD', color: '#a855f7' }]}
-              />
-            </ChartContainer>
-          </div>
-          <article className="bento-budget overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm dark:border-slate-700/90 dark:bg-slate-900/80">
-            <h3 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Buget AI azi
-              <InfoTooltip title="Buget AI azi" side="bottom">
-                CE ESTE: Gauge-ul consumului curent în USD pentru serviciile AI. DE CE CONTEAZĂ:
-                Galben indică 70% din buget consumat, roșu peste 90%. Depășirea bugetului poate opri
-                automat enrichment-ul. EXEMPLU: $35 din $50 limită = zonă galbenă, reducerea
-                operațiilor e recomandată. SFAT: Configurează limite și alerte în pagina Costuri.
-              </InfoTooltip>
-            </h3>
-            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Consum curent și acțiune rapidă
-            </p>
-            <div className="mt-3 flex items-center justify-center">
-              <GaugeChart
-                value={aiCostsToday}
-                min={0}
-                max={50}
-                thresholds={[
-                  { value: 35, color: '#f59e0b' },
-                  { value: 45, color: '#ef4444' },
-                ]}
-                label="USD"
-                formatValue={(value) => currencyFormatter.format(value)}
-              />
-            </div>
-            <div className="mt-3 flex items-center gap-1.5">
-              <Button className="flex-1" variant="secondary" onClick={() => go('/pim/costs')}>
-                Vezi costuri detaliate
-              </Button>
-              <InfoTooltip title="Vezi costuri detaliate" side="bottom">
-                CE ESTE: Link direct la pagina de management costuri AI. DE CE CONTEAZĂ: Permite
-                vizualizarea breakdown-ului pe provider, configurarea limitelor zilnice și
-                pragurilor de alertă. EXEMPLU: Poți vedea că OpenAI consumă 60% din buget iar Serper
-                doar 5%. SFAT: Pune cozile pe pauză automat când bugetul e depășit.
-              </InfoTooltip>
-            </div>
-          </article>
-
-          <article className="bento-qhealth overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm dark:border-slate-700/90 dark:bg-slate-900/80">
-            <h3 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Queue Health
-              <InfoTooltip title="Queue Health" side="bottom">
-                CE ESTE: Starea rapidă a cozilor principale de procesare. DE CE CONTEAZĂ: Arată câte
-                job-uri așteaptă în fiecare coadă. Dacă o coadă crește constant, indică o problemă.
-                EXEMPLU: „webhook-queue: 12" = 12 notificări Shopify în așteptare. SFAT: Pagina Cozi
-                oferă control complet.
-              </InfoTooltip>
-            </h3>
-            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Stare rapidă pe cozi
-            </p>
-            <div className="mt-3 space-y-2">
-              {queueBars.slice(0, 4).map((queue) => (
-                <div
-                  key={queue.name}
-                  className="flex items-center justify-between rounded-md bg-slate-50 px-2 py-1.5 dark:bg-slate-800/60"
-                >
-                  <span className="truncate text-xs text-slate-600 dark:text-slate-400">
-                    {queue.name}
-                  </span>
-                  <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 dark:text-slate-300">
-                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 animate-[queueLivePulse_1.5s_ease-in-out_infinite]" />
-                    {queue.waiting}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <div className="mt-3 border-t border-slate-200 pt-3 dark:border-slate-700">
-              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                Pipeline PIM
-                <InfoTooltip title="Pipeline PIM" side="bottom">
-                  CE ESTE: Distribuția produselor pe niveluri de calitate (Raw → Bronze → Silver →
-                  Golden). DE CE CONTEAZĂ: Vizualizează progresul catalogului spre date complete.
-                  EXEMPLU: 40% Golden, 30% Silver = catalogul e pe drumul cel bun. SFAT: Obiectivul
-                  ideal e peste 70% Golden.
-                </InfoTooltip>
-              </p>
-              <div className="mt-2 space-y-1.5">
-                {(() => {
-                  const rawCount = Math.max(
-                    0,
-                    qualityValues.total -
-                      qualityValues.bronze -
-                      qualityValues.silver -
-                      qualityValues.golden -
-                      qualityValues.review
-                  );
-                  const pipelineLevels: [string, number, string][] = [
-                    ['Raw', rawCount, '#94a3b8'],
-                    ['Bronze', qualityValues.bronze, '#b45309'],
-                    ['Silver', qualityValues.silver, '#71717a'],
-                    ['Golden', qualityValues.golden, '#f59e0b'],
-                  ];
-                  return pipelineLevels.map(([label, value, color], idx) => (
-                    <div key={label}>
-                      {idx > 0 && (
-                        <div className="flex justify-center py-0.5 text-[9px] text-slate-400 dark:text-slate-500">
-                          →
-                        </div>
-                      )}
-                      <div className="mb-0.5 flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
-                        <span>{label}</span>
-                        <span>{numberFormatter.format(value)}</span>
-                      </div>
-                      <div className="h-1.5 rounded bg-slate-100 dark:bg-slate-800">
-                        <div
-                          className="h-1.5 rounded transition-all"
-                          style={{
-                            width: `${Math.min(100, (value / qualityValues.total) * 100)}%`,
-                            backgroundColor: color,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ));
-                })()}
-                {qualityValues.review > 0 && (
-                  <div className="mt-1 border-t border-dashed border-slate-200 pt-1 dark:border-slate-700">
-                    <div className="mb-0.5 flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
-                      <span className="flex items-center gap-1">
-                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-sky-400" />
-                        Review
+              <article className="bento-qhealth overflow-hidden rounded-xl border border-border bg-card p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm">
+                <h3 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-primary">
+                  Queue Health
+                  <InfoTooltip title="Queue Health" side="bottom">
+                    CE ESTE: Starea rapidă a cozilor principale de procesare. DE CE CONTEAZĂ: Arată
+                    câte job-uri așteaptă în fiecare coadă. Dacă o coadă crește constant, indică o
+                    problemă. EXEMPLU: „webhook-queue: 12" = 12 notificări Shopify în așteptare.
+                    SFAT: Pagina Cozi oferă control complet.
+                  </InfoTooltip>
+                </h3>
+                <p className="mt-0.5 text-xs text-muted">Stare rapidă pe cozi</p>
+                <div className="mt-3 space-y-2">
+                  {queueBars.slice(0, 4).map((queue) => (
+                    <div
+                      key={queue.name}
+                      className="flex items-center justify-between rounded-md bg-subtle/40 px-2 py-1.5"
+                    >
+                      <span className="truncate text-xs text-muted">{queue.name}</span>
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground">
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-success/50 motion-safe:animate-[queueLivePulse_1.5s_ease-in-out_infinite]" />
+                        {queue.waiting}
                       </span>
-                      <span>{numberFormatter.format(qualityValues.review)}</span>
                     </div>
+                  ))}
+                </div>
+                <div className="mt-3 border-t border-border pt-3">
+                  <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                    Pipeline PIM
+                    <InfoTooltip title="Pipeline PIM" side="bottom">
+                      CE ESTE: Distribuția produselor pe niveluri de calitate (Raw → Bronze → Silver
+                      → Golden). DE CE CONTEAZĂ: Vizualizează progresul catalogului spre date
+                      complete. EXEMPLU: 40% Golden, 30% Silver = catalogul e pe drumul cel bun.
+                      SFAT: Obiectivul ideal e peste 70% Golden.
+                    </InfoTooltip>
+                  </p>
+                  <div className="mt-2 space-y-1.5">
+                    {(() => {
+                      const rawCount = Math.max(
+                        0,
+                        qualityValues.total -
+                          qualityValues.bronze -
+                          qualityValues.silver -
+                          qualityValues.golden -
+                          qualityValues.review
+                      );
+                      const pipelineLevels: [string, number, string][] = [
+                        ['Raw', rawCount, 'rgb(var(--color-muted))'],
+                        ['Bronze', qualityValues.bronze, 'rgb(var(--color-bronze))'],
+                        ['Silver', qualityValues.silver, 'rgb(var(--color-silver))'],
+                        ['Golden', qualityValues.golden, 'rgb(var(--color-golden))'],
+                      ];
+                      return pipelineLevels.map(([label, value, color], idx) => (
+                        <div key={label}>
+                          {idx > 0 && (
+                            <div className="flex justify-center py-0.5 text-[9px] text-muted">
+                              →
+                            </div>
+                          )}
+                          <div className="mb-0.5 flex items-center justify-between text-[10px] text-muted">
+                            <span>{label}</span>
+                            <span>{numberFormatter.format(value)}</span>
+                          </div>
+                          <div className="h-1.5 rounded bg-border/40">
+                            <div
+                              className="h-1.5 rounded transition-all"
+                              style={{
+                                width: `${Math.min(100, (value / qualityValues.total) * 100)}%`,
+                                backgroundColor: color,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      ));
+                    })()}
+                    {qualityValues.review > 0 && (
+                      <div className="mt-1 border-t border-dashed border-border pt-1">
+                        <div className="mb-0.5 flex items-center justify-between text-[10px] text-muted">
+                          <span className="flex items-center gap-1">
+                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-review" />
+                            Review
+                          </span>
+                          <span>{numberFormatter.format(qualityValues.review)}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
+                </div>
+              </article>
+
+              <article className="bento-events overflow-hidden rounded-xl border border-border bg-card p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm">
+                <h3 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-primary">
+                  Evenimente recente
+                  <InfoTooltip title="Evenimente recente" side="bottom">
+                    CE ESTE: Ultimele rulări bulk de sincronizare detectate în sistem. DE CE
+                    CONTEAZĂ: Oferă o perspectivă rapidă asupra activității recente de
+                    import/sincronizare. EXEMPLU: „run-1234: completed • 14:32" = sincronizare
+                    finalizată cu succes. SFAT: Click pe un eveniment pentru istoric complet în
+                    pagina Ingestion.
+                  </InfoTooltip>
+                </h3>
+                <p className="mt-0.5 text-xs text-muted">Ultimele rulări bulk detectate</p>
+                <div className="mt-3 space-y-2">
+                  {recentRunsItems.length === 0 ? (
+                    <EmptyState
+                      title="Nu există evenimente recente"
+                      description="Nicio rulare bulk detectată până acum."
+                    />
+                  ) : (
+                    recentRunsItems.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className="interactive flex w-full items-center justify-between rounded-md border border-border px-2 py-1.5 text-left transition hover:border-accent-border hover:bg-subtle/50"
+                        onClick={() => go('/ingestion/history')}
+                      >
+                        <span className="text-xs font-medium text-foreground">{item.id}</span>
+                        <span className="text-xs text-muted">
+                          {item.status} •{' '}
+                          {item.startedAt
+                            ? new Date(item.startedAt).toLocaleString('ro-RO')
+                            : 'N/A'}
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </article>
+
+              <article className="bento-hscore overflow-hidden rounded-xl border border-border bg-card p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm">
+                <h3 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-primary">
+                  Health Score
+                  <InfoTooltip title="Health Score" side="bottom">
+                    CE ESTE: Scor compozit 0–100 al sănătății sistemului, calculat din: Redis (25%),
+                    rata erori (25%), latență (25%), backlog (25%). DE CE CONTEAZĂ: Un scor sub 50
+                    indică probleme critice ce necesită atenție imediată. EXEMPLU: Scor 85 = sistem
+                    sănătos; scor 40 = verifică Redis și cozile. SFAT: Folosește butonul „Check
+                    Health" din Acțiuni rapide.
+                  </InfoTooltip>
+                </h3>
+                <p className="mt-0.5 text-xs text-muted">
+                  Scor compozit sistem
+                  {healthStatus === 'healthy' ? (
+                    <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-success/15 px-1.5 py-0.5 text-[10px] font-medium text-success">
+                      Sănătos
+                    </span>
+                  ) : healthStatus === 'degraded' ? (
+                    <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">
+                      Degradat
+                    </span>
+                  ) : (
+                    <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-error/15 px-1.5 py-0.5 text-[10px] font-medium text-error">
+                      Critic
+                    </span>
+                  )}
+                </p>
+                <div className="mt-3 flex justify-center">
+                  <GaugeChart
+                    value={healthScore}
+                    min={0}
+                    max={100}
+                    thresholds={[
+                      { value: 50, color: 'rgb(var(--color-warning))' },
+                      { value: 80, color: 'rgb(var(--color-success))' },
+                    ]}
+                    label="Sănătate"
+                  />
+                </div>
+              </article>
+
+              <div className="bento-timeline motion-safe:animate-[fadeIn_0.5s_ease-out_350ms_both]">
+                <ActivityTimeline />
+              </div>
+              <div className="bento-actions motion-safe:animate-[fadeSlideUp_0.4s_ease-out_450ms_both]">
+                <QuickActionsPanel />
               </div>
             </div>
-          </article>
-
-          <article className="bento-events overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm dark:border-slate-700/90 dark:bg-slate-900/80">
-            <h3 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Evenimente recente
-              <InfoTooltip title="Evenimente recente" side="bottom">
-                CE ESTE: Ultimele rulări bulk de sincronizare detectate în sistem. DE CE CONTEAZĂ:
-                Oferă o perspectivă rapidă asupra activității recente de import/sincronizare.
-                EXEMPLU: „run-1234: completed • 14:32" = sincronizare finalizată cu succes. SFAT:
-                Click pe un eveniment pentru istoric complet în pagina Ingestion.
-              </InfoTooltip>
-            </h3>
-            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Ultimele rulări bulk detectate
-            </p>
-            <div className="mt-3 space-y-2">
-              {recentRunsItems.length === 0 ? (
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Nu există evenimente recente.
-                </p>
-              ) : (
-                recentRunsItems.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className="flex w-full items-center justify-between rounded-md border border-slate-200 px-2 py-1.5 text-left transition hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800/60"
-                    onClick={() => go('/ingestion/history')}
-                  >
-                    <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                      {item.id}
-                    </span>
-                    <span className="text-xs text-slate-500 dark:text-slate-400">
-                      {item.status} •{' '}
-                      {item.startedAt ? new Date(item.startedAt).toLocaleString('ro-RO') : 'N/A'}
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
-          </article>
-
-          <article className="bento-hscore overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm dark:border-slate-700/90 dark:bg-slate-900/80">
-            <h3 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Health Score
-              <InfoTooltip title="Health Score" side="bottom">
-                CE ESTE: Scor compozit 0–100 al sănătății sistemului, calculat din: Redis (25%),
-                rata erori (25%), latență (25%), backlog (25%). DE CE CONTEAZĂ: Un scor sub 50
-                indică probleme critice ce necesită atenție imediată. EXEMPLU: Scor 85 = sistem
-                sănătos; scor 40 = verifică Redis și cozile. SFAT: Folosește butonul „Check Health"
-                din Acțiuni rapide.
-              </InfoTooltip>
-            </h3>
-            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Scor compozit sistem
-              {healthStatus === 'healthy' ? (
-                <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400">
-                  Sănătos
-                </span>
-              ) : healthStatus === 'degraded' ? (
-                <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
-                  Degradat
-                </span>
-              ) : (
-                <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-900/40 dark:text-red-400">
-                  Critic
-                </span>
-              )}
-            </p>
-            <div className="mt-3 flex justify-center">
-              <GaugeChart
-                value={healthScore}
-                min={0}
-                max={100}
-                thresholds={[
-                  { value: 50, color: '#f59e0b' },
-                  { value: 80, color: '#10b981' },
-                ]}
-                label="Sănătate"
-              />
-            </div>
-          </article>
-
-          <div className="bento-timeline animate-[fadeIn_0.5s_ease-out_350ms_both]">
-            <ActivityTimeline />
-          </div>
-          <div className="bento-actions animate-[fadeSlideUp_0.4s_ease-out_450ms_both]">
-            <QuickActionsPanel />
-          </div>
-        </div>
+          </>
+        )}
       </SafeComponent>
     </div>
   );

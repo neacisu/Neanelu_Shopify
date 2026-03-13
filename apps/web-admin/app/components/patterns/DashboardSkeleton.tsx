@@ -21,9 +21,9 @@ export function DashboardSkeleton({
       {items.map((item) => (
         <div
           key={item}
-          className={`overflow-hidden rounded-xl border border-slate-200/60 bg-slate-100/80 dark:border-slate-700/60 dark:bg-slate-800/50 ${blockHeight}`}
+          className={`overflow-hidden rounded-xl border border-border bg-subtle ${blockHeight}`}
         >
-          <div className="h-full w-full animate-[shimmer-loading_1.5s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-white/40 to-transparent bg-[length:200%_100%] dark:via-white/5" />
+          <div className="h-full w-full animate-[shimmer-loading_1.5s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-foreground/10 to-transparent bg-[length:200%_100%]" />
         </div>
       ))}
     </div>

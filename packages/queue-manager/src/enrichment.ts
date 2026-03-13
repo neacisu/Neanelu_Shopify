@@ -2,7 +2,7 @@ import { loadEnv } from '@app/config';
 import { SpanStatusCode, context as otelContext, trace } from '@opentelemetry/api';
 
 // Local type definition to avoid ESLint resolution issues with path aliases
-type BulkJobTriggeredBy = 'manual' | 'scheduler' | 'webhook' | 'system';
+type BulkJobTriggeredBy = 'manual' | 'scheduler' | 'webhook' | 'system' | 'auto-chain';
 type EnrichmentJobPayload = Readonly<{
   shopId: string;
   productIds: string[];

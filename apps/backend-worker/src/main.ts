@@ -38,6 +38,9 @@ import { startSimilaritySearchWorker } from './processors/similarity/search-and-
 import { startAIAuditWorker } from './processors/similarity/ai-audit.worker.js';
 import { startExtractionWorker } from './processors/pim/extraction.worker.js';
 import { startConsensusWorker } from './processors/pim/consensus.worker.js';
+import { startCategoryClassifierWorker } from './processors/pim/category-classifier.worker.js';
+import { startDescriptionGeneratorWorker } from './processors/pim/description-generator.worker.js';
+import { startMetafieldPushWorker } from './processors/pim/metafield-push.worker.js';
 import { startBudgetResetScheduler } from './processors/pim/budget-reset.worker.js';
 import { startWeeklySummaryScheduler } from './processors/pim/weekly-summary.worker.js';
 import { startMvRefreshScheduler } from './processors/pim/mv-refresh.worker.js';
@@ -53,6 +56,9 @@ import { scheduleTokenHealthJob, closeTokenHealthQueue } from './queue/token-hea
 import { closeSimilarityQueues } from './queue/similarity-queues.js';
 import { closeQualityWebhookQueue } from './queue/quality-webhook-queue.js';
 import { closeConsensusQueue } from './queue/consensus-queue.js';
+import { closeCategoryClassifierQueue } from './queue/category-classifier-queue.js';
+import { closeDescriptionGeneratorQueue } from './queue/description-generator-queue.js';
+import { closeMetafieldPushQueue } from './queue/metafield-push-queue.js';
 import { closePimManualSyncQueue } from './queue/pim-manual-sync-queue.js';
 import { closeCollectionsSyncQueue } from './queue/collections-sync-queue.js';
 import { closeCollectionMetafieldPushQueue } from './queue/collection-metafield-push-queue.js';
@@ -82,6 +88,9 @@ import {
   setCollectionsSyncWorkerHandle,
   setCollectionMetafieldPushWorkerHandle,
   setCollectionShopifySyncWorkerHandle,
+  setCategoryClassifierWorkerHandle,
+  setDescriptionGeneratorWorkerHandle,
+  setMetafieldPushWorkerHandle,
 } from './runtime/worker-registry.js';
 import { emitQueueStreamEvent } from './runtime/queue-stream.js';
 import { startQueueConfigListener } from './runtime/queue-config-listener.js';
@@ -233,6 +242,11 @@ let similaritySearchWorker: Awaited<ReturnType<typeof startSimilaritySearchWorke
 let similarityAIAuditWorker: Awaited<ReturnType<typeof startAIAuditWorker>> | null = null;
 let extractionWorker: Awaited<ReturnType<typeof startExtractionWorker>> | null = null;
 let consensusWorker: Awaited<ReturnType<typeof startConsensusWorker>> | null = null;
+let categoryClassifierWorker: Awaited<ReturnType<typeof startCategoryClassifierWorker>> | null =
+  null;
+let descriptionGeneratorWorker: Awaited<ReturnType<typeof startDescriptionGeneratorWorker>> | null =
+  null;
+let metafieldPushWorker: Awaited<ReturnType<typeof startMetafieldPushWorker>> | null = null;
 let budgetResetScheduler: Awaited<ReturnType<typeof startBudgetResetScheduler>> | null = null;
 let weeklySummaryScheduler: Awaited<ReturnType<typeof startWeeklySummaryScheduler>> | null = null;
 let mvRefreshScheduler: Awaited<ReturnType<typeof startMvRefreshScheduler>> | null = null;
@@ -369,6 +383,18 @@ async function recreateRedisDependentWorkers(newRedisUrl: string): Promise<void>
   if (consensusWorker) await consensusWorker.close();
   consensusWorker = startConsensusWorker(logger);
   setConsensusWorkerHandle(consensusWorker);
+
+  if (categoryClassifierWorker) await categoryClassifierWorker.close();
+  categoryClassifierWorker = startCategoryClassifierWorker(logger);
+  setCategoryClassifierWorkerHandle(categoryClassifierWorker);
+
+  if (descriptionGeneratorWorker) await descriptionGeneratorWorker.close();
+  descriptionGeneratorWorker = startDescriptionGeneratorWorker(logger);
+  setDescriptionGeneratorWorkerHandle(descriptionGeneratorWorker);
+
+  if (metafieldPushWorker) await metafieldPushWorker.close();
+  metafieldPushWorker = startMetafieldPushWorker(logger);
+  setMetafieldPushWorkerHandle(metafieldPushWorker);
 
   if (budgetResetScheduler) await budgetResetScheduler.close();
   budgetResetScheduler = startBudgetResetScheduler(logger);
@@ -595,6 +621,33 @@ try {
   emitQueueStreamEvent({
     type: 'worker.online',
     workerId: 'pim-consensus-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  categoryClassifierWorker = startCategoryClassifierWorker(logger);
+  logger.info({}, 'pim category classifier worker started');
+  setCategoryClassifierWorkerHandle(categoryClassifierWorker);
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'pim-category-classifier-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  descriptionGeneratorWorker = startDescriptionGeneratorWorker(logger);
+  logger.info({}, 'pim description generator worker started');
+  setDescriptionGeneratorWorkerHandle(descriptionGeneratorWorker);
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'pim-description-generator-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  metafieldPushWorker = startMetafieldPushWorker(logger);
+  logger.info({}, 'pim metafield push worker started');
+  setMetafieldPushWorkerHandle(metafieldPushWorker);
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'pim-metafield-push-worker',
     timestamp: new Date().toISOString(),
   });
 
@@ -899,6 +952,42 @@ const shutdown = async (signal: string): Promise<void> => {
       });
     }
 
+    if (categoryClassifierWorker) {
+      await categoryClassifierWorker.close();
+      categoryClassifierWorker = null;
+      setCategoryClassifierWorkerHandle(null);
+      logger.info({ signal }, 'pim category classifier worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'pim-category-classifier-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (descriptionGeneratorWorker) {
+      await descriptionGeneratorWorker.close();
+      descriptionGeneratorWorker = null;
+      setDescriptionGeneratorWorkerHandle(null);
+      logger.info({ signal }, 'pim description generator worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'pim-description-generator-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (metafieldPushWorker) {
+      await metafieldPushWorker.close();
+      metafieldPushWorker = null;
+      setMetafieldPushWorkerHandle(null);
+      logger.info({ signal }, 'pim metafield push worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'pim-metafield-push-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     if (budgetResetScheduler) {
       await budgetResetScheduler.close();
       budgetResetScheduler = null;
@@ -1094,6 +1183,9 @@ const shutdown = async (signal: string): Promise<void> => {
     await closeSimilarityQueues();
     await closeQualityWebhookQueue();
     await closeConsensusQueue();
+    await closeCategoryClassifierQueue();
+    await closeDescriptionGeneratorQueue();
+    await closeMetafieldPushQueue();
     await closePimManualSyncQueue();
     await closeEnrichmentQueue();
     await closeCollectionsSyncQueue();

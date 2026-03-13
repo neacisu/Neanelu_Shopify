@@ -18,7 +18,7 @@ import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker
 import { resolveChatTaskCredentials } from '../../services/ai-provider-routing.js';
 import { consensusChatCompletion } from '../../services/consensus-engine.js';
 import { scanInput, scanOutput } from '../../services/guardrails.js';
-import { enqueueConsensusJob } from '../../queue/consensus-queue.js';
+import { maybeEnqueueConsensusAfterAutomation } from '../../services/pim-pipeline-state.js';
 import {
   decrementScraperBrowserActivePages,
   incrementScraperBrowserActivePages,
@@ -115,6 +115,15 @@ type ExtractionJobPayload = Readonly<{
   shopId: string;
   matchId: string;
 }>;
+
+function isFinalJobAttempt(
+  job: { attemptsMade?: number; opts?: { attempts?: number } } | null
+): boolean {
+  const configuredAttempts =
+    typeof job?.opts?.attempts === 'number' && job.opts.attempts > 0 ? job.opts.attempts : 1;
+  const currentAttempt = typeof job?.attemptsMade === 'number' ? job.attemptsMade + 1 : 1;
+  return currentAttempt >= configuredAttempts;
+}
 
 export interface ExtractionWorkerHandle {
   worker: { close: () => Promise<void>; isRunning?: () => boolean };
@@ -615,6 +624,47 @@ async function fetchOrScrapeHTML(params: FetchOrScrapeParams): Promise<FetchOrSc
   return { harvestId, html };
 }
 
+async function markExtractionForHumanReview(params: {
+  shopId: string;
+  matchId: string;
+  productId: string | null;
+  logger: Logger;
+  reason: string;
+  status: 'failed' | 'blocked';
+  extraDetails?: Record<string, unknown>;
+}): Promise<void> {
+  const nowIso = new Date().toISOString();
+  await withTenantContext(params.shopId, async (client) => {
+    await client.query(
+      `UPDATE prod_similarity_matches
+          SET match_details = COALESCE(match_details, '{}'::jsonb) || $1::jsonb,
+              updated_at = now()
+        WHERE id = $2`,
+      [
+        JSON.stringify({
+          extraction_status: params.status,
+          extraction_failed_at: nowIso,
+          requires_human_review: true,
+          human_review_reason: params.reason,
+          human_review_marked_at: nowIso,
+          ...(params.extraDetails ?? {}),
+        }),
+        params.matchId,
+      ]
+    );
+    if (params.productId) {
+      await maybeEnqueueConsensusAfterAutomation({
+        client,
+        shopId: params.shopId,
+        productId: params.productId,
+        trigger: 'extraction_failed',
+        logger: params.logger,
+        context: params.reason,
+      });
+    }
+  });
+}
+
 async function runExtractionAndPersist(params: RunExtractionParams): Promise<void> {
   const { shopId, matchId, sourceUrl, productId, harvestId, html, env, logger } = params;
 
@@ -625,7 +675,18 @@ async function runExtractionAndPersist(params: RunExtractionParams): Promise<voi
     logger,
   });
   if (!credentials) {
-    warnLogger(logger).warn({ shopId }, 'No routed AI credentials available for extraction');
+    warnLogger(logger).warn(
+      { shopId, matchId },
+      'No routed AI credentials available for extraction'
+    );
+    await markExtractionForHumanReview({
+      shopId,
+      matchId,
+      productId,
+      logger,
+      reason: 'extraction_credentials_unavailable',
+      status: 'blocked',
+    });
     return;
   }
 
@@ -636,6 +697,15 @@ async function runExtractionAndPersist(params: RunExtractionParams): Promise<voi
       { shopId, matchId, reason: inputScan.reason },
       'guardrails_blocked_extraction_input'
     );
+    await markExtractionForHumanReview({
+      shopId,
+      matchId,
+      productId,
+      logger,
+      reason: 'guardrails_blocked_extraction_input',
+      status: 'blocked',
+      extraDetails: { extraction_guardrails_reason: inputScan.reason },
+    });
     return;
   }
 
@@ -678,15 +748,29 @@ async function runExtractionAndPersist(params: RunExtractionParams): Promise<voi
     env,
     logger,
   });
+  if (!outputScan.isValid) {
+    warnLogger(logger).warn(
+      { shopId, matchId, reason: outputScan.reason },
+      'guardrails_blocked_extraction_output'
+    );
+    await markExtractionForHumanReview({
+      shopId,
+      matchId,
+      productId,
+      logger,
+      reason: 'guardrails_blocked_extraction_output',
+      status: 'blocked',
+      extraDetails: { extraction_guardrails_reason: outputScan.reason },
+    });
+    return;
+  }
 
-  let extractedSpecs: Record<string, unknown> = {};
-  if (outputScan.isValid) {
-    try {
-      const parsed = JSON.parse(outputScan.sanitizedText) as Record<string, unknown>;
-      extractedSpecs = parsed ?? {};
-    } catch {
-      extractedSpecs = {};
-    }
+  let extractedSpecs: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(outputScan.sanitizedText) as Record<string, unknown>;
+    extractedSpecs = parsed ?? {};
+  } catch {
+    extractedSpecs = {};
   }
 
   const sessionPayload: NewExtractionSession = {
@@ -710,20 +794,53 @@ async function runExtractionAndPersist(params: RunExtractionParams): Promise<voi
 
   const session = await createExtractionSessionSafe(sessionPayload);
 
-  if (extraction.data) {
-    await updateSpecsExtractedSafe({
-      id: matchId,
-      specsExtracted: extractedSpecs,
-      extractionSessionId: session.id,
+  if (!extraction.data || Object.keys(extractedSpecs).length === 0) {
+    await markExtractionForHumanReview({
+      shopId,
+      matchId,
+      productId,
+      logger,
+      reason: extraction.error ?? 'extraction_empty_result',
+      status: 'failed',
+      extraDetails: { extraction_session_id: session.id },
     });
+    return;
+  }
 
-    if (productId) {
-      await enqueueConsensusJob({
+  await updateSpecsExtractedSafe({
+    id: matchId,
+    specsExtracted: extractedSpecs,
+    extractionSessionId: session.id,
+  });
+
+  await withTenantContext(shopId, async (client) => {
+    await client.query(
+      `UPDATE prod_similarity_matches
+          SET match_details = COALESCE(match_details, '{}'::jsonb) || $1::jsonb,
+              updated_at = now()
+        WHERE id = $2`,
+      [
+        JSON.stringify({
+          extraction_status: 'completed',
+          extraction_completed_at: new Date().toISOString(),
+          extraction_session_id: session.id,
+        }),
+        matchId,
+      ]
+    );
+  });
+
+  if (productId) {
+    await withTenantContext(shopId, async (client) => {
+      await maybeEnqueueConsensusAfterAutomation({
+        client,
         shopId,
         productId,
         trigger: 'extraction_complete',
+        logger,
+        context: 'extraction_completed',
       });
-    }
+    });
   }
 }
 
@@ -762,50 +879,106 @@ export function startExtractionWorker(logger: Logger): ExtractionWorkerHandle {
               throw new Error('invalid_extraction_payload');
             }
 
-            const match = await withTenantContext(payload.shopId, async (client) => {
-              const result = await client.query<{
-                id: string;
-                source_url: string;
-                product_id: string | null;
-                source_id: string | null;
-              }>(
-                `SELECT id, source_url, product_id, source_id
-                   FROM prod_similarity_matches
-                  WHERE id = $1`,
-                [payload.matchId]
-              );
-              return result.rows[0] ?? null;
-            });
+            let match: {
+              id: string;
+              source_url: string;
+              product_id: string | null;
+              source_id: string | null;
+            } | null = null;
+            try {
+              match = await withTenantContext(payload.shopId, async (client) => {
+                const result = await client.query<{
+                  id: string;
+                  source_url: string;
+                  product_id: string | null;
+                  source_id: string | null;
+                }>(
+                  `SELECT id, source_url, product_id, source_id
+                     FROM prod_similarity_matches
+                    WHERE id = $1`,
+                  [payload.matchId]
+                );
+                const row = result.rows[0] ?? null;
+                if (row) {
+                  await client.query(
+                    `UPDATE prod_similarity_matches
+                        SET match_details = COALESCE(match_details, '{}'::jsonb) || $1::jsonb,
+                            updated_at = now()
+                      WHERE id = $2`,
+                    [
+                      JSON.stringify({
+                        extraction_status: 'processing',
+                        extraction_started_at: new Date().toISOString(),
+                      }),
+                      payload.matchId,
+                    ]
+                  );
+                }
+                return row;
+              });
 
-            if (!match) {
-              warnLogger(logger).warn({ matchId: payload.matchId }, 'Extraction match not found');
-              return;
+              if (!match) {
+                warnLogger(logger).warn({ matchId: payload.matchId }, 'Extraction match not found');
+                return;
+              }
+
+              const harvestResult = await fetchOrScrapeHTML({
+                shopId: payload.shopId,
+                matchId: payload.matchId,
+                sourceUrl: match.source_url,
+                sourceId: match.source_id,
+                productId: match.product_id,
+                env,
+                logger,
+              });
+
+              if (!harvestResult) {
+                await markExtractionForHumanReview({
+                  shopId: payload.shopId,
+                  matchId: match.id,
+                  productId: match.product_id,
+                  logger,
+                  reason: 'extraction_source_html_unavailable',
+                  status: 'failed',
+                });
+                return;
+              }
+
+              await runExtractionAndPersist({
+                shopId: payload.shopId,
+                matchId: match.id,
+                sourceUrl: match.source_url,
+                productId: match.product_id,
+                harvestId: harvestResult.harvestId,
+                html: harvestResult.html,
+                env,
+                logger,
+              });
+            } catch (error) {
+              if (match?.product_id && isFinalJobAttempt(job)) {
+                logger.error(
+                  {
+                    shopId: payload.shopId,
+                    matchId: payload.matchId,
+                    productId: match.product_id,
+                    error: error instanceof Error ? error.message : String(error),
+                  },
+                  'extraction_failed_final_attempt'
+                );
+                await markExtractionForHumanReview({
+                  shopId: payload.shopId,
+                  matchId: payload.matchId,
+                  productId: match.product_id,
+                  logger,
+                  reason: 'extraction_failed_final_attempt',
+                  status: 'failed',
+                  extraDetails: {
+                    extraction_error: error instanceof Error ? error.message : String(error),
+                  },
+                });
+              }
+              throw error;
             }
-
-            const harvestResult = await fetchOrScrapeHTML({
-              shopId: payload.shopId,
-              matchId: payload.matchId,
-              sourceUrl: match.source_url,
-              sourceId: match.source_id,
-              productId: match.product_id,
-              env,
-              logger,
-            });
-
-            if (!harvestResult) {
-              return;
-            }
-
-            await runExtractionAndPersist({
-              shopId: payload.shopId,
-              matchId: match.id,
-              sourceUrl: match.source_url,
-              productId: match.product_id,
-              harvestId: harvestResult.harvestId,
-              html: harvestResult.html,
-              env,
-              logger,
-            });
           } finally {
             clearWorkerCurrentJob('pim-extraction-worker', jobId);
           }

@@ -35,9 +35,23 @@ export async function enqueueDescriptionGeneratorJob(params: {
   trigger: 'consensus' | 'manual';
 }) {
   const queue = getDescriptionGeneratorQueue();
-  const job = await queue.add(PIM_DESCRIPTION_GENERATOR_JOB, params, {
-    jobId: `pim-description-${params.productId}-${params.trigger}`,
-  });
+  const jobId = `pim-description-${params.productId}-${params.trigger}`;
+
+  // BullMQ deduplicates by jobId against any key still in Redis — including
+  // completed jobs kept by removeOnComplete:{count:1000}. Without this check
+  // the job would be silently skipped and never re-run on a subsequent Force Sync.
+  const existingJob = await queue.getJob(jobId);
+  if (existingJob) {
+    const state = await existingJob.getState();
+    if (state === 'completed' || state === 'failed') {
+      await existingJob.remove();
+    } else {
+      // Already waiting or active — deduplication is intentional.
+      return existingJob.id;
+    }
+  }
+
+  const job = await queue.add(PIM_DESCRIPTION_GENERATOR_JOB, params, { jobId });
   return job.id;
 }
 

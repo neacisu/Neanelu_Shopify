@@ -3,11 +3,13 @@ import { Area, AreaChart, CartesianGrid, Legend, Tooltip, XAxis, YAxis } from 'r
 
 import type { ScraperActivityDataPoint } from '@app/types';
 
+import { useChartTheme } from '../charts/theme';
 import { InfoTooltip } from '../ui/info-tooltip';
 
 export function ScraperActivityChart({ data }: { data: readonly ScraperActivityDataPoint[] }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  const theme = useChartTheme();
 
   useEffect(() => {
     const el = containerRef.current;
@@ -24,9 +26,9 @@ export function ScraperActivityChart({ data }: { data: readonly ScraperActivityD
   }, []);
 
   return (
-    <div className="rounded-lg border border-muted/20 bg-background p-4 dark:border-slate-700 dark:bg-slate-900/80">
+    <div className="rounded-lg border border-muted/20 bg-background p-4">
       <div className="mb-2 flex items-center gap-2">
-        <span className="text-xs text-muted dark:text-slate-400">Activitate scraper (7 zile)</span>
+        <span className="text-xs text-muted">Activitate scraper (7 zile)</span>
         <InfoTooltip title="Activitate scraper" side="bottom" portalToBody>
           Număr de pagini procesate pe zi, grupate pe metoda de extragere: Cheerio (HTML rapid) și
           Playwright (JS complet). Include și eșecurile, blocările robots.txt și duplicatele
@@ -37,36 +39,73 @@ export function ScraperActivityChart({ data }: { data: readonly ScraperActivityD
       <div ref={containerRef} className="h-64 min-w-0">
         {size != null ? (
           <AreaChart width={size.w} height={size.h} data={data}>
-            <CartesianGrid strokeDasharray="3 3" className="dark:[&>line]:stroke-slate-700" />
+            <CartesianGrid
+              strokeDasharray="3 3"
+              stroke={theme.grid}
+              className="[&>line]:stroke-border dark:[&>line]:stroke-border"
+            />
             <XAxis
               dataKey="date"
-              className="dark:[&>line]:stroke-slate-600 dark:[&_text]:fill-slate-400"
+              tick={{ fill: theme.text.axis }}
+              axisLine={{ stroke: theme.grid }}
+              tickLine={false}
+              className="[&>line]:stroke-border dark:[&>line]:stroke-border [&_text]:fill-muted dark:[&_text]:fill-muted"
             />
-            <YAxis className="dark:[&>line]:stroke-slate-600 dark:[&_text]:fill-slate-400" />
+            <YAxis
+              tick={{ fill: theme.text.axis }}
+              axisLine={false}
+              tickLine={false}
+              className="[&>line]:stroke-border dark:[&>line]:stroke-border [&_text]:fill-muted dark:[&_text]:fill-muted"
+            />
             <Tooltip
               contentStyle={{
                 borderRadius: '0.5rem',
-                border: '1px solid var(--color-border, #e2e8f0)',
+                border: `1px solid ${theme.semantic.tooltipBorder}`,
+                background: theme.semantic.tooltipBg,
+                boxShadow: 'var(--shadow-md)',
               }}
             />
             <Legend />
-            <Area type="monotone" dataKey="cheerio" stackId="1" stroke="#16a34a" fill="#16a34a55" />
+            <Area
+              type="monotone"
+              dataKey="cheerio"
+              stackId="1"
+              stroke={theme.semantic.success}
+              fill={theme.semantic.success}
+              fillOpacity={0.33}
+            />
             <Area
               type="monotone"
               dataKey="playwright"
               stackId="1"
-              stroke="#f59e0b"
-              fill="#f59e0b55"
+              stroke={theme.semantic.warning}
+              fill={theme.semantic.warning}
+              fillOpacity={0.33}
             />
-            <Area type="monotone" dataKey="failed" stackId="2" stroke="#dc2626" fill="#dc262655" />
+            <Area
+              type="monotone"
+              dataKey="failed"
+              stackId="2"
+              stroke={theme.semantic.danger}
+              fill={theme.semantic.danger}
+              fillOpacity={0.33}
+            />
             <Area
               type="monotone"
               dataKey="robotsBlocked"
               stackId="2"
-              stroke="#f97316"
-              fill="#f9731655"
+              stroke={theme.palette[3] ?? 'rgb(var(--chart-4))'}
+              fill={theme.palette[3] ?? 'rgb(var(--chart-4))'}
+              fillOpacity={0.33}
             />
-            <Area type="monotone" dataKey="deduped" stackId="2" stroke="#64748b" fill="#64748b55" />
+            <Area
+              type="monotone"
+              dataKey="deduped"
+              stackId="2"
+              stroke={theme.text.fill}
+              fill={theme.text.fill}
+              fillOpacity={0.33}
+            />
           </AreaChart>
         ) : null}
       </div>

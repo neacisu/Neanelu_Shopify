@@ -45,6 +45,8 @@ import { readIngestCheckpoint, persistIngestCheckpoint } from './pipeline/checkp
 import { runMergeFromStaging } from './pipeline/stages/merge.js';
 import type { PipelineCounters } from './pipeline/types.js';
 import { runPimSyncFromBulkRun } from './pim/sync.js';
+import { startBulkQueryFromContract } from './orchestrator.js';
+import { isFeatureFlagEnabled } from './feature-flags.js';
 
 const env = loadEnv();
 
@@ -366,6 +368,7 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
             bulkRunId: payload.bulkRunId,
             batchMaxRows: cfg.copyBatchRows,
             batchMaxBytes: cfg.copyBatchBytes,
+            skipProductStaging: run.query_type === 'meta',
           });
 
           let stitchedRecordsSeen = 0;
@@ -516,6 +519,10 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
                               lastSuccessfulId: lastIdSeen,
                               lastCommitAtIso: new Date().toISOString(),
                               isFullSnapshot,
+                              committedProductMetafieldPatches:
+                                copyWriter.getCounters().metafieldProductPatchesFlushed,
+                              committedVariantMetafieldPatches:
+                                copyWriter.getCounters().metafieldVariantPatchesFlushed,
                             },
                           });
 
@@ -631,6 +638,10 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
                               lastSuccessfulId: lastIdSeen,
                               lastCommitAtIso: new Date().toISOString(),
                               isFullSnapshot,
+                              committedProductMetafieldPatches:
+                                counters.metafieldProductPatchesFlushed,
+                              committedVariantMetafieldPatches:
+                                counters.metafieldVariantPatchesFlushed,
                             },
                           });
 
@@ -749,6 +760,8 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
                           lastSuccessfulId: lastIdSeen,
                           lastCommitAtIso: new Date().toISOString(),
                           isFullSnapshot,
+                          committedProductMetafieldPatches: counters.metafieldProductPatchesFlushed,
+                          committedVariantMetafieldPatches: counters.metafieldVariantPatchesFlushed,
                         },
                       });
 
@@ -784,6 +797,8 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
               lastSuccessfulId: lastIdSeen,
               lastCommitAtIso: new Date().toISOString(),
               isFullSnapshot,
+              committedProductMetafieldPatches: counters.metafieldProductPatchesFlushed,
+              committedVariantMetafieldPatches: counters.metafieldVariantPatchesFlushed,
             },
           });
 
@@ -801,53 +816,69 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
             status: 'processing',
           });
 
-          await withBulkSpan(
-            'bulk.merge',
-            {
-              shopId: payload.shopId,
-              bulkRunId: payload.bulkRunId,
-              operationType: op,
-              queryType: run.query_type ?? null,
-              step: 'merge',
-            },
-            async () =>
-              await runMergeFromStaging({
+          if (run.query_type !== 'meta') {
+            // Normal flow (core, inventory): merge staging -> shopify_products + PIM sync
+            await withBulkSpan(
+              'bulk.merge',
+              {
                 shopId: payload.shopId,
                 bulkRunId: payload.bulkRunId,
-                logger,
-                analyze: cfg.mergeAnalyze,
-                allowDeletes: cfg.mergeAllowDeletes,
-                isFullSnapshot,
-                reindexStaging: cfg.stagingReindex,
-              })
-          );
+                operationType: op,
+                queryType: run.query_type ?? null,
+                step: 'merge',
+              },
+              async () =>
+                await runMergeFromStaging({
+                  shopId: payload.shopId,
+                  bulkRunId: payload.bulkRunId,
+                  logger,
+                  analyze: cfg.mergeAnalyze,
+                  allowDeletes: cfg.mergeAllowDeletes,
+                  isFullSnapshot,
+                  reindexStaging: cfg.stagingReindex,
+                })
+            );
 
-          await insertBulkStep({
-            shopId: payload.shopId,
-            bulkRunId: payload.bulkRunId,
-            stepName: 'ingest.merge.completed',
-            status: 'completed',
-          });
+            await insertBulkStep({
+              shopId: payload.shopId,
+              bulkRunId: payload.bulkRunId,
+              stepName: 'ingest.merge.completed',
+              status: 'completed',
+            });
 
-          await insertBulkStep({
-            shopId: payload.shopId,
-            bulkRunId: payload.bulkRunId,
-            stepName: 'ingest.pim_sync.start',
-            status: 'running',
-          });
+            await insertBulkStep({
+              shopId: payload.shopId,
+              bulkRunId: payload.bulkRunId,
+              stepName: 'ingest.pim_sync.start',
+              status: 'running',
+            });
 
-          await runPimSyncFromBulkRun({
-            shopId: payload.shopId,
-            bulkRunId: payload.bulkRunId,
-            logger,
-          });
+            await runPimSyncFromBulkRun({
+              shopId: payload.shopId,
+              bulkRunId: payload.bulkRunId,
+              logger,
+            });
 
-          await insertBulkStep({
-            shopId: payload.shopId,
-            bulkRunId: payload.bulkRunId,
-            stepName: 'ingest.pim_sync.completed',
-            status: 'completed',
-          });
+            await insertBulkStep({
+              shopId: payload.shopId,
+              bulkRunId: payload.bulkRunId,
+              stepName: 'ingest.pim_sync.completed',
+              status: 'completed',
+            });
+          } else {
+            // Meta flow: metafields already applied directly by MetafieldPatchWriter
+            // No staging merge or PIM sync needed -- metafields don't affect prod_master yet
+            const mfCounters = copyWriter?.getCounters();
+            await insertBulkStep({
+              shopId: payload.shopId,
+              bulkRunId: payload.bulkRunId,
+              stepName: 'ingest.metafield_patch.completed',
+              status: 'completed',
+              errorMessage: mfCounters
+                ? `products=${mfCounters.metafieldProductPatchesFlushed} variants=${mfCounters.metafieldVariantPatchesFlushed} errors=${mfCounters.metafieldFlushErrors}`
+                : null,
+            });
+          }
 
           await insertBulkStep({
             shopId: payload.shopId,
@@ -860,6 +891,60 @@ export function startBulkIngestWorker(logger: Logger): BulkIngestWorkerHandle {
             shopId: payload.shopId,
             bulkRunId: payload.bulkRunId,
           });
+
+          // Auto-chain: after a successful core ingest, enqueue a meta bulk operation
+          // with a configurable delay to respect Shopify's 1-concurrent-bulk-op limit.
+          if (run.query_type === 'core') {
+            const metaChainEnabled = await isFeatureFlagEnabled({
+              shopId: payload.shopId,
+              flagKey: 'bulk.meta_auto_chain.enabled',
+              fallback: true,
+            });
+            if (metaChainEnabled) {
+              const chainDelayMs = Number(process.env['BULK_META_CHAIN_DELAY_MS'] ?? 60_000);
+              try {
+                await withBulkSpan(
+                  'bulk.meta_chain.enqueue',
+                  {
+                    shopId: payload.shopId,
+                    bulkRunId: payload.bulkRunId,
+                    operationType: op,
+                    queryType: 'meta',
+                    step: 'meta_chain',
+                  },
+                  async () => {
+                    await startBulkQueryFromContract(payload.shopId, {
+                      operationType: 'PRODUCTS_EXPORT',
+                      querySet: 'meta',
+                      version: 'v2',
+                      triggeredBy: 'auto-chain',
+                      idempotencyKey: `auto-meta-after-${payload.bulkRunId}`,
+                      delayMs: chainDelayMs,
+                    });
+                  }
+                );
+                await insertBulkStep({
+                  shopId: payload.shopId,
+                  bulkRunId: payload.bulkRunId,
+                  stepName: 'ingest.meta_chain.enqueued',
+                  status: 'completed',
+                });
+              } catch (err) {
+                logger.warn(
+                  { err, shopId: payload.shopId, bulkRunId: payload.bulkRunId },
+                  'Failed to enqueue follow-up meta bulk operation (non-fatal)'
+                );
+              }
+            } else {
+              await insertBulkStep({
+                shopId: payload.shopId,
+                bulkRunId: payload.bulkRunId,
+                stepName: 'ingest.meta_chain.skipped',
+                status: 'completed',
+                errorMessage: 'feature flag bulk.meta_auto_chain.enabled is disabled',
+              });
+            }
+          }
 
           if (persistJsonl?.path || localFilePath) {
             const artifactPath = localFilePath ?? persistJsonl?.path ?? null;

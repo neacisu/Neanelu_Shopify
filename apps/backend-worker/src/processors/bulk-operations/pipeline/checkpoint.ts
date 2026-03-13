@@ -26,6 +26,10 @@ export type BulkIngestCheckpointV2 = Readonly<{
   lastCommitAtIso: string;
   /** True when deletes are safe to apply (full snapshot boundary). */
   isFullSnapshot: boolean;
+  /** Metafield patches flushed to shopify_products (only set for meta runs). */
+  committedProductMetafieldPatches?: number;
+  /** Metafield patches flushed to shopify_variants (only set for meta runs). */
+  committedVariantMetafieldPatches?: number;
 }>;
 
 export type BulkIngestCheckpoint = BulkIngestCheckpointV1 | BulkIngestCheckpointV2;
@@ -75,6 +79,9 @@ export function readIngestCheckpoint(cursorState: unknown): BulkIngestCheckpoint
   if (typeof committedLines !== 'number' || !Number.isFinite(committedLines)) return null;
   if (lastSuccessfulId !== null && typeof lastSuccessfulId !== 'string') return null;
 
+  const committedProductMetafieldPatches = checkpoint['committedProductMetafieldPatches'];
+  const committedVariantMetafieldPatches = checkpoint['committedVariantMetafieldPatches'];
+
   return {
     version: 2,
     committedRecords: Math.max(0, Math.trunc(committedRecords)),
@@ -85,6 +92,16 @@ export function readIngestCheckpoint(cursorState: unknown): BulkIngestCheckpoint
     lastSuccessfulId,
     lastCommitAtIso,
     isFullSnapshot,
+    committedProductMetafieldPatches:
+      typeof committedProductMetafieldPatches === 'number' &&
+      Number.isFinite(committedProductMetafieldPatches)
+        ? Math.max(0, Math.trunc(committedProductMetafieldPatches))
+        : 0,
+    committedVariantMetafieldPatches:
+      typeof committedVariantMetafieldPatches === 'number' &&
+      Number.isFinite(committedVariantMetafieldPatches)
+        ? Math.max(0, Math.trunc(committedVariantMetafieldPatches))
+        : 0,
   };
 }
 

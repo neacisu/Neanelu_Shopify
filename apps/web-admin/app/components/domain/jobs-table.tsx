@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { List, type RowComponentProps } from 'react-window';
 
 import { Badge } from '../ui/badge';
+import { Checkbox } from '../ui/checkbox';
 import { ProgressBar } from '../ui/progress-bar';
 import { Select } from '../ui/select';
 import { Button } from '../ui/button';
@@ -151,39 +152,34 @@ export function JobsTable(props: {
     return (
       <tr
         key={job.id}
-        className="group/row border-b last:border-b-0 transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/60 dark:border-slate-700/60"
+        className="group/row table-row-interactive border-b border-border/60 last:border-b-0"
       >
         <td className="px-3 py-2">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={selected.has(job.id)}
             disabled={Boolean(loading)}
             onChange={() => toggleOne(job.id)}
             aria-label={`Select job ${job.id}`}
-            className="rounded border-slate-300 dark:border-slate-600 dark:bg-slate-700"
           />
         </td>
         <td className="px-3 py-2">
-          <button
-            type="button"
-            className="font-mono text-xs text-primary hover:underline dark:text-blue-400"
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => void copyId(job.id)}
             title="Copy job id"
+            className="font-mono text-xs text-primary hover:bg-primary/5"
           >
             {job.id}
-          </button>
-          <div className="opacity-0 group-hover/row:opacity-100 transition-opacity">
-            <button
-              type="button"
-              className="text-caption text-muted hover:underline dark:text-slate-400"
-              onClick={() => onOpenDetails(job.id)}
-            >
+          </Button>
+          <div className="opacity-0 group-hover/row:opacity-100 focus-within:opacity-100 transition-opacity">
+            <Button variant="ghost" size="sm" onClick={() => onOpenDetails(job.id)}>
               Detalii
-            </button>
+            </Button>
           </div>
         </td>
         <td className="px-3 py-2">
-          <div className="max-w-lg truncate font-mono text-xs text-foreground/80 dark:text-slate-300">
+          <div className="max-w-lg truncate font-mono text-xs text-foreground/80">
             {job.payloadPreview ?? '—'}
           </div>
         </td>
@@ -194,48 +190,46 @@ export function JobsTable(props: {
           <Badge tone={statusTone(job.status)}>{job.status ?? 'unknown'}</Badge>
         </td>
         <td className="px-3 py-2">
-          <div className="flex items-center gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
-            <button
-              type="button"
-              className="rounded px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+          <div className="flex items-center gap-1 opacity-0 group-hover/row:opacity-100 focus-within:opacity-100 transition-opacity">
+            <Button
+              variant="ghost"
+              size="sm"
               disabled={Boolean(loading)}
               onClick={() => onAction('retry', [job.id])}
             >
               Reîncearcă
-            </button>
-            <button
-              type="button"
-              className="rounded px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               disabled={Boolean(loading)}
               onClick={() => onAction('promote', [job.id])}
             >
               Promovează
-            </button>
-            <button
-              type="button"
-              className="rounded px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30"
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               disabled={Boolean(loading)}
               onClick={() => onAction('delete', [job.id])}
+              className="text-error hover:bg-error/10"
             >
               Șterge
-            </button>
+            </Button>
             {dlqReplayEnabled ? (
-              <button
-                type="button"
-                className="rounded px-2 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-900/30"
+              <Button
+                variant="ghost"
+                size="sm"
                 disabled={Boolean(loading)}
                 onClick={() => onAction('dlq_replay', [job.id])}
+                className="text-warning hover:bg-warning/10"
               >
                 DLQ
-              </button>
+              </Button>
             ) : null}
-            <button
-              type="button"
-              className="rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
-              onClick={() => onOpenDetails(job.id)}
-            >
+            <Button variant="ghost" size="sm" onClick={() => onOpenDetails(job.id)}>
               Detalii
-            </button>
+            </Button>
           </div>
         </td>
       </tr>
@@ -267,23 +261,24 @@ export function JobsTable(props: {
     if (!job) return <div style={style} />;
 
     return (
-      <div style={style} className="flex items-center gap-4 border-b px-3 text-sm last:border-b-0">
-        <input
-          type="checkbox"
+      <div
+        style={style}
+        className="flex items-center gap-4 border-b border-border px-3 text-sm last:border-b-0"
+      >
+        <Checkbox
           checked={selected.has(job.id)}
           disabled={Boolean(loading)}
           onChange={() => toggleOne(job.id)}
           aria-label={`Select job ${job.id}`}
         />
         <div className="w-80">
-          <div
-            className="font-mono text-xs text-primary"
-            role="button"
-            tabIndex={0}
+          <button
+            type="button"
+            className="font-mono text-xs text-primary hover:underline"
             onClick={() => void copyId(job.id)}
           >
             {job.id}
-          </div>
+          </button>
           <button
             type="button"
             className="text-caption text-muted hover:underline"
@@ -351,20 +346,12 @@ export function JobsTable(props: {
         </div>
         <div className="min-w-48">
           <span className="inline-flex items-center gap-1.5">
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-              Status
-              <select
-                value={status}
-                onChange={(e) => onStatusChange(e.target.value)}
-                className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm transition-shadow duration-200 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 dark:focus:ring-blue-400/50"
-              >
-                {statusOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <Select
+              label="Status"
+              value={status}
+              onChange={(e) => onStatusChange((e.target as HTMLSelectElement).value)}
+              options={statusOptions}
+            />
             <InfoTooltip title="Filtrare status" side="bottom">
               Filtrează job-urile după statusul lor: În așteptare, Active, Eșuate, Amânate,
               Finalizate sau Toate. Selectează un status pentru a vedea doar job-urile
@@ -373,20 +360,12 @@ export function JobsTable(props: {
           </span>
         </div>
         <div className="min-w-32">
-          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-            Limit
-            <select
-              value={String(limit)}
-              onChange={(e) => onLimitChange(Number(e.target.value))}
-              className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm transition-shadow duration-200 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 dark:focus:ring-blue-400/50"
-            >
-              {limitOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Select
+            label="Limit"
+            value={String(limit)}
+            onChange={(e) => onLimitChange(Number((e.target as HTMLSelectElement).value))}
+            options={limitOptions.map((opt) => ({ label: opt.label, value: String(opt.value) }))}
+          />
         </div>
         <div className="flex items-center gap-2">
           <span className="inline-flex items-center gap-1">
@@ -397,7 +376,7 @@ export function JobsTable(props: {
             >
               Prev
             </Button>
-            <div className="text-caption text-muted dark:text-slate-400 tabular-nums">
+            <div className="text-caption text-muted tabular-nums">
               Pagina {page + 1} / {pageCount}
             </div>
             <Button
@@ -416,7 +395,7 @@ export function JobsTable(props: {
       </div>
 
       {selectedCount > 0 ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/30 p-3 dark:border-slate-700 dark:bg-slate-800/60">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-muted/30 p-3">
           <div className="text-caption">
             Selectate: <span className="font-mono">{selectedCount}</span>
           </div>
@@ -482,14 +461,13 @@ export function JobsTable(props: {
         </div>
       ) : null}
 
-      <div className="overflow-auto rounded-md border dark:border-slate-700">
+      <div className="overflow-x-auto rounded-md border border-border/80">
         {!useVirtual ? (
-          <table className="w-full border-collapse text-sm">
-            <thead className="bg-muted/20 dark:bg-slate-800/80 sticky top-0 z-10">
-              <tr className="dark:border-slate-700">
+          <table className="min-w-[700px] w-full border-collapse text-sm">
+            <thead className="bg-muted/20 sticky top-0 z-10">
+              <tr className="">
                 <th className="px-3 py-2 text-left">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={allOnPageSelected}
                     disabled={Boolean(loading)}
                     onChange={toggleAllOnPage}
@@ -518,8 +496,7 @@ export function JobsTable(props: {
         ) : (
           <div className="min-w-225">
             <div className="flex items-center gap-4 border-b bg-muted/20 px-3 py-2 text-sm">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={allOnPageSelected}
                 disabled={Boolean(loading)}
                 onChange={toggleAllOnPage}

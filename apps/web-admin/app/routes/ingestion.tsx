@@ -3,11 +3,14 @@ import { data, useFetcher, useLoaderData, useLocation, useNavigate } from 'react
 import { toast } from 'sonner';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useReducedMotion } from '../hooks/use-reduced-motion';
 import { useScrollReveal } from '../hooks/useScrollReveal';
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
+import { PageHeader } from '../components/layout/page-header';
 import { Tabs } from '../components/ui/tabs';
 import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
 import { InfoTooltip } from '../components/ui/info-tooltip';
 import { FileUpload } from '../components/ui/FileUpload';
 import { IngestionProgress, LogConsole } from '../components/domain/index.js';
@@ -198,6 +201,7 @@ type RouteActionData = IngestionActionResult;
 export default function IngestionPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const reducedMotion = useReducedMotion();
   const {
     currentRun: loaderRun,
     runId,
@@ -767,21 +771,19 @@ export default function IngestionPage() {
     <div
       ref={contentRef}
       className="space-y-6"
-      style={{
-        animation: contentVisible ? 'fadeSlideUp 0.4s ease-out both' : 'none',
-      }}
+      style={
+        reducedMotion
+          ? undefined
+          : {
+              animation: contentVisible ? 'fadeSlideUp 0.4s ease-out both' : 'none',
+            }
+      }
     >
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="space-y-1">
-          <Breadcrumbs items={breadcrumbs} />
-          <h1 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-slate-100 motion-safe:animate-[fadeSlideUp_0.5s_ease-out_both]">
-            Sincronizare catalog
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            Pornește sau monitorizează sincronizarea în masă cu Shopify și încarcă fișiere JSONL
-          </p>
-        </div>
-      </header>
+      <Breadcrumbs items={breadcrumbs} />
+      <PageHeader
+        title="Sincronizare catalog"
+        description="Pornește sau monitorizează sincronizarea în masă cu Shopify și încarcă fișiere JSONL"
+      />
 
       <span className="inline-flex items-center gap-1.5">
         <Tabs
@@ -798,22 +800,28 @@ export default function IngestionPage() {
         </InfoTooltip>
       </span>
 
+      <p className="sr-only" aria-live="polite" aria-atomic="true">
+        {isActive
+          ? `Sincronizare în curs: ${currentRun?.status ?? 'rulare'}`
+          : 'Nicio sincronizare activă'}
+      </p>
+
       {showShopifyStatusCard && (
-        <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 backdrop-blur-sm p-4 shadow-[var(--shadow-sm)] dark:border-slate-700/60 dark:bg-slate-900/80">
+        <Card variant="glass" padding="md" className="overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
+              <h2 className="text-lg font-semibold text-foreground">
                 {isShopifyRunning || isActive
                   ? 'Sincronizare Shopify în curs'
                   : 'Sincronizare Shopify finalizată'}
               </h2>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              <p className="mt-1 text-sm text-muted">
                 Status: {shopifyStatus ?? 'aștept răspuns Shopify'}
                 {shopifyOperation?.id ? ` · ${shopifyOperation.id}` : ''}
                 {shopifyStatus === 'CANCELING' ? ' · Se anulează…' : ''}
               </p>
               {Boolean(objectCountLabel ?? rootObjectCountLabel ?? fileSizeLabel) && (
-                <p className="mt-0.5 text-sm text-slate-500">
+                <p className="mt-0.5 text-sm text-muted">
                   {rootObjectCountLabel ? `Produse: ${rootObjectCountLabel}` : null}
                   {rootObjectCountLabel && objectCountLabel ? ' · ' : null}
                   {objectCountLabel ? `Obiecte: ${objectCountLabel}` : null}
@@ -822,12 +830,12 @@ export default function IngestionPage() {
                 </p>
               )}
               {finalShopifyMessage ? (
-                <p className="mt-0.5 text-sm text-slate-500">{finalShopifyMessage}</p>
+                <p className="mt-0.5 text-sm text-muted">{finalShopifyMessage}</p>
               ) : null}
               {shopifyStatus === 'COMPLETED' && shopifyOperation?.url ? (
                 <p className="mt-1 text-sm">
                   <a
-                    className="text-blue-600 underline hover:text-blue-700"
+                    className="text-primary underline hover:text-primary/80"
                     href={shopifyOperation.url}
                     target="_blank"
                     rel="noreferrer"
@@ -839,7 +847,7 @@ export default function IngestionPage() {
               {shopifyStatus === 'COMPLETED' && shopifyOperation?.partialDataUrl ? (
                 <p className="mt-1 text-sm">
                   <a
-                    className="text-blue-600 underline hover:text-blue-700"
+                    className="text-primary underline hover:text-primary/80"
                     href={shopifyOperation.partialDataUrl}
                     target="_blank"
                     rel="noreferrer"
@@ -854,16 +862,15 @@ export default function IngestionPage() {
                 variant="destructive"
                 onClick={cancelShopifyOperation}
                 disabled={actionFetcher.state !== 'idle' || shopifyStatus === 'CANCELING'}
-                className="transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
               >
                 Anulează sync Shopify
               </Button>
             ) : null}
           </div>
           {(isShopifyRunning || isActive) && (
-            <div className="mt-4 flex items-center gap-3 text-sm text-slate-500">
+            <div className="mt-4 flex items-center gap-3 text-sm text-muted">
               <span
-                className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600"
+                className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-border border-t-primary"
                 aria-hidden
               />
               Shopify procesează exportul în masă. Actualizarea este automată.
@@ -878,11 +885,11 @@ export default function IngestionPage() {
               )}
             </div>
           )}
-        </article>
+        </Card>
       )}
 
       {isActive && currentRun ? (
-        <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 backdrop-blur-sm p-4 shadow-[var(--shadow-sm)] dark:border-slate-700/60 dark:bg-slate-900/80">
+        <Card variant="glass" padding="md" className="overflow-hidden">
           <div className="space-y-6">
             <IngestionProgress
               currentStep={currentStep}
@@ -899,7 +906,7 @@ export default function IngestionPage() {
             />
 
             {downloadBytesLabel && downloadTotalLabel ? (
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-muted">
                 Descărcat {downloadBytesLabel} din {downloadTotalLabel}
                 {typeof downloadProgressPct === 'number' ? ` · ${downloadProgressPct}%` : ''}
               </p>
@@ -911,7 +918,6 @@ export default function IngestionPage() {
                   variant="secondary"
                   size="sm"
                   onClick={() => setShowRawLogs((prev) => !prev)}
-                  className="transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
                 >
                   {showRawLogs ? 'Ascunde log-uri brute' : 'Afișează log-uri brute'}
                 </Button>
@@ -933,23 +939,19 @@ export default function IngestionPage() {
                 {...(currentRun ? { endpoint: `/api/bulk/${currentRun.id}/logs/ws` } : {})}
               />
             ) : (
-              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/50 p-4 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
+              <div className="rounded-lg border border-dashed border-border bg-subtle/40 p-4 text-sm text-muted">
                 Log-urile brute sunt ascunse în timpul sincronizării pentru a reduce zgomotul.
               </div>
             )}
           </div>
-        </article>
+        </Card>
       ) : isSelectedRun && currentRun ? (
-        <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 backdrop-blur-sm p-4 shadow-[var(--shadow-sm)] dark:border-slate-700/60 dark:bg-slate-900/80">
+        <Card variant="glass" padding="md" className="overflow-hidden">
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
-                  Rulare {currentRun.id}
-                </h2>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Status: {currentRun.status}
-                </p>
+                <h2 className="text-lg font-semibold text-foreground">Rulare {currentRun.id}</h2>
+                <p className="text-sm text-muted">Status: {currentRun.status}</p>
               </div>
               <div className="flex flex-wrap gap-2">
                 {(currentRun.status === 'pending' || currentRun.status === 'running') && (
@@ -957,7 +959,6 @@ export default function IngestionPage() {
                     variant="destructive"
                     onClick={abortIngestion}
                     disabled={actionFetcher.state !== 'idle'}
-                    className="transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
                   >
                     Anulează rularea
                   </Button>
@@ -967,7 +968,6 @@ export default function IngestionPage() {
                   onClick={() => {
                     void navigate('/ingestion');
                   }}
-                  className="transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
                 >
                   Resetează selecția
                 </Button>
@@ -988,20 +988,20 @@ export default function IngestionPage() {
               {...(currentRun ? { endpoint: `/api/bulk/${currentRun.id}/logs/ws` } : {})}
             />
           </div>
-        </article>
+        </Card>
       ) : (
-        <article className="overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 backdrop-blur-sm p-6 shadow-[var(--shadow-sm)] dark:border-slate-700/60 dark:bg-slate-900/80">
+        <Card variant="glass" padding="lg" className="overflow-hidden">
           <div className="grid gap-6 lg:grid-cols-[2fr,3fr]">
             <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
+              <h2 className="text-lg font-semibold text-foreground">
                 Pornește o sincronizare completă
               </h2>
-              <p className="text-sm text-slate-500 dark:text-slate-400">
+              <p className="text-sm text-muted">
                 Pornește o ingestie completă a catalogului Shopify. Poți monitoriza progresul și
                 log-urile în timp real după ce rularea începe.
               </p>
               {recentRuns.length > 0 ? (
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-muted">
                   Ultima rulare: {recentRuns[0]?.completedAt ?? recentRuns[0]?.startedAt ?? '—'}
                 </p>
               ) : null}
@@ -1010,7 +1010,6 @@ export default function IngestionPage() {
                   variant="primary"
                   onClick={startIngestion}
                   loading={actionFetcher.state !== 'idle'}
-                  className="transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
                 >
                   Pornește sync complet
                 </Button>
@@ -1021,7 +1020,7 @@ export default function IngestionPage() {
                 </InfoTooltip>
               </span>
             </div>
-            <div className="rounded-lg border border-slate-200/80 bg-slate-50/50 p-4 dark:border-slate-700/60 dark:bg-slate-800/50">
+            <div className="rounded-lg border border-border bg-subtle/40 p-4">
               <FileUpload
                 label="Încarcă JSONL manual"
                 description="Încarcă un fișier JSONL pentru ingestie fără un bulk run Shopify. Util când ai date exportate manual sau dintr-o sursă externă."
@@ -1039,7 +1038,7 @@ export default function IngestionPage() {
               </div>
             </div>
           </div>
-        </article>
+        </Card>
       )}
     </div>
   );

@@ -33,40 +33,30 @@ export function ActivityTooltipContent({ active, payload }: ActivityTooltipProps
 
   return (
     <div
-      className="rounded-lg border border-slate-200/90 bg-white/95 px-3 py-2.5 text-xs shadow-lg backdrop-blur-sm ring-1 ring-slate-200/80 dark:border-slate-600/90 dark:bg-slate-800/95 dark:ring-slate-700/60"
+      className="rounded-lg border border-border/70 bg-card/95 px-3 py-2.5 text-xs shadow-lg backdrop-blur-sm ring-1 ring-border/60"
       style={{ minWidth: 160 }}
     >
-      <div className="mb-2 font-semibold text-slate-800 dark:text-slate-200">{datum.date}</div>
+      <div className="mb-2 font-semibold text-foreground">{datum.date}</div>
       <div className="space-y-1">
         <div className="flex items-center justify-between gap-4">
-          <span className="text-slate-500 dark:text-slate-400">Total</span>
-          <span className="font-mono font-medium tabular-nums text-slate-800 dark:text-slate-100">
-            {datum.total}
-          </span>
+          <span className="text-muted">Total</span>
+          <span className="font-mono font-medium tabular-nums text-foreground">{datum.total}</span>
         </div>
         <div className="flex items-center justify-between gap-4">
-          <span className="text-slate-500 dark:text-slate-400">Sync</span>
-          <span className="font-mono tabular-nums text-slate-700 dark:text-slate-300">
-            {datum.sync}
-          </span>
+          <span className="text-muted">Sync</span>
+          <span className="font-mono tabular-nums text-foreground">{datum.sync}</span>
         </div>
         <div className="flex items-center justify-between gap-4">
-          <span className="text-slate-500 dark:text-slate-400">Webhook</span>
-          <span className="font-mono tabular-nums text-slate-700 dark:text-slate-300">
-            {datum.webhook}
-          </span>
+          <span className="text-muted">Webhook</span>
+          <span className="font-mono tabular-nums text-foreground">{datum.webhook}</span>
         </div>
         <div className="flex items-center justify-between gap-4">
-          <span className="text-slate-500 dark:text-slate-400">Bulk</span>
-          <span className="font-mono tabular-nums text-slate-700 dark:text-slate-300">
-            {datum.bulk}
-          </span>
+          <span className="text-muted">Bulk</span>
+          <span className="font-mono tabular-nums text-foreground">{datum.bulk}</span>
         </div>
         <div className="flex items-center justify-between gap-4">
-          <span className="text-slate-500 dark:text-slate-400">AI Batch</span>
-          <span className="font-mono tabular-nums text-slate-700 dark:text-slate-300">
-            {datum.aiBatch}
-          </span>
+          <span className="text-muted">AI Batch</span>
+          <span className="font-mono tabular-nums text-foreground">{datum.aiBatch}</span>
         </div>
       </div>
     </div>
@@ -154,18 +144,16 @@ export function ActivityTimeline() {
               key={value}
               type="button"
               onClick={() => setDays(value as 7 | 14 | 30)}
-              className={`rounded border px-1.5 py-0.5 text-[10px] transition-colors ${
+              className={`interactive rounded border px-1.5 py-0.5 text-[10px] focus-ring-standard ${
                 days === value
-                  ? 'border-sky-400 bg-sky-50 text-sky-700 dark:border-sky-500 dark:bg-sky-950/50 dark:text-sky-300'
-                  : 'border-slate-200 bg-white text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                  ? 'border-primary bg-primary text-primary-foreground shadow-[var(--shadow-xs)]'
+                  : 'border-border bg-card text-muted hover:border-accent-border hover:bg-subtle/60 hover:text-foreground'
               }`}
             >
               {value}z
             </button>
           ))}
-          {query.isFetching ? (
-            <span className="text-xs text-slate-500 dark:text-slate-400">Se actualizează…</span>
-          ) : null}
+          {query.isFetching ? <span className="text-xs text-muted">Se actualizează…</span> : null}
         </div>
       }
     >
@@ -222,8 +210,8 @@ export function ActivityTimeline() {
                     dataKey="sync"
                     name="Sync"
                     stackId="1"
-                    stroke="#10b981"
-                    fill="#10b981"
+                    stroke="rgb(var(--color-success))"
+                    fill="rgb(var(--color-success))"
                     fillOpacity={0.4}
                     strokeWidth={1.5}
                     isAnimationActive
@@ -237,8 +225,8 @@ export function ActivityTimeline() {
                     dataKey="webhook"
                     name="Webhook"
                     stackId="1"
-                    stroke="#f59e0b"
-                    fill="#f59e0b"
+                    stroke="rgb(var(--color-warning))"
+                    fill="rgb(var(--color-warning))"
                     fillOpacity={0.4}
                     strokeWidth={1.5}
                     isAnimationActive
@@ -252,8 +240,8 @@ export function ActivityTimeline() {
                     dataKey="bulk"
                     name="Bulk"
                     stackId="1"
-                    stroke="#a855f7"
-                    fill="#a855f7"
+                    stroke="rgb(var(--color-accent))"
+                    fill="rgb(var(--color-accent))"
                     fillOpacity={0.4}
                     strokeWidth={1.5}
                     isAnimationActive
@@ -267,8 +255,8 @@ export function ActivityTimeline() {
                     dataKey="aiBatch"
                     name="AI Batch"
                     stackId="1"
-                    stroke="#ef4444"
-                    fill="#ef4444"
+                    stroke="rgb(var(--color-error))"
+                    fill="rgb(var(--color-error))"
                     fillOpacity={0.4}
                     strokeWidth={1.5}
                     isAnimationActive
@@ -281,10 +269,15 @@ export function ActivityTimeline() {
                     type="monotone"
                     dataKey="total"
                     name="Total"
-                    stroke="#0ea5e9"
+                    stroke="rgb(var(--color-primary))"
                     fill="none"
                     strokeWidth={2}
-                    activeDot={{ r: 4, fill: '#0ea5e9', stroke: '#fff', strokeWidth: 2 }}
+                    activeDot={{
+                      r: 4,
+                      fill: 'rgb(var(--color-primary))',
+                      stroke: 'rgb(var(--color-card))',
+                      strokeWidth: 2,
+                    }}
                     isAnimationActive
                     animationDuration={400}
                     animationEasing="ease-out"
@@ -307,10 +300,10 @@ export function ActivityTimeline() {
                 key={key}
                 type="button"
                 onClick={() => setVisible((state) => ({ ...state, [key]: !state[key] }))}
-                className={`rounded border px-2 py-0.5 text-[10px] transition-all ${
+                className={`interactive rounded border px-2 py-0.5 text-[10px] focus-ring-standard ${
                   visible[key]
-                    ? 'border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300'
-                    : 'border-slate-200 bg-white text-slate-400 line-through dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500'
+                    ? 'border-primary bg-primary/15 text-primary shadow-[var(--shadow-xs)]'
+                    : 'border-border bg-card text-muted line-through hover:border-accent-border hover:bg-subtle/50 hover:text-foreground'
                 }`}
               >
                 {label}

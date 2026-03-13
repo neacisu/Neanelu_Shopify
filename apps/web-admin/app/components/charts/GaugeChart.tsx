@@ -1,5 +1,6 @@
 import { useId, useMemo } from 'react';
 
+import { useReducedMotion } from '../../hooks/use-reduced-motion';
 import { useChartTheme } from './theme.js';
 
 export type GaugeThreshold = Readonly<{ value: number; color: string }>;
@@ -23,7 +24,7 @@ export type GaugeChartProps = Readonly<{
 }>;
 
 const DEFAULT_SIZE = 84;
-const DEFAULT_FILL_COLOR = '#0ea5e9';
+const DEFAULT_FILL_COLOR = 'rgb(var(--color-primary))';
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -89,6 +90,7 @@ export function GaugeChart({
   ariaLabel,
 }: GaugeChartProps) {
   const uid = useId().replace(/:/g, '');
+  const reducedMotion = useReducedMotion();
   const { semantic } = useChartTheme();
 
   const resolvedTrackColor = trackColor ?? semantic.track;
@@ -161,7 +163,7 @@ export function GaugeChart({
         width: size,
         height: size,
         position: 'relative',
-        animation: 'gaugeEnter 0.5s ease-out both',
+        ...(reducedMotion ? {} : { animation: 'gaugeEnter 0.5s ease-out both' }),
       }}
       role="img"
       aria-label={ariaLabel ?? `Gauge ${displayValue}${label ? ` ${label}` : ''}`}
@@ -282,14 +284,14 @@ export function GaugeChart({
           {showValue ? (
             <div
               key={displayValue}
-              className="text-xs font-semibold tabular-nums text-slate-700 dark:text-slate-200"
-              style={{ animation: 'gaugeValuePop 0.4s ease-out both' }}
+              className="text-xs font-semibold tabular-nums text-foreground"
+              style={reducedMotion ? undefined : { animation: 'gaugeValuePop 0.4s ease-out both' }}
             >
               {displayValue}
             </div>
           ) : null}
           {label ? (
-            <div className="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <div className="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-muted">
               {label}
             </div>
           ) : null}

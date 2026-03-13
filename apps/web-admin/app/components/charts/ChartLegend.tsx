@@ -29,7 +29,7 @@ export function ChartLegend({
   onToggle,
   formatter,
   wrapperStyle,
-  inactiveColor = 'var(--color-muted, #94a3b8)',
+  inactiveColor = 'rgb(var(--color-muted))',
   onClick: onClickProp,
   ...props
 }: ChartLegendProps) {

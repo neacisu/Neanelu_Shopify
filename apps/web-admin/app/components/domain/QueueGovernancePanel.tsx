@@ -43,7 +43,7 @@ export function QueueGovernancePanel({
   actionsDisabled = false,
 }: QueueGovernancePanelProps) {
   return (
-    <div className="rounded-lg border border-muted/20 bg-background p-4 dark:border-slate-700/60 dark:bg-slate-900/80">
+    <div className="rounded-lg border border-muted/20 bg-background p-4">
       <div className="mb-3 flex items-center justify-between">
         <div>
           <div className="inline-flex items-center gap-1.5 text-sm font-medium">
@@ -82,18 +82,16 @@ export function QueueGovernancePanel({
         {providers.map((provider) => (
           <div
             key={provider.provider}
-            className="rounded border border-muted/20 bg-background/50 p-2 dark:border-slate-700/60 dark:bg-slate-800/50"
+            className="rounded border border-muted/20 bg-background/50 p-2"
           >
-            <div className="text-xs text-muted uppercase dark:text-slate-400">
-              {provider.provider}
-            </div>
+            <div className="text-xs text-muted uppercase">{provider.provider}</div>
             <div
               className={`text-xs ${
                 provider.exceeded
-                  ? 'text-red-500 dark:text-red-400'
+                  ? 'text-error'
                   : provider.alertTriggered
-                    ? 'text-amber-500 dark:text-amber-400'
-                    : 'text-emerald-500 dark:text-emerald-400'
+                    ? 'text-warning'
+                    : 'text-success'
               }`}
             >
               {provider.exceeded ? 'Depășit' : provider.alertTriggered ? 'Atenție' : 'În regulă'} (
@@ -107,16 +105,14 @@ export function QueueGovernancePanel({
         {queues.map((queue) => (
           <div
             key={queue.queueName}
-            className="flex items-center justify-between rounded border border-muted/20 bg-background/50 p-2 dark:border-slate-700/60 dark:bg-slate-800/50"
+            className="flex items-center justify-between rounded border border-muted/20 bg-background/50 p-2"
           >
             <div>
-              <div className="text-sm dark:text-slate-200">{toQueueLabel(queue.queueName)}</div>
-              {queue.error ? (
-                <div className="text-xs text-red-500 dark:text-red-400">{queue.error}</div>
-              ) : null}
+              <div className="text-sm">{toQueueLabel(queue.queueName)}</div>
+              {queue.error ? <div className="text-xs text-error">{queue.error}</div> : null}
             </div>
             <div
-              className={`text-xs ${queue.paused ? 'text-amber-500 dark:text-amber-400' : 'text-emerald-500 dark:text-emerald-400'}`}
+              className={`text-xs ${queue.paused ? 'text-warning' : 'text-success'}`}
               aria-label={`${queue.queueName} status`}
             >
               {queue.paused ? 'Pauzată' : 'Activă'}

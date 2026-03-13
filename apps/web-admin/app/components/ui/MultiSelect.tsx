@@ -161,7 +161,7 @@ export function MultiSelect(props: MultiSelectProps) {
 
       <div
         className={
-          'mt-1.5 rounded-xl border border-border bg-card p-2.5 text-sm shadow-[var(--shadow-sm)] transition-[border-color,box-shadow] duration-200 focus-within:border-accent focus-within:shadow-[0_0_0_3px_rgba(59,130,246,0.15)] dark:focus-within:shadow-[0_0_0_3px_rgba(96,165,250,0.2)] ' +
+          'mt-1.5 rounded-xl border border-border bg-card p-2.5 text-sm shadow-[var(--shadow-sm)] transition-[border-color,box-shadow] duration-200 focus-within:border-accent focus-within:ring-2 focus-within:ring-ring/40 ' +
           (disabled ? 'opacity-60' : '')
         }
         onMouseDown={(e) => {
@@ -174,13 +174,13 @@ export function MultiSelect(props: MultiSelectProps) {
           {selectedLabels.map((o) => (
             <span
               key={o.value}
-              className="inline-flex items-center gap-1 rounded-lg border border-border bg-subtle/80 py-1 pl-2.5 pr-1.5 text-sm text-foreground motion-safe:animate-[fadeIn_150ms_ease-out] dark:border-slate-600 dark:bg-slate-700/60"
+              className="inline-flex items-center gap-1 rounded-lg border border-border bg-subtle/80 py-1 pl-2.5 pr-1.5 text-sm text-foreground motion-safe:animate-[fadeIn_150ms_ease-out]"
             >
               <span className="max-w-48 truncate">{o.label}</span>
               <button
                 type="button"
                 aria-label={`Elimină ${o.label}`}
-                className="rounded-md p-0.5 text-muted transition-all duration-150 hover:bg-red-100 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:hover:bg-red-900/30 dark:hover:text-red-400"
+                className="rounded-md p-0.5 text-muted transition-all duration-150 hover:bg-error/10 hover:text-error focus-ring-standard"
                 disabled={disabled}
                 onClick={(e) => {
                   e.preventDefault();
@@ -289,7 +289,7 @@ export function MultiSelect(props: MultiSelectProps) {
           className="relative"
           aria-label={`${label} options`}
         >
-          <div className="absolute z-50 mt-1.5 w-full overflow-hidden rounded-xl border border-white/20 bg-white/80 shadow-lg shadow-black/5 backdrop-blur-xl motion-safe:animate-[fadeSlideUp_0.2s_ease-out] dark:border-white/10 dark:bg-slate-900/80 dark:shadow-black/20">
+          <div className="absolute z-50 mt-1.5 w-full overflow-hidden rounded-xl border border-border bg-card/80 shadow-lg shadow-black/5 backdrop-blur-xl motion-safe:animate-[fadeSlideUp_0.2s_ease-out]">
             <div className="max-h-64 overflow-y-auto">
               {menuItems.length > 0 ? (
                 menuItems.map((item, idx) => {
@@ -307,9 +307,7 @@ export function MultiSelect(props: MultiSelectProps) {
                         tabIndex={-1}
                         className={
                           'flex w-full items-center justify-between px-3 py-2.5 text-left text-sm text-foreground transition-colors duration-150 ' +
-                          (active
-                            ? 'bg-blue-50/80 dark:bg-blue-900/30'
-                            : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/50')
+                          (active ? 'bg-primary/5' : 'hover:bg-subtle')
                         }
                         onMouseEnter={() => setActiveIndex(idx)}
                         onMouseDown={(ev) => ev.preventDefault()}
@@ -339,10 +337,8 @@ export function MultiSelect(props: MultiSelectProps) {
                       tabIndex={-1}
                       disabled={disabled === true || optionDisabled}
                       className={
-                        'flex w-full items-center justify-between px-3 py-2.5 text-left text-sm text-foreground transition-colors duration-150 ' +
-                        (active
-                          ? 'bg-blue-50/80 dark:bg-blue-900/30'
-                          : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/50') +
+                        'flex w-full items-center justify-between px-3 py-2.5 text-left text-sm text-foreground transition-colors duration-150 focus-ring-standard ' +
+                        (active ? 'bg-primary/5' : 'hover:bg-subtle') +
                         (optionDisabled ? ' opacity-60' : '')
                       }
                       onMouseEnter={() => setActiveIndex(idx)}
@@ -353,8 +349,8 @@ export function MultiSelect(props: MultiSelectProps) {
                         <span
                           className={`flex size-4 shrink-0 items-center justify-center rounded border transition-colors ${
                             checked
-                              ? 'border-blue-500 bg-blue-500 text-white dark:border-blue-400 dark:bg-blue-500'
-                              : 'border-slate-300 dark:border-slate-600'
+                              ? 'border-primary bg-primary text-primary-foreground'
+                              : 'border-border'
                           }`}
                         >
                           {checked ? (

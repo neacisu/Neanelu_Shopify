@@ -43,9 +43,9 @@ export function ChartTooltipContent(props: ChartTooltipContentProps) {
   if (!active || !payload?.length) return null;
 
   return (
-    <div className="rounded-lg border border-slate-200/90 bg-white/95 px-3 py-2.5 text-xs shadow-lg backdrop-blur-sm dark:border-slate-600/90 dark:bg-slate-800/95 dark:backdrop-blur-sm">
+    <div className="rounded-lg border border-border bg-card/95 px-3 py-2.5 text-xs shadow-lg backdrop-blur-sm">
       {label !== undefined ? (
-        <div className="mb-1.5 font-semibold text-slate-700 dark:text-slate-200">{label}</div>
+        <div className="mb-1.5 font-semibold text-foreground">{label}</div>
       ) : null}
       <div className="space-y-1">
         {payload.map((p, index) => (
@@ -58,11 +58,9 @@ export function ChartTooltipContent(props: ChartTooltipContentProps) {
                 className="inline-block h-2.5 w-2.5 rounded-sm"
                 style={{ backgroundColor: p.color ?? 'currentColor' }}
               />
-              <span className="text-slate-500 dark:text-slate-400">
-                {toLegendLabel(p.name, p.dataKey)}
-              </span>
+              <span className="text-muted">{toLegendLabel(p.name, p.dataKey)}</span>
             </div>
-            <span className="font-mono font-medium tabular-nums text-slate-800 dark:text-slate-100">
+            <span className="font-mono font-medium tabular-nums text-foreground">
               {formatNumber(p.value)}
             </span>
           </div>

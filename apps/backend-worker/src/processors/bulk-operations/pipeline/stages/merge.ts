@@ -182,7 +182,9 @@ export async function runMergeFromStaging(params: {
              sp.has_only_default_variant,
              sp.total_inventory,
              sp.raw_data,
-             sp.imported_at
+             sp.imported_at,
+             sp.category_id,
+             COALESCE(sp.metafields, '{}'::jsonb) AS metafields
            FROM staging_products sp
            WHERE sp.bulk_run_id = $1
              AND sp.shop_id = $2
@@ -215,6 +217,8 @@ export async function runMergeFromStaging(params: {
            template_suffix,
            has_only_default_variant,
            total_inventory,
+           category_id,
+           metafields,
            created_at_shopify,
            updated_at_shopify,
            synced_at,
@@ -242,6 +246,8 @@ export async function runMergeFromStaging(params: {
           src.template_suffix,
            COALESCE(src.has_only_default_variant, true),
            src.total_inventory,
+           src.category_id,
+           src.metafields,
            ${normalizeNullTimestampExpr("src.raw_data->>'createdAt'")},
            ${normalizeNullTimestampExpr("src.raw_data->>'updatedAt'")},
            now(),
@@ -274,6 +280,8 @@ export async function runMergeFromStaging(params: {
              shopify_products.has_only_default_variant
            ),
            total_inventory = COALESCE(EXCLUDED.total_inventory, shopify_products.total_inventory),
+           category_id = COALESCE(EXCLUDED.category_id, shopify_products.category_id),
+           metafields = COALESCE(shopify_products.metafields, '{}'::jsonb) || COALESCE(EXCLUDED.metafields, '{}'::jsonb),
            created_at_shopify = COALESCE(EXCLUDED.created_at_shopify, shopify_products.created_at_shopify),
            updated_at_shopify = COALESCE(EXCLUDED.updated_at_shopify, shopify_products.updated_at_shopify),
            synced_at = now(),

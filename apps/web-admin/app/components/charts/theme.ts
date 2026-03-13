@@ -2,83 +2,89 @@ import { useEffect, useState } from 'react';
 
 /** Culori pentru grafice – paletă coerentă light/dark */
 export const chartColors = {
-  blue: '#2563eb',
-  green: '#16a34a',
-  red: '#dc2626',
-  amber: '#f59e0b',
-  violet: '#7c3aed',
-  gray: '#64748b',
+  blue: 'rgb(var(--chart-1))',
+  green: 'rgb(var(--chart-5))',
+  red: 'rgb(var(--color-error))',
+  amber: 'rgb(var(--color-warning))',
+  violet: 'rgb(var(--chart-4))',
+  gray: 'rgb(var(--color-muted))',
 } as const;
 
 export type ChartColor = keyof typeof chartColors;
 
 /** Paletă pentru grafice – light mode (contrast ridicat pe fundal deschis) */
 export const chartPaletteLight = [
-  chartColors.blue,
-  chartColors.green,
-  chartColors.amber,
-  chartColors.violet,
-  chartColors.red,
-  chartColors.gray,
+  'rgb(var(--chart-1))',
+  'rgb(var(--chart-2))',
+  'rgb(var(--chart-3))',
+  'rgb(var(--chart-4))',
+  'rgb(var(--chart-5))',
+  'rgb(var(--chart-6))',
 ] as const;
 
 /** Paletă pentru grafice – dark mode (tonuri mai deschise pentru vizibilitate) */
 export const chartPaletteDark = [
-  '#60a5fa', // blue-400
-  '#4ade80', // green-400
-  '#fbbf24', // amber-400
-  '#a78bfa', // violet-400
-  '#f87171', // red-400
-  '#94a3b8', // slate-400
+  'rgb(var(--chart-1))',
+  'rgb(var(--chart-2))',
+  'rgb(var(--chart-3))',
+  'rgb(var(--chart-4))',
+  'rgb(var(--chart-5))',
+  'rgb(var(--chart-6))',
 ] as const;
 
 /** Culori pentru text/etichete – light mode */
 export const chartTextLight = {
-  fill: '#475569',
-  axis: '#64748b',
-  legend: '#334155',
+  fill: 'rgb(var(--color-muted))',
+  axis: 'rgb(var(--color-muted))',
+  legend: 'rgb(var(--color-foreground))',
 } as const;
 
 /** Culori pentru text/etichete – dark mode */
 export const chartTextDark = {
-  fill: '#94a3b8',
-  axis: '#94a3b8',
-  legend: '#e2e8f0',
+  fill: 'rgb(var(--color-muted))',
+  axis: 'rgb(var(--color-muted))',
+  legend: 'rgb(var(--color-foreground))',
 } as const;
 
 /** Culori pentru grid/linii auxiliare */
-export const chartGridLight = '#e2e8f0';
-export const chartGridDark = '#334155';
+export const chartGridLight = 'rgb(var(--color-border))';
+export const chartGridDark = 'rgb(var(--color-border))';
 
 /** Culori semantice pentru elemente de chart (gauge, badges, etc.) */
 export const chartSemanticColors = {
   light: {
-    success: '#16a34a',
-    warning: '#f59e0b',
-    danger: '#dc2626',
-    info: '#2563eb',
-    track: '#e2e8f0',
-    needle: '#475569',
-    centerDot: '#ffffff',
-    centerDotStroke: '#94a3b8',
-    tooltipBg: '#ffffff',
-    tooltipBorder: '#e2e8f0',
-    tooltipText: '#334155',
+    success: 'rgb(var(--color-success))',
+    warning: 'rgb(var(--color-warning))',
+    danger: 'rgb(var(--color-error))',
+    info: 'rgb(var(--color-info))',
+    track: 'rgb(var(--color-border))',
+    needle: 'rgb(var(--color-muted))',
+    centerDot: 'rgb(var(--color-card))',
+    centerDotStroke: 'rgb(var(--color-border))',
+    tooltipBg: 'rgb(var(--color-card))',
+    tooltipBorder: 'rgb(var(--color-border))',
+    tooltipText: 'rgb(var(--color-foreground))',
   },
   dark: {
-    success: '#4ade80',
-    warning: '#fbbf24',
-    danger: '#f87171',
-    info: '#60a5fa',
-    track: '#334155',
-    needle: '#94a3b8',
-    centerDot: '#1e293b',
-    centerDotStroke: '#64748b',
-    tooltipBg: '#1e293b',
-    tooltipBorder: '#475569',
-    tooltipText: '#e2e8f0',
+    success: 'rgb(var(--color-success))',
+    warning: 'rgb(var(--color-warning))',
+    danger: 'rgb(var(--color-error))',
+    info: 'rgb(var(--color-info))',
+    track: 'rgb(var(--color-border))',
+    needle: 'rgb(var(--color-muted))',
+    centerDot: 'rgb(var(--color-card))',
+    centerDotStroke: 'rgb(var(--color-border))',
+    tooltipBg: 'rgb(var(--color-card))',
+    tooltipBorder: 'rgb(var(--color-border))',
+    tooltipText: 'rgb(var(--color-foreground))',
   },
 } as const;
+
+function readCssColor(variableName: string, fallback: string) {
+  if (typeof window === 'undefined') return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(variableName).trim();
+  return value ? `rgb(${value})` : fallback;
+}
 
 function detectDarkMode(): boolean {
   if (typeof document === 'undefined') return false;
@@ -122,10 +128,36 @@ export function useChartTheme() {
 
   return {
     isDark,
-    palette: isDark ? chartPaletteDark : chartPaletteLight,
-    text: isDark ? chartTextDark : chartTextLight,
-    grid: isDark ? chartGridDark : chartGridLight,
-    semantic: isDark ? chartSemanticColors.dark : chartSemanticColors.light,
-    background: isDark ? '#0f172a' : '#ffffff',
+    palette: [
+      readCssColor('--chart-1', chartPaletteLight[0]),
+      readCssColor('--chart-2', chartPaletteLight[1]),
+      readCssColor('--chart-3', chartPaletteLight[2]),
+      readCssColor('--chart-4', chartPaletteLight[3]),
+      readCssColor('--chart-5', chartPaletteLight[4]),
+      readCssColor('--chart-6', chartPaletteLight[5]),
+    ],
+    text: {
+      fill: readCssColor('--color-muted', chartTextLight.fill),
+      axis: readCssColor('--color-muted', chartTextLight.axis),
+      legend: readCssColor('--color-foreground', chartTextLight.legend),
+    },
+    grid: readCssColor('--color-border', isDark ? chartGridDark : chartGridLight),
+    semantic: {
+      success: readCssColor('--color-success', chartSemanticColors.light.success),
+      warning: readCssColor('--color-warning', chartSemanticColors.light.warning),
+      danger: readCssColor('--color-error', chartSemanticColors.light.danger),
+      info: readCssColor('--color-info', chartSemanticColors.light.info),
+      track: readCssColor('--color-border', chartSemanticColors.light.track),
+      needle: readCssColor('--color-muted', chartSemanticColors.light.needle),
+      centerDot: readCssColor('--color-card', chartSemanticColors.light.centerDot),
+      centerDotStroke: readCssColor('--color-border', chartSemanticColors.light.centerDotStroke),
+      tooltipBg: readCssColor('--color-card', chartSemanticColors.light.tooltipBg),
+      tooltipBorder: readCssColor('--color-border', chartSemanticColors.light.tooltipBorder),
+      tooltipText: readCssColor('--color-foreground', chartSemanticColors.light.tooltipText),
+    },
+    background: readCssColor(
+      '--color-card',
+      isDark ? 'rgb(var(--color-card))' : 'rgb(var(--color-card))'
+    ),
   };
 }

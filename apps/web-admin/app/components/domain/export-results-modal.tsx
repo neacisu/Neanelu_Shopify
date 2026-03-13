@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useReducedMotion } from '../../hooks/use-reduced-motion';
 
 import type { ProductSearchResult } from '@app/types';
 
@@ -36,6 +37,7 @@ export function ExportResultsModal({
   onPollAsyncExport,
   onCancelAsyncExport,
 }: ExportResultsModalProps) {
+  const reducedMotion = useReducedMotion();
   const [format, setFormat] = useState<ExportFormat>('csv');
   const [job, setJob] = useState<ExportJob | null>(null);
   const [loading, setLoading] = useState(false);
@@ -96,11 +98,11 @@ export function ExportResultsModal({
   return (
     <Modal open={open} onClose={onClose}>
       <div
-        className="space-y-4 rounded-xl bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80"
-        style={{ animation: 'fadeSlideUp 0.3s ease-out both' }}
+        className="space-y-4 rounded-xl bg-card/80 backdrop-blur-sm p-4"
+        style={reducedMotion ? undefined : { animation: 'fadeSlideUp 0.3s ease-out both' }}
       >
         <div>
-          <h2 className="flex items-center gap-1.5 text-lg font-semibold text-slate-800 dark:text-slate-100">
+          <h2 className="flex items-center gap-1.5 text-lg font-semibold text-foreground">
             Export rezultate
             <InfoTooltip title="Export rezultate">
               Exportul descarcă rezultatele căutării curente într-un fișier local. Este util pentru
@@ -109,7 +111,7 @@ export function ExportResultsModal({
               exportul rulează în fundal — primești link de descărcare când e gata.
             </InfoTooltip>
           </h2>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          <p className="mt-1 text-sm text-muted">
             {isAsync
               ? `Export mare (${totalCount} rezultate). Exportul rulează în fundal.`
               : `Descarcă ${results.length} rezultate instant.`}
@@ -117,7 +119,7 @@ export function ExportResultsModal({
         </div>
 
         <div className="space-y-2 text-sm">
-          <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-muted">
             Format
             <InfoTooltip title="Format export">
               Formatul determină structura fișierului exportat. CSV este un tabel Excel-compatibil,
@@ -126,34 +128,34 @@ export function ExportResultsModal({
               potrivit pentru dezvoltatori.
             </InfoTooltip>
           </div>
-          <label className="flex cursor-pointer items-center gap-2 text-slate-700 transition-colors hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100">
+          <label className="flex cursor-pointer items-center gap-2 text-foreground transition-colors hover:text-foreground">
             <input
               type="radio"
               name="export-format"
               value="csv"
               checked={format === 'csv'}
               onChange={() => setFormat('csv')}
-              className="accent-blue-600 dark:accent-blue-400"
+              className="accent-primary"
             />
             CSV
           </label>
-          <label className="flex cursor-pointer items-center gap-2 text-slate-700 transition-colors hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100">
+          <label className="flex cursor-pointer items-center gap-2 text-foreground transition-colors hover:text-foreground">
             <input
               type="radio"
               name="export-format"
               value="json"
               checked={format === 'json'}
               onChange={() => setFormat('json')}
-              className="accent-blue-600 dark:accent-blue-400"
+              className="accent-primary"
             />
             JSON
           </label>
         </div>
 
         {job ? (
-          <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-sm dark:border-slate-700 dark:bg-slate-800/50">
-            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Status</div>
-            <div className="mt-0.5 text-sm text-slate-700 dark:text-slate-300">
+          <div className="rounded-xl border border-border bg-subtle p-3 text-sm">
+            <div className="text-xs font-medium text-muted">Status</div>
+            <div className="mt-0.5 text-sm text-foreground">
               {job.status === 'queued'
                 ? 'În coadă'
                 : job.status === 'processing'
@@ -166,12 +168,10 @@ export function ExportResultsModal({
             </div>
             {typeof job.progress === 'number' ? (
               <div className="mt-2">
-                <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                  Progres
-                </div>
-                <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                <div className="text-xs font-medium text-muted">Progres</div>
+                <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-subtle">
                   <div
-                    className="h-full rounded-full bg-emerald-500 motion-safe:transition-all motion-safe:duration-300"
+                    className="h-full rounded-full bg-success motion-safe:transition-all motion-safe:duration-300"
                     style={{ width: `${Math.max(0, Math.min(100, job.progress))}%` }}
                   />
                 </div>
@@ -180,13 +180,13 @@ export function ExportResultsModal({
             {job.status === 'completed' && job.downloadUrl ? (
               <a
                 href={job.downloadUrl}
-                className="mt-3 inline-flex text-sm font-medium text-emerald-600 hover:underline dark:text-emerald-400"
+                className="mt-3 inline-flex text-sm font-medium text-success hover:underline"
               >
                 Descarcă export
               </a>
             ) : null}
             {job.status === 'failed' && job.error ? (
-              <div className="mt-2 text-xs text-red-600 dark:text-red-400">{job.error}</div>
+              <div className="mt-2 text-xs text-error">{job.error}</div>
             ) : null}
           </div>
         ) : null}

@@ -2,17 +2,23 @@ import type { LoaderFunctionArgs } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
 import { useLoaderData, useNavigation, useRevalidator, useSearchParams } from 'react-router-dom';
 import type { DateRange } from 'react-day-picker';
-import { AlertCircle, Loader2, Trophy, TrendingDown, TrendingUp } from 'lucide-react';
+import { AlertCircle, Trophy, TrendingDown, TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
 import { DateRangePicker } from '../components/ui/DateRangePicker';
 import { InfoTooltip } from '../components/ui/info-tooltip';
+import { Select } from '../components/ui/select';
+import { TextField } from '../components/ui/text-field';
 import { Timeline, type TimelineEvent } from '../components/ui/Timeline';
 import { WebhookDeliveryStatusBadge } from '../components/domain/WebhookDeliveryStatusBadge';
+import { LoadingState } from '../components/patterns/loading-state.js';
+import { EmptyState } from '../components/patterns/empty-state';
 import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
 import { toUtcIsoRange } from '../utils/date-range';
 import { useEnrichmentStream } from '../hooks/useEnrichmentStream';
+import { StreamingIndicator } from '../components/ui/streaming-indicator.js';
 
 interface QualityEvent {
   id: string;
@@ -239,10 +245,16 @@ export default function QualityEventsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60">
+      <Card padding="md">
         <div className="mb-3 flex items-center justify-between">
-          <div className="flex items-center gap-1.5 text-caption text-slate-500 dark:text-slate-400">
+          <div className="flex items-center gap-1.5 text-caption text-primary">
             Filtre
+            <StreamingIndicator
+              active={stream.connected}
+              label="Stream activ"
+              variant="success"
+              showLabel
+            />
             <InfoTooltip title="Filtre evenimente">
               Filtrele permit restrângerea listei de evenimente. De ce contează: poți găsi rapid
               promovări, retrogradări sau praguri atinse. Exemplu: selectează „Promovat" pentru a
@@ -250,53 +262,43 @@ export default function QualityEventsPage() {
               pentru analize precise.
             </InfoTooltip>
           </div>
-          {isLoading ? (
-            <div className="inline-flex items-center gap-2 text-caption text-slate-500 dark:text-slate-400">
-              <Loader2 className="size-4 animate-spin" />
-              <span>Se incarca…</span>
-            </div>
-          ) : null}
+          {isLoading ? <LoadingState label="Se incarcă…" /> : null}
         </div>
 
         <div className="grid gap-3 lg:grid-cols-[200px_1fr_1fr_auto]">
-          <div>
-            <label className="flex items-center gap-1.5 text-caption text-slate-500 dark:text-slate-400">
-              Tip eveniment
-              <InfoTooltip title="Tip eveniment">
-                Tipul filtrează evenimentele după categorie: promovare, retrogradare, review sau
-                prag. De ce contează: fiecare tip reflectă o acțiune diferită în fluxul de calitate.
-                Exemplu: „Prag atins" arată când un milestone Golden Records a fost depășit. Sfat:
-                selectează „Toate" pentru o imagine completă.
-              </InfoTooltip>
-            </label>
-            <select
-              className="mt-1 h-9 w-full rounded-md border bg-white px-2 text-sm transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+          <span className="inline-flex items-start gap-1.5">
+            <Select
+              label="Tip eveniment"
               value={eventType}
-              onChange={(e) => setEventType((e.target as HTMLSelectElement).value)}
-            >
-              <option value="all">Toate</option>
-              <option value="quality_promoted">Promovat</option>
-              <option value="quality_demoted">Retrogradat</option>
-              <option value="review_requested">Review necesar</option>
-              <option value="milestone_reached">Prag atins</option>
-            </select>
-          </div>
-          <div>
-            <label className="flex items-center gap-1.5 text-caption text-slate-500 dark:text-slate-400">
-              Cautare produs
-              <InfoTooltip title="Căutare produs">
-                Căutarea permite filtrarea evenimentelor după ID-ul produsului. De ce contează: poți
-                urmări istoria unui produs specific. Exemplu: introdu ID-ul pentru a vedea toate
-                promovările și retrogradările sale. Sfat: copiază ID-ul din tabul Produse.
-              </InfoTooltip>
-            </label>
-            <input
-              className="mt-1 h-9 w-full rounded-md border bg-white px-2 text-sm transition-shadow duration-200 focus:ring-2 focus:ring-blue-500/40 dark:focus:ring-blue-400/50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+              options={[
+                { value: 'all', label: 'Toate' },
+                { value: 'quality_promoted', label: 'Promovat' },
+                { value: 'quality_demoted', label: 'Retrogradat' },
+                { value: 'review_requested', label: 'Review necesar' },
+                { value: 'milestone_reached', label: 'Prag atins' },
+              ]}
+              onChange={(e) => setEventType(e.target.value)}
+            />
+            <InfoTooltip title="Tip eveniment">
+              Tipul filtrează evenimentele după categorie: promovare, retrogradare, review sau prag.
+              De ce contează: fiecare tip reflectă o acțiune diferită în fluxul de calitate.
+              Exemplu: „Prag atins" arată când un milestone Golden Records a fost depășit. Sfat:
+              selectează „Toate" pentru o imagine completă.
+            </InfoTooltip>
+          </span>
+          <span className="inline-flex items-start gap-1.5">
+            <TextField
+              label="Cautare produs"
               placeholder="ID produs"
               value={query}
-              onChange={(e) => setQuery((e.target as HTMLInputElement).value)}
+              onChange={(e) => setQuery(e.target.value)}
             />
-          </div>
+            <InfoTooltip title="Căutare produs">
+              Căutarea permite filtrarea evenimentelor după ID-ul produsului. De ce contează: poți
+              urmări istoria unui produs specific. Exemplu: introdu ID-ul pentru a vedea toate
+              promovările și retrogradările sale. Sfat: copiază ID-ul din tabul Produse.
+            </InfoTooltip>
+          </span>
           <DateRangePicker
             label="Interval date"
             value={range}
@@ -340,17 +342,20 @@ export default function QualityEventsPage() {
             </Button>
           </div>
         </div>
-      </div>
+      </Card>
 
-      <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60">
+      <Card padding="md">
         {isLoading ? (
-          <div className="mb-3 inline-flex items-center gap-2 text-caption text-slate-500 dark:text-slate-400">
-            <Loader2 className="size-4 animate-spin" />
-            <span>Actualizez evenimentele…</span>
-          </div>
-        ) : null}
-        <Timeline events={timelineEvents} maxHeight={640} />
-      </div>
+          <LoadingState label="Actualizez evenimentele…" />
+        ) : timelineEvents.length === 0 ? (
+          <EmptyState
+            title="Niciun eveniment"
+            description="Nu există evenimente care să corespundă filtrelor aplicate."
+          />
+        ) : (
+          <Timeline events={timelineEvents} maxHeight={640} />
+        )}
+      </Card>
     </div>
   );
 }

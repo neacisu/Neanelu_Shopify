@@ -5,6 +5,7 @@ import { DollarSign, TrendingDown, TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
 import { InfoTooltip } from '../components/ui/info-tooltip';
 import { BudgetAlertsPanel } from '../components/domain/BudgetAlertsPanel';
 import { BudgetEditModal } from '../components/domain/BudgetEditModal';
@@ -13,6 +14,7 @@ import { CostBreakdownChart } from '../components/domain/CostBreakdownChart';
 import { ProviderComparisonTable } from '../components/domain/ProviderComparisonTable';
 import { QueueGovernancePanel } from '../components/domain/QueueGovernancePanel';
 import { LoadingState } from '../components/patterns/loading-state';
+import { ErrorState } from '../components/patterns/error-state';
 import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
 import { apiAction, createActionApiClient } from '../utils/actions';
 
@@ -258,6 +260,8 @@ export default function CostTrackingPage() {
     }
   }, [fetcher.data, revalidator]);
 
+  const actionError = !fetcher.data?.ok ? fetcher.data?.error?.message : undefined;
+
   return (
     <div className="space-y-6">
       <div className="flex justify-end">
@@ -306,11 +310,16 @@ export default function CostTrackingPage() {
 
       {isPageLoading ? <LoadingState label="Se reincarca datele de cost..." /> : null}
 
+      {actionError ? <ErrorState message={actionError} /> : null}
+
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
         <CostBreakdownChart data={costs.breakdown} />
 
-        <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-md dark:bg-slate-900/80 dark:border-slate-700/60">
-          <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+        <Card
+          padding="md"
+          className="transition-shadow duration-200 hover:shadow-[var(--shadow-md)]"
+        >
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-primary">
             <span>Cost per Golden Record</span>
             <InfoTooltip title="Cost per Golden Record">
               Costul per Golden Record este suma medie în USD pentru a aduce un produs la nivel
@@ -319,17 +328,17 @@ export default function CostTrackingPage() {
               monitorizează trendul săptămânal.
             </InfoTooltip>
           </div>
-          <div className="text-h3 text-slate-800 dark:text-slate-100">
+          <div className="text-h3 text-foreground">
             {costs.costPerGolden.current != null ? usd.format(costs.costPerGolden.current) : 'N/A'}
           </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400">
+          <div className="text-xs text-muted">
             Țintă:{' '}
             {costs.costPerGolden.target != null ? usd.format(costs.costPerGolden.target) : 'N/A'}
           </div>
           {trendLabel ? (
             <div
               className={`mt-2 inline-flex items-center gap-1 text-xs ${
-                trendDirection === 'up' ? 'text-emerald-500' : 'text-red-500'
+                trendDirection === 'up' ? 'text-success' : 'text-error'
               }`}
             >
               {trendDirection === 'up' ? (
@@ -340,11 +349,9 @@ export default function CostTrackingPage() {
               {trendLabel} față de perioada anterioară
             </div>
           ) : (
-            <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-              Date insuficiente pentru trend.
-            </div>
+            <div className="mt-2 text-xs text-muted">Date insuficiente pentru trend.</div>
           )}
-        </div>
+        </Card>
       </div>
 
       <ProviderComparisonTable
@@ -354,24 +361,18 @@ export default function CostTrackingPage() {
       />
 
       <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60">
-          <div className="text-xs text-slate-500 dark:text-slate-400">Azi</div>
-          <div className="text-h5 text-slate-800 dark:text-slate-100">
-            {usd.format(costs.today.total)}
-          </div>
-        </div>
-        <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60">
-          <div className="text-xs text-slate-500 dark:text-slate-400">Săptămâna curentă</div>
-          <div className="text-h5 text-slate-800 dark:text-slate-100">
-            {usd.format(costs.thisWeek.total)}
-          </div>
-        </div>
-        <div className="rounded-lg border border-muted/20 bg-white/80 backdrop-blur-sm p-4 dark:bg-slate-900/80 dark:border-slate-700/60">
-          <div className="text-xs text-slate-500 dark:text-slate-400">Luna curentă</div>
-          <div className="text-h5 text-slate-800 dark:text-slate-100">
-            {usd.format(costs.thisMonth.total)}
-          </div>
-        </div>
+        <Card padding="md">
+          <div className="text-xs text-primary">Azi</div>
+          <div className="text-h5 text-foreground">{usd.format(costs.today.total)}</div>
+        </Card>
+        <Card padding="md">
+          <div className="text-xs text-primary">Săptămâna curentă</div>
+          <div className="text-h5 text-foreground">{usd.format(costs.thisWeek.total)}</div>
+        </Card>
+        <Card padding="md">
+          <div className="text-xs text-primary">Luna curentă</div>
+          <div className="text-h5 text-foreground">{usd.format(costs.thisMonth.total)}</div>
+        </Card>
       </div>
 
       <BudgetEditModal

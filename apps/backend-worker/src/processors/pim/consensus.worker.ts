@@ -24,7 +24,15 @@ import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker
 type ConsensusJobPayload = Readonly<{
   shopId: string;
   productId: string;
-  trigger: 'match_confirmed' | 'extraction_complete' | 'manual' | 'batch';
+  trigger:
+    | 'match_confirmed'
+    | 'extraction_complete'
+    | 'manual'
+    | 'batch'
+    | 'direct_sync'
+    | 'similarity_complete'
+    | 'ai_audit_complete'
+    | 'extraction_failed';
 }>;
 
 type ConsensusBatchPayload = Readonly<{
@@ -150,8 +158,28 @@ async function processSingleConsensus(payload: ConsensusJobPayload, logger: Logg
       return;
     }
 
+    const startedAt = Date.now();
+    logger.info(
+      { productId: payload.productId, shopId: payload.shopId, trigger: payload.trigger },
+      'consensus_processing_started'
+    );
+
     try {
+      const computeStartedAt = Date.now();
       const result = await computeConsensusSafe({ client, productId: payload.productId });
+      logger.info(
+        {
+          productId: payload.productId,
+          qualityScore: result.qualityScore,
+          sourceCount: result.sourceCount,
+          conflictCount: result.conflicts.length,
+          blockedCount: result.conflicts.filter((c) => c.autoResolveDisabled).length,
+          needsReview: result.needsReview,
+          durationMs: Date.now() - computeStartedAt,
+        },
+        'consensus_computation_completed'
+      );
+
       const blockedAttributes = new Set(
         result.conflicts
           .filter((conflict) => conflict.autoResolveDisabled)
@@ -186,6 +214,14 @@ async function processSingleConsensus(payload: ConsensusJobPayload, logger: Logg
         consensusSpecs: filteredConsensusSpecs,
         provenance: filteredProvenance,
       });
+      logger.info(
+        {
+          productId: payload.productId,
+          mergedSpecCount: Object.keys(merged.merged).length,
+          skippedCount: merged.skipped.length,
+        },
+        'consensus_specs_merged'
+      );
 
       const needsReview = result.needsReview;
       const reviewReason = needsReview ? 'consensus_conflict' : null;
@@ -203,6 +239,10 @@ async function processSingleConsensus(payload: ConsensusJobPayload, logger: Logg
           JSON.stringify(result.qualityBreakdown),
           needsReview,
         ]
+      );
+      logger.info(
+        { productId: payload.productId, qualityScore: result.qualityScore, needsReview },
+        'consensus_db_updated'
       );
 
       await upsertProdSpecsSnapshot({
@@ -237,24 +277,68 @@ async function processSingleConsensus(payload: ConsensusJobPayload, logger: Logg
           },
           'Quality level changed after consensus'
         );
+      } else {
+        logger.info(
+          {
+            productId: payload.productId,
+            currentLevel: promotionResult.newLevel,
+            qualityScore: result.qualityScore,
+          },
+          'consensus_quality_level_unchanged'
+        );
       }
 
-      await enqueueCategoryClassifierJob({
-        shopId: payload.shopId,
-        productId: payload.productId,
-        trigger: 'consensus',
-      });
-      await enqueueDescriptionGeneratorJob({
-        shopId: payload.shopId,
-        productId: payload.productId,
-        trigger: 'consensus',
-      });
-      if (promotionResult.newLevel === 'silver' || promotionResult.newLevel === 'golden') {
-        await enqueueMetafieldPushJob({
+      const shouldDeferDownstream = payload.trigger === 'direct_sync' && result.sourceCount === 0;
+      if (shouldDeferDownstream) {
+        logger.info(
+          {
+            productId: payload.productId,
+            trigger: payload.trigger,
+            sourceCount: result.sourceCount,
+            qualityScore: result.qualityScore,
+            reason: 'awaiting_similarity_pipeline',
+          },
+          'consensus_downstream_jobs_deferred'
+        );
+      } else {
+        const categoryJobId = await enqueueCategoryClassifierJob({
           shopId: payload.shopId,
           productId: payload.productId,
           trigger: 'consensus',
         });
+        const descriptionJobId = await enqueueDescriptionGeneratorJob({
+          shopId: payload.shopId,
+          productId: payload.productId,
+          trigger: 'consensus',
+        });
+        let metafieldEnqueued = false;
+        if (promotionResult.newLevel === 'silver' || promotionResult.newLevel === 'golden') {
+          await enqueueMetafieldPushJob({
+            shopId: payload.shopId,
+            productId: payload.productId,
+            trigger: 'consensus',
+          });
+          metafieldEnqueued = true;
+        } else {
+          logger.info(
+            {
+              productId: payload.productId,
+              currentLevel: promotionResult.newLevel,
+              qualityScore: result.qualityScore,
+              reason: 'quality_level_below_silver',
+            },
+            'metafield_push_skipped'
+          );
+        }
+        logger.info(
+          {
+            productId: payload.productId,
+            categoryJobId,
+            descriptionJobId,
+            metafieldEnqueued,
+          },
+          'consensus_downstream_jobs_enqueued'
+        );
       }
 
       if (merged.skipped.length > 0) {
@@ -263,6 +347,16 @@ async function processSingleConsensus(payload: ConsensusJobPayload, logger: Logg
           'Skipped manual-correction fields during consensus merge'
         );
       }
+
+      logger.info(
+        {
+          productId: payload.productId,
+          shopId: payload.shopId,
+          trigger: payload.trigger,
+          totalDurationMs: Date.now() - startedAt,
+        },
+        'consensus_processing_completed'
+      );
     } finally {
       // Transaction-scoped locks are auto-released on COMMIT/ROLLBACK.
     }

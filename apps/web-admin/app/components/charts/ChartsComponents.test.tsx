@@ -83,8 +83,8 @@ describe('Charts components (F3.9.6–F3.9.10)', () => {
         min={0}
         max={100}
         thresholds={[
-          { value: 0, color: '#00ff00' },
-          { value: 80, color: '#ff0000' },
+          { value: 0, color: 'rgb(var(--color-success))' },
+          { value: 80, color: 'rgb(var(--color-error))' },
         ]}
         showValue
         label="CPU"
@@ -95,7 +95,7 @@ describe('Charts components (F3.9.6–F3.9.10)', () => {
     const paths = container.querySelectorAll('svg path');
     const progressPath = paths[paths.length - 1];
     expect(progressPath).toBeTruthy();
-    expect(progressPath?.getAttribute('stroke')).toBe('#ff0000');
+    expect(progressPath?.getAttribute('stroke')).toBe('rgb(var(--color-error))');
 
     const needleGroup = container.querySelector('svg g');
     expect(needleGroup).toBeTruthy();

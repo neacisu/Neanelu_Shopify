@@ -17,6 +17,6 @@ describe('PromotionRateCard', () => {
       <PromotionRateCard label="Necesita review" value={3} variant="warning" icon={<Flame />} />
     );
     expect(screen.getAllByText('Necesita review').length).toBeGreaterThan(0);
-    expect(container.querySelector('.border-amber-300\\/80')).toBeTruthy();
+    expect(container.querySelector('.border-warning\\/50')).toBeTruthy();
   });
 });

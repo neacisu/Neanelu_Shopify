@@ -39,22 +39,22 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     });
 
     const baseStyles =
-      'group relative inline-flex items-center justify-center overflow-hidden whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-all duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50';
+      'group relative inline-flex items-center justify-center overflow-hidden whitespace-nowrap rounded-md text-sm font-medium transition-all duration-normal ease-out-enterprise focus-ring-standard disabled:pointer-events-none disabled:opacity-50';
 
     const variants: Record<ButtonVariant, string> = {
       primary:
-        'border border-transparent bg-slate-900 text-white shadow-[var(--shadow-sm)] hover:-translate-y-0.5 hover:bg-gradient-to-r hover:from-slate-800 hover:to-slate-700 hover:shadow-lg hover:shadow-slate-900/20 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white',
+        'border border-transparent bg-primary text-primary-foreground shadow-[var(--shadow-sm)] hover:-translate-y-0.5 hover:brightness-110 hover:shadow-[var(--shadow-md)] active:translate-y-0 active:brightness-95',
       secondary:
-        'border border-slate-200 bg-white text-slate-700 shadow-[var(--shadow-sm)] hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-[var(--shadow-md)] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800',
+        'border border-border bg-card text-foreground shadow-[var(--shadow-sm)] hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/5 hover:shadow-[var(--shadow-md)] active:translate-y-0',
       positive:
-        'border border-emerald-200 bg-white text-emerald-700 shadow-[var(--shadow-sm)] hover:-translate-y-0.5 hover:bg-emerald-600 hover:text-white hover:shadow-[var(--shadow-md)] hover:animate-[pulse-soft_1s_ease-in-out_infinite] dark:border-emerald-900 dark:bg-slate-900 dark:text-emerald-300',
+        'border border-success/40 bg-success/10 text-success shadow-[var(--shadow-sm)] hover:-translate-y-0.5 hover:bg-success hover:text-success-foreground hover:shadow-[var(--shadow-md)] active:translate-y-0',
       destructive:
-        'border border-rose-200 bg-white text-rose-700 shadow-[var(--shadow-sm)] hover:-translate-y-0.5 hover:bg-rose-600 hover:text-white hover:shadow-[var(--shadow-md)] hover:animate-[shake_0.3s_ease-in-out] dark:border-rose-900 dark:bg-slate-900 dark:text-rose-300',
+        'border border-error/40 bg-error/10 text-error shadow-[var(--shadow-sm)] hover:-translate-y-0.5 hover:bg-error hover:text-error-foreground hover:shadow-[var(--shadow-md)] active:translate-y-0',
       neutral:
-        'border border-amber-200 bg-white text-amber-700 shadow-[var(--shadow-sm)] hover:-translate-y-0.5 hover:bg-amber-500 hover:text-slate-900 hover:shadow-[var(--shadow-md)] dark:border-amber-900 dark:bg-slate-900 dark:text-amber-300',
+        'border border-warning/40 bg-warning/10 text-warning shadow-[var(--shadow-sm)] hover:-translate-y-0.5 hover:bg-warning hover:text-warning-foreground hover:shadow-[var(--shadow-md)] active:translate-y-0',
       ghost:
-        'border border-transparent text-slate-700 hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-slate-800',
-      link: 'border border-transparent text-slate-900 underline-offset-4 hover:underline dark:text-slate-100',
+        'border border-transparent text-foreground hover:bg-primary/8 hover:text-primary active:bg-primary/12',
+      link: 'border border-transparent text-primary underline-offset-4 hover:underline hover:text-primary/80',
     };
 
     const sizes: Record<ButtonSize, string> = {
@@ -84,13 +84,14 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         className={combinedClassName}
         ref={ref}
         disabled={(disabled ?? false) || (loading ?? false)}
+        aria-busy={loading ? true : undefined}
         onMouseDown={handleMouseDown}
         {...props}
       >
         {ripple.show ? (
           <span
             aria-hidden
-            className="pointer-events-none absolute rounded-full bg-white/30 animate-[ripple_0.5s_ease-out]"
+            className="pointer-events-none absolute rounded-full bg-card/30 animate-[ripple_0.5s_ease-out]"
             style={{
               left: ripple.x,
               top: ripple.y,
