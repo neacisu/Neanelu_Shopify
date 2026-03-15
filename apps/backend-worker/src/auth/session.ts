@@ -28,6 +28,8 @@ export interface SessionData {
   shopId: string;
   shopDomain: string;
   createdAt: number;
+  staffUserId?: string | null;
+  staffEmail?: string | null;
 }
 
 type ShopifySessionTokenHeader = Readonly<{
@@ -159,6 +161,8 @@ export function verifySessionToken(token: string, secret: string): SessionData |
 
     // Verifică că datele au forma corectă
     if (!data.shopId || !data.shopDomain || !data.createdAt) return null;
+    if (data.staffUserId != null && typeof data.staffUserId !== 'string') return null;
+    if (data.staffEmail != null && typeof data.staffEmail !== 'string') return null;
 
     return data;
   } catch {

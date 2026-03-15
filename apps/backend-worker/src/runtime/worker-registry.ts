@@ -40,6 +40,20 @@ let metafieldPushWorker: WorkerLike | null = null;
 let collectionMetafieldPushWorker: WorkerLike | null = null;
 let collectionShopifySyncWorker: WorkerLike | null = null;
 let collectionsSyncWorker: WorkerLike | null = null;
+let lexExtractFragmentsWorker: WorkerLike | null = null;
+let lexExtractEntitiesWorker: WorkerLike | null = null;
+let lexMineTermsWorker: WorkerLike | null = null;
+let lexAggregateStatsWorker: WorkerLike | null = null;
+let lexBuildContextsWorker: WorkerLike | null = null;
+let lexEmbedContextsWorker: WorkerLike | null = null;
+let lexClusterSensesWorker: WorkerLike | null = null;
+let lexResolveAttributesWorker: WorkerLike | null = null;
+let lexTranslateCandidatesWorker: WorkerLike | null = null;
+let lexComposeLocalizationsWorker: WorkerLike | null = null;
+let lexReviewEnqueueWorker: WorkerLike | null = null;
+let lexPublishWorker: WorkerLike | null = null;
+let lexScheduleWorker: WorkerLike | null = null;
+let lexRetentionWorker: WorkerLike | null = null;
 
 const currentJobByWorkerId = new Map<string, WorkerCurrentJob>();
 
@@ -151,6 +165,62 @@ export function setCollectionsSyncWorkerHandle(handle: WorkerHandleLike | null):
   collectionsSyncWorker = handle?.worker ?? null;
 }
 
+export function setLexExtractFragmentsWorkerHandle(handle: WorkerHandleLike | null): void {
+  lexExtractFragmentsWorker = handle?.worker ?? null;
+}
+
+export function setLexExtractEntitiesWorkerHandle(handle: WorkerHandleLike | null): void {
+  lexExtractEntitiesWorker = handle?.worker ?? null;
+}
+
+export function setLexMineTermsWorkerHandle(handle: WorkerHandleLike | null): void {
+  lexMineTermsWorker = handle?.worker ?? null;
+}
+
+export function setLexAggregateStatsWorkerHandle(handle: WorkerHandleLike | null): void {
+  lexAggregateStatsWorker = handle?.worker ?? null;
+}
+
+export function setLexBuildContextsWorkerHandle(handle: WorkerHandleLike | null): void {
+  lexBuildContextsWorker = handle?.worker ?? null;
+}
+
+export function setLexEmbedContextsWorkerHandle(handle: WorkerHandleLike | null): void {
+  lexEmbedContextsWorker = handle?.worker ?? null;
+}
+
+export function setLexClusterSensesWorkerHandle(handle: WorkerHandleLike | null): void {
+  lexClusterSensesWorker = handle?.worker ?? null;
+}
+
+export function setLexResolveAttributesWorkerHandle(handle: WorkerHandleLike | null): void {
+  lexResolveAttributesWorker = handle?.worker ?? null;
+}
+
+export function setLexTranslateCandidatesWorkerHandle(handle: WorkerHandleLike | null): void {
+  lexTranslateCandidatesWorker = handle?.worker ?? null;
+}
+
+export function setLexComposeLocalizationsWorkerHandle(handle: WorkerHandleLike | null): void {
+  lexComposeLocalizationsWorker = handle?.worker ?? null;
+}
+
+export function setLexReviewEnqueueWorkerHandle(handle: WorkerHandleLike | null): void {
+  lexReviewEnqueueWorker = handle?.worker ?? null;
+}
+
+export function setLexPublishWorkerHandle(handle: WorkerHandleLike | null): void {
+  lexPublishWorker = handle?.worker ?? null;
+}
+
+export function setLexScheduleWorkerHandle(handle: WorkerHandleLike | null): void {
+  lexScheduleWorker = handle?.worker ?? null;
+}
+
+export function setLexRetentionWorkerHandle(handle: WorkerHandleLike | null): void {
+  lexRetentionWorker = handle?.worker ?? null;
+}
+
 export function setWorkerCurrentJob(workerId: string, job: WorkerCurrentJob): void {
   currentJobByWorkerId.set(workerId, job);
 }
@@ -210,6 +280,20 @@ export function getWorkerReadiness(): Readonly<{
   collectionMetafieldPushWorkerOk: boolean | null;
   collectionShopifySyncWorkerOk: boolean | null;
   collectionsSyncWorkerOk: boolean | null;
+  lexExtractFragmentsWorkerOk: boolean | null;
+  lexExtractEntitiesWorkerOk: boolean | null;
+  lexMineTermsWorkerOk: boolean | null;
+  lexAggregateStatsWorkerOk: boolean | null;
+  lexBuildContextsWorkerOk: boolean | null;
+  lexEmbedContextsWorkerOk: boolean | null;
+  lexClusterSensesWorkerOk: boolean | null;
+  lexResolveAttributesWorkerOk: boolean | null;
+  lexTranslateCandidatesWorkerOk: boolean | null;
+  lexComposeLocalizationsWorkerOk: boolean | null;
+  lexReviewEnqueueWorkerOk: boolean | null;
+  lexPublishWorkerOk: boolean | null;
+  lexScheduleWorkerOk: boolean | null;
+  lexRetentionWorkerOk: boolean | null;
 }> {
   return {
     webhookWorkerOk: isWorkerRunning(webhookWorker),
@@ -263,5 +347,39 @@ export function getWorkerReadiness(): Readonly<{
       ? isWorkerRunning(collectionShopifySyncWorker)
       : null,
     collectionsSyncWorkerOk: collectionsSyncWorker ? isWorkerRunning(collectionsSyncWorker) : null,
+    lexExtractFragmentsWorkerOk: lexExtractFragmentsWorker
+      ? isWorkerRunning(lexExtractFragmentsWorker)
+      : null,
+    lexExtractEntitiesWorkerOk: lexExtractEntitiesWorker
+      ? isWorkerRunning(lexExtractEntitiesWorker)
+      : null,
+    lexMineTermsWorkerOk: lexMineTermsWorker ? isWorkerRunning(lexMineTermsWorker) : null,
+    lexAggregateStatsWorkerOk: lexAggregateStatsWorker
+      ? isWorkerRunning(lexAggregateStatsWorker)
+      : null,
+    lexBuildContextsWorkerOk: lexBuildContextsWorker
+      ? isWorkerRunning(lexBuildContextsWorker)
+      : null,
+    lexEmbedContextsWorkerOk: lexEmbedContextsWorker
+      ? isWorkerRunning(lexEmbedContextsWorker)
+      : null,
+    lexClusterSensesWorkerOk: lexClusterSensesWorker
+      ? isWorkerRunning(lexClusterSensesWorker)
+      : null,
+    lexResolveAttributesWorkerOk: lexResolveAttributesWorker
+      ? isWorkerRunning(lexResolveAttributesWorker)
+      : null,
+    lexTranslateCandidatesWorkerOk: lexTranslateCandidatesWorker
+      ? isWorkerRunning(lexTranslateCandidatesWorker)
+      : null,
+    lexComposeLocalizationsWorkerOk: lexComposeLocalizationsWorker
+      ? isWorkerRunning(lexComposeLocalizationsWorker)
+      : null,
+    lexReviewEnqueueWorkerOk: lexReviewEnqueueWorker
+      ? isWorkerRunning(lexReviewEnqueueWorker)
+      : null,
+    lexPublishWorkerOk: lexPublishWorker ? isWorkerRunning(lexPublishWorker) : null,
+    lexScheduleWorkerOk: lexScheduleWorker ? isWorkerRunning(lexScheduleWorker) : null,
+    lexRetentionWorkerOk: lexRetentionWorker ? isWorkerRunning(lexRetentionWorker) : null,
   };
 }

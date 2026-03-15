@@ -25,6 +25,96 @@ void mock.module(latencyPath, {
   },
 });
 
+void mock.module('@app/database', {
+  namedExports: {
+    withTenantContext: async (
+      _shopId: string,
+      cb: (client: {
+        query: <TRow extends Record<string, unknown> = Record<string, unknown>>(
+          sql: string
+        ) => Promise<{ rows: TRow[] }>;
+      }) => Promise<unknown>
+    ) =>
+      await cb({
+        query: <TRow extends Record<string, unknown> = Record<string, unknown>>(
+          sql: string
+        ): Promise<{ rows: TRow[] }> => {
+          if (sql.includes('FROM shopify_products')) {
+            return Promise.resolve({
+              rows: [{ total_products: '42', cnt: '42' } as unknown as TRow],
+            });
+          }
+          if (sql.includes('FROM bulk_runs') && sql.includes("status IN ('pending', 'running')")) {
+            return Promise.resolve({ rows: [{ active_runs: '2' } as unknown as TRow] });
+          }
+          if (sql.includes('FROM api_usage_log') && sql.includes('http_status >= 400')) {
+            return Promise.resolve({
+              rows: [{ total_count: '100', error_count: '3' } as unknown as TRow],
+            });
+          }
+          if (sql.includes('percentile_cont(0.95)')) {
+            return Promise.resolve({ rows: [{ p95_ms: 333 } as unknown as TRow] });
+          }
+          if (sql.includes('FROM prod_channel_mappings')) {
+            return Promise.resolve({
+              rows: [
+                { golden_count: '10', total_count: '20', avg_score: '0.75' } as unknown as TRow,
+              ],
+            });
+          }
+          if (sql.includes('FROM job_runs') && sql.includes("queue_name LIKE '%enrichment%'")) {
+            return Promise.resolve({
+              rows: [{ success_count: '9', total_count: '10' } as unknown as TRow],
+            });
+          }
+          if (sql.includes('estimated_cost')) {
+            return Promise.resolve({ rows: [{ total_cost: '12.5' } as unknown as TRow] });
+          }
+          if (sql.includes('ORDER BY started_at DESC')) {
+            return Promise.resolve({
+              rows: [
+                { started_at: '2026-03-15T10:00:00.000Z', status: 'completed' } as unknown as TRow,
+              ],
+            });
+          }
+          return Promise.resolve({ rows: [{} as TRow] });
+        },
+      }),
+  },
+});
+
+const lexOpsPath = new URL('../../services/lex-ops.js', import.meta.url).href;
+void mock.module(lexOpsPath, {
+  namedExports: {
+    collectLexMetrics: () => ({
+      runsTotal: 12,
+      termsTotal: 50,
+      clustersTotal: 18,
+      glossaryTotal: 4,
+      reviewPending: 2,
+      reviewBacklog: 4,
+      localizationsApproved: 11,
+      publicationsPending: 3,
+      runsActive: 2,
+      runsPaused: 2,
+      pausedBudgetBlocked: 1,
+      pausedProviderUnavailable: 1,
+      shardsFailed: 5,
+      publicationsFailed: 2,
+      publishConflicts: 1,
+      staleCheckpoints: 3,
+      retentionLag: 90061,
+      aiBatchBacklog: 7,
+      dlqEntries: 6,
+      workersOnline: 10,
+      workersTotal: 14,
+      workers: [],
+      queues: [],
+      alerts: [],
+    }),
+  },
+});
+
 interface RedisStub {
   on: (event: string, handler: (...args: unknown[]) => void) => void;
   ping: () => Promise<string>;
@@ -175,6 +265,42 @@ void describe('Dashboard Routes', () => {
     const body = raw as { success: boolean; data: { alerts: unknown[] } };
     assert.strictEqual(body.success, true);
     assert.ok(body.data.alerts.length <= 3);
+  });
+
+  void test('GET /dashboard/summary includes lexical summary block', async () => {
+    const res = await app.inject({ method: 'GET', url: '/dashboard/summary' });
+    assert.strictEqual(res.statusCode, 200);
+    const raw = (res as unknown as { json: () => unknown }).json();
+    const body = raw as {
+      success: boolean;
+      data: {
+        totalProducts: number;
+        queueBacklog: number;
+        lex: { activeRuns: number; dlqEntries: number; workersTotal: number };
+      };
+    };
+    assert.strictEqual(body.success, true);
+    assert.strictEqual(body.data.totalProducts, 42);
+    assert.strictEqual(body.data.lex.activeRuns, 2);
+    assert.strictEqual(body.data.lex.dlqEntries, 6);
+    assert.strictEqual(body.data.lex.workersTotal, 14);
+  });
+
+  void test('GET /dashboard/health-score includes lexical component', async () => {
+    const res = await app.inject({ method: 'GET', url: '/dashboard/health-score' });
+    assert.strictEqual(res.statusCode, 200);
+    const raw = (res as unknown as { json: () => unknown }).json();
+    const body = raw as {
+      success: boolean;
+      data: {
+        score: number;
+        components: { lex: { score: number; dlqEntries: number; staleCheckpoints: number } };
+      };
+    };
+    assert.strictEqual(body.success, true);
+    assert.ok(body.data.score >= 0);
+    assert.strictEqual(body.data.components.lex.dlqEntries, 6);
+    assert.strictEqual(body.data.components.lex.staleCheckpoints, 3);
   });
 
   void test('POST /dashboard/actions/start-sync is rate limited', async () => {

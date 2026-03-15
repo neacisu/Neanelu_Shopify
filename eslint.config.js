@@ -133,9 +133,11 @@ export default tseslint.config(
     files: ['scripts/**/*.{js,mjs,cjs}', 'packages/**/scripts/**/*.{js,mjs,cjs}'],
     ...tseslint.configs.disableTypeChecked,
     rules: {
+      ...tseslint.configs.disableTypeChecked.rules,
       '@typescript-eslint/consistent-generic-constructors': 'off',
     },
     languageOptions: {
+      ...tseslint.configs.disableTypeChecked.languageOptions,
       globals: {
         // Node globals used in workspace scripts
         console: 'readonly',

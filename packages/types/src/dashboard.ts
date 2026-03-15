@@ -27,6 +27,7 @@ export type DashboardAlert = Readonly<{
   severity: DashboardAlertSeverity;
   title: string;
   description: string;
+  href?: string | null;
   details?: Record<string, unknown>;
 }>;
 
@@ -45,6 +46,22 @@ export type DashboardClearCacheResponse = Readonly<{
   truncated: boolean;
 }>;
 
+export type DashboardLexSummaryDto = Readonly<{
+  activeRuns: number;
+  pausedRuns: number;
+  failedShards: number;
+  staleCheckpoints: number;
+  aiBatchBacklog: number;
+  reviewBacklog: number;
+  pendingPublications: number;
+  failedPublications: number;
+  publishConflicts: number;
+  dlqEntries: number;
+  retentionLagSeconds: number;
+  workersOnline: number;
+  workersTotal: number;
+}>;
+
 export type DashboardSummaryResponse = Readonly<{
   totalProducts: number;
   activeBulkRuns: number;
@@ -59,6 +76,7 @@ export type DashboardSummaryResponse = Readonly<{
   lastSyncAt: string | null;
   lastSyncStatus: string | null;
   todayAiCost: number;
+  lex: DashboardLexSummaryDto;
 }>;
 
 export type DashboardSummaryTrendPoint = Readonly<{
@@ -77,6 +95,20 @@ export type DashboardSummaryTrendResponse = Readonly<{
   points: readonly DashboardSummaryTrendPoint[];
 }>;
 
+export type DashboardLexHealthComponentDto = Readonly<{
+  score: number;
+  workersOnline: number;
+  workersTotal: number;
+  pausedRuns: number;
+  pausedBudgetBlocked: number;
+  pausedProviderUnavailable: number;
+  staleCheckpoints: number;
+  dlqEntries: number;
+  publicationFailures: number;
+  publishConflicts: number;
+  retentionLagSeconds: number;
+}>;
+
 export type DashboardHealthScoreResponse = Readonly<{
   score: number;
   components: Readonly<{
@@ -84,6 +116,7 @@ export type DashboardHealthScoreResponse = Readonly<{
     errorRate: Readonly<{ value: number; score: number }>;
     latency: Readonly<{ valueMs: number; score: number }>;
     backlog: Readonly<{ count: number; score: number }>;
+    lex: DashboardLexHealthComponentDto;
   }>;
   status: 'healthy' | 'degraded' | 'critical';
 }>;

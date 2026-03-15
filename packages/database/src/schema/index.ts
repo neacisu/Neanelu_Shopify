@@ -30,6 +30,7 @@ export * from './api-usage.ts';
 // Module B: Shopify Mirror
 // ============================================
 export * from './shopify-products.ts';
+export * from './shopify-collections.ts';
 export * from './shopify-tokens.ts';
 
 // ============================================
@@ -50,6 +51,11 @@ export * from './quality-webhook-deliveries.ts';
 // Module E: Attribute Normalization & Vectors
 // ============================================
 export * from './vectors.ts';
+
+// ============================================
+// Module N: Lexical Intelligence & Contextual Translation
+// ============================================
+export * from './lexical.ts';
 
 // ============================================
 // Module L: Scraper Infrastructure

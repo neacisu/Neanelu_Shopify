@@ -806,6 +806,20 @@
       "when": 1773771600000,
       "tag": "0114_selfhosted_timeout_increase",
       "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1773858000000,
+      "tag": "0115_lexical_module_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1773944400000,
+      "tag": "0116_lexical_module_hardening",
+      "breakpoints": true
     }
   ]
 }

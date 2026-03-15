@@ -11,7 +11,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run -c vitest.config.ts",
     "test:watch": "vitest -c vitest.config.ts --watch",
-    "test:coverage": "vitest run -c vitest.config.ts --coverage"
+    "test:coverage": "vitest run -c vitest.config.ts --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
     "@app/types": "workspace:*",
@@ -41,6 +43,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-query-devtools": "^5.91.3",
     "@testing-library/jest-dom": "^6.9.1",

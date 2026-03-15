@@ -80,6 +80,32 @@ export const DEFAULT_QUEUE_TIMEOUTS_MS: QueueTimeoutsMs = {
   'pim-collection-metafield-push': 15 * 60_000,
   // Collection sync paginates all Shopify collections for a shop.
   'pim-collections-sync': 30 * 60_000,
+  // Lexical fragment extraction scans existing Postgres mirrors in shards.
+  'lex.extract.fragments': 30 * 60_000,
+  // Entity extraction is CPU-heavy but bounded to a shard.
+  'lex.extract.entities': 20 * 60_000,
+  // Term mining processes tokenized shard output.
+  'lex.mine.terms': 20 * 60_000,
+  // Stats aggregation is DB-heavy but deterministic.
+  'lex.aggregate.stats': 15 * 60_000,
+  // Context building deduplicates large occurrence windows.
+  'lex.build.contexts': 20 * 60_000,
+  // Context embeddings invoke external embedding providers.
+  'lex.embed.contexts': 20 * 60_000,
+  // Semantic clustering can be CPU + DB heavy.
+  'lex.cluster.senses': 20 * 60_000,
+  // Attribute resolution queries definitions/synonyms and ranks candidates.
+  'lex.resolve.attributes': 15 * 60_000,
+  // Candidate translation invokes external translation models.
+  'lex.translate.candidates': 20 * 60_000,
+  // Localization composition is deterministic and DB-heavy.
+  'lex.compose.localizations': 15 * 60_000,
+  // Review enqueue is lightweight control-plane work.
+  'lex.review.enqueue': 5 * 60_000,
+  // Publish jobs can touch multiple PIM destinations with retries.
+  'lex.publish': 20 * 60_000,
+  // Retention cleanup scans and deletes in bounded batches.
+  'lex.retention.compact': 10 * 60_000,
 } as const;
 
 export function defaultJobTimeoutMs(queueName: KnownQueueName): number {

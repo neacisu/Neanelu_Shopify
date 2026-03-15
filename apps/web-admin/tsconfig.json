@@ -19,6 +19,7 @@
     "app/**/*",
     "components/**/*",
     "types/**/*",
+    "e2e/**/*",
     "vite.config.ts",
     "vite.proxy-ws.ts",
     "vite.shopify-hmr.ts",

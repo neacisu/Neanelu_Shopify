@@ -51,6 +51,24 @@ import { startQualityWebhookSweepScheduler } from './processors/pim/quality-webh
 import { startCollectionsSyncWorker } from './processors/pim/collections-sync.worker.js';
 import { startCollectionMetafieldPushWorker } from './processors/pim/collection-metafield-push.worker.js';
 import { startCollectionShopifySyncWorker } from './processors/pim/collection-shopify-sync.worker.js';
+import { startLexExtractFragmentsWorker } from './processors/lex/extract-fragments.worker.js';
+import { startLexExtractEntitiesWorker } from './processors/lex/extract-entities.worker.js';
+import { startLexMineTermsWorker } from './processors/lex/mine-terms.worker.js';
+import { startLexAggregateStatsWorker } from './processors/lex/aggregate-stats.worker.js';
+import { startLexBuildContextsWorker } from './processors/lex/build-contexts.worker.js';
+import { startLexEmbedContextsWorker } from './processors/lex/embed-contexts.worker.js';
+import { startLexClusterSensesWorker } from './processors/lex/cluster-senses.worker.js';
+import { startLexResolveAttributesWorker } from './processors/lex/resolve-attributes.worker.js';
+import { startLexTranslateCandidatesWorker } from './processors/lex/translate-candidates.worker.js';
+import { startLexComposeLocalizationsWorker } from './processors/lex/compose-localizations.worker.js';
+import { startLexReviewEnqueueWorker } from './processors/lex/review-enqueue.worker.js';
+import { startLexPublishWorker } from './processors/lex/publish.worker.js';
+import { startLexScheduleWorker } from './processors/lex/schedule.worker.js';
+import { startLexRetentionWorker } from './processors/lex/retention.worker.js';
+import {
+  listLexEnabledShops,
+  reconcileLexScheduledTasks,
+} from './processors/lex/scheduled-tasks.js';
 import { pauseCostSensitiveQueues } from './processors/pim/cost-sensitive-queues.js';
 import { scheduleTokenHealthJob, closeTokenHealthQueue } from './queue/token-health-queue.js';
 import { closeSimilarityQueues } from './queue/similarity-queues.js';
@@ -63,6 +81,7 @@ import { closePimManualSyncQueue } from './queue/pim-manual-sync-queue.js';
 import { closeCollectionsSyncQueue } from './queue/collections-sync-queue.js';
 import { closeCollectionMetafieldPushQueue } from './queue/collection-metafield-push-queue.js';
 import { closeCollectionShopifySyncQueue } from './queue/collection-shopify-sync-queue.js';
+import { closeLexQueues } from './queue/lex-queues.js';
 import {
   setBulkOrchestratorWorkerHandle,
   setBulkIngestWorkerHandle,
@@ -91,6 +110,20 @@ import {
   setCategoryClassifierWorkerHandle,
   setDescriptionGeneratorWorkerHandle,
   setMetafieldPushWorkerHandle,
+  setLexExtractEntitiesWorkerHandle,
+  setLexExtractFragmentsWorkerHandle,
+  setLexMineTermsWorkerHandle,
+  setLexAggregateStatsWorkerHandle,
+  setLexBuildContextsWorkerHandle,
+  setLexEmbedContextsWorkerHandle,
+  setLexClusterSensesWorkerHandle,
+  setLexResolveAttributesWorkerHandle,
+  setLexTranslateCandidatesWorkerHandle,
+  setLexComposeLocalizationsWorkerHandle,
+  setLexReviewEnqueueWorkerHandle,
+  setLexPublishWorkerHandle,
+  setLexScheduleWorkerHandle,
+  setLexRetentionWorkerHandle,
 } from './runtime/worker-registry.js';
 import { emitQueueStreamEvent } from './runtime/queue-stream.js';
 import { startQueueConfigListener } from './runtime/queue-config-listener.js';
@@ -265,6 +298,27 @@ let collectionMetafieldPushWorker: Awaited<
 let collectionShopifySyncWorker: Awaited<
   ReturnType<typeof startCollectionShopifySyncWorker>
 > | null = null;
+let lexExtractFragmentsWorker: Awaited<ReturnType<typeof startLexExtractFragmentsWorker>> | null =
+  null;
+let lexExtractEntitiesWorker: Awaited<ReturnType<typeof startLexExtractEntitiesWorker>> | null =
+  null;
+let lexMineTermsWorker: Awaited<ReturnType<typeof startLexMineTermsWorker>> | null = null;
+let lexAggregateStatsWorker: Awaited<ReturnType<typeof startLexAggregateStatsWorker>> | null = null;
+let lexBuildContextsWorker: Awaited<ReturnType<typeof startLexBuildContextsWorker>> | null = null;
+let lexEmbedContextsWorker: Awaited<ReturnType<typeof startLexEmbedContextsWorker>> | null = null;
+let lexClusterSensesWorker: Awaited<ReturnType<typeof startLexClusterSensesWorker>> | null = null;
+let lexResolveAttributesWorker: Awaited<ReturnType<typeof startLexResolveAttributesWorker>> | null =
+  null;
+let lexTranslateCandidatesWorker: Awaited<
+  ReturnType<typeof startLexTranslateCandidatesWorker>
+> | null = null;
+let lexComposeLocalizationsWorker: Awaited<
+  ReturnType<typeof startLexComposeLocalizationsWorker>
+> | null = null;
+let lexReviewEnqueueWorker: Awaited<ReturnType<typeof startLexReviewEnqueueWorker>> | null = null;
+let lexPublishWorker: Awaited<ReturnType<typeof startLexPublishWorker>> | null = null;
+let lexScheduleWorker: Awaited<ReturnType<typeof startLexScheduleWorker>> | null = null;
+let lexRetentionWorker: Awaited<ReturnType<typeof startLexRetentionWorker>> | null = null;
 let queueConfigListener: Awaited<ReturnType<typeof startQueueConfigListener>> | null = null;
 let budgetGaugeRedis: ReturnType<typeof createManagedRedis> | null = null;
 let budgetGaugeInterval: NodeJS.Timeout | null = null;
@@ -299,6 +353,27 @@ function buildQueueConfigRegistry() {
     'collection-shopify-sync': collectionShopifySyncWorker?.worker as unknown as {
       concurrency?: number;
     },
+    'lex.extract.fragments': lexExtractFragmentsWorker?.worker as unknown as {
+      concurrency?: number;
+    },
+    'lex.extract.entities': lexExtractEntitiesWorker?.worker as unknown as { concurrency?: number },
+    'lex.mine.terms': lexMineTermsWorker?.worker as unknown as { concurrency?: number },
+    'lex.aggregate.stats': lexAggregateStatsWorker?.worker as unknown as { concurrency?: number },
+    'lex.build.contexts': lexBuildContextsWorker?.worker as unknown as { concurrency?: number },
+    'lex.embed.contexts': lexEmbedContextsWorker?.worker as unknown as { concurrency?: number },
+    'lex.cluster.senses': lexClusterSensesWorker?.worker as unknown as { concurrency?: number },
+    'lex.resolve.attributes': lexResolveAttributesWorker?.worker as unknown as {
+      concurrency?: number;
+    },
+    'lex.translate.candidates': lexTranslateCandidatesWorker?.worker as unknown as {
+      concurrency?: number;
+    },
+    'lex.compose.localizations': lexComposeLocalizationsWorker?.worker as unknown as {
+      concurrency?: number;
+    },
+    'lex.review.enqueue': lexReviewEnqueueWorker?.worker as unknown as { concurrency?: number },
+    'lex.publish': lexPublishWorker?.worker as unknown as { concurrency?: number },
+    'lex.retention.compact': lexRetentionWorker?.worker as unknown as { concurrency?: number },
   };
 }
 
@@ -435,6 +510,62 @@ async function recreateRedisDependentWorkers(newRedisUrl: string): Promise<void>
   if (collectionShopifySyncWorker) await collectionShopifySyncWorker.close();
   collectionShopifySyncWorker = startCollectionShopifySyncWorker(logger);
   setCollectionShopifySyncWorkerHandle(collectionShopifySyncWorker);
+
+  if (lexExtractFragmentsWorker) await lexExtractFragmentsWorker.close();
+  lexExtractFragmentsWorker = startLexExtractFragmentsWorker(logger);
+  setLexExtractFragmentsWorkerHandle(lexExtractFragmentsWorker);
+
+  if (lexExtractEntitiesWorker) await lexExtractEntitiesWorker.close();
+  lexExtractEntitiesWorker = startLexExtractEntitiesWorker(logger);
+  setLexExtractEntitiesWorkerHandle(lexExtractEntitiesWorker);
+
+  if (lexMineTermsWorker) await lexMineTermsWorker.close();
+  lexMineTermsWorker = startLexMineTermsWorker(logger);
+  setLexMineTermsWorkerHandle(lexMineTermsWorker);
+
+  if (lexAggregateStatsWorker) await lexAggregateStatsWorker.close();
+  lexAggregateStatsWorker = startLexAggregateStatsWorker(logger);
+  setLexAggregateStatsWorkerHandle(lexAggregateStatsWorker);
+
+  if (lexBuildContextsWorker) await lexBuildContextsWorker.close();
+  lexBuildContextsWorker = startLexBuildContextsWorker(logger);
+  setLexBuildContextsWorkerHandle(lexBuildContextsWorker);
+
+  if (lexEmbedContextsWorker) await lexEmbedContextsWorker.close();
+  lexEmbedContextsWorker = startLexEmbedContextsWorker(logger);
+  setLexEmbedContextsWorkerHandle(lexEmbedContextsWorker);
+
+  if (lexClusterSensesWorker) await lexClusterSensesWorker.close();
+  lexClusterSensesWorker = startLexClusterSensesWorker(logger);
+  setLexClusterSensesWorkerHandle(lexClusterSensesWorker);
+
+  if (lexResolveAttributesWorker) await lexResolveAttributesWorker.close();
+  lexResolveAttributesWorker = startLexResolveAttributesWorker(logger);
+  setLexResolveAttributesWorkerHandle(lexResolveAttributesWorker);
+
+  if (lexTranslateCandidatesWorker) await lexTranslateCandidatesWorker.close();
+  lexTranslateCandidatesWorker = startLexTranslateCandidatesWorker(logger);
+  setLexTranslateCandidatesWorkerHandle(lexTranslateCandidatesWorker);
+
+  if (lexComposeLocalizationsWorker) await lexComposeLocalizationsWorker.close();
+  lexComposeLocalizationsWorker = startLexComposeLocalizationsWorker(logger);
+  setLexComposeLocalizationsWorkerHandle(lexComposeLocalizationsWorker);
+
+  if (lexReviewEnqueueWorker) await lexReviewEnqueueWorker.close();
+  lexReviewEnqueueWorker = startLexReviewEnqueueWorker(logger);
+  setLexReviewEnqueueWorkerHandle(lexReviewEnqueueWorker);
+
+  if (lexPublishWorker) await lexPublishWorker.close();
+  lexPublishWorker = startLexPublishWorker(logger);
+  setLexPublishWorkerHandle(lexPublishWorker);
+
+  if (lexScheduleWorker) await lexScheduleWorker.close();
+  lexScheduleWorker = startLexScheduleWorker(logger);
+  setLexScheduleWorkerHandle(lexScheduleWorker);
+
+  if (lexRetentionWorker) await lexRetentionWorker.close();
+  lexRetentionWorker = startLexRetentionWorker(logger);
+  setLexRetentionWorkerHandle(lexRetentionWorker);
 
   queueConfigListener = await startQueueConfigListener(env, logger, buildQueueConfigRegistry());
   logger.warn({}, 'Redis-dependent workers recreated successfully');
@@ -738,6 +869,136 @@ try {
   emitQueueStreamEvent({
     type: 'worker.online',
     workerId: 'collection-shopify-sync-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  lexExtractFragmentsWorker = startLexExtractFragmentsWorker(logger);
+  setLexExtractFragmentsWorkerHandle(lexExtractFragmentsWorker);
+  logger.info({}, 'lex extract fragments worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'lex-extract-fragments-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  lexExtractEntitiesWorker = startLexExtractEntitiesWorker(logger);
+  setLexExtractEntitiesWorkerHandle(lexExtractEntitiesWorker);
+  logger.info({}, 'lex extract entities worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'lex-extract-entities-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  lexMineTermsWorker = startLexMineTermsWorker(logger);
+  setLexMineTermsWorkerHandle(lexMineTermsWorker);
+  logger.info({}, 'lex mine terms worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'lex-mine-terms-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  lexAggregateStatsWorker = startLexAggregateStatsWorker(logger);
+  setLexAggregateStatsWorkerHandle(lexAggregateStatsWorker);
+  logger.info({}, 'lex aggregate stats worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'lex-aggregate-stats-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  lexBuildContextsWorker = startLexBuildContextsWorker(logger);
+  setLexBuildContextsWorkerHandle(lexBuildContextsWorker);
+  logger.info({}, 'lex build contexts worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'lex-build-contexts-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  lexEmbedContextsWorker = startLexEmbedContextsWorker(logger);
+  setLexEmbedContextsWorkerHandle(lexEmbedContextsWorker);
+  logger.info({}, 'lex embed contexts worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'lex-embed-contexts-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  lexClusterSensesWorker = startLexClusterSensesWorker(logger);
+  setLexClusterSensesWorkerHandle(lexClusterSensesWorker);
+  logger.info({}, 'lex cluster senses worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'lex-cluster-senses-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  lexResolveAttributesWorker = startLexResolveAttributesWorker(logger);
+  setLexResolveAttributesWorkerHandle(lexResolveAttributesWorker);
+  logger.info({}, 'lex resolve attributes worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'lex-resolve-attributes-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  lexTranslateCandidatesWorker = startLexTranslateCandidatesWorker(logger);
+  setLexTranslateCandidatesWorkerHandle(lexTranslateCandidatesWorker);
+  logger.info({}, 'lex translate candidates worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'lex-translate-candidates-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  lexComposeLocalizationsWorker = startLexComposeLocalizationsWorker(logger);
+  setLexComposeLocalizationsWorkerHandle(lexComposeLocalizationsWorker);
+  logger.info({}, 'lex compose localizations worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'lex-compose-localizations-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  lexReviewEnqueueWorker = startLexReviewEnqueueWorker(logger);
+  setLexReviewEnqueueWorkerHandle(lexReviewEnqueueWorker);
+  logger.info({}, 'lex review enqueue worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'lex-review-enqueue-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  lexPublishWorker = startLexPublishWorker(logger);
+  setLexPublishWorkerHandle(lexPublishWorker);
+  logger.info({}, 'lex publish worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'lex-publish-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  for (const shopId of await listLexEnabledShops().catch(() => [])) {
+    await reconcileLexScheduledTasks({ shopId, enabled: true }).catch(() => undefined);
+  }
+
+  lexScheduleWorker = startLexScheduleWorker(logger);
+  setLexScheduleWorkerHandle(lexScheduleWorker);
+  logger.info({}, 'lex schedule worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'lex-schedule-worker',
+    timestamp: new Date().toISOString(),
+  });
+
+  lexRetentionWorker = startLexRetentionWorker(logger);
+  setLexRetentionWorkerHandle(lexRetentionWorker);
+  logger.info({}, 'lex retention worker started');
+  emitQueueStreamEvent({
+    type: 'worker.online',
+    workerId: 'lex-retention-compact-worker',
     timestamp: new Date().toISOString(),
   });
 
@@ -1163,6 +1424,174 @@ const shutdown = async (signal: string): Promise<void> => {
       });
     }
 
+    if (lexExtractFragmentsWorker) {
+      await lexExtractFragmentsWorker.close();
+      lexExtractFragmentsWorker = null;
+      setLexExtractFragmentsWorkerHandle(null);
+      logger.info({ signal }, 'lex extract fragments worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'lex-extract-fragments-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (lexExtractEntitiesWorker) {
+      await lexExtractEntitiesWorker.close();
+      lexExtractEntitiesWorker = null;
+      setLexExtractEntitiesWorkerHandle(null);
+      logger.info({ signal }, 'lex extract entities worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'lex-extract-entities-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (lexMineTermsWorker) {
+      await lexMineTermsWorker.close();
+      lexMineTermsWorker = null;
+      setLexMineTermsWorkerHandle(null);
+      logger.info({ signal }, 'lex mine terms worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'lex-mine-terms-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (lexAggregateStatsWorker) {
+      await lexAggregateStatsWorker.close();
+      lexAggregateStatsWorker = null;
+      setLexAggregateStatsWorkerHandle(null);
+      logger.info({ signal }, 'lex aggregate stats worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'lex-aggregate-stats-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (lexBuildContextsWorker) {
+      await lexBuildContextsWorker.close();
+      lexBuildContextsWorker = null;
+      setLexBuildContextsWorkerHandle(null);
+      logger.info({ signal }, 'lex build contexts worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'lex-build-contexts-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (lexEmbedContextsWorker) {
+      await lexEmbedContextsWorker.close();
+      lexEmbedContextsWorker = null;
+      setLexEmbedContextsWorkerHandle(null);
+      logger.info({ signal }, 'lex embed contexts worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'lex-embed-contexts-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (lexClusterSensesWorker) {
+      await lexClusterSensesWorker.close();
+      lexClusterSensesWorker = null;
+      setLexClusterSensesWorkerHandle(null);
+      logger.info({ signal }, 'lex cluster senses worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'lex-cluster-senses-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (lexResolveAttributesWorker) {
+      await lexResolveAttributesWorker.close();
+      lexResolveAttributesWorker = null;
+      setLexResolveAttributesWorkerHandle(null);
+      logger.info({ signal }, 'lex resolve attributes worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'lex-resolve-attributes-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (lexTranslateCandidatesWorker) {
+      await lexTranslateCandidatesWorker.close();
+      lexTranslateCandidatesWorker = null;
+      setLexTranslateCandidatesWorkerHandle(null);
+      logger.info({ signal }, 'lex translate candidates worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'lex-translate-candidates-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (lexComposeLocalizationsWorker) {
+      await lexComposeLocalizationsWorker.close();
+      lexComposeLocalizationsWorker = null;
+      setLexComposeLocalizationsWorkerHandle(null);
+      logger.info({ signal }, 'lex compose localizations worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'lex-compose-localizations-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (lexReviewEnqueueWorker) {
+      await lexReviewEnqueueWorker.close();
+      lexReviewEnqueueWorker = null;
+      setLexReviewEnqueueWorkerHandle(null);
+      logger.info({ signal }, 'lex review enqueue worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'lex-review-enqueue-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (lexPublishWorker) {
+      await lexPublishWorker.close();
+      lexPublishWorker = null;
+      setLexPublishWorkerHandle(null);
+      logger.info({ signal }, 'lex publish worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'lex-publish-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (lexScheduleWorker) {
+      await lexScheduleWorker.close();
+      lexScheduleWorker = null;
+      setLexScheduleWorkerHandle(null);
+      logger.info({ signal }, 'lex schedule worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'lex-schedule-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (lexRetentionWorker) {
+      await lexRetentionWorker.close();
+      lexRetentionWorker = null;
+      setLexRetentionWorkerHandle(null);
+      logger.info({ signal }, 'lex retention worker stopped');
+      emitQueueStreamEvent({
+        type: 'worker.offline',
+        workerId: 'lex-retention-compact-worker',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     if (queueConfigListener) {
       await queueConfigListener.quit().catch(() => undefined);
       queueConfigListener = null;
@@ -1191,6 +1620,7 @@ const shutdown = async (signal: string): Promise<void> => {
     await closeCollectionsSyncQueue();
     await closeCollectionMetafieldPushQueue();
     await closeCollectionShopifySyncQueue();
+    await closeLexQueues();
 
     stopCredentialWatcher();
     await closePimPool();

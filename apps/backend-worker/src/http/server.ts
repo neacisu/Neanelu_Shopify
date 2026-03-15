@@ -39,6 +39,7 @@ import { qualityWebhookSettingsRoutes } from '../routes/quality-webhook-settings
 import { uxEventsRoutes } from '../routes/ux-events.js';
 import { collectionsRoutes } from '../routes/collections.js';
 import { pimConfigRoutes } from '../routes/pim-config.js';
+import { pimLexRoutes } from '../routes/pim-lex.js';
 import { setRequestIdAttribute } from '@app/logger';
 import {
   httpActiveRequests,
@@ -117,6 +118,20 @@ async function buildReadinessPayload(env: AppEnv): Promise<{
     worker_weekly_summary: okOrFail(Boolean(readiness.weeklySummarySchedulerOk)),
     worker_auto_enrichment: okOrFail(Boolean(readiness.autoEnrichmentSchedulerOk)),
     worker_raw_harvest_retention: okOrFail(Boolean(readiness.rawHarvestRetentionSchedulerOk)),
+    worker_lex_extract_fragments: okOrFail(Boolean(readiness.lexExtractFragmentsWorkerOk)),
+    worker_lex_extract_entities: okOrFail(Boolean(readiness.lexExtractEntitiesWorkerOk)),
+    worker_lex_mine_terms: okOrFail(Boolean(readiness.lexMineTermsWorkerOk)),
+    worker_lex_aggregate_stats: okOrFail(Boolean(readiness.lexAggregateStatsWorkerOk)),
+    worker_lex_build_contexts: okOrFail(Boolean(readiness.lexBuildContextsWorkerOk)),
+    worker_lex_embed_contexts: okOrFail(Boolean(readiness.lexEmbedContextsWorkerOk)),
+    worker_lex_cluster_senses: okOrFail(Boolean(readiness.lexClusterSensesWorkerOk)),
+    worker_lex_resolve_attributes: okOrFail(Boolean(readiness.lexResolveAttributesWorkerOk)),
+    worker_lex_translate_candidates: okOrFail(Boolean(readiness.lexTranslateCandidatesWorkerOk)),
+    worker_lex_compose_localizations: okOrFail(Boolean(readiness.lexComposeLocalizationsWorkerOk)),
+    worker_lex_review_enqueue: okOrFail(Boolean(readiness.lexReviewEnqueueWorkerOk)),
+    worker_lex_publish: okOrFail(Boolean(readiness.lexPublishWorkerOk)),
+    worker_lex_schedule: okOrFail(Boolean(readiness.lexScheduleWorkerOk)),
+    worker_lex_retention: okOrFail(Boolean(readiness.lexRetentionWorkerOk)),
   };
 
   if (tokenHealthWorkerOk != null) {
@@ -584,6 +599,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await server.register(uxEventsRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(collectionsRoutes, { prefix: '/api', env, logger, sessionConfig });
   await server.register(pimConfigRoutes, { prefix: '/api', env, logger, sessionConfig });
+  await server.register(pimLexRoutes, { prefix: '/api', env, logger, sessionConfig });
 
   // Compatibility mounting without /api prefix.
   // Some reverse proxies (or legacy deployments) may strip `/api` before forwarding.
@@ -611,6 +627,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await server.register(uxEventsRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(collectionsRoutes, { prefix: '', env, logger, sessionConfig });
   await server.register(pimConfigRoutes, { prefix: '', env, logger, sessionConfig });
+  await server.register(pimLexRoutes, { prefix: '', env, logger, sessionConfig });
 
   server.get('/api/health', (request, reply) => {
     void reply.status(200).send({

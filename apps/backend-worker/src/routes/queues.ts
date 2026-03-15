@@ -7,6 +7,7 @@ import type { SessionConfig } from '../auth/session.js';
 import { requireSession } from '../auth/session.js';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { onQueueStreamEvent, type QueueStreamEvent } from '../runtime/queue-stream.js';
+import { LEX_WORKER_DEFINITIONS } from '../services/lex-ops.js';
 
 type QueueAdminPluginOptions = Readonly<{
   env: AppEnv;
@@ -837,6 +838,12 @@ export const queueRoutes: FastifyPluginAsync<QueueAdminPluginOptions> = (
         ...base,
         currentJob: null,
       },
+      ...LEX_WORKER_DEFINITIONS.map((definition) => ({
+        id: definition.id,
+        ok: Boolean(readiness[definition.readinessKey]),
+        ...base,
+        currentJob: registry.getWorkerCurrentJob(definition.id),
+      })),
     ];
 
     void reply.status(200).send(successEnvelope(request.id, { workers }));

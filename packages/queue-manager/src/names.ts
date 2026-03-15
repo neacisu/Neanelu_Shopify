@@ -24,6 +24,19 @@ export const QUEUE_NAMES = [
   'pim-metafield-push',
   'pim-collection-metafield-push',
   'pim-collections-sync',
+  'lex.extract.fragments',
+  'lex.extract.entities',
+  'lex.mine.terms',
+  'lex.aggregate.stats',
+  'lex.build.contexts',
+  'lex.embed.contexts',
+  'lex.cluster.senses',
+  'lex.resolve.attributes',
+  'lex.translate.candidates',
+  'lex.compose.localizations',
+  'lex.review.enqueue',
+  'lex.publish',
+  'lex.retention.compact',
 ] as const;
 
 export type KnownQueueName = (typeof QUEUE_NAMES)[number];
@@ -35,6 +48,8 @@ export const COST_SENSITIVE_QUEUE_NAMES = [
   'pim-similarity-search',
   'pim-ai-audit',
   'pim-extraction',
+  'lex.embed.contexts',
+  'lex.translate.candidates',
 ] as const satisfies readonly KnownQueueName[];
 
 export type CostSensitiveQueueName = (typeof COST_SENSITIVE_QUEUE_NAMES)[number];

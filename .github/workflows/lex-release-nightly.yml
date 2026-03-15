@@ -1,0 +1,112 @@
+name: Lex Release Nightly
+
+on:
+  schedule:
+    - cron: '15 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: lex-release-nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '24'
+  PNPM_VERSION: '10.28.0'
+  NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
+  BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
+
+jobs:
+  lex-performance-nightly:
+    name: Lex Performance Nightly
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Configure BullMQ Pro registry auth
+        shell: bash
+        run: |
+          {
+            echo "@taskforcesh:registry=https://npm.taskforce.sh/"
+            echo "//npm.taskforce.sh/:_authToken=${NPM_TASKFORCESH_TOKEN}"
+          } >> ~/.npmrc
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
+
+      - name: Run lexical nightly performance suite
+        run: pnpm run test:perf:lex:nightly
+
+      - name: Upload lexical performance artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lex-performance-nightly
+          path: |
+            apps/backend-worker/coverage/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  lex-chaos-nightly:
+    name: Lex Chaos Nightly
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Configure BullMQ Pro registry auth
+        shell: bash
+        run: |
+          {
+            echo "@taskforcesh:registry=https://npm.taskforce.sh/"
+            echo "//npm.taskforce.sh/:_authToken=${NPM_TASKFORCESH_TOKEN}"
+          } >> ~/.npmrc
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
+
+      - name: Run lexical chaos suite
+        run: pnpm run test:chaos:lex
+
+      - name: Upload lexical chaos artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lex-chaos-nightly
+          path: |
+            apps/backend-worker/coverage/
+          if-no-files-found: ignore
+          retention-days: 7

@@ -86,4 +86,33 @@ describe('SystemAlertsBanner', () => {
 
     expect(screen.getByText('Redis down')).toBeInTheDocument();
   });
+
+  it('renders lexical deep-link actions when an alert provides href', async () => {
+    const data: DashboardAlertsResponse = {
+      alerts: [
+        {
+          id: 'lex_dlq_present',
+          severity: 'critical',
+          title: 'Lex DLQ Activ',
+          description: 'Există job-uri lex în DLQ.',
+          href: '/queues?tab=jobs&queue=lex.publish-dlq',
+        },
+      ],
+    };
+    useQueryMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      data,
+      error: null,
+    });
+
+    const mod = await import('./SystemAlertsBanner');
+    render(<mod.SystemAlertsBanner />);
+
+    expect(screen.getByRole('link', { name: /Deschide coada/i })).toHaveAttribute(
+      'href',
+      '/queues?tab=jobs&queue=lex.publish-dlq'
+    );
+  });
 });

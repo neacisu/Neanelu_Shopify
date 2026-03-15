@@ -9,6 +9,7 @@ import type { MultipartFile } from '@fastify/multipart';
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from 'fastify';
 import type { SessionConfig } from '../auth/session.js';
 import { requireSession } from '../auth/session.js';
+import { isLexCollectionAdapterActive } from '../auth/require-lex-access.js';
 import { getShopOpenAiConfig } from '../runtime/openai-config.js';
 import { resolveChatTaskCredentials } from '../services/ai-provider-routing.js';
 import { loadXAICredentials } from '../services/xai-credentials.js';
@@ -55,6 +56,7 @@ import {
   buildTaxonomyUnassignPendingMetadata,
   loadCollectionFieldSnapshot,
 } from '../services/collection-sync-back-metadata.js';
+import { publishApprovedCollectionLocalization } from '../services/lex-localizations.js';
 
 interface CollectionsRoutesOptions {
   env: AppEnv;
@@ -545,6 +547,33 @@ Return JSON: { "descriptionEn": "..." }`,
     };
   } catch (err) {
     params.logger.warn({ err }, 'translate_description: failed');
+    return null;
+  }
+}
+
+async function tryApplyLexCollectionLocalization(params: {
+  shopId: string;
+  collectionId: string;
+  targetLang: string;
+  forceRetranslate: boolean;
+  logger: Logger;
+}) {
+  if (params.forceRetranslate) return null;
+
+  try {
+    const enabled = await isLexCollectionAdapterActive(params.shopId);
+    if (!enabled) return null;
+
+    return await publishApprovedCollectionLocalization({
+      shopId: params.shopId,
+      collectionId: params.collectionId,
+      targetLang: params.targetLang,
+    });
+  } catch (err) {
+    params.logger.warn(
+      { err, collectionId: params.collectionId },
+      'lex collection adapter lookup failed'
+    );
     return null;
   }
 }
@@ -2611,6 +2640,33 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRoutesOptions> = (
           return;
         }
 
+        const approvedLexLocalization = await tryApplyLexCollectionLocalization({
+          shopId: session.shopId,
+          collectionId,
+          targetLang: 'en',
+          forceRetranslate,
+          logger: options.logger,
+        });
+        if (approvedLexLocalization) {
+          emit({
+            type: 'progress',
+            step: 'lex_publish',
+            status: 'done',
+            message: 'Am reutilizat o localizare lexicala aprobata.',
+          });
+          emit({
+            type: 'result',
+            status: 'translated',
+            field: translateField,
+            titleEn: approvedLexLocalization.titleText,
+            descriptionEn: approvedLexLocalization.descriptionText,
+            consensusMethod: 'lexical_approved',
+            consensusScore: approvedLexLocalization.qualityScore,
+          });
+          raw.end();
+          return;
+        }
+
         if (collectionRow.titleEn && !forceRetranslate && translateField !== 'description_en') {
           emit({
             type: 'progress',
@@ -4208,17 +4264,17 @@ Returnează JSON: { "description": "..." }`,
           return;
         }
 
-        const translateCreds = await resolveChatTaskCredentials({
-          shopId: session.shopId,
-          taskType: 'translation',
-          env: options.env,
-          logger: options.logger,
-        });
-        if (!translateCreds) {
-          emit({ type: 'error', message: 'Credențialele AI nu sunt configurate.' });
-          raw.end();
-          return;
-        }
+        let translateCreds: Awaited<ReturnType<typeof resolveChatTaskCredentials>> | null = null;
+        const ensureTranslateCreds = async () => {
+          if (translateCreds) return translateCreds;
+          translateCreds = await resolveChatTaskCredentials({
+            shopId: session.shopId,
+            taskType: 'translation',
+            env: options.env,
+            logger: options.logger,
+          });
+          return translateCreds;
+        };
 
         emit({ type: 'translate_start', total: untranslated.length });
 
@@ -4236,6 +4292,35 @@ Returnează JSON: { "description": "..." }`,
           });
 
           try {
+            const approvedLexLocalization = await tryApplyLexCollectionLocalization({
+              shopId: session.shopId,
+              collectionId: col.id,
+              targetLang: 'en',
+              forceRetranslate: force,
+              logger: options.logger,
+            });
+            if (approvedLexLocalization) {
+              translated++;
+              emit({
+                type: 'translate_progress',
+                collectionId: col.id,
+                step: 'lex_publish',
+                status: 'done',
+                message: `${progress} Localizare lexicala aprobata reutilizata.`,
+              });
+              emit({
+                type: 'translate_collection_result',
+                collectionId: col.id,
+                collectionTitle: col.title,
+                status: 'translated',
+                titleEn: approvedLexLocalization.titleText,
+                descriptionEn: approvedLexLocalization.descriptionText,
+                consensusMethod: 'lexical_approved',
+                consensusScore: approvedLexLocalization.qualityScore,
+              });
+              continue;
+            }
+
             emit({
               type: 'translate_progress',
               collectionId: col.id,
@@ -4261,6 +4346,24 @@ Returnează JSON: { "description": "..." }`,
               step: 'translate',
               message: `${progress} Traduc „${col.title}"...`,
             });
+            const creds = await ensureTranslateCreds();
+            if (!creds) {
+              emit({
+                type: 'translate_progress',
+                collectionId: col.id,
+                step: 'translate',
+                status: 'error',
+                message: `${progress} Credențialele AI nu sunt configurate.`,
+              });
+              emit({
+                type: 'translate_collection_result',
+                collectionId: col.id,
+                collectionTitle: col.title,
+                status: 'error',
+                message: 'Credențialele AI nu sunt configurate.',
+              });
+              continue;
+            }
             const translatedTitle = await translateTitleToEnglish({
               shopId: session.shopId,
               title: col.title,
@@ -4270,9 +4373,9 @@ Returnează JSON: { "description": "..." }`,
               parentTitle: col.parentTitle,
               env: options.env,
               productSamples: samples,
-              ...(translateCreds.apiKey ? { apiKey: translateCreds.apiKey } : {}),
-              baseUrl: translateCreds.baseUrl,
-              model: translateCreds.model,
+              ...(creds.apiKey ? { apiKey: creds.apiKey } : {}),
+              baseUrl: creds.baseUrl,
+              model: creds.model,
               timeoutMs: 30_000,
               logger: options.logger,
               onConsensusProgress: (event) =>

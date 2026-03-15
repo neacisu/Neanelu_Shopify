@@ -1,11 +1,13 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useRouteError } from 'react-router-dom';
+import type { LexBootstrapDto } from '@app/types';
 
 import { Breadcrumbs } from '../components/layout/breadcrumbs';
 import { PageHeader } from '../components/layout/page-header';
 import { InfoTooltip } from '../components/ui/info-tooltip';
 import { Tabs } from '../components/ui/tabs';
 import { ErrorState } from '../components/patterns/error-state';
+import { useApiClient } from '../hooks/use-api';
 
 const tabs = [
   { label: 'Prezentare', value: 'overview', path: '/pim' },
@@ -15,6 +17,7 @@ const tabs = [
   { label: 'Evenimente', value: 'events', path: '/pim/events' },
   { label: 'Consens', value: 'consensus', path: '/pim/consensus' },
   { label: 'Categorii', value: 'categories', path: '/pim/categories' },
+  { label: 'Traduceri', value: 'translations', path: '/pim/translations' },
   { label: 'Configurare', value: 'config', path: '/pim/config' },
 ];
 
@@ -26,14 +29,48 @@ function resolveActiveTab(pathname: string): string {
   if (pathname.startsWith('/pim/events')) return 'events';
   if (pathname.startsWith('/pim/consensus')) return 'consensus';
   if (pathname.startsWith('/pim/categories')) return 'categories';
+  if (pathname.startsWith('/pim/translations')) return 'translations';
   if (pathname.startsWith('/pim/config')) return 'config';
   return 'overview';
 }
 
 export default function PimLayout() {
+  const api = useApiClient();
   const location = useLocation();
   const navigate = useNavigate();
+  const [lexBootstrap, setLexBootstrap] = useState<LexBootstrapDto | null>(null);
   const activeTab = useMemo(() => resolveActiveTab(location.pathname), [location.pathname]);
+  const visibleTabs = useMemo(
+    () =>
+      tabs.filter(
+        (tab) => tab.value !== 'translations' || lexBootstrap?.permissions.canView === true
+      ),
+    [lexBootstrap]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void api
+      .getApi<{ bootstrap: LexBootstrapDto }>('/pim/lex/bootstrap')
+      .then((response) => {
+        if (!cancelled) setLexBootstrap(response.bootstrap);
+      })
+      .catch(() => {
+        if (!cancelled) setLexBootstrap(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
+
+  useEffect(() => {
+    if (activeTab !== 'translations') return;
+    if (lexBootstrap == null) return;
+    if (lexBootstrap.permissions.canView) return;
+    void navigate('/pim', { replace: true });
+  }, [activeTab, lexBootstrap, navigate]);
 
   return (
     <div className="space-y-6">
@@ -57,11 +94,11 @@ export default function PimLayout() {
       />
       <span className="inline-flex items-center gap-1.5">
         <Tabs
-          items={tabs}
+          items={visibleTabs}
           value={activeTab}
           ariaLabel="Secțiuni PIM"
           onValueChange={(value) => {
-            const target = tabs.find((tab) => tab.value === value);
+            const target = visibleTabs.find((tab) => tab.value === value);
             if (!target) return;
             void navigate(target.path);
           }}

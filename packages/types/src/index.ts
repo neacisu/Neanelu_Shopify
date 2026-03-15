@@ -6,6 +6,7 @@ export * from './external-search.js';
 export * from './jobs.js';
 export * from './products.js';
 export * from './queues.js';
+export * from './lex.js';
 export * from './search.js';
 export * from './similarity-matches.js';
 export * from './settings.js';

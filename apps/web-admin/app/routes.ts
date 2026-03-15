@@ -36,6 +36,7 @@ import QualityEventsPage, { loader as qualityEventsLoader } from './routes/app.p
 import PimConsensusPage from './routes/app.pim.consensus';
 import PimCategoriesPage from './routes/app.pim.categories';
 import PimConfigPage from './routes/app.pim.config';
+import PimTranslationsPage from './routes/app.pim.translations';
 import PimRouteErrorBoundary from './routes/app.pim.error';
 import CollectionsPage from './routes/app.collections';
 import SettingsLayout from './routes/settings';
@@ -219,6 +220,12 @@ export const routes: RouteObject[] = [
             path: 'config',
             handle: { title: 'PIM - Config' },
             element: createElement(PimConfigPage),
+          },
+          {
+            id: 'pim-translations',
+            path: 'translations',
+            handle: { title: 'PIM - Translations' },
+            element: createElement(PimTranslationsPage),
           },
         ],
       },

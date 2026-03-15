@@ -1090,6 +1090,204 @@ export function setGuardrailsServiceHealth(isUp: boolean): void {
 }
 
 // ============================================
+// LEXICAL OPS METRICS
+// ============================================
+
+export const lexRunsActiveGauge: ObservableGauge = meter.createObservableGauge('lex_runs_active', {
+  description: 'Number of active lexical runs across shops',
+});
+
+export const lexRunsPausedGauge: ObservableGauge = meter.createObservableGauge('lex_runs_paused', {
+  description: 'Number of paused lexical runs across shops',
+});
+
+export const lexShardsFailedGauge: ObservableGauge = meter.createObservableGauge(
+  'lex_shards_failed',
+  {
+    description: 'Number of failed lexical shards across shops',
+  }
+);
+
+export const lexCheckpointsStaleGauge: ObservableGauge = meter.createObservableGauge(
+  'lex_checkpoints_stale',
+  {
+    description: 'Number of stale lexical checkpoints across shops',
+  }
+);
+
+export const lexAiBatchesBacklogGauge: ObservableGauge = meter.createObservableGauge(
+  'lex_ai_batches_backlog',
+  {
+    description: 'Number of lexical AI batch items pending or processing across shops',
+  }
+);
+
+export const lexReviewBacklogGauge: ObservableGauge = meter.createObservableGauge(
+  'lex_review_backlog',
+  {
+    description: 'Number of lexical review items pending or in review across shops',
+  }
+);
+
+export const lexPublicationsPendingGauge: ObservableGauge = meter.createObservableGauge(
+  'lex_publications_pending',
+  {
+    description: 'Number of lexical publication targets pending or publishing across shops',
+  }
+);
+
+export const lexPublicationsFailedGauge: ObservableGauge = meter.createObservableGauge(
+  'lex_publications_failed',
+  {
+    description: 'Number of lexical publication targets failed across shops',
+  }
+);
+
+export const lexPublishConflictsGauge: ObservableGauge = meter.createObservableGauge(
+  'lex_publish_conflicts',
+  {
+    description: 'Number of lexical publish conflicts awaiting operator action across shops',
+  }
+);
+
+export const lexRetentionLagSecondsGauge: ObservableGauge = meter.createObservableGauge(
+  'lex_retention_lag_seconds',
+  {
+    description: 'Maximum lexical retention lag in seconds across shops',
+    unit: 's',
+  }
+);
+
+export const lexDlqEntriesGauge: ObservableGauge = meter.createObservableGauge('lex_dlq_entries', {
+  description: 'Number of lexical DLQ entries across shops',
+});
+
+export const lexWorkersOnlineGauge: ObservableGauge = meter.createObservableGauge(
+  'lex_workers_online',
+  {
+    description: 'Number of lexical workers/schedulers currently online',
+  }
+);
+
+type LexMetricsSnapshotState = Readonly<{
+  runsActive: number;
+  runsPaused: number;
+  shardsFailed: number;
+  staleCheckpoints: number;
+  aiBatchBacklog: number;
+  reviewBacklog: number;
+  publicationsPending: number;
+  publicationsFailed: number;
+  publishConflicts: number;
+  retentionLag: number;
+  dlqEntries: number;
+}>;
+
+const lexMetricsByShop = new Map<string, LexMetricsSnapshotState>();
+const lexWorkersOnlineState = { value: 0 };
+
+meter.addBatchObservableCallback(
+  (observableResult) => {
+    let runsActive = 0;
+    let runsPaused = 0;
+    let shardsFailed = 0;
+    let staleCheckpoints = 0;
+    let aiBatchBacklog = 0;
+    let reviewBacklog = 0;
+    let publicationsPending = 0;
+    let publicationsFailed = 0;
+    let publishConflicts = 0;
+    let retentionLag = 0;
+    let dlqEntries = 0;
+
+    for (const snapshot of lexMetricsByShop.values()) {
+      runsActive += snapshot.runsActive;
+      runsPaused += snapshot.runsPaused;
+      shardsFailed += snapshot.shardsFailed;
+      staleCheckpoints += snapshot.staleCheckpoints;
+      aiBatchBacklog += snapshot.aiBatchBacklog;
+      reviewBacklog += snapshot.reviewBacklog;
+      publicationsPending += snapshot.publicationsPending;
+      publicationsFailed += snapshot.publicationsFailed;
+      publishConflicts += snapshot.publishConflicts;
+      retentionLag = Math.max(retentionLag, snapshot.retentionLag);
+      dlqEntries += snapshot.dlqEntries;
+    }
+
+    observableResult.observe(lexRunsActiveGauge, Math.max(0, runsActive));
+    observableResult.observe(lexRunsPausedGauge, Math.max(0, runsPaused));
+    observableResult.observe(lexShardsFailedGauge, Math.max(0, shardsFailed));
+    observableResult.observe(lexCheckpointsStaleGauge, Math.max(0, staleCheckpoints));
+    observableResult.observe(lexAiBatchesBacklogGauge, Math.max(0, aiBatchBacklog));
+    observableResult.observe(lexReviewBacklogGauge, Math.max(0, reviewBacklog));
+    observableResult.observe(lexPublicationsPendingGauge, Math.max(0, publicationsPending));
+    observableResult.observe(lexPublicationsFailedGauge, Math.max(0, publicationsFailed));
+    observableResult.observe(lexPublishConflictsGauge, Math.max(0, publishConflicts));
+    observableResult.observe(lexRetentionLagSecondsGauge, Math.max(0, retentionLag));
+    observableResult.observe(lexDlqEntriesGauge, Math.max(0, dlqEntries));
+    observableResult.observe(lexWorkersOnlineGauge, Math.max(0, lexWorkersOnlineState.value));
+  },
+  [
+    lexRunsActiveGauge,
+    lexRunsPausedGauge,
+    lexShardsFailedGauge,
+    lexCheckpointsStaleGauge,
+    lexAiBatchesBacklogGauge,
+    lexReviewBacklogGauge,
+    lexPublicationsPendingGauge,
+    lexPublicationsFailedGauge,
+    lexPublishConflictsGauge,
+    lexRetentionLagSecondsGauge,
+    lexDlqEntriesGauge,
+    lexWorkersOnlineGauge,
+  ]
+);
+
+export function setLexMetricsSnapshot(
+  shopId: string,
+  snapshot: {
+    runsActive: number;
+    runsPaused: number;
+    shardsFailed: number;
+    staleCheckpoints: number;
+    aiBatchBacklog: number;
+    reviewBacklog: number;
+    publicationsPending: number;
+    publicationsFailed: number;
+    publishConflicts: number;
+    retentionLag: number;
+    dlqEntries: number;
+  }
+): void {
+  const normalizedShopId = shopId.trim();
+  if (!normalizedShopId) return;
+  lexMetricsByShop.set(normalizedShopId, {
+    runsActive: Math.max(0, Math.floor(snapshot.runsActive)),
+    runsPaused: Math.max(0, Math.floor(snapshot.runsPaused)),
+    shardsFailed: Math.max(0, Math.floor(snapshot.shardsFailed)),
+    staleCheckpoints: Math.max(0, Math.floor(snapshot.staleCheckpoints)),
+    aiBatchBacklog: Math.max(0, Math.floor(snapshot.aiBatchBacklog)),
+    reviewBacklog: Math.max(0, Math.floor(snapshot.reviewBacklog)),
+    publicationsPending: Math.max(0, Math.floor(snapshot.publicationsPending)),
+    publicationsFailed: Math.max(0, Math.floor(snapshot.publicationsFailed)),
+    publishConflicts: Math.max(0, Math.floor(snapshot.publishConflicts)),
+    retentionLag: Math.max(0, Math.floor(snapshot.retentionLag)),
+    dlqEntries: Math.max(0, Math.floor(snapshot.dlqEntries)),
+  });
+}
+
+export function clearLexMetricsSnapshot(shopId: string): void {
+  const normalizedShopId = shopId.trim();
+  if (!normalizedShopId) return;
+  lexMetricsByShop.delete(normalizedShopId);
+}
+
+export function setLexWorkersOnline(value: number): void {
+  if (!Number.isFinite(value)) return;
+  lexWorkersOnlineState.value = Math.max(0, Math.floor(value));
+}
+
+// ============================================
 // HELPER FUNCTIONS
 // ============================================
 

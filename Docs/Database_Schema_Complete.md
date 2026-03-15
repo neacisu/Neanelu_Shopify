@@ -2,7 +2,7 @@
 
 > **PostgreSQL 18.1** | **pgvector 0.8.1** | **UUIDv7 (native)** | **RLS Multi-tenancy**
 >
-> **Last Updated:** 2025-12-29 | **Total:** 66 Tables + 7 MVs + 1 View | **Status:** ✅ Production Ready
+> **Last Updated:** 2026-03-14 | **Total:** 95 Tables + 7 MVs + 1 View | **Status:** ✅ Production Ready
 >
 > ⚠️ **SOURCE OF TRUTH:** Acest document este sursa definitivă pentru toate schemele de baze de date, inclusiv PIM.
 > Fișierul `Schemă_Bază_Date_PIM.sql` este **DEPRECATED** și nu trebuie folosit pentru implementare.
@@ -25,12 +25,13 @@
 12. [Module K: Menus & Navigation](#module-k-menus--navigation) (2 tables)
 13. [Module L: Scraper & Crawler Management](#module-l-scraper--crawler-management) (4 tables + 1 View) ← +1 v2.6
 14. [Module M: Analytics & Reporting](#module-m-analytics--reporting) (2 tables + 6 MVs) ← +3 MVs v2.6
-15. [Extensions Required](#extensions-required)
-16. [Shopify GraphQL ↔ PostgreSQL Data Type Mapping](#shopify-graphql--postgresql-data-type-mapping)
-17. [RLS Policies - Complete Reference](#rls-policies---complete-reference)
-18. [Partitioning Strategies](#partitioning-strategies)
-19. [Index Optimization Guidelines](#index-optimization-guidelines)
-20. [Migration Order](#migration-order)
+15. [Module N: Lexical Intelligence & Contextual Translation](#module-n-lexical-intelligence--contextual-translation) (29 tables) ← new in 2026-03
+16. [Extensions Required](#extensions-required)
+17. [Shopify GraphQL ↔ PostgreSQL Data Type Mapping](#shopify-graphql--postgresql-data-type-mapping)
+18. [RLS Policies - Complete Reference](#rls-policies---complete-reference)
+19. [Partitioning Strategies](#partitioning-strategies)
+20. [Index Optimization Guidelines](#index-optimization-guidelines)
+21. [Migration Order](#migration-order)
 
 ---
 
@@ -2226,6 +2227,55 @@ CREATE INDEX idx_mv_pim_source_perf_rate ON mv_pim_source_performance(confirmati
 ```
 
 ---
+
+## Module N: Lexical Intelligence & Contextual Translation
+
+> **Purpose:** Enterprise-grade lexical mining, contextual sense disambiguation, approved translation governance și publicare controlată în PIM-ul existent.
+
+**Status:** Additive module over `shopify_products`, `shopify_variants`, `shopify_collections`, `prod_master`, `prod_taxonomy`, `prod_attr_definitions`, `prod_attr_synonyms`, `prod_translations`, `prod_semantics`, `ai_batches`, `ai_batch_items`, `job_runs`, `api_usage_log`.
+
+### Operational Tables (RLS, shop-scoped)
+
+- `lex_shop_settings` - configurația oficială a modulului lexical per shop
+- `lex_runs` - run container pentru rebuild-uri, translate-only și publish-only
+- `lex_run_shards` - shard-uri de procesare pentru workers BullMQ Pro groups
+- `lex_checkpoints` - resume granular pentru workers
+- `lex_fragments` - fragmente brute extrase din JSONB / câmpuri PIM
+- `lex_fragment_entities` - tokeni tehnici protejați și entități structurale
+- `lex_fragment_annotations` - hints structurale și de context
+- `lex_term_occurrences` - fiecare apariție a unui termen într-un fragment
+- `lex_term_stats` - agregări rapide pentru ranking și UI
+- `lex_term_contexts` - contexte deduplicate per termen
+- `lex_context_embeddings` - embedding-uri `vector(2000)` + HNSW pentru clustering semantic
+- `lex_review_items` - coada de review uman
+- `lex_decisions` - audit pentru approve/reject/merge/split/publish
+- `lex_entity_localizations` - draft/approved localizations per entitate și limbă țintă
+- `lex_entity_localization_evidence` - evidență pentru compunerea localizărilor
+- `lex_publication_targets` - target-urile de publicare în tabelele existente
+- `lex_publish_events` - jurnal tehnic pentru publish / retry
+
+### Canonical Tables (global + shop override)
+
+- `lex_terms`
+- `lex_term_variants`
+- `lex_sense_clusters`
+- `lex_sense_cluster_members`
+- `lex_domain_profiles`
+- `lex_glossary_entries`
+- `lex_translation_rules`
+- `lex_translation_candidates`
+- `lex_translations`
+- `lex_attribute_resolution_candidates`
+- `lex_attribute_resolutions`
+- `lex_stopwords`
+
+### Design Notes
+
+- `lex_context_embeddings.embedding` folosește `vector(2000)` pentru aliniere cu infrastructura actuală din repo.
+- Publicarea în `prod_translations`, `prod_attr_synonyms`, `prod_semantics` și `shopify_collections.title_en/description_en` este separată de review și de aprobarea traducerilor.
+- Tokenii tehnici (`DN110`, `PN16`, `IP68`, `220V`, fracții, unități, SKU-like) sunt păstrați în `lex_fragment_entities` și nu sunt rescriși liber de model.
+- Faza de publicare pentru colecții reutilizează `lex_entity_localizations` când feature flag-ul `lex_collection_adapter_enabled` este activ.
+- Fundația v1 folosește tabele normale; partiționarea lunară pentru fact tables lexicale mari rămâne un pas ulterior, deoarece modelul curent cu FK-uri pe UUID simplu necesită un redesign dedicat al cheilor pentru partitioned PK/FK safety.
 
 ## Extensions Required
 

@@ -322,6 +322,122 @@ jobs:
           retention-days: 7
 
   # ============================================
+  # Tests: lexical release smoke (backend)
+  # ============================================
+  test-backend-worker-lex-release-smoke:
+    name: Test (backend-worker lex release smoke)
+    needs: [lint-typecheck-build]
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
+      BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
+      NODE_ENV: test
+      BACKEND_TESTS_WITH_CONTAINERS: '1'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Configure BullMQ Pro registry auth
+        shell: bash
+        run: |
+          {
+            echo "@taskforcesh:registry=https://npm.taskforce.sh/"
+            echo "//npm.taskforce.sh/:_authToken=${NPM_TASKFORCESH_TOKEN}"
+          } >> ~/.npmrc
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
+
+      - name: Run lexical integration smoke
+        run: pnpm run test:integration:lex
+
+      - name: Upload lexical backend smoke artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-backend-worker-lex-release-smoke
+          path: |
+            apps/backend-worker/coverage/
+            apps/backend-worker/junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ============================================
+  # Tests: lexical release smoke (Playwright)
+  # ============================================
+  test-web-admin-lex-e2e:
+    name: Test (web-admin lex e2e)
+    needs: [lint-typecheck-build]
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
+      BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
+      NODE_ENV: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Configure BullMQ Pro registry auth
+        shell: bash
+        run: |
+          {
+            echo "@taskforcesh:registry=https://npm.taskforce.sh/"
+            echo "//npm.taskforce.sh/:_authToken=${NPM_TASKFORCESH_TOKEN}"
+          } >> ~/.npmrc
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
+
+      - name: Install Playwright browser
+        run: pnpm --filter @app/web-admin exec playwright install --with-deps chromium
+
+      - name: Run lexical Playwright smoke
+        run: pnpm run test:e2e:lex
+
+      - name: Upload Playwright artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-lex-results
+          path: |
+            apps/web-admin/playwright-report/
+            apps/web-admin/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ============================================
   # Database Schema Tests
   # ============================================
   db-schema-tests:
@@ -900,6 +1016,8 @@ jobs:
       - test-packages
       - test-backend-worker-unit
       - test-backend-worker-integration
+      - test-backend-worker-lex-release-smoke
+      - test-web-admin-lex-e2e
       - db-schema-tests
       - security-scan
       - docker-compose-validate
@@ -913,6 +1031,8 @@ jobs:
             "${{ needs.test-packages.result }}"
             "${{ needs.test-backend-worker-unit.result }}"
             "${{ needs.test-backend-worker-integration.result }}"
+            "${{ needs.test-backend-worker-lex-release-smoke.result }}"
+            "${{ needs.test-web-admin-lex-e2e.result }}"
             "${{ needs.db-schema-tests.result }}"
             "${{ needs.security-scan.result }}"
             "${{ needs.docker-compose-validate.result }}"

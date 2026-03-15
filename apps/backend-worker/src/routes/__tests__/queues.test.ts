@@ -25,6 +25,20 @@ void mock.module(workerRegistryPath, {
       bulkMutationReconcileWorkerOk: true,
       bulkIngestWorkerOk: true,
       aiBatchWorkerOk: true,
+      lexExtractFragmentsWorkerOk: true,
+      lexExtractEntitiesWorkerOk: true,
+      lexMineTermsWorkerOk: true,
+      lexAggregateStatsWorkerOk: true,
+      lexBuildContextsWorkerOk: true,
+      lexEmbedContextsWorkerOk: true,
+      lexClusterSensesWorkerOk: true,
+      lexResolveAttributesWorkerOk: true,
+      lexTranslateCandidatesWorkerOk: true,
+      lexComposeLocalizationsWorkerOk: true,
+      lexReviewEnqueueWorkerOk: true,
+      lexPublishWorkerOk: true,
+      lexScheduleWorkerOk: true,
+      lexRetentionWorkerOk: true,
     }),
     getWorkerCurrentJob: () => null,
   },
@@ -207,5 +221,15 @@ void describe('Queue Admin Routes', () => {
   void test('invalid queue returns 404', async () => {
     const res = await app.inject({ method: 'GET', url: '/queues/not-a-queue/jobs' });
     assert.strictEqual(res.statusCode, 404);
+  });
+
+  void test('GET /queues/workers includes lexical workers', async () => {
+    const res = await app.inject({ method: 'GET', url: '/queues/workers' });
+    assert.strictEqual(res.statusCode, 200);
+
+    const body: { success: boolean; data: { workers: { id: string; ok: boolean }[] } } = res.json();
+    assert.strictEqual(body.success, true);
+    assert.ok(body.data.workers.some((worker) => worker.id === 'lex-publish-worker'));
+    assert.ok(body.data.workers.some((worker) => worker.id === 'lex-retention-compact-worker'));
   });
 });

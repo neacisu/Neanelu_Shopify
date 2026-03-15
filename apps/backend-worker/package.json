@@ -11,7 +11,10 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node --import ./dist/otel/register.js ./dist/main.js",
     "test": "node --experimental-test-module-mocks --import tsx --test src/**/*.test.ts",
-    "test:containers": "BACKEND_TESTS_WITH_CONTAINERS=1 node --experimental-test-module-mocks --import tsx --test src/processors/ai/__tests__/ai-pipeline.integration.test.ts"
+    "test:containers": "BACKEND_TESTS_WITH_CONTAINERS=1 node --experimental-test-module-mocks --import tsx --test src/processors/ai/__tests__/ai-pipeline.integration.test.ts",
+    "test:lex:integration": "node --experimental-test-module-mocks --import tsx --test src/routes/__tests__/dashboard.test.ts src/routes/__tests__/queues.test.ts src/services/__tests__/lex-ops.test.ts src/processors/lex/__tests__/integration/*.integration.test.ts",
+    "test:lex:performance": "RUN_PERF_TESTS=1 node --experimental-test-module-mocks --import tsx --test src/processors/lex/__tests__/performance/*.performance.test.ts",
+    "test:lex:chaos": "RUN_CHAOS_TESTS=1 node --experimental-test-module-mocks --import tsx --test src/processors/lex/__tests__/chaos/*.test.ts"
   },
   "dependencies": {
     "@app/ai-engine": "workspace:*",

@@ -84,7 +84,7 @@ async function ensureAdminStaffUser(params: {
   shopDomain: string;
   accessToken: string;
   logger: Logger;
-}): Promise<void> {
+}): Promise<{ staffUserId: string; staffEmail: string } | null> {
   try {
     const email = await fetchShopEmail({
       shopDomain: params.shopDomain,
@@ -92,28 +92,30 @@ async function ensureAdminStaffUser(params: {
     });
     if (!email) {
       params.logger.warn({ shopId: params.shopId }, 'Shop email missing; cannot seed admin user');
-      return;
+      return null;
     }
 
-    await withTenantContext(params.shopId, async (client) => {
-      const existing = await client.query<{ is_admin: boolean }>(
-        `SELECT (role->>'admin')::boolean AS "is_admin"
-         FROM staff_users
-         WHERE shop_id = $1`,
-        [params.shopId]
-      );
-      if (existing.rows.some((row) => row.is_admin)) return;
-
-      await client.query(
+    return await withTenantContext(params.shopId, async (client) => {
+      const upserted = await client.query<{ id: string; email: string }>(
         `INSERT INTO staff_users (shop_id, email, role, created_at)
          VALUES ($1, $2, $3::jsonb, now())
          ON CONFLICT (shop_id, email)
-         DO UPDATE SET role = EXCLUDED.role`,
+         DO UPDATE SET role = EXCLUDED.role
+         RETURNING id, email`,
         [params.shopId, email, JSON.stringify({ admin: true })]
       );
+
+      const row = upserted.rows[0];
+      if (!row) return null;
+
+      return {
+        staffUserId: row.id,
+        staffEmail: row.email,
+      };
     });
   } catch (err) {
     params.logger.warn({ err, shopId: params.shopId }, 'Failed to seed admin staff user');
+    return null;
   }
 }
 
@@ -482,8 +484,9 @@ export function registerAuthCallbackRoute(
       }
 
       // 10B. Seed admin staff user (best-effort)
+      let actorIdentity: { staffUserId: string; staffEmail: string } | null = null;
       if (shopId && tokenResponse.access_token) {
-        await ensureAdminStaffUser({
+        actorIdentity = await ensureAdminStaffUser({
           shopId,
           shopDomain,
           accessToken: tokenResponse.access_token,
@@ -501,6 +504,8 @@ export function registerAuthCallbackRoute(
             shopId,
             shopDomain,
             createdAt: Date.now(),
+            staffUserId: actorIdentity?.staffUserId ?? null,
+            staffEmail: actorIdentity?.staffEmail ?? null,
           },
           sessionConfig
         );

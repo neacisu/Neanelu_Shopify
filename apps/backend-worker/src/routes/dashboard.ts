@@ -8,10 +8,13 @@ import type {
   DashboardStartSyncResponse,
   DashboardClearCacheResponse,
   DashboardAlert,
+  DashboardLexHealthComponentDto,
+  DashboardLexSummaryDto,
   DashboardSummaryResponse,
   DashboardSummaryTrendResponse,
   DashboardSummaryTrendPoint,
   DashboardHealthScoreResponse,
+  LexMetricsDto,
 } from '@app/types';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { Redis as RedisClient } from 'ioredis';
@@ -19,6 +22,7 @@ import type { SessionConfig } from '../auth/session.js';
 import { requireSession, getSessionFromRequest } from '../auth/session.js';
 import { activityKeyForUtcDate, formatUtcDate } from '../runtime/dashboard-activity.js';
 import { getHttpLatencySnapshot } from '../runtime/http-latency.js';
+import { collectLexMetrics } from '../services/lex-ops.js';
 
 type DashboardPluginOptions = Readonly<{
   env: AppEnv;
@@ -157,6 +161,181 @@ async function scanDeletePattern(redis: RedisClient, pattern: string, maxKeys: n
   return deleted;
 }
 
+const DASHBOARD_LEX_RETENTION_WARNING_SECONDS = 24 * 60 * 60;
+
+const EMPTY_DASHBOARD_LEX_SUMMARY: DashboardLexSummaryDto = {
+  activeRuns: 0,
+  pausedRuns: 0,
+  failedShards: 0,
+  staleCheckpoints: 0,
+  aiBatchBacklog: 0,
+  reviewBacklog: 0,
+  pendingPublications: 0,
+  failedPublications: 0,
+  publishConflicts: 0,
+  dlqEntries: 0,
+  retentionLagSeconds: 0,
+  workersOnline: 0,
+  workersTotal: 0,
+};
+
+function toDashboardLexSummary(metrics: LexMetricsDto | null): DashboardLexSummaryDto {
+  if (!metrics) return EMPTY_DASHBOARD_LEX_SUMMARY;
+  return {
+    activeRuns: metrics.runsActive,
+    pausedRuns: metrics.runsPaused,
+    failedShards: metrics.shardsFailed,
+    staleCheckpoints: metrics.staleCheckpoints,
+    aiBatchBacklog: metrics.aiBatchBacklog,
+    reviewBacklog: metrics.reviewBacklog,
+    pendingPublications: metrics.publicationsPending,
+    failedPublications: metrics.publicationsFailed,
+    publishConflicts: metrics.publishConflicts,
+    dlqEntries: metrics.dlqEntries,
+    retentionLagSeconds: metrics.retentionLag,
+    workersOnline: metrics.workersOnline,
+    workersTotal: metrics.workersTotal,
+  };
+}
+
+function buildDashboardLexHealth(metrics: LexMetricsDto | null): DashboardLexHealthComponentDto {
+  if (!metrics) {
+    return {
+      score: 50,
+      workersOnline: 0,
+      workersTotal: 0,
+      pausedRuns: 0,
+      pausedBudgetBlocked: 0,
+      pausedProviderUnavailable: 0,
+      staleCheckpoints: 0,
+      dlqEntries: 0,
+      publicationFailures: 0,
+      publishConflicts: 0,
+      retentionLagSeconds: 0,
+    };
+  }
+
+  const offlineWorkers = Math.max(0, metrics.workersTotal - metrics.workersOnline);
+  let score = 100;
+
+  score -= Math.min(40, offlineWorkers * 14);
+  score -= metrics.staleCheckpoints > 0 ? Math.min(25, 10 + metrics.staleCheckpoints * 5) : 0;
+  score -= metrics.dlqEntries > 0 ? Math.min(20, 8 + metrics.dlqEntries) : 0;
+  score -= metrics.runsPaused > 0 ? Math.min(15, metrics.runsPaused * 4) : 0;
+  score -= metrics.publicationsFailed > 0 ? Math.min(15, metrics.publicationsFailed * 3) : 0;
+  score -= metrics.publishConflicts > 0 ? Math.min(10, metrics.publishConflicts * 2) : 0;
+
+  if (metrics.retentionLag > DASHBOARD_LEX_RETENTION_WARNING_SECONDS) {
+    score -= 12;
+  } else if (metrics.retentionLag > 6 * 60 * 60) {
+    score -= 6;
+  }
+
+  return {
+    score: Math.max(0, Math.min(100, Math.round(score))),
+    workersOnline: metrics.workersOnline,
+    workersTotal: metrics.workersTotal,
+    pausedRuns: metrics.runsPaused,
+    pausedBudgetBlocked: metrics.pausedBudgetBlocked,
+    pausedProviderUnavailable: metrics.pausedProviderUnavailable,
+    staleCheckpoints: metrics.staleCheckpoints,
+    dlqEntries: metrics.dlqEntries,
+    publicationFailures: metrics.publicationsFailed,
+    publishConflicts: metrics.publishConflicts,
+    retentionLagSeconds: metrics.retentionLag,
+  };
+}
+
+function buildDashboardLexAlerts(metrics: LexMetricsDto | null): DashboardAlert[] {
+  if (!metrics) return [];
+
+  const alerts: DashboardAlert[] = [];
+  const offlineWorkers = Math.max(0, metrics.workersTotal - metrics.workersOnline);
+
+  if (offlineWorkers > 0) {
+    alerts.push({
+      id: 'lex_worker_offline',
+      severity: 'critical',
+      title: 'Worker lexical offline',
+      description: `${offlineWorkers} workeri lexicali sunt offline sau neready.`,
+      href: '/queues?tab=workers',
+      details: {
+        offlineWorkers,
+        workersOnline: metrics.workersOnline,
+        workersTotal: metrics.workersTotal,
+      },
+    });
+  }
+
+  if (metrics.dlqEntries > 0) {
+    alerts.push({
+      id: 'lex_dlq_present',
+      severity: 'critical',
+      title: 'DLQ lexical activ',
+      description: `${metrics.dlqEntries} job-uri lex sunt în DLQ și necesită replay sau remediere.`,
+      href: '/queues?tab=jobs&queue=lex.publish-dlq',
+      details: { dlqEntries: metrics.dlqEntries },
+    });
+  }
+
+  if (metrics.staleCheckpoints > 0) {
+    alerts.push({
+      id: 'lex_stale_checkpoints',
+      severity: 'critical',
+      title: 'Checkpoint-uri lex stale',
+      description: `${metrics.staleCheckpoints} checkpoint-uri lex nu au mai trimis heartbeat de peste 15 minute.`,
+      href: '/pim/translations?tab=runs',
+      details: { staleCheckpoints: metrics.staleCheckpoints },
+    });
+  }
+
+  if (metrics.publishConflicts > 0) {
+    alerts.push({
+      id: 'lex_publish_conflicts',
+      severity: 'warning',
+      title: 'Conflicte de publicare lex',
+      description: `${metrics.publishConflicts} conflicte de publicare așteaptă decizie umană.`,
+      href: '/pim/translations?tab=review',
+      details: { publishConflicts: metrics.publishConflicts },
+    });
+  }
+
+  if (metrics.retentionLag > DASHBOARD_LEX_RETENTION_WARNING_SECONDS) {
+    alerts.push({
+      id: 'lex_retention_lag',
+      severity: 'warning',
+      title: 'Retention lag lexical',
+      description: `Cleanup-ul lexical are un lag de ${metrics.retentionLag}s și trebuie verificat.`,
+      href: '/pim/translations?tab=overview',
+      details: { retentionLagSeconds: metrics.retentionLag },
+    });
+  }
+
+  if (metrics.pausedBudgetBlocked > 0) {
+    alerts.push({
+      id: 'lex_paused_run_budget_blocked',
+      severity: 'warning',
+      title: 'Run lexical blocat de buget',
+      description: `${metrics.pausedBudgetBlocked} run-uri lex sunt în pauză din cauza bugetului.`,
+      href: '/pim/translations?tab=runs',
+      details: { pausedBudgetBlocked: metrics.pausedBudgetBlocked },
+    });
+  }
+
+  if (metrics.pausedProviderUnavailable > 0) {
+    alerts.push({
+      id: 'lex_paused_run_provider_unavailable',
+      severity: 'warning',
+      title: 'Run lexical blocat de provider',
+      description: `${metrics.pausedProviderUnavailable} run-uri lex sunt în pauză pentru că providerul nu este sănătos.`,
+      href: '/pim/translations?tab=runs',
+      details: { pausedProviderUnavailable: metrics.pausedProviderUnavailable },
+    });
+  }
+
+  return alerts;
+}
+
 export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
   server: FastifyInstance,
   opts
@@ -197,7 +376,7 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
     ).toISOString();
 
-    const [dbSummary, queueBacklog] = await Promise.all([
+    const [dbSummary, queueBacklog, lexMetrics] = await Promise.all([
       withTenantContext(session.shopId, async (client) => {
         const [
           productsResult,
@@ -325,6 +504,10 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
         logger.warn({ error }, 'Error computing queue backlog for summary');
         return 0;
       }),
+      collectLexMetrics({ shopId: session.shopId, env }).catch((error: unknown) => {
+        logger.warn({ error }, 'Error computing lexical metrics for dashboard summary');
+        return null;
+      }),
     ]);
 
     const todayKey = activityKeyForUtcDate(now, keyPrefix);
@@ -340,6 +523,7 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
       ...dbSummary,
       todayWebhooks,
       queueBacklog,
+      lex: toDashboardLexSummary(lexMetrics),
     };
 
     void reply.status(200).send(successEnvelope(request.id, summary));
@@ -445,17 +629,28 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
   });
 
   server.get('/dashboard/health-score', requireAdminSession, async (request, reply) => {
-    const redisOk = await pingRedis(redis, 1500);
-    const redisScore = redisOk ? 25 : 0;
+    const session = getSessionFromRequest(request, sessionConfig);
+    const [redisOk, backlog, lexMetrics] = await Promise.all([
+      pingRedis(redis, 1500),
+      getPendingJobsBacklog(env).catch(() => 0),
+      session
+        ? collectLexMetrics({ shopId: session.shopId, env }).catch((error: unknown) => {
+            logger.warn({ error }, 'Error computing lexical metrics for dashboard health');
+            return null;
+          })
+        : Promise.resolve(null),
+    ]);
+
+    const redisScore = redisOk ? 100 : 0;
 
     const latencySnap = getHttpLatencySnapshot();
     const latencyMs = latencySnap.sampleCount > 0 ? latencySnap.p95Seconds * 1000 : 0;
-    const latencyScore = latencyMs <= 500 ? 25 : latencyMs <= 1000 ? 15 : latencyMs <= 2000 ? 5 : 0;
+    const latencyScore =
+      latencyMs <= 500 ? 100 : latencyMs <= 1000 ? 60 : latencyMs <= 2000 ? 20 : 0;
 
     let errorRateValue = 0;
-    let errorRateScore = 25;
+    let errorRateScore = 100;
     try {
-      const session = getSessionFromRequest(request, sessionConfig);
       if (session) {
         const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
         const result = await withTenantContext(session.shopId, async (client) => {
@@ -471,16 +666,18 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
         const errors = Number(result.rows[0]?.error_count ?? 0);
         errorRateValue = total > 0 ? errors / total : 0;
         errorRateScore =
-          errorRateValue < 0.05 ? 25 : errorRateValue < 0.1 ? 15 : errorRateValue < 0.2 ? 5 : 0;
+          errorRateValue < 0.05 ? 100 : errorRateValue < 0.1 ? 60 : errorRateValue < 0.2 ? 20 : 0;
       }
     } catch {
-      errorRateScore = 12;
+      errorRateScore = 50;
     }
 
-    const backlog = await getPendingJobsBacklog(env).catch(() => 0);
-    const backlogScore = backlog < 100 ? 25 : backlog < 500 ? 15 : backlog < 1000 ? 5 : 0;
+    const backlogScore = backlog < 100 ? 100 : backlog < 500 ? 60 : backlog < 1000 ? 20 : 0;
+    const lexComponent = buildDashboardLexHealth(lexMetrics);
 
-    const score = redisScore + latencyScore + errorRateScore + backlogScore;
+    const score = Math.round(
+      (redisScore + latencyScore + errorRateScore + backlogScore + lexComponent.score) / 5
+    );
     const status: 'healthy' | 'degraded' | 'critical' =
       score >= 80 ? 'healthy' : score >= 50 ? 'degraded' : 'critical';
 
@@ -491,6 +688,7 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
         errorRate: { value: errorRateValue, score: errorRateScore },
         latency: { valueMs: latencyMs, score: latencyScore },
         backlog: { count: backlog, score: backlogScore },
+        lex: lexComponent,
       },
       status,
     };
@@ -537,6 +735,7 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
   });
 
   server.get('/dashboard/alerts', requireAdminSession, async (request, reply) => {
+    const session = getSessionFromRequest(request, sessionConfig);
     const alerts: DashboardAlert[] = [];
 
     const redisOk = await pingRedis(redis, 1500);
@@ -546,6 +745,7 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
         severity: 'critical',
         title: 'Redis down',
         description: 'Redis is not reachable. Caches, queues, and webhook dedupe may be degraded.',
+        href: '/queues?tab=overview',
       });
     }
 
@@ -556,6 +756,7 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
         severity: 'warning',
         title: 'API slow',
         description: 'Recent API latency is above threshold (p95 > 2s).',
+        href: '/settings/api',
         details: {
           p95Seconds: latency.p95Seconds,
           windowMs: latency.windowMs,
@@ -574,11 +775,45 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardPluginOptions> = (
         severity: 'warning',
         title: 'Jobs backlog',
         description: `High pending backlog detected (${backlog} waiting/delayed).`,
+        href: '/queues?tab=overview',
         details: { backlog },
       });
     }
 
-    const visible = alerts.slice(0, 3);
+    const lexAlerts =
+      session == null
+        ? []
+        : await collectLexMetrics({ shopId: session.shopId, env })
+            .then((metrics) => buildDashboardLexAlerts(metrics))
+            .catch((error: unknown) => {
+              logger.warn({ error }, 'Error computing lexical dashboard alerts');
+              return [];
+            });
+
+    const severityRank: Record<DashboardAlert['severity'], number> = {
+      critical: 0,
+      warning: 1,
+    };
+    const alertPriority: Record<string, number> = {
+      redis_down: 0,
+      lex_worker_offline: 1,
+      lex_dlq_present: 2,
+      lex_stale_checkpoints: 3,
+      api_slow: 4,
+      jobs_backlog: 5,
+      lex_publish_conflicts: 6,
+      lex_retention_lag: 7,
+      lex_paused_run_budget_blocked: 8,
+      lex_paused_run_provider_unavailable: 9,
+    };
+
+    const visible = [...alerts, ...lexAlerts]
+      .sort((left, right) => {
+        const severityDiff = severityRank[left.severity] - severityRank[right.severity];
+        if (severityDiff !== 0) return severityDiff;
+        return (alertPriority[left.id] ?? 100) - (alertPriority[right.id] ?? 100);
+      })
+      .slice(0, 3);
     void reply
       .status(200)
       .send(successEnvelope(request.id, { alerts: visible } satisfies DashboardAlertsResponse));

@@ -20,6 +20,8 @@ import { useScrollReveal } from '../hooks/useScrollReveal';
 import type { LoaderFunctionArgs } from 'react-router-dom';
 import { useLoaderData, useNavigate, useRevalidator } from 'react-router-dom';
 import type {
+  DashboardHealthScoreResponse,
+  DashboardLexSummaryDto,
   DashboardSummaryResponse,
   DashboardSummaryTrendResponse,
   DashboardSummaryTrendPoint,
@@ -38,11 +40,28 @@ import { createApiClient } from '../lib/api-client';
 import { getSessionAuthHeaders } from '../lib/session-auth';
 import { apiLoader, createLoaderApiClient, type LoaderData } from '../utils/loaders';
 import { ActivityTimeline } from './dashboard/components/ActivityTimeline';
+import { LexOperationsPanel } from './dashboard/components/LexOperationsPanel';
 import { QuickActionsPanel } from './dashboard/components/QuickActionsPanel';
 import { SystemAlertsBanner } from './dashboard/components/SystemAlertsBanner';
 import { jobsStore } from '../contexts/jobs-context.js';
 
 const api = createApiClient({ getAuthHeaders: getSessionAuthHeaders });
+
+const EMPTY_LEX_SUMMARY: DashboardLexSummaryDto = {
+  activeRuns: 0,
+  pausedRuns: 0,
+  failedShards: 0,
+  staleCheckpoints: 0,
+  aiBatchBacklog: 0,
+  reviewBacklog: 0,
+  pendingPublications: 0,
+  failedPublications: 0,
+  publishConflicts: 0,
+  dlqEntries: 0,
+  retentionLagSeconds: 0,
+  workersOnline: 0,
+  workersTotal: 0,
+};
 
 export const loader = apiLoader(async (_args: LoaderFunctionArgs) => {
   const api = createLoaderApiClient();
@@ -156,10 +175,7 @@ export default function DashboardIndex() {
   });
   const healthScoreQuery = useQuery({
     queryKey: ['dashboard', 'health-score'],
-    queryFn: () =>
-      api.getApi<{ score: number; status: string; components: Record<string, unknown> }>(
-        '/dashboard/health-score'
-      ),
+    queryFn: () => api.getApi<DashboardHealthScoreResponse>('/dashboard/health-score'),
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
@@ -289,6 +305,7 @@ export default function DashboardIndex() {
   const healthStatus =
     healthScoreQuery.data?.status ??
     (healthScore >= 80 ? 'healthy' : healthScore >= 50 ? 'degraded' : 'critical');
+  const lexSummary = summary.lex ?? EMPTY_LEX_SUMMARY;
   const recentRunsItems = useMemo(() => {
     const payload = recentRuns.data ?? {};
     const runs = Array.isArray(payload['runs'])
@@ -682,6 +699,10 @@ export default function DashboardIndex() {
         ) : (
           <>
             <SystemAlertsBanner />
+            <LexOperationsPanel
+              summary={lexSummary}
+              health={healthScoreQuery.data?.components.lex ?? null}
+            />
 
             <div className="dashboard-bento">
               <section
