@@ -144,3 +144,11 @@ DROP POLICY IF EXISTS tenant_isolation_lex_governance_request_events ON lex_gove
 CREATE POLICY tenant_isolation_lex_governance_request_events ON lex_governance_request_events
   USING (shop_id = NULLIF(current_setting('app.current_shop_id', true), '')::uuid)
   WITH CHECK (shop_id = NULLIF(current_setting('app.current_shop_id', true), '')::uuid);
+
+-- ============================================
+-- Widen shard_key to accommodate longer keys
+-- Format: sourceTable:timestamp:uuid:uuid (~115 chars)
+-- ============================================
+
+ALTER TABLE lex_run_shards
+  ALTER COLUMN shard_key TYPE VARCHAR(200);

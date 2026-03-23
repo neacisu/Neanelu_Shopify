@@ -7,19 +7,16 @@
  */
 
 import { loadEnv } from '@app/config';
-import { pool, withTenantContext } from '@app/database';
+import { createManagedRedis, pool, withTenantContext } from '@app/database';
 import { OTEL_ATTR, withSpan, type Logger } from '@app/logger';
 import { validateWebhookJobPayload, type WebhookJobPayload } from '@app/types';
 import { createHash } from 'node:crypto';
 import type { Redis as RedisClient } from 'ioredis';
-import { createManagedRedis } from '@app/database';
 import {
   configFromEnv,
   createQueue,
   createQueueEvents,
   createWorker,
-  exp4BackoffMs,
-  NEANELU_BACKOFF_STRATEGY,
   withJobTelemetryContext,
   WEBHOOK_QUEUE_NAME,
 } from '@app/queue-manager';
@@ -38,11 +35,151 @@ import {
 } from '../../otel/metrics.js';
 import { handleAppUninstalled } from './handlers/app-uninstalled.handler.js';
 import { handleCollectionDelete, handleCollectionUpsert } from './handlers/collections.js';
+import { handleTranslationsCreate, handleTranslationsRemove } from './handlers/translations.js';
 import { clearWorkerCurrentJob, setWorkerCurrentJob } from '../../runtime/worker-registry.js';
 import { incrementDashboardActivity } from '../../runtime/dashboard-activity.js';
 import { invalidateSearchCache } from '../ai/cache.js';
+import {
+  computeWebhookJobBackoffMsForRetry,
+  webhookJobIdString,
+  webhookJobNameString,
+} from './webhook-worker-utils.js';
 
 const env = loadEnv();
+
+interface WebhookJobLike {
+  id?: unknown;
+  opts?: { attempts?: number };
+  attemptsMade?: number;
+  name?: unknown;
+}
+
+function formatWebhookFailureErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function buildWebhookJobFailureSpanAttributes(params: {
+  jobId: string | undefined;
+  jobNameForTelemetry: string | undefined;
+  attemptsMade: number | undefined;
+  maxAttempts: number | undefined;
+  backoffMs: number | null;
+}): Record<string, string | number> {
+  const attrs: Record<string, string | number> = {
+    [OTEL_ATTR.QUEUE_NAME]: WEBHOOK_QUEUE_NAME,
+  };
+  if (params.jobId !== undefined) {
+    attrs[OTEL_ATTR.QUEUE_JOB_ID] = params.jobId;
+  }
+  if (params.jobNameForTelemetry !== undefined) {
+    attrs[OTEL_ATTR.QUEUE_JOB_NAME] = params.jobNameForTelemetry;
+  }
+  if (typeof params.attemptsMade === 'number') {
+    attrs[OTEL_ATTR.QUEUE_ATTEMPTS_MADE] = params.attemptsMade;
+  }
+  if (typeof params.maxAttempts === 'number') {
+    attrs[OTEL_ATTR.QUEUE_MAX_ATTEMPTS] = params.maxAttempts;
+  }
+  if (typeof params.backoffMs === 'number') {
+    attrs[OTEL_ATTR.QUEUE_BACKOFF_MS] = params.backoffMs;
+  }
+  return attrs;
+}
+
+function recordWebhookJobFailureMetrics(exhausted: boolean, backoffMs: number | null): void {
+  if (exhausted) {
+    queueJobFailedTotal.add(1, { queue_name: WEBHOOK_QUEUE_NAME });
+    return;
+  }
+  queueJobRetriesTotal.add(1, { queue_name: WEBHOOK_QUEUE_NAME });
+  if (typeof backoffMs === 'number' && Number.isFinite(backoffMs) && backoffMs > 0) {
+    queueJobBackoffSeconds.record(backoffMs / 1000, { queue_name: WEBHOOK_QUEUE_NAME });
+  }
+}
+
+async function handleWebhookWorkerJobFailed(params: {
+  job: unknown;
+  err: unknown;
+  logger: Logger;
+  activeStartedAtMs: Map<string, number>;
+}): Promise<void> {
+  const { job, err, logger, activeStartedAtMs } = params;
+  const jobId = webhookJobIdString(job);
+
+  if (jobId !== undefined) {
+    clearWorkerCurrentJob('webhook-worker', jobId);
+  }
+
+  const jobTyped = job as WebhookJobLike | null | undefined;
+  const maxAttempts = jobTyped?.opts?.attempts;
+  const attemptsMade = jobTyped?.attemptsMade;
+  const exhausted =
+    typeof maxAttempts === 'number' &&
+    typeof attemptsMade === 'number' &&
+    attemptsMade >= maxAttempts;
+
+  if (jobId !== undefined) {
+    const startedAt = activeStartedAtMs.get(jobId);
+    if (startedAt !== undefined) {
+      queueJobDurationSeconds.record((Date.now() - startedAt) / 1000, {
+        queue_name: WEBHOOK_QUEUE_NAME,
+      });
+      activeStartedAtMs.delete(jobId);
+    }
+  }
+
+  const spanName = exhausted ? 'queue.fail' : 'queue.retry';
+  // Tipul funcției vine din `webhook-worker-utils.js`; unele versiuni ESLint/type-aware nu rezolvă bine sufixul `.js`.
+  const backoffMs: number | null = exhausted
+    ? null
+    : (computeWebhookJobBackoffMsForRetry as (j: unknown) => number | null)(job);
+  const jobNameForTelemetry: string | undefined = (
+    webhookJobNameString as (n: unknown) => string | undefined
+  )(jobTyped?.name);
+
+  const spanAttrs = buildWebhookJobFailureSpanAttributes({
+    jobId,
+    jobNameForTelemetry,
+    attemptsMade,
+    maxAttempts,
+    backoffMs,
+  });
+
+  await withSpan(spanName, spanAttrs, () => Promise.resolve());
+
+  recordWebhookJobFailureMetrics(exhausted, backoffMs);
+
+  const failureMessage = formatWebhookFailureErrorMessage(err);
+  logger.warn(
+    {
+      event: exhausted ? 'job.fail' : 'job.retry',
+      queueName: WEBHOOK_QUEUE_NAME,
+      jobId: jobTyped?.id,
+      name: jobNameForTelemetry,
+      attemptsMade,
+      maxAttempts,
+      backoffMs,
+      errorMessage: failureMessage,
+    },
+    exhausted ? 'Webhook worker job failed (terminal)' : 'Webhook worker job failed (retrying)'
+  );
+
+  if (jobId === undefined) {
+    return;
+  }
+
+  emitQueueStreamEvent({
+    type: 'job.failed',
+    queueName: WEBHOOK_QUEUE_NAME,
+    jobId,
+    jobName: jobNameForTelemetry ?? 'unknown',
+    attemptsMade: typeof attemptsMade === 'number' ? attemptsMade : null,
+    maxAttempts: typeof maxAttempts === 'number' ? maxAttempts : null,
+    exhausted,
+    errorMessage: failureMessage,
+    timestamp: new Date().toISOString(),
+  });
+}
 
 export interface WebhookWorkerHandle {
   worker: { close: () => Promise<void>; isRunning?: () => boolean };
@@ -289,6 +426,22 @@ export function startWebhookWorker(logger: Logger): WebhookWorkerHandle {
             case 'collections/delete':
               await handleCollectionDelete({ shopId, payload: payloadJson });
               break;
+            case 'locales/create':
+              await handleTranslationsCreate({ shopId, payload: payloadJson, logger });
+              break;
+            case 'locales/update':
+              await handleTranslationsRemove({ shopId, payload: payloadJson, logger });
+              break;
+            case 'translations/create':
+            case 'TRANSLATIONS_CREATE':
+              await handleTranslationsCreate({ shopId, payload: payloadJson, logger });
+              break;
+            case 'translations/remove':
+            case 'translations/delete':
+            case 'TRANSLATIONS_REMOVE':
+            case 'TRANSLATIONS_DELETE':
+              await handleTranslationsRemove({ shopId, payload: payloadJson, logger });
+              break;
             default:
               logger.info(
                 {
@@ -350,115 +503,14 @@ export function startWebhookWorker(logger: Logger): WebhookWorkerHandle {
     },
   });
 
-  function computeBackoffMsForRetry(job: unknown): number | null {
-    const j = job as
-      | {
-          attemptsMade?: number;
-          opts?: { backoff?: unknown };
-        }
-      | undefined;
-
-    const attemptsMade = typeof j?.attemptsMade === 'number' ? j.attemptsMade : null;
-    if (!attemptsMade || attemptsMade <= 0) return null;
-
-    const configured = j?.opts?.backoff;
-    const type =
-      typeof configured === 'object' && configured
-        ? ((configured as Record<string, unknown>)['type'] as string | undefined)
-        : undefined;
-
-    const baseDelay =
-      typeof configured === 'number'
-        ? configured
-        : typeof configured === 'object' && configured
-          ? Number((configured as Record<string, unknown>)['delay'] ?? 0) || 0
-          : 0;
-
-    if (type === NEANELU_BACKOFF_STRATEGY) return exp4BackoffMs(attemptsMade);
-    if (type === 'exponential') return baseDelay * 2 ** Math.max(0, attemptsMade - 1);
-    return baseDelay;
-  }
-
   worker.on('failed', (job, err) => {
     void withJobTelemetryContext(job, async () => {
-      const jobId = job?.id != null ? String(job.id) : undefined;
-
-      if (jobId) {
-        clearWorkerCurrentJob('webhook-worker', jobId);
-      }
-      const maxAttempts = job?.opts.attempts;
-      const attemptsMade = job?.attemptsMade;
-      const exhausted =
-        typeof maxAttempts === 'number' &&
-        typeof attemptsMade === 'number' &&
-        attemptsMade >= maxAttempts;
-
-      if (jobId) {
-        const startedAt = activeStartedAtMs.get(jobId);
-        if (startedAt != null) {
-          queueJobDurationSeconds.record((Date.now() - startedAt) / 1000, {
-            queue_name: WEBHOOK_QUEUE_NAME,
-          });
-          activeStartedAtMs.delete(jobId);
-        }
-      }
-
-      const spanName = exhausted ? 'queue.fail' : 'queue.retry';
-      const backoffMs = exhausted ? null : computeBackoffMsForRetry(job);
-
-      await withSpan(
-        spanName,
-        {
-          [OTEL_ATTR.QUEUE_NAME]: WEBHOOK_QUEUE_NAME,
-          ...(jobId ? { [OTEL_ATTR.QUEUE_JOB_ID]: jobId } : {}),
-          ...(job?.name ? { [OTEL_ATTR.QUEUE_JOB_NAME]: String(job.name) } : {}),
-          ...(typeof attemptsMade === 'number'
-            ? { [OTEL_ATTR.QUEUE_ATTEMPTS_MADE]: attemptsMade }
-            : {}),
-          ...(typeof maxAttempts === 'number'
-            ? { [OTEL_ATTR.QUEUE_MAX_ATTEMPTS]: maxAttempts }
-            : {}),
-          ...(typeof backoffMs === 'number' ? { [OTEL_ATTR.QUEUE_BACKOFF_MS]: backoffMs } : {}),
-        },
-        () => Promise.resolve()
-      );
-
-      if (exhausted) {
-        queueJobFailedTotal.add(1, { queue_name: WEBHOOK_QUEUE_NAME });
-      } else {
-        queueJobRetriesTotal.add(1, { queue_name: WEBHOOK_QUEUE_NAME });
-        if (typeof backoffMs === 'number' && Number.isFinite(backoffMs) && backoffMs > 0) {
-          queueJobBackoffSeconds.record(backoffMs / 1000, { queue_name: WEBHOOK_QUEUE_NAME });
-        }
-      }
-
-      logger.warn(
-        {
-          event: exhausted ? 'job.fail' : 'job.retry',
-          queueName: WEBHOOK_QUEUE_NAME,
-          jobId: job?.id,
-          name: job?.name,
-          attemptsMade,
-          maxAttempts,
-          backoffMs,
-          err,
-        },
-        exhausted ? 'Webhook worker job failed (terminal)' : 'Webhook worker job failed (retrying)'
-      );
-
-      if (jobId) {
-        emitQueueStreamEvent({
-          type: 'job.failed',
-          queueName: WEBHOOK_QUEUE_NAME,
-          jobId,
-          jobName: String(job?.name ?? 'unknown'),
-          attemptsMade: typeof attemptsMade === 'number' ? attemptsMade : null,
-          maxAttempts: typeof maxAttempts === 'number' ? maxAttempts : null,
-          exhausted,
-          errorMessage: err instanceof Error ? err.message : String(err),
-          timestamp: new Date().toISOString(),
-        });
-      }
+      await handleWebhookWorkerJobFailed({
+        job,
+        err,
+        logger,
+        activeStartedAtMs,
+      });
     });
   });
 
@@ -542,9 +594,10 @@ export function startWebhookWorker(logger: Logger): WebhookWorkerHandle {
 
       clearWorkerCurrentJob('webhook-worker', jobId);
 
+      let durationMs: number | null = null;
       const startedAt = activeStartedAtMs.get(jobId);
-      const durationMs = startedAt != null ? Date.now() - startedAt : null;
-      if (durationMs != null) {
+      if (startedAt !== undefined) {
+        durationMs = Date.now() - startedAt;
         queueJobDurationSeconds.record(durationMs / 1000, { queue_name: WEBHOOK_QUEUE_NAME });
         activeStartedAtMs.delete(jobId);
       }

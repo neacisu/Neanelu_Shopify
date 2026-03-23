@@ -12,7 +12,7 @@ export type EnrichmentProgressChartProps = Readonly<{
 
 export function EnrichmentProgressChart({ data }: EnrichmentProgressChartProps) {
   return (
-    <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-md)]">
+    <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-(--shadow-md)">
       <div className="mb-2 text-xs text-muted">Progres enrichment</div>
       <LineChart
         data={data}

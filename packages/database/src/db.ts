@@ -228,6 +228,27 @@ function attachPoolErrorHandler(p: pg.Pool): void {
   });
 }
 
+const _clientsWithErrorHandler = new WeakSet<pg.PoolClient>();
+
+function attachClientErrorHandler(client: pg.PoolClient, poolLabel: string): pg.PoolClient {
+  if (_clientsWithErrorHandler.has(client)) return client;
+
+  client.on('error', (err) => {
+    if (isAuthError(err)) {
+      console.error(
+        `[${poolLabel}] Auth error on checked-out client — triggering credential refresh`
+      );
+      void handleAuthError();
+      return;
+    }
+
+    console.error(`[${poolLabel}] Checked-out client error (connection dropped):`, err.message);
+  });
+
+  _clientsWithErrorHandler.add(client);
+  return client;
+}
+
 let _runtimeRole: string | null = parsedInitialConnection.runtimeRole;
 
 async function applyRuntimeRole(client: pg.PoolClient, useLocalRole: boolean): Promise<void> {
@@ -269,7 +290,11 @@ export const pool: pg.Pool = new Proxy(Object.create(null) as pg.Pool, {
     if (prop === 'connect' || prop === 'query') {
       return async (...args: unknown[]) => {
         try {
-          return await (bound as (...a: unknown[]) => Promise<unknown>)(...args);
+          const result = await (bound as (...a: unknown[]) => Promise<unknown>)(...args);
+          if (prop === 'connect') {
+            return attachClientErrorHandler(result as pg.PoolClient, 'DB');
+          }
+          return result;
         } catch (err) {
           if (!isAuthError(err)) throw err;
           const rotated = await handleAuthError();
@@ -278,7 +303,11 @@ export const pool: pg.Pool = new Proxy(Object.create(null) as pg.Pool, {
           const freshFn = Reflect.get(freshTarget, prop, freshTarget) as (
             ...a: unknown[]
           ) => Promise<unknown>;
-          return await freshFn.bind(freshTarget)(...args);
+          const result = await freshFn.bind(freshTarget)(...args);
+          if (prop === 'connect') {
+            return attachClientErrorHandler(result as pg.PoolClient, 'DB');
+          }
+          return result;
         }
       };
     }
@@ -424,7 +453,11 @@ export function createSecondaryPool(opts: {
       if (prop === 'connect' || prop === 'query') {
         return async (...args: unknown[]) => {
           try {
-            return await (bound as (...a: unknown[]) => Promise<unknown>)(...args);
+            const result = await (bound as (...a: unknown[]) => Promise<unknown>)(...args);
+            if (prop === 'connect') {
+              return attachClientErrorHandler(result as pg.PoolClient, `DB:${opts.name}`);
+            }
+            return result;
           } catch (err) {
             if (!isAuthError(err)) throw err;
             const rotated = await handleAuthError();
@@ -433,7 +466,11 @@ export function createSecondaryPool(opts: {
             const freshFn = Reflect.get(freshTarget, prop, freshTarget) as (
               ...a: unknown[]
             ) => Promise<unknown>;
-            return await freshFn.bind(freshTarget)(...args);
+            const result = await freshFn.bind(freshTarget)(...args);
+            if (prop === 'connect') {
+              return attachClientErrorHandler(result as pg.PoolClient, `DB:${opts.name}`);
+            }
+            return result;
           }
         };
       }

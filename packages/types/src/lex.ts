@@ -2,8 +2,13 @@
  * Module N: Lexical Intelligence & Contextual Translation types
  */
 
-function isCanonicalUuid(value: string): boolean {
+/** Validare UUID pentru parametri `:id` din API (format hex standard). */
+export function isLexCanonicalUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+function isCanonicalUuid(value: string): boolean {
+  return isLexCanonicalUuid(value);
 }
 
 export const LEX_RUN_TYPES = [
@@ -95,6 +100,7 @@ export const LEX_PUBLICATION_TARGET_STATUSES = [
   'skipped',
   'rolled_back',
   'cancelled',
+  'orphaned',
 ] as const;
 
 export const LEX_GOVERNANCE_ENTITY_TYPES = [
@@ -112,12 +118,17 @@ export const LEX_GOVERNANCE_STATUSES = [
   'approved',
   'rejected',
   'applied',
+  'apply_failed',
   'cancelled',
 ] as const;
 
 export type LexRunType = (typeof LEX_RUN_TYPES)[number];
 export type LexRunStatus = (typeof LEX_RUN_STATUSES)[number];
 export type LexPhaseName = (typeof LEX_PHASE_NAMES)[number];
+
+export function isLexPhaseName(value: string | null | undefined): value is LexPhaseName {
+  return typeof value === 'string' && (LEX_PHASE_NAMES as readonly string[]).includes(value);
+}
 export type LexEntityType = (typeof LEX_ENTITY_TYPES)[number];
 export type LexPublicationTargetType = (typeof LEX_PUBLICATION_TARGET_TYPES)[number];
 export type LexDecisionType = (typeof LEX_DECISION_TYPES)[number];
@@ -175,7 +186,9 @@ export interface LexRunSummary {
   shopId: string;
   runType: LexRunType;
   status: LexRunStatus;
-  currentPhase?: string | null;
+  /** Set when status is `paused` (e.g. redis_unavailable, budget_blocked). */
+  pauseReason: string | null;
+  currentPhase: LexPhaseName | null;
   startedAt: string | null;
   completedAt: string | null;
   fragmentsCount: number;
@@ -204,6 +217,12 @@ export interface LexClusterDetail {
   isApproved: boolean;
 }
 
+/** PATCH /pim/lex/terms/:id — at least one field required */
+export interface LexTermFlagsPatchRequest {
+  isTechnical?: boolean;
+  isProtected?: boolean;
+}
+
 export interface LexTermDetail {
   id: string;
   shopId: string | null;
@@ -216,6 +235,9 @@ export interface LexTermDetail {
   isTechnical: boolean;
   isProtected: boolean;
   status: string;
+  /** From `lex_term_stats` for current shop (aligned with terms list). */
+  occurrencesTotal: number;
+  scoreGlobal: number | null;
   variants: {
     id: string;
     variantText: string;
@@ -225,6 +247,15 @@ export interface LexTermDetail {
     isApproved: boolean;
   }[];
   clusters: LexClusterDetail[];
+}
+
+/** GET /pim/lex/terms/:id/products — produs Shopify legat prin fragmente / occurrences. */
+export interface LexTermAffectedProductDto {
+  productId: string;
+  title: string;
+  handle: string;
+  status: string | null;
+  occurrenceCount: number;
 }
 
 export interface LexLocalizationDetail {
@@ -266,11 +297,14 @@ export interface LexGlossaryEntryDto {
   targetLang: string;
   sourceText: string;
   targetText: string;
+  /** Disambiguation for duplicate source_text (matches DB sense_hint). */
+  senseHint?: string | null;
   translationKind: string;
   priority: number;
   version: number;
   isLocked: boolean;
   isActive: boolean;
+  notes?: string | null;
 }
 
 export interface LexPublicationTargetDto {
@@ -348,6 +382,14 @@ export interface LexMetricsDto {
   staleCheckpoints: number;
   retentionLag: number;
   aiBatchBacklog: number;
+  /** Agregat din lex_run_phase_events (translate.candidates / shard_completed), detalii JSON. */
+  tmHits: number;
+  tmMisses: number;
+  /** Procent 0–100 din tmHits / (tmHits + tmMisses); 0 dacă nu există încercări TM. */
+  tmHitRatePercent: number;
+  tmMissRatePercent: number;
+  /** Cosine similarity medie (0–1) pentru hit-uri TM când există tmSimilaritySum în evenimente; altfel null. */
+  tmAverageSimilarity: number | null;
   dlqEntries: number;
   workersOnline: number;
   workersTotal: number;
@@ -438,6 +480,9 @@ export interface LexTranslationRuleDto {
   targetLang: string;
   matchTerm: string;
   domainCode: string | null;
+  requiredNeighbors?: string[];
+  forbiddenNeighbors?: string[];
+  requiredFieldKinds?: string[];
   targetTranslation: string;
   priority: number;
   version: number;
@@ -451,6 +496,12 @@ export interface LexDomainProfileDto {
   nameRo: string;
   nameEn: string | null;
   description: string | null;
+  categoryHints?: Record<string, unknown>;
+  protectedPatterns?: string[];
+  requiredNeighborTerms?: string[];
+  forbiddenNeighborTerms?: string[];
+  allowedTranslationStyles?: string[];
+  metadata?: Record<string, unknown>;
   version: number;
   isActive: boolean;
 }
@@ -503,6 +554,8 @@ export interface LexCursorPage<T> {
   nextCursor: string | null;
 }
 
+export type LexTranslationMode = 'single' | 'consensus' | 'auto';
+
 export interface LexShopSettingsDto {
   shopId: string;
   version: number;
@@ -518,6 +571,25 @@ export interface LexShopSettingsDto {
   autoPublishProducts: boolean;
   autoPublishAttributes: boolean;
   autoPublishCollections: boolean;
+  /** LLM / translation intelligence (lex_shop_settings) */
+  translationMode: LexTranslationMode;
+  consensusEscalationThreshold: number;
+  /** Term / TM path: auto-approve translations at or above this confidence (0–1). */
+  translationAutoApproveThreshold: number;
+  /** Composed localizations: auto-approve when average replacement quality is at or above this (0–1). */
+  localizationAutoApproveThreshold: number;
+  tmEnabled: boolean;
+  tmSimilarityThreshold: number;
+  qualityAuditEnabled: boolean;
+  qualityAuditMinBatchSize: number;
+  maxTermsPerLlmBatch: number;
+  /** Guardrails enforcement mode */
+  guardrailsLexMode: LexGuardrailsMode;
+  guardrailsWarnThreshold: number;
+  guardrailsWarnCount: number;
+  guardrailsBlockCount: number;
+  guardrailsFalsePositiveCount: number;
+  guardrailsLastEvaluatedAt: string | null;
 }
 
 export interface LexAccessPermissions {
@@ -525,6 +597,8 @@ export interface LexAccessPermissions {
   canReview: boolean;
   canPublish: boolean;
   canManageSettings: boolean;
+  /** Maker-checker workflow: create/submit/approve/reject/apply governance requests */
+  canGovernance: boolean;
 }
 
 export interface LexBootstrapDto {
@@ -655,11 +729,89 @@ export function validateLexRetentionJobPayload(data: unknown): data is LexRetent
   if (typeof payload.shopId !== 'string' || !isCanonicalUuid(payload.shopId)) return false;
   if (typeof payload.requestedAt !== 'number' || !Number.isFinite(payload.requestedAt))
     return false;
-  if (
-    payload.retentionDays !== undefined &&
-    (typeof payload.retentionDays !== 'number' || !Number.isFinite(payload.retentionDays))
-  ) {
+  if (payload.retentionDays !== undefined) {
+    if (typeof payload.retentionDays !== 'number' || !Number.isFinite(payload.retentionDays)) {
+      return false;
+    }
+    if (payload.retentionDays < 1) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Guardrails types                                                   */
+/* ------------------------------------------------------------------ */
+
+export type LexGuardrailsMode = 'warn' | 'enforce' | 'progressive';
+export type LexGuardrailsVerdict = 'pass' | 'warn' | 'block';
+
+export interface LexGuardrailsScanResult {
+  verdict: LexGuardrailsVerdict;
+  reasons: string[];
+  inputHash: string;
+  outputHash?: string;
+  confidenceScore?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface LexGuardrailsEventDto {
+  id: string;
+  shopId: string;
+  eventType: string;
+  pipelinePhase: string;
+  scanPoint: string;
+  verdict: LexGuardrailsVerdict;
+  reasons: string[];
+  inputHash: string;
+  outputHash: string | null;
+  entityId: string | null;
+  entityType: string | null;
+  termId: string | null;
+  runId: string | null;
+  shardIdx: number | null;
+  confidenceScore: number | null;
+  metadata: Record<string, unknown>;
+  isFalsePositive: boolean;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+}
+
+export interface LexGuardrailsSettingsDto {
+  guardrailsLexMode: LexGuardrailsMode;
+  guardrailsWarnThreshold: number;
+  guardrailsWarnCount: number;
+  guardrailsBlockCount: number;
+  guardrailsFalsePositiveCount: number;
+  guardrailsLastEvaluatedAt: string | null;
+}
+
+export interface LexGuardrailsStatsDto {
+  totalEvents: number;
+  passCount: number;
+  warnCount: number;
+  blockCount: number;
+  falsePositiveCount: number;
+  topReasons: { reason: string; count: number }[];
+}
+
+export function validateLexResolveAttributesJobPayload(
+  data: unknown
+): data is LexResolveAttributesJobPayload {
+  if (!data || typeof data !== 'object') return false;
+  const payload = data as Partial<LexResolveAttributesJobPayload>;
+  if (typeof payload.shopId !== 'string' || !isCanonicalUuid(payload.shopId)) return false;
+  if (typeof payload.runId !== 'string' || !isCanonicalUuid(payload.runId)) return false;
+  if (typeof payload.requestedAt !== 'number' || !Number.isFinite(payload.requestedAt))
     return false;
+  if (payload.candidateIds !== undefined) {
+    if (!Array.isArray(payload.candidateIds)) return false;
+    if (payload.candidateIds.length > 10_000) return false;
+    for (const cid of payload.candidateIds) {
+      if (typeof cid !== 'string' || !isCanonicalUuid(cid)) return false;
+    }
   }
   return true;
 }

@@ -27,6 +27,16 @@ const STAGGER_MS = 50;
 const STAGGER_CAP = 5;
 const ENTER_DURATION_MS = 300;
 
+type WorkerCardProps = Readonly<{
+  worker: WorkerSummary;
+  index: number;
+  display: WorkerDisplayInfo;
+}>;
+
+type WorkersGridProps = Readonly<{
+  workers: readonly WorkerSummary[];
+}>;
+
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes)) return '—';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -49,32 +59,40 @@ function formatDuration(sec: number): string {
   return `${s}s`;
 }
 
-function WorkerCard({
-  worker: w,
-  index,
-  display,
-}: {
-  worker: WorkerSummary;
-  index: number;
-  display: WorkerDisplayInfo;
-}) {
+function getAccentBarClass(isOnline: boolean, isBusy: boolean): string {
+  if (!isOnline) {
+    return 'bg-muted/60';
+  }
+
+  if (isBusy) {
+    return 'bg-warning motion-safe:animate-[workerBusyShimmer_2s_ease-in-out_infinite]';
+  }
+
+  return 'bg-success';
+}
+
+function WorkerCard({ worker: w, index, display }: WorkerCardProps) {
   const reducedMotion = useReducedMotion();
-  const cardRef = useRef<HTMLElement>(null);
+  const cardRef = useRef<HTMLLIElement>(null);
   const { heapMax, rssMax } = calculateDynamicMax({
     heapTotal: w.memoryHeapTotalBytes,
     rss: w.memoryRssBytes,
   });
   const isOnline = w.ok;
   const isBusy = w.currentJob != null;
+  const accentBarClass = getAccentBarClass(isOnline, isBusy);
+  const currentProgress = w.currentJob?.progressPct;
+  const hasProgress = currentProgress !== null && currentProgress !== undefined;
+  const progressValue = hasProgress ? Math.min(100, Math.max(0, currentProgress)) : 0;
+  const roundedProgressValue = Math.round(progressValue);
 
   return (
-    <article
+    <li
       ref={cardRef}
-      role="listitem"
       data-hover-lift
-      className="group relative overflow-hidden rounded-xl border border-border bg-card shadow-[var(--shadow-sm)]
+      className="group relative overflow-hidden rounded-xl border border-border bg-card shadow-(--shadow-sm)
   transition-all duration-300 ease-out
-  hover:-translate-y-0.5 hover:border-accent-border/80 hover:shadow-[var(--shadow-md)]
+      hover:-translate-y-0.5 hover:border-accent-border/80 hover:shadow-(--shadow-md)
               focus-within:ring-2 focus-within:ring-ring/40 focus-within:ring-offset-2"
       style={
         reducedMotion
@@ -85,16 +103,7 @@ function WorkerCard({
       }
     >
       {/* Accent bar left: success online, warning when busy, muted offline */}
-      <div
-        className={`absolute left-0 top-0 h-full w-1 shrink-0 ${
-          isOnline
-            ? isBusy
-              ? 'bg-warning motion-safe:animate-[workerBusyShimmer_2s_ease-in-out_infinite]'
-              : 'bg-success'
-            : 'bg-muted/60'
-        }`}
-        aria-hidden
-      />
+      <div className={`absolute left-0 top-0 h-full w-1 shrink-0 ${accentBarClass}`} aria-hidden />
 
       <div className="flex flex-col gap-4 p-4 pl-5">
         {/* Header: nume prietenos RO + tooltip, status */}
@@ -194,24 +203,15 @@ function WorkerCard({
               <p className="font-mono text-xs text-muted" title={w.currentJob.jobId}>
                 {w.currentJob.jobId}
               </p>
-              {w.currentJob.progressPct != null ? (
-                <div
-                  className="pt-1"
-                  role="progressbar"
-                  aria-valuenow={Math.round(w.currentJob.progressPct)}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-label={`Progres ${Math.round(w.currentJob.progressPct)}%`}
-                >
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-subtle">
-                    <div
-                      className="h-full rounded-full bg-warning motion-safe:transition-[width_0.5s_ease-out]"
-                      style={{ width: `${Math.min(100, Math.max(0, w.currentJob.progressPct))}%` }}
-                    />
-                  </div>
-                  <p className="mt-0.5 text-xs text-muted tabular-nums">
-                    {Math.round(w.currentJob.progressPct)}%
-                  </p>
+              {hasProgress ? (
+                <div className="pt-1">
+                  <progress
+                    className="h-1.5 w-full overflow-hidden rounded-full [&::-webkit-progress-bar]:bg-subtle [&::-webkit-progress-value]:bg-warning [&::-webkit-progress-value]:transition-[width_0.5s_ease-out] [&::-moz-progress-bar]:bg-warning"
+                    value={progressValue}
+                    max={100}
+                    aria-label={`Progres ${roundedProgressValue}%`}
+                  />
+                  <p className="mt-0.5 text-xs text-muted tabular-nums">{roundedProgressValue}%</p>
                 </div>
               ) : null}
             </div>
@@ -262,20 +262,16 @@ function WorkerCard({
           </div>
         </div>
       </div>
-    </article>
+    </li>
   );
 }
 
-export function WorkersGrid({ workers }: { workers: WorkerSummary[] }) {
+export function WorkersGrid({ workers }: WorkersGridProps) {
   return (
-    <div
-      className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3"
-      role="list"
-      aria-label="Lista workeri"
-    >
+    <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-label="Lista workeri">
       {workers.map((w, index) => (
         <WorkerCard key={w.id} worker={w} index={index} display={getWorkerDisplayInfo(w.id)} />
       ))}
-    </div>
+    </ul>
   );
 }

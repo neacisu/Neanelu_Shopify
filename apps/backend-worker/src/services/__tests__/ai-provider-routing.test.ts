@@ -10,7 +10,7 @@ const metricsPath = new URL('../../otel/metrics.js', import.meta.url).href;
 const selfhostedCredentialsPath = new URL('../selfhosted-credentials.js', import.meta.url).href;
 const xaiCredentialsPath = new URL('../xai-credentials.js', import.meta.url).href;
 
-void mock.module('@app/ai-engine', {
+mock.module('@app/ai-engine', {
   namedExports: {
     createEmbeddingsProvider: () => ({
       kind: 'openai',
@@ -27,26 +27,26 @@ void mock.module('@app/ai-engine', {
   },
 });
 
-void mock.module('@app/database', {
+mock.module('@app/database', {
   namedExports: {
     decryptAesGcm: () => Buffer.from('test-key', 'utf8'),
     withTenantContext: () => Promise.resolve(null),
   },
 });
 
-void mock.module(featureFlagsPath, {
+mock.module(featureFlagsPath, {
   namedExports: {
     isFeatureFlagEnabled: () => Promise.resolve(false),
   },
 });
 
-void mock.module(openAiConfigPath, {
+mock.module(openAiConfigPath, {
   namedExports: {
     getShopOpenAiConfig: () => Promise.resolve(null),
   },
 });
 
-void mock.module(metricsPath, {
+mock.module(metricsPath, {
   namedExports: {
     recordAiProviderRouting: () => undefined,
     recordSelfhostedFallbackToFrontier: () => undefined,
@@ -54,13 +54,13 @@ void mock.module(metricsPath, {
   },
 });
 
-void mock.module(selfhostedCredentialsPath, {
+mock.module(selfhostedCredentialsPath, {
   namedExports: {
     loadSelfHostedCredentials: () => Promise.resolve(null),
   },
 });
 
-void mock.module(xaiCredentialsPath, {
+mock.module(xaiCredentialsPath, {
   namedExports: {
     loadXAICredentials: () => Promise.resolve(null),
   },

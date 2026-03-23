@@ -820,6 +820,118 @@
       "when": 1773944400000,
       "tag": "0116_lexical_module_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1774030800000,
+      "tag": "0117_lexical_governance_and_ops",
+      "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1774117200000,
+      "tag": "0118_lex_shop_settings_ai_translation",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1774203600000,
+      "tag": "0119_lex_translations_source_embedding_tm",
+      "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1774290000000,
+      "tag": "0120_lex_ai_batches_provider_and_candidates_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1774376400000,
+      "tag": "0121_ai_batches_translation_audit_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1774462800000,
+      "tag": "0122_lex_terms_unique_non_merged",
+      "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1774549200000,
+      "tag": "0123_lex_publication_target_status_orphaned",
+      "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1774635600000,
+      "tag": "0124_lex_terms_watermarks_governance_updated_at_triggers",
+      "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1774722000000,
+      "tag": "0125_lex_stopwords_variants_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1774808400000,
+      "tag": "0126_lex_attr_resolution_candidates_business_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "7",
+      "when": 1774894800000,
+      "tag": "0127_lex_review_items_open_partial_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1774981200000,
+      "tag": "0128_lex_governance_status_apply_failed",
+      "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1775067600000,
+      "tag": "0129_lex_shop_settings_quality_thresholds",
+      "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1775154000000,
+      "tag": "0130_lex_guardrails_infrastructure",
+      "breakpoints": true
+    },
+    {
+      "idx": 131,
+      "version": "7",
+      "when": 1775240400000,
+      "tag": "0131_lex_translation_candidates_null_safe_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "7",
+      "when": 1775326800000,
+      "tag": "0132_lex_multi_lang_jsonb",
+      "breakpoints": true
     }
   ]
 }

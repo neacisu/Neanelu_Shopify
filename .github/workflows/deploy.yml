@@ -41,10 +41,6 @@ concurrency:
   group: deploy-${{ inputs.environment }}
   cancel-in-progress: false
 
-permissions:
-  contents: write
-  packages: write
-
 env:
   NODE_VERSION: '24'
   PNPM_VERSION: '10.28.0'
@@ -58,6 +54,9 @@ jobs:
     name: Build & Push images
     runs-on: [self-hosted, neanelu]
     timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
     outputs:
       image_tag: ${{ steps.tag.outputs.tag }}
     steps:
@@ -111,6 +110,8 @@ jobs:
     name: DB backup & migrations
     runs-on: [self-hosted, neanelu]
     timeout-minutes: 20
+    permissions:
+      contents: read
     env:
       NPM_TASKFORCESH_TOKEN: '${{ secrets.NPM_TASKFORCESH_TOKEN }}'
       BULLMQ_PRO_TOKEN: '${{ secrets.BULLMQ_PRO_TOKEN }}'
@@ -202,8 +203,8 @@ jobs:
       - name: Setup SSH key (CT107)
         run: |
           install -d -m 0700 ~/.ssh
-          echo "${{ secrets.SSH_KEY_DEPLOY }}" > ~/.ssh/ct107_key
-          chmod 0600 ~/.ssh/ct107_key
+          install -m 0600 /dev/null ~/.ssh/ct107_key
+          printf '%s\n' "${{ secrets.SSH_KEY_DEPLOY }}" > ~/.ssh/ct107_key
 
       - name: Pre-deploy backup (pg_dump on CT107 via SSH)
         env:
@@ -241,6 +242,9 @@ jobs:
     runs-on: [self-hosted, neanelu]
     timeout-minutes: 15
     needs: [build-push, migrate]
+    permissions:
+      contents: write
+      packages: read
     steps:
       - name: Purge stale git state
         run: rm -rf .git
@@ -263,8 +267,8 @@ jobs:
           fi
 
           install -d -m 0700 ~/.ssh
-          echo "${{ secrets.SSH_KEY_DEPLOY }}" > ~/.ssh/deploy_key
-          chmod 0600 ~/.ssh/deploy_key
+          install -m 0600 /dev/null ~/.ssh/deploy_key
+          printf '%s\n' "${{ secrets.SSH_KEY_DEPLOY }}" > ~/.ssh/deploy_key
           SSH="ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ~/.ssh/deploy_key"
           SCP="scp -q -o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ~/.ssh/deploy_key"
 

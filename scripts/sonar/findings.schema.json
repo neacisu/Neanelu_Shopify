@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://neanelu.local/schemas/sonar-manual-findings.schema.json",
+  "title": "Sonar Manual Findings Export",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "exportedAt", "sourceInventory", "totals", "files"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "exportedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sourceInventory": {
+      "type": "string",
+      "minLength": 1
+    },
+    "totals": {
+      "$ref": "#/$defs/totals"
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/fileFinding"
+      }
+    }
+  },
+  "$defs": {
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "discovered",
+        "pending",
+        "in_progress",
+        "analyzed",
+        "skipped",
+        "failed",
+        "issues"
+      ],
+      "properties": {
+        "discovered": { "type": "integer", "minimum": 0 },
+        "pending": { "type": "integer", "minimum": 0 },
+        "in_progress": { "type": "integer", "minimum": 0 },
+        "analyzed": { "type": "integer", "minimum": 0 },
+        "skipped": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "issues": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message"],
+      "properties": {
+        "source": { "type": "string" },
+        "engine": { "type": "string" },
+        "owner": { "type": "string" },
+        "category": { "type": "string" },
+        "type": { "type": "string" },
+        "ruleId": { "type": "string" },
+        "code": { "type": "string" },
+        "severity": { "type": "string" },
+        "line": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 1 },
+        "endLine": { "type": "integer", "minimum": 1 },
+        "endColumn": { "type": "integer", "minimum": 1 },
+        "evidence": { "type": "string" },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    },
+    "fileFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "status", "scannedAt", "issues", "error"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "in_progress", "analyzed", "skipped", "failed"]
+        },
+        "scannedAt": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/issue"
+          }
+        },
+        "error": {
+          "type": ["string", "null"]
+        }
+      }
+    }
+  }
+}

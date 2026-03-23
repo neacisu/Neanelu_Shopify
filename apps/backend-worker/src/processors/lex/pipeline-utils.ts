@@ -1,11 +1,9 @@
 import { createHash } from 'node:crypto';
+import stringify from 'fast-json-stable-stringify';
 
-export interface TenantClient {
-  query: <TRow extends Record<string, unknown> = Record<string, unknown>>(
-    sql: string,
-    params?: unknown[]
-  ) => Promise<{ rows: TRow[]; rowCount: number }>;
-}
+import type { TenantClient } from './pipeline-types.js';
+
+export type { TenantClient } from './pipeline-types.js';
 
 export type LexToken = Readonly<{
   raw: string;
@@ -19,15 +17,20 @@ export function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
+/** Hash determinist pentru obiecte JSON (ordine chei stabilă, fără JSON.stringify). */
+export function sha256StableJson(value: unknown): string {
+  return sha256(stringify(value));
+}
+
 export function normalizeWhitespace(value: string): string {
-  return value.replace(/\s+/g, ' ').trim();
+  return value.replaceAll(/\s+/g, ' ').trim();
 }
 
 export function normalizeLexeme(value: string): string {
   return normalizeWhitespace(value)
     .normalize('NFKD')
-    .replace(/\p{M}/gu, '')
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replaceAll(/\p{M}/gu, '')
+    .replaceAll(/[^\p{L}\p{N}]+/gu, ' ')
     .trim()
     .toLowerCase();
 }
@@ -118,6 +121,47 @@ export function decimalString(value: number, scale = 4): string {
   return value.toFixed(scale);
 }
 
+/** Aligned with `lex_shop_settings` SQL defaults (`0115_lexical_module_foundation.sql`). */
+export const DEFAULT_LEX_SOURCE_LANG = 'ro';
+export const DEFAULT_LEX_TARGET_LANG = 'en';
+
+export type LexShopLangPair = Readonly<{ sourceLang: string; targetLang: string }>;
+
+export function parseLexShopLangFromSettingsRow(
+  row:
+    | {
+        sourceLang?: string | null;
+        targetLangs?: string[] | null;
+      }
+    | null
+    | undefined
+): LexShopLangPair {
+  const sourceLangRaw = row?.sourceLang?.trim();
+  const sourceLang =
+    sourceLangRaw && sourceLangRaw.length > 0 ? sourceLangRaw : DEFAULT_LEX_SOURCE_LANG;
+  const targetLangRaw = row?.targetLangs?.[0]?.trim();
+  const targetLang =
+    targetLangRaw && targetLangRaw.length > 0 ? targetLangRaw : DEFAULT_LEX_TARGET_LANG;
+  return { sourceLang, targetLang };
+}
+
+export async function loadLexShopLangPair(params: {
+  client: TenantClient;
+  shopId: string;
+}): Promise<LexShopLangPair> {
+  const settings = await params.client.query<{
+    sourceLang: string | null;
+    targetLangs: string[] | null;
+  }>(
+    `SELECT source_lang AS "sourceLang", target_langs AS "targetLangs"
+     FROM lex_shop_settings
+     WHERE shop_id = $1
+     LIMIT 1`,
+    [params.shopId]
+  );
+  return parseLexShopLangFromSettingsRow(settings.rows[0]);
+}
+
 export async function loadActiveStopwords(params: {
   client: TenantClient;
   shopId: string;
@@ -129,7 +173,7 @@ export async function loadActiveStopwords(params: {
      WHERE locale = $1
        AND is_active = true
        AND (shop_id = $2 OR shop_id IS NULL)`,
-    [params.locale ?? 'ro', params.shopId]
+    [params.locale ?? DEFAULT_LEX_SOURCE_LANG, params.shopId]
   );
 
   return new Set(
@@ -183,7 +227,12 @@ export function buildLocalizationContentHash(value: {
   descriptionShort: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
+  vendorText?: string | null;
+  productTypeText?: string | null;
+  tags?: string[];
+  optionNames?: Record<string, string>;
+  metafields?: Record<string, string>;
   keywords: string[];
 }): string {
-  return sha256(JSON.stringify(value));
+  return sha256StableJson(value);
 }

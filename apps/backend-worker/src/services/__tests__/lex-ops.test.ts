@@ -19,7 +19,7 @@ const metricsState = {
   workersOnline: -1,
 };
 
-void mock.module('@app/database', {
+mock.module('@app/database', {
   namedExports: {
     withTenantContext: async (
       _shopId: string,
@@ -48,6 +48,9 @@ void mock.module('@app/database', {
                 staleCheckpoints: '2',
                 retentionLag: '90061',
                 aiBatchBacklog: '6',
+                tmHits: '12',
+                tmMisses: '4',
+                tmAverageSimilarity: '0.931',
               } as unknown as TRow,
             ],
           }),
@@ -55,7 +58,7 @@ void mock.module('@app/database', {
   },
 });
 
-void mock.module('@app/queue-manager', {
+mock.module('@app/queue-manager', {
   namedExports: {
     configFromEnv: () => ({}),
     createQueue: (_ctx: unknown, opts: { name: string }) => ({
@@ -73,7 +76,7 @@ void mock.module('@app/queue-manager', {
   },
 });
 
-void mock.module(workerRegistryPath, {
+mock.module(workerRegistryPath, {
   namedExports: {
     getWorkerReadiness: () => ({
       lexExtractFragmentsWorkerOk: true,
@@ -103,7 +106,7 @@ void mock.module(workerRegistryPath, {
   },
 });
 
-void mock.module(metricsPath, {
+mock.module(metricsPath, {
   namedExports: {
     setLexMetricsSnapshot: (shopId: string, snapshot: Record<string, unknown>) => {
       metricsState.latestSnapshot = { shopId, ...snapshot };
@@ -114,13 +117,13 @@ void mock.module(metricsPath, {
   },
 });
 
-void describe('lex-ops service', () => {
+await describe('lex-ops service', async () => {
   beforeEach(() => {
     metricsState.latestSnapshot = null;
     metricsState.workersOnline = -1;
   });
 
-  void test('collectLexMetrics returns operator health, queue links, and alerts', async () => {
+  await test('collectLexMetrics returns operator health, queue links, and alerts', async () => {
     const { collectLexMetrics } = await import('../lex-ops.js');
 
     const metrics = await collectLexMetrics({
@@ -130,6 +133,13 @@ void describe('lex-ops service', () => {
 
     assert.strictEqual(metrics.runsPaused, 1);
     assert.strictEqual(metrics.aiBatchBacklog, 6);
+    assert.strictEqual(metrics.tmHits, 12);
+    assert.strictEqual(metrics.tmMisses, 4);
+    assert.strictEqual(metrics.tmHitRatePercent, 75);
+    assert.strictEqual(metrics.tmMissRatePercent, 25);
+    assert.ok(
+      metrics.tmAverageSimilarity != null && Math.abs(metrics.tmAverageSimilarity - 0.931) < 0.0001
+    );
     assert.strictEqual(metrics.dlqEntries, 3);
     assert.strictEqual(metrics.workersTotal, 14);
     assert.strictEqual(metrics.workersOnline, 13);
@@ -142,7 +152,7 @@ void describe('lex-ops service', () => {
     assert.strictEqual(metricsState.workersOnline, 13);
   });
 
-  void test('buildLexPublicationQueueLinks points to generic queue monitor', async () => {
+  await test('buildLexPublicationQueueLinks points to generic queue monitor', async () => {
     const { buildLexPublicationQueueLinks } = await import('../lex-ops.js');
 
     const links = buildLexPublicationQueueLinks();

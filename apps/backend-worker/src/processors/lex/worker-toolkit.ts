@@ -42,15 +42,23 @@ export function createLexWorker(params: {
   }) => Promise<unknown>;
 }): LexWorkerHandle {
   const env = loadEnv();
+  const concurrencyRaw = Number(process.env['LEX_WORKER_CONCURRENCY']);
+  const concurrency =
+    Number.isFinite(concurrencyRaw) && concurrencyRaw > 0
+      ? Math.min(32, Math.floor(concurrencyRaw))
+      : 4;
+
   const { worker, dlqQueue } = createWorker(
     { config: configFromEnv(env) },
     {
       name: params.queueName,
       enableDlq: true,
       enableDelayHandling: true,
+      stalledInterval: 600_000,
       workerOptions: {
-        concurrency: 4,
+        concurrency,
         group: { concurrency: 1 },
+        lockDuration: 300_000,
       },
       processor: async (job) =>
         await withJobTelemetryContext(job, async () => {
@@ -70,7 +78,7 @@ export function createLexWorker(params: {
                 shopId,
                 queueName: params.queueName,
                 jobId,
-              });
+              }).catch(() => undefined);
             }
 
             const result = await params.processor(job);
@@ -81,7 +89,7 @@ export function createLexWorker(params: {
                 queueName: params.queueName,
                 jobId,
                 result,
-              });
+              }).catch(() => undefined);
             }
 
             return result;

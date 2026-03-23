@@ -647,7 +647,7 @@ async function markExtractionForHumanReview(params: {
           requires_human_review: true,
           human_review_reason: params.reason,
           human_review_marked_at: nowIso,
-          ...(params.extraDetails ?? {}),
+          ...params.extraDetails,
         }),
         params.matchId,
       ]

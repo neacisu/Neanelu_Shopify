@@ -6,6 +6,8 @@ export type ModalProps = PropsWithChildren<{
   onClose?: () => void;
   title?: string;
   className?: string;
+  /** When false, backdrop clicks do not dismiss (Escape still calls onClose when provided). */
+  closeOnOverlayClick?: boolean;
   [key: string]: unknown;
 }>;
 
@@ -24,6 +26,7 @@ export function Modal({
   onClose,
   title,
   className = '',
+  closeOnOverlayClick = true,
   ...rest
 }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -64,11 +67,11 @@ export function Modal({
 
   const handleOverlayClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (e.target === overlayRef.current && onClose) {
+      if (e.target === overlayRef.current && closeOnOverlayClick && onClose) {
         onClose();
       }
     },
-    [onClose]
+    [closeOnOverlayClick, onClose]
   );
 
   useEffect(() => {

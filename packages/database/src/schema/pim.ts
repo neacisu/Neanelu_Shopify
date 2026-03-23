@@ -268,6 +268,41 @@ export type ProdMaster = typeof prodMaster.$inferSelect;
 export type NewProdMaster = typeof prodMaster.$inferInsert;
 
 // ============================================
+// 4. GOLDEN RECORD LAYER: prod_translations
+// ============================================
+
+export const prodTranslations = pgTable(
+  'prod_translations',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`uuidv7()`),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => prodMaster.id, { onDelete: 'cascade' }),
+    locale: varchar('locale', { length: 10 }).notNull(),
+    title: text('title'),
+    description: text('description'),
+    descriptionShort: varchar('description_short', { length: 500 }),
+    keywords: text('keywords').array(),
+    seoTitle: varchar('seo_title', { length: 255 }),
+    seoDescription: text('seo_description'),
+    translationSource: varchar('translation_source', { length: 30 }),
+    qualityScore: decimal('quality_score', { precision: 3, scale: 2 }),
+    isApproved: boolean('is_approved').default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('idx_translations_product_locale').on(table.productId, table.locale),
+    index('idx_translations_locale').on(table.locale, table.isApproved),
+  ]
+);
+
+export type ProdTranslation = typeof prodTranslations.$inferSelect;
+export type NewProdTranslation = typeof prodTranslations.$inferInsert;
+
+// ============================================
 // 4. GOLDEN RECORD LAYER: prod_specs_normalized
 // ============================================
 

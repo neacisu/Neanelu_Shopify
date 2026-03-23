@@ -14,7 +14,7 @@ const columns: readonly DataTableColumn<ConsensusProductItem>[] = [
   {
     id: 'title',
     header: 'Produs',
-    renderCell: (row) => <span className="max-w-[200px] truncate block">{row.title}</span>,
+    renderCell: (row) => <span className="max-w-50 truncate block">{row.title}</span>,
   },
   {
     id: 'sourceCount',

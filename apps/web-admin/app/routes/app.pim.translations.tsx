@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import type {
   LexBootstrapDto,
@@ -6,8 +14,12 @@ import type {
   LexDomainProfileDto,
   LexGovernanceRequestDto,
   LexGlossaryEntryDto,
+  LexGuardrailsEventDto,
+  LexGuardrailsMode,
+  LexGuardrailsStatsDto,
   LexLocalizationDetail,
   LexMetricsDto,
+  LexPhaseName,
   LexPublicationDetailDto,
   LexPublicationTargetDto,
   LexReviewDetailDto,
@@ -15,41 +27,178 @@ import type {
   LexRunSummary,
   LexShopSettingsDto,
   LexStopwordDto,
+  LexTermAffectedProductDto,
   LexTermDetail,
+  LexTermFlagsPatchRequest,
   LexTranslationRuleDto,
 } from '@app/types';
 
+import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { Tabs } from '../components/ui/tabs';
-import { Button } from '../components/ui/button';
-import { Checkbox } from '../components/ui/checkbox';
 import { EmptyState } from '../components/patterns/empty-state';
 import { ErrorState } from '../components/patterns/error-state';
 import { LoadingState } from '../components/patterns/loading-state';
 import { useApiClient } from '../hooks/use-api';
-import { withAppBasePath } from '../lib/base-path';
+import { useLexConfirmModal } from '../hooks/use-lex-confirm-modal';
+import type { LexGlossaryCreatePayload, LexGlossaryUpdatePayload } from './glossary-tab-panel';
+import type { LexRuleCreatePayload, LexRuleUpdatePayload } from './rules-tab-panel';
+import type { LexProfileCreatePayload, LexProfileUpdatePayload } from './profiles-tab-panel';
+import type { LexStopwordCreatePayload, LexStopwordUpdatePayload } from './stopwords-tab-panel';
+import {
+  LEX_DECISION_NOTES_MAX_LENGTH,
+  lexReviewQueueActionsOpen,
+  TabContent,
+  type LexCsvExportEntity,
+  type LexGlossaryListFilters,
+  type LexPublicationsListFilters,
+  type LexReviewListFilters,
+  type LexTermsListFilters,
+  type TermsListItem,
+} from './pim-translations-tabs';
+import { LexRunStartControls } from './lex-run-start-controls';
 
-type TermsListItem = Readonly<{
-  id: string;
-  canonicalText: string;
-  normalizedKey: string;
-  displayTextRo: string | null;
-  ngramSize: number;
-  termType: string;
-  domainCode: string | null;
-  isTechnical: boolean;
-  isProtected: boolean;
-  status: string;
-  occurrencesTotal: number;
-  scoreGlobal: number | null;
-}>;
+/** Filtru `q` trimis la export CSV în funcție de entitatea selectată (tab-uri cu căutare). */
+function csvExportFilterQueryForEntity(
+  entity: LexCsvExportEntity,
+  terms: LexTermsListFilters,
+  glossary: LexGlossaryListFilters,
+  review: LexReviewListFilters,
+  publications: LexPublicationsListFilters
+): string {
+  switch (entity) {
+    case 'terms':
+      return terms.q.trim();
+    case 'glossary':
+      return glossary.q.trim();
+    case 'review':
+      return review.q.trim();
+    case 'publications':
+      return publications.q.trim();
+    case 'translations':
+    case 'rules':
+    default:
+      return '';
+  }
+}
 
-function formatScore(value: number | null | undefined): string {
+function resumeLexHeartbeatAfterSuccessfulReload(
+  hardPausedRef: { current: boolean },
+  failuresRef: { current: number },
+  setBanner: Dispatch<SetStateAction<string | null>>,
+  setResumeNonce: Dispatch<SetStateAction<number>>
+): void {
+  const needResume = hardPausedRef.current || failuresRef.current > 0;
+  if (!needResume) return;
+  hardPausedRef.current = false;
+  failuresRef.current = 0;
+  setBanner(null);
+  setResumeNonce((n) => n + 1);
+}
+
+/** Răspuns POST /pim/lex/review/bulk-decision (f4-22). */
+interface LexBulkReviewApiResponse {
+  succeeded: { reviewItemId: string }[];
+  failed: { reviewItemId: string; code: string; message: string }[];
+  totals: { requested: number; succeeded: number; failed: number };
+}
+
+const DEFAULT_TERMS_LIST_FILTERS: LexTermsListFilters = {
+  q: '',
+  status: '',
+  domainCode: '',
+  minScore: '',
+  maxScore: '',
+};
+
+function buildTermsListQueryString(
+  filters: LexTermsListFilters,
+  limit: number,
+  cursor?: string | null
+): string {
+  const p = new URLSearchParams();
+  p.set('limit', String(limit));
+  if (cursor) p.set('cursor', cursor);
+  if (filters.q.trim()) p.set('q', filters.q.trim());
+  if (filters.status) p.set('status', filters.status);
+  if (filters.domainCode) p.set('domainCode', filters.domainCode);
+  if (filters.minScore.trim()) p.set('minScore', filters.minScore.trim());
+  if (filters.maxScore.trim()) p.set('maxScore', filters.maxScore.trim());
+  return p.toString();
+}
+
+const DEFAULT_REVIEW_LIST_FILTERS: LexReviewListFilters = {
+  q: '',
+  status: '',
+  severity: '',
+  entityType: '',
+};
+
+function buildReviewListQueryString(
+  filters: LexReviewListFilters,
+  limit: number,
+  cursor?: string | null
+): string {
+  const p = new URLSearchParams();
+  p.set('limit', String(limit));
+  if (cursor) p.set('cursor', cursor);
+  if (filters.q.trim()) p.set('q', filters.q.trim());
+  if (filters.status) p.set('status', filters.status);
+  if (filters.severity) p.set('severity', filters.severity);
+  if (filters.entityType) p.set('entityType', filters.entityType);
+  return p.toString();
+}
+
+const DEFAULT_PUBLICATIONS_LIST_FILTERS: LexPublicationsListFilters = {
+  q: '',
+  status: '',
+  targetType: '',
+};
+
+function buildPublicationsListQueryString(
+  filters: LexPublicationsListFilters,
+  limit: number,
+  cursor?: string | null
+): string {
+  const p = new URLSearchParams();
+  p.set('limit', String(limit));
+  if (cursor) p.set('cursor', cursor);
+  if (filters.q.trim()) p.set('q', filters.q.trim());
+  if (filters.status) p.set('status', filters.status);
+  if (filters.targetType) p.set('targetType', filters.targetType);
+  return p.toString();
+}
+
+const DEFAULT_GLOSSARY_LIST_FILTERS: LexGlossaryListFilters = {
+  q: '',
+};
+
+function clampLexDecisionNotes(draft: string): string {
+  return draft.trim().slice(0, LEX_DECISION_NOTES_MAX_LENGTH);
+}
+
+function isFetchAborted(err: unknown, signal?: AbortSignal): boolean {
+  return Boolean(signal?.aborted) || (err instanceof Error && err.name === 'AbortError');
+}
+
+function buildGlossaryListQueryString(
+  filters: LexGlossaryListFilters,
+  limit: number,
+  cursor?: string | null
+): string {
+  const p = new URLSearchParams();
+  p.set('limit', String(limit));
+  if (cursor) p.set('cursor', cursor);
+  if (filters.q.trim()) p.set('q', filters.q.trim());
+  return p.toString();
+}
+
+export function formatScore(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return '—';
   return value.toFixed(2);
 }
 
-function formatDate(value: string | null | undefined): string {
+export function formatDate(value: string | null | undefined): string {
   if (!value) return '—';
   try {
     return new Date(value).toLocaleString('ro-RO');
@@ -58,21 +207,101 @@ function formatDate(value: string | null | undefined): string {
   }
 }
 
-function formatDurationSeconds(value: number | null | undefined): string {
+/** Human-readable pause reason for lexical runs (server codes → RO UI). */
+export function formatLexPauseReason(code: string | null | undefined): string {
+  if (code == null || code === '') return '—';
+  switch (code) {
+    case 'redis_unavailable':
+      return 'Redis indisponibil — pipeline oprit temporar';
+    case 'budget_blocked':
+      return 'Buget AI depășit';
+    case 'provider_unavailable':
+      return 'Furnizor AI indisponibil';
+    default:
+      return code;
+  }
+}
+
+function getRunProgressTotal(run: LexRunSummary): number {
+  return (
+    (run.fragmentsCount ?? 0) +
+    (run.termsCount ?? 0) +
+    (run.contextsCount ?? 0) +
+    (run.translationsCount ?? 0)
+  );
+}
+
+function isRunActive(run: LexRunSummary): boolean {
+  return run.status === 'running' || run.status === 'pending';
+}
+
+/** Polling live pentru Overview/Runs: interval de bază, backoff max, oprire după N eșecuri (f4-18). */
+const LEX_HEARTBEAT_BASE_MS = 15_000;
+const LEX_HEARTBEAT_MAX_MS = 120_000;
+const LEX_HEARTBEAT_FAIL_THRESHOLD = 3;
+
+/** Cache bootstrap / settings / metrics între schimbări de tab (f4-24). */
+const LEX_STATIC_CACHE_MS = 30_000;
+
+const LEX_PHASE_ORDER_UI = [
+  'extract.fragments',
+  'extract.entities',
+  'mine.terms',
+  'aggregate.stats',
+  'build.contexts',
+  'embed.contexts',
+  'cluster.senses',
+  'resolve.attributes',
+  'translate.candidates',
+  'compose.localizations',
+  'review.enqueue',
+  'publish',
+] as const;
+
+export function getLexPhaseProgress(currentPhase: LexPhaseName | null | undefined): {
+  index: number;
+  total: number;
+} {
+  const total = LEX_PHASE_ORDER_UI.length;
+  if (!currentPhase) return { index: 0, total };
+  const idx = (LEX_PHASE_ORDER_UI as readonly string[]).indexOf(currentPhase);
+  return { index: idx < 0 ? 0 : idx + 1, total };
+}
+
+export function formatDurationSeconds(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return '0s';
   if (value < 60) return `${Math.max(0, Math.round(value))}s`;
   if (value < 3600) return `${Math.floor(value / 60)}m ${Math.round(value % 60)}s`;
   return `${Math.floor(value / 3600)}h ${Math.floor((value % 3600) / 60)}m`;
 }
 
-function severityTone(severity: 'info' | 'warning' | 'critical'): string {
+export function severityTone(severity: 'info' | 'warning' | 'critical'): string {
   if (severity === 'critical') return 'border-rose-300 bg-rose-50 text-rose-900';
   if (severity === 'warning') return 'border-amber-300 bg-amber-50 text-amber-900';
   return 'border-sky-300 bg-sky-50 text-sky-900';
 }
 
+export function runStatusClass(stale: boolean, status: string): string {
+  if (stale) return 'font-medium text-amber-600';
+  if (status === 'running') return 'font-medium text-primary';
+  return 'text-muted';
+}
+
+export function clusterStatusLabel(isApproved: boolean, needsReview: boolean): string {
+  if (isApproved) return 'approved';
+  if (needsReview) return 'needs review';
+  return 'draft';
+}
+
+export function rollbackToneClass(rollbackable: boolean, completeness: string | null): string {
+  if (rollbackable) return 'bg-emerald-100 text-emerald-800';
+  if (completeness === 'repairable') return 'bg-amber-100 text-amber-800';
+  return 'bg-rose-100 text-rose-800';
+}
+
 export default function PimTranslationsPage() {
   const api = useApiClient();
+  const { requestLexConfirm, LexConfirmModal } = useLexConfirmModal();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get('tab') ?? 'overview';
@@ -83,16 +312,43 @@ export default function PimTranslationsPage() {
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [startingRun, setStartingRun] = useState(false);
+  const [resumingRunId, setResumingRunId] = useState<string | null>(null);
+  const [termFlagsSaving, setTermFlagsSaving] = useState(false);
+  const [manualTranslationSaving, setManualTranslationSaving] = useState(false);
+  const [editTranslationSaving, setEditTranslationSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const runProgressRef = useRef<Map<string, { total: number; staleCount: number }>>(new Map());
+  const [staleRunIds, setStaleRunIds] = useState<ReadonlySet<string>>(new Set());
 
   const [metrics, setMetrics] = useState<LexMetricsDto | null>(null);
   const [settings, setSettings] = useState<LexShopSettingsDto | null>(null);
+  /** Draft JSON pentru textarea „Extract scope” — permite editare invalidă fără reset UI (f4-25). */
+  const [extractScopeText, setExtractScopeText] = useState('');
+  /** Ultima versiune încărcată/salvată din API — baseline pentru dirty check (f4-29). */
+  const savedSettingsRef = useRef<LexShopSettingsDto | null>(null);
   const [runs, setRuns] = useState<LexRunSummary[]>([]);
   const [terms, setTerms] = useState<TermsListItem[]>([]);
+  const [termsListFilters, setTermsListFilters] = useState<LexTermsListFilters>(
+    DEFAULT_TERMS_LIST_FILTERS
+  );
+  const [reviewListFilters, setReviewListFilters] = useState<LexReviewListFilters>(
+    DEFAULT_REVIEW_LIST_FILTERS
+  );
+  const [publicationsListFilters, setPublicationsListFilters] =
+    useState<LexPublicationsListFilters>(DEFAULT_PUBLICATIONS_LIST_FILTERS);
+  const [glossaryListFilters, setGlossaryListFilters] = useState<LexGlossaryListFilters>(
+    DEFAULT_GLOSSARY_LIST_FILTERS
+  );
   const [selectedTerm, setSelectedTerm] = useState<LexTermDetail | null>(null);
   const [localizations, setLocalizations] = useState<LexLocalizationDetail[]>([]);
   const [reviewItems, setReviewItems] = useState<LexReviewItemDetail[]>([]);
   const [selectedReview, setSelectedReview] = useState<LexReviewDetailDto | null>(null);
+  const [reviewDecisionNotes, setReviewDecisionNotes] = useState('');
+  const [selectedReviewIdsForBulk, setSelectedReviewIdsForBulk] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
+  const [bulkReviewBusy, setBulkReviewBusy] = useState(false);
+  const [governanceActionNotes, setGovernanceActionNotes] = useState('');
   const [glossary, setGlossary] = useState<LexGlossaryEntryDto[]>([]);
   const [rules, setRules] = useState<LexTranslationRuleDto[]>([]);
   const [profiles, setProfiles] = useState<LexDomainProfileDto[]>([]);
@@ -102,6 +358,72 @@ export default function PimTranslationsPage() {
   const [selectedPublication, setSelectedPublication] = useState<LexPublicationDetailDto | null>(
     null
   );
+  const [termAffectedProducts, setTermAffectedProducts] = useState<LexTermAffectedProductDto[]>([]);
+  /** g3-04: agregate evenimente guardrails — populate când există endpoint dedicat în API. */
+  const [guardrailsStats, setGuardrailsStats] = useState<LexGuardrailsStatsDto | null>(null);
+  const [guardrailsEvents, setGuardrailsEvents] = useState<LexGuardrailsEventDto[]>([]);
+
+  const [lexNextCursors, setLexNextCursors] = useState<{
+    runs: string | null;
+    terms: string | null;
+    review: string | null;
+    publications: string | null;
+    glossary: string | null;
+    rules: string | null;
+    profiles: string | null;
+    stopwords: string | null;
+    governance: string | null;
+    overviewRuns: string | null;
+    overviewLocalizations: string | null;
+    termProducts: string | null;
+  }>({
+    runs: null,
+    terms: null,
+    review: null,
+    publications: null,
+    glossary: null,
+    rules: null,
+    profiles: null,
+    stopwords: null,
+    governance: null,
+    overviewRuns: null,
+    overviewLocalizations: null,
+    termProducts: null,
+  });
+  const lexNextCursorsRef = useRef(lexNextCursors);
+  lexNextCursorsRef.current = lexNextCursors;
+  const termsListFiltersRef = useRef(termsListFilters);
+  termsListFiltersRef.current = termsListFilters;
+  const reviewListFiltersRef = useRef(reviewListFilters);
+  reviewListFiltersRef.current = reviewListFilters;
+  const publicationsListFiltersRef = useRef(publicationsListFilters);
+  publicationsListFiltersRef.current = publicationsListFilters;
+  const glossaryListFiltersRef = useRef(glossaryListFilters);
+  glossaryListFiltersRef.current = glossaryListFilters;
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const selectedTermIdRef = useRef<string | null>(selectedTermId);
+  selectedTermIdRef.current = selectedTermId;
+  const selectedReviewIdRef = useRef<string | null>(selectedReviewId);
+  selectedReviewIdRef.current = selectedReviewId;
+  const selectedPublicationIdRef = useRef<string | null>(selectedPublicationId);
+  selectedPublicationIdRef.current = selectedPublicationId;
+  const [loadingMoreKey, setLoadingMoreKey] = useState<string | null>(null);
+  const loadingMoreRef = useRef(false);
+  /** Cancels in-flight PIM lexical page fetches when the tab changes or a full reload starts (f4-17). */
+  const lexViewLoadAbortRef = useRef<AbortController | null>(null);
+  /** Heartbeat polling: consecutive failed tab refreshes (f4-18). */
+  const lexHeartbeatFailuresRef = useRef(0);
+  const lexHeartbeatHardPausedRef = useRef(false);
+  const lexHeartbeatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [lexHeartbeatBanner, setLexHeartbeatBanner] = useState<string | null>(null);
+  const [lexHeartbeatResumeNonce, setLexHeartbeatResumeNonce] = useState(0);
+  const [tabLoading, setTabLoading] = useState(false);
+  const lastBootstrapFetchRef = useRef(0);
+
+  const invalidateLexStaticCache = () => {
+    lastBootstrapFetchRef.current = 0;
+  };
 
   const tabs = useMemo(
     () => [
@@ -143,195 +465,768 @@ export default function PimTranslationsPage() {
     });
   };
 
-  const loadTermDetail = async (termId: string | null) => {
+  const loadTermDetail = async (termId: string | null, signal?: AbortSignal) => {
     if (!termId) {
       setSelectedTerm(null);
+      setTermAffectedProducts([]);
+      setLexNextCursors((p) => ({ ...p, termProducts: null }));
       return;
     }
+    if (signal?.aborted) return;
 
-    const detail = await api.getApi<{ term: LexTermDetail }>(`/pim/lex/terms/${termId}`);
+    const detail = await api.getApi<{ term: LexTermDetail }>(
+      `/pim/lex/terms/${termId}`,
+      signal ? { signal } : {}
+    );
+    if (signal?.aborted) return;
     setSelectedTerm(detail.term);
+
+    setTermAffectedProducts([]);
+    setLexNextCursors((p) => ({ ...p, termProducts: null }));
+    try {
+      const prodResp = await api.getApi<{
+        products: LexTermAffectedProductDto[];
+        page: LexCursorPage<LexTermAffectedProductDto>;
+      }>(`/pim/lex/terms/${termId}/products?limit=50`, signal ? { signal } : {});
+      if (signal?.aborted) return;
+      setTermAffectedProducts(prodResp.products);
+      setLexNextCursors((p) => ({ ...p, termProducts: prodResp.page.nextCursor }));
+    } catch {
+      if (!signal?.aborted) {
+        setTermAffectedProducts([]);
+        setLexNextCursors((p) => ({ ...p, termProducts: null }));
+      }
+    }
   };
 
-  const loadReviewDetail = async (reviewId: string | null) => {
+  const loadReviewDetail = async (reviewId: string | null, signal?: AbortSignal) => {
     if (!reviewId) {
       setSelectedReview(null);
       return;
     }
+    if (signal?.aborted) return;
 
-    const detail = await api.getApi<{ review: LexReviewDetailDto }>(`/pim/lex/review/${reviewId}`);
+    const detail = await api.getApi<{ review: LexReviewDetailDto }>(
+      `/pim/lex/review/${reviewId}`,
+      signal ? { signal } : {}
+    );
+    if (signal?.aborted) return;
     setSelectedReview(detail.review);
   };
 
-  const loadPublicationDetail = async (publicationId: string | null) => {
+  const loadPublicationDetail = async (publicationId: string | null, signal?: AbortSignal) => {
     if (!publicationId) {
       setSelectedPublication(null);
       return;
     }
+    if (signal?.aborted) return;
 
     const detail = await api.getApi<{ publication: LexPublicationDetailDto }>(
-      `/pim/lex/publications/${publicationId}`
+      `/pim/lex/publications/${publicationId}`,
+      signal ? { signal } : {}
     );
+    if (signal?.aborted) return;
     setSelectedPublication(detail.publication);
   };
 
-  const loadTabData = async (tabValue: string) => {
-    if (tabValue === 'overview') {
-      const [runsResp, localizationsResp] = await Promise.all([
-        api.getApi<{ runs: LexRunSummary[]; page: LexCursorPage<LexRunSummary> }>(
-          '/pim/lex/runs?limit=6'
-        ),
-        api.getApi<{
-          localizations: LexLocalizationDetail[];
-          page: LexCursorPage<LexLocalizationDetail>;
-        }>('/pim/lex/localizations?limit=5'),
-      ]);
-
-      setRuns(runsResp.runs);
-      setLocalizations(localizationsResp.localizations);
-      return;
+  const runLoadMore = async (key: string, fn: () => Promise<void>) => {
+    if (loadingMoreRef.current) return;
+    loadingMoreRef.current = true;
+    setLoadingMoreKey(key);
+    try {
+      await fn();
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMoreKey(null);
     }
+  };
 
-    if (tabValue === 'runs') {
-      const runsResp = await api.getApi<{
-        runs: LexRunSummary[];
-        page: LexCursorPage<LexRunSummary>;
-      }>('/pim/lex/runs?limit=50');
-      setRuns(runsResp.runs);
-      return;
-    }
-
-    if (tabValue === 'terms') {
+  const fetchTermsFirstPage = async (filters: LexTermsListFilters, signal?: AbortSignal) => {
+    const qs = buildTermsListQueryString(filters, 60);
+    try {
       const termsResp = await api.getApi<{
         terms: TermsListItem[];
         page: LexCursorPage<TermsListItem>;
-      }>('/pim/lex/terms?limit=60');
+      }>(`/pim/lex/terms?${qs}`, signal ? { signal } : {});
+      if (signal?.aborted) return;
       setTerms(termsResp.terms);
-      const nextTermId = selectedTermId ?? termsResp.terms[0]?.id ?? null;
+      setLexNextCursors((p) => ({ ...p, terms: termsResp.page.nextCursor }));
+      setError(null);
+      const sid = selectedTermIdRef.current;
+      const nextTermId = sid ?? termsResp.terms[0]?.id ?? null;
       if (nextTermId) {
-        if (nextTermId !== selectedTermId) setSelectionParam('termId', nextTermId);
-        await loadTermDetail(nextTermId);
+        if (nextTermId !== sid) setSelectionParam('termId', nextTermId);
+        await loadTermDetail(nextTermId, signal);
       } else {
         setSelectedTerm(null);
+        setSelectionParam('termId', null);
       }
-      return;
+    } catch (err) {
+      if (isFetchAborted(err, signal)) return;
+      setError(err instanceof Error ? err.message : 'Nu am putut încărca termenii.');
     }
+  };
 
-    if (tabValue === 'review') {
+  const mergeTermsListFiltersAndFetch = async (patch: Partial<LexTermsListFilters>) => {
+    const next = { ...termsListFiltersRef.current, ...patch };
+    termsListFiltersRef.current = next;
+    setTermsListFilters(next);
+    await fetchTermsFirstPage(next);
+  };
+
+  const patchTermsListFilterDraft = (patch: Partial<LexTermsListFilters>) => {
+    setTermsListFilters((prev) => {
+      const next = { ...prev, ...patch };
+      termsListFiltersRef.current = next;
+      return next;
+    });
+  };
+
+  const fetchReviewFirstPage = async (filters: LexReviewListFilters, signal?: AbortSignal) => {
+    const qs = buildReviewListQueryString(filters, 50);
+    try {
       const reviewResp = await api.getApi<{
         items: LexReviewItemDetail[];
         page: LexCursorPage<LexReviewItemDetail>;
-      }>('/pim/lex/review?limit=50');
+      }>(`/pim/lex/review?${qs}`, signal ? { signal } : {});
+      if (signal?.aborted) return;
       setReviewItems(reviewResp.items);
-      const nextReviewId = selectedReviewId ?? reviewResp.items[0]?.id ?? null;
+      setLexNextCursors((p) => ({ ...p, review: reviewResp.page.nextCursor }));
+      setError(null);
+      const rid = selectedReviewIdRef.current;
+      const nextReviewId = rid ?? reviewResp.items[0]?.id ?? null;
       if (nextReviewId) {
-        if (nextReviewId !== selectedReviewId) setSelectionParam('reviewId', nextReviewId);
-        await loadReviewDetail(nextReviewId);
+        if (nextReviewId !== rid) setSelectionParam('reviewId', nextReviewId);
+        await loadReviewDetail(nextReviewId, signal);
       } else {
         setSelectedReview(null);
+        setSelectionParam('reviewId', null);
       }
-      return;
+    } catch (err) {
+      if (isFetchAborted(err, signal)) return;
+      setError(err instanceof Error ? err.message : 'Nu am putut încărca coada de review.');
     }
+  };
 
-    if (tabValue === 'glossary') {
-      const glossaryResp = await api.getApi<{ glossary: LexGlossaryEntryDto[] }>(
-        '/pim/lex/glossary'
-      );
-      setGlossary(glossaryResp.glossary);
-      return;
-    }
+  const mergeReviewListFiltersAndFetch = async (patch: Partial<LexReviewListFilters>) => {
+    const next = { ...reviewListFiltersRef.current, ...patch };
+    reviewListFiltersRef.current = next;
+    setReviewListFilters(next);
+    await fetchReviewFirstPage(next);
+  };
 
-    if (tabValue === 'rules') {
-      const rulesResp = await api.getApi<{ rules: LexTranslationRuleDto[] }>('/pim/lex/rules');
-      setRules(rulesResp.rules);
-      return;
-    }
+  const patchReviewListFilterDraft = (patch: Partial<LexReviewListFilters>) => {
+    setReviewListFilters((prev) => {
+      const next = { ...prev, ...patch };
+      reviewListFiltersRef.current = next;
+      return next;
+    });
+  };
 
-    if (tabValue === 'profiles') {
-      const profilesResp = await api.getApi<{ profiles: LexDomainProfileDto[] }>(
-        '/pim/lex/profiles'
-      );
-      setProfiles(profilesResp.profiles);
-      return;
-    }
-
-    if (tabValue === 'stopwords') {
-      const stopwordsResp = await api.getApi<{ stopwords: LexStopwordDto[] }>('/pim/lex/stopwords');
-      setStopwords(stopwordsResp.stopwords);
-      return;
-    }
-
-    if (tabValue === 'governance') {
-      const governanceResp = await api.getApi<{ requests: LexGovernanceRequestDto[] }>(
-        '/pim/lex/governance'
-      );
-      setGovernance(governanceResp.requests);
-      return;
-    }
-
-    if (tabValue === 'publications') {
+  const fetchPublicationsFirstPage = async (
+    filters: LexPublicationsListFilters,
+    signal?: AbortSignal
+  ) => {
+    const qs = buildPublicationsListQueryString(filters, 50);
+    try {
       const publicationsResp = await api.getApi<{
         publications: LexPublicationTargetDto[];
         page: LexCursorPage<LexPublicationTargetDto>;
-      }>('/pim/lex/publications?limit=50');
+      }>(`/pim/lex/publications?${qs}`, signal ? { signal } : {});
+      if (signal?.aborted) return;
       setPublications(publicationsResp.publications);
-      const nextPublicationId =
-        selectedPublicationId ?? publicationsResp.publications[0]?.id ?? null;
+      setLexNextCursors((p) => ({ ...p, publications: publicationsResp.page.nextCursor }));
+      setError(null);
+      const pid = selectedPublicationIdRef.current;
+      const nextPublicationId = pid ?? publicationsResp.publications[0]?.id ?? null;
       if (nextPublicationId) {
-        if (nextPublicationId !== selectedPublicationId)
-          setSelectionParam('publicationId', nextPublicationId);
-        await loadPublicationDetail(nextPublicationId);
+        if (nextPublicationId !== pid) setSelectionParam('publicationId', nextPublicationId);
+        await loadPublicationDetail(nextPublicationId, signal);
       } else {
         setSelectedPublication(null);
+        setSelectionParam('publicationId', null);
       }
+    } catch (err) {
+      if (isFetchAborted(err, signal)) return;
+      setError(err instanceof Error ? err.message : 'Nu am putut încărca lista de publicări.');
     }
   };
 
-  const loadCurrentView = async () => {
-    setLoading(true);
-    setError(null);
+  const mergePublicationsListFiltersAndFetch = async (
+    patch: Partial<LexPublicationsListFilters>
+  ) => {
+    const next = { ...publicationsListFiltersRef.current, ...patch };
+    publicationsListFiltersRef.current = next;
+    setPublicationsListFilters(next);
+    await fetchPublicationsFirstPage(next);
+  };
+
+  const patchPublicationsListFilterDraft = (patch: Partial<LexPublicationsListFilters>) => {
+    setPublicationsListFilters((prev) => {
+      const next = { ...prev, ...patch };
+      publicationsListFiltersRef.current = next;
+      return next;
+    });
+  };
+
+  const fetchGlossaryFirstPage = async (filters: LexGlossaryListFilters, signal?: AbortSignal) => {
+    const qs = buildGlossaryListQueryString(filters, 50);
     try {
-      const bootstrapResp = await api.getApi<{ bootstrap: LexBootstrapDto }>('/pim/lex/bootstrap');
+      const glossaryResp = await api.getApi<{
+        glossary: LexGlossaryEntryDto[];
+        page: LexCursorPage<LexGlossaryEntryDto>;
+      }>(`/pim/lex/glossary?${qs}`, signal ? { signal } : {});
+      if (signal?.aborted) return;
+      setGlossary(glossaryResp.glossary);
+      setLexNextCursors((p) => ({ ...p, glossary: glossaryResp.page.nextCursor }));
+      setError(null);
+    } catch (err) {
+      if (isFetchAborted(err, signal)) return;
+      setError(err instanceof Error ? err.message : 'Nu am putut încărca glosarul.');
+    }
+  };
+
+  const mergeGlossaryListFiltersAndFetch = async (patch: Partial<LexGlossaryListFilters>) => {
+    const next = { ...glossaryListFiltersRef.current, ...patch };
+    glossaryListFiltersRef.current = next;
+    setGlossaryListFilters(next);
+    await fetchGlossaryFirstPage(next);
+  };
+
+  const patchGlossaryListFilterDraft = (patch: Partial<LexGlossaryListFilters>) => {
+    setGlossaryListFilters((prev) => {
+      const next = { ...prev, ...patch };
+      glossaryListFiltersRef.current = next;
+      return next;
+    });
+  };
+
+  const loadTabData = async (tabValue: string, signal?: AbortSignal) => {
+    const fetchOpts: RequestInit = signal ? { signal } : {};
+    const loaders: Record<string, (() => Promise<void>) | undefined> = {
+      overview: async () => {
+        const [runsResp, localizationsResp] = await Promise.all([
+          api.getApi<{ runs: LexRunSummary[]; page: LexCursorPage<LexRunSummary> }>(
+            '/pim/lex/runs?limit=6',
+            fetchOpts
+          ),
+          api.getApi<{
+            localizations: LexLocalizationDetail[];
+            page: LexCursorPage<LexLocalizationDetail>;
+          }>('/pim/lex/localizations?limit=5', fetchOpts),
+        ]);
+        if (signal?.aborted) return;
+        setRuns(runsResp.runs);
+        setLocalizations(localizationsResp.localizations);
+        setLexNextCursors((p) => ({
+          ...p,
+          overviewRuns: runsResp.page.nextCursor,
+          overviewLocalizations: localizationsResp.page.nextCursor,
+        }));
+      },
+      runs: async () => {
+        const runsResp = await api.getApi<{
+          runs: LexRunSummary[];
+          page: LexCursorPage<LexRunSummary>;
+        }>('/pim/lex/runs?limit=50', fetchOpts);
+        if (signal?.aborted) return;
+        setRuns(runsResp.runs);
+        setLexNextCursors((p) => ({ ...p, runs: runsResp.page.nextCursor }));
+      },
+      terms: async () => {
+        await fetchTermsFirstPage(termsListFiltersRef.current, signal);
+      },
+      review: async () => {
+        await fetchReviewFirstPage(reviewListFiltersRef.current, signal);
+      },
+      glossary: async () => {
+        await fetchGlossaryFirstPage(glossaryListFiltersRef.current, signal);
+      },
+      rules: async () => {
+        const rulesResp = await api.getApi<{
+          rules: LexTranslationRuleDto[];
+          page: LexCursorPage<LexTranslationRuleDto>;
+        }>('/pim/lex/rules?limit=50', fetchOpts);
+        if (signal?.aborted) return;
+        setRules(rulesResp.rules);
+        setLexNextCursors((p) => ({ ...p, rules: rulesResp.page.nextCursor }));
+      },
+      profiles: async () => {
+        const profilesResp = await api.getApi<{
+          profiles: LexDomainProfileDto[];
+          page: LexCursorPage<LexDomainProfileDto>;
+        }>('/pim/lex/profiles?limit=50', fetchOpts);
+        if (signal?.aborted) return;
+        setProfiles(profilesResp.profiles);
+        setLexNextCursors((p) => ({ ...p, profiles: profilesResp.page.nextCursor }));
+      },
+      stopwords: async () => {
+        const stopwordsResp = await api.getApi<{
+          stopwords: LexStopwordDto[];
+          page: LexCursorPage<LexStopwordDto>;
+        }>('/pim/lex/stopwords?limit=50', fetchOpts);
+        if (signal?.aborted) return;
+        setStopwords(stopwordsResp.stopwords);
+        setLexNextCursors((p) => ({ ...p, stopwords: stopwordsResp.page.nextCursor }));
+      },
+      governance: async () => {
+        const governanceResp = await api.getApi<{
+          requests: LexGovernanceRequestDto[];
+          page: LexCursorPage<LexGovernanceRequestDto>;
+        }>('/pim/lex/governance?limit=50', fetchOpts);
+        if (signal?.aborted) return;
+        setGovernance(governanceResp.requests);
+        setLexNextCursors((p) => ({ ...p, governance: governanceResp.page.nextCursor }));
+      },
+      publications: async () => {
+        await fetchPublicationsFirstPage(publicationsListFiltersRef.current, signal);
+      },
+    };
+
+    await loaders[tabValue]?.();
+  };
+
+  const loadMoreOverviewRuns = () =>
+    runLoadMore('overviewRuns', async () => {
+      const c = lexNextCursorsRef.current.overviewRuns;
+      if (!c) return;
+      const resp = await api.getApi<{
+        runs: LexRunSummary[];
+        page: LexCursorPage<LexRunSummary>;
+      }>(`/pim/lex/runs?limit=6&cursor=${encodeURIComponent(c)}`);
+      setRuns((prev) => [...prev, ...resp.runs]);
+      setLexNextCursors((p) => ({ ...p, overviewRuns: resp.page.nextCursor }));
+    });
+
+  const loadMoreOverviewLocalizations = () =>
+    runLoadMore('overviewLocalizations', async () => {
+      const c = lexNextCursorsRef.current.overviewLocalizations;
+      if (!c) return;
+      const resp = await api.getApi<{
+        localizations: LexLocalizationDetail[];
+        page: LexCursorPage<LexLocalizationDetail>;
+      }>(`/pim/lex/localizations?limit=5&cursor=${encodeURIComponent(c)}`);
+      setLocalizations((prev) => [...prev, ...resp.localizations]);
+      setLexNextCursors((p) => ({ ...p, overviewLocalizations: resp.page.nextCursor }));
+    });
+
+  const loadMoreRuns = () =>
+    runLoadMore('runs', async () => {
+      const c = lexNextCursorsRef.current.runs;
+      if (!c) return;
+      const resp = await api.getApi<{
+        runs: LexRunSummary[];
+        page: LexCursorPage<LexRunSummary>;
+      }>(`/pim/lex/runs?limit=50&cursor=${encodeURIComponent(c)}`);
+      setRuns((prev) => [...prev, ...resp.runs]);
+      setLexNextCursors((p) => ({ ...p, runs: resp.page.nextCursor }));
+    });
+
+  const loadMoreTerms = () =>
+    runLoadMore('terms', async () => {
+      const c = lexNextCursorsRef.current.terms;
+      if (!c) return;
+      const qs = buildTermsListQueryString(termsListFiltersRef.current, 60, c);
+      const resp = await api.getApi<{
+        terms: TermsListItem[];
+        page: LexCursorPage<TermsListItem>;
+      }>(`/pim/lex/terms?${qs}`);
+      setTerms((prev) => [...prev, ...resp.terms]);
+      setLexNextCursors((p) => ({ ...p, terms: resp.page.nextCursor }));
+    });
+
+  const loadMoreReview = () =>
+    runLoadMore('review', async () => {
+      const c = lexNextCursorsRef.current.review;
+      if (!c) return;
+      const qs = buildReviewListQueryString(reviewListFiltersRef.current, 50, c);
+      const resp = await api.getApi<{
+        items: LexReviewItemDetail[];
+        page: LexCursorPage<LexReviewItemDetail>;
+      }>(`/pim/lex/review?${qs}`);
+      setReviewItems((prev) => [...prev, ...resp.items]);
+      setLexNextCursors((p) => ({ ...p, review: resp.page.nextCursor }));
+    });
+
+  const loadMorePublications = () =>
+    runLoadMore('publications', async () => {
+      const c = lexNextCursorsRef.current.publications;
+      if (!c) return;
+      const qs = buildPublicationsListQueryString(publicationsListFiltersRef.current, 50, c);
+      const resp = await api.getApi<{
+        publications: LexPublicationTargetDto[];
+        page: LexCursorPage<LexPublicationTargetDto>;
+      }>(`/pim/lex/publications?${qs}`);
+      setPublications((prev) => [...prev, ...resp.publications]);
+      setLexNextCursors((p) => ({ ...p, publications: resp.page.nextCursor }));
+    });
+
+  const loadMoreGlossary = () =>
+    runLoadMore('glossary', async () => {
+      const c = lexNextCursorsRef.current.glossary;
+      if (!c) return;
+      const qs = buildGlossaryListQueryString(glossaryListFiltersRef.current, 50, c);
+      const resp = await api.getApi<{
+        glossary: LexGlossaryEntryDto[];
+        page: LexCursorPage<LexGlossaryEntryDto>;
+      }>(`/pim/lex/glossary?${qs}`);
+      setGlossary((prev) => [...prev, ...resp.glossary]);
+      setLexNextCursors((p) => ({ ...p, glossary: resp.page.nextCursor }));
+    });
+
+  const loadMoreRules = () =>
+    runLoadMore('rules', async () => {
+      const c = lexNextCursorsRef.current.rules;
+      if (!c) return;
+      const resp = await api.getApi<{
+        rules: LexTranslationRuleDto[];
+        page: LexCursorPage<LexTranslationRuleDto>;
+      }>(`/pim/lex/rules?limit=50&cursor=${encodeURIComponent(c)}`);
+      setRules((prev) => [...prev, ...resp.rules]);
+      setLexNextCursors((p) => ({ ...p, rules: resp.page.nextCursor }));
+    });
+
+  const loadMoreProfiles = () =>
+    runLoadMore('profiles', async () => {
+      const c = lexNextCursorsRef.current.profiles;
+      if (!c) return;
+      const resp = await api.getApi<{
+        profiles: LexDomainProfileDto[];
+        page: LexCursorPage<LexDomainProfileDto>;
+      }>(`/pim/lex/profiles?limit=50&cursor=${encodeURIComponent(c)}`);
+      setProfiles((prev) => [...prev, ...resp.profiles]);
+      setLexNextCursors((p) => ({ ...p, profiles: resp.page.nextCursor }));
+    });
+
+  const loadMoreStopwords = () =>
+    runLoadMore('stopwords', async () => {
+      const c = lexNextCursorsRef.current.stopwords;
+      if (!c) return;
+      const resp = await api.getApi<{
+        stopwords: LexStopwordDto[];
+        page: LexCursorPage<LexStopwordDto>;
+      }>(`/pim/lex/stopwords?limit=50&cursor=${encodeURIComponent(c)}`);
+      setStopwords((prev) => [...prev, ...resp.stopwords]);
+      setLexNextCursors((p) => ({ ...p, stopwords: resp.page.nextCursor }));
+    });
+
+  const loadMoreGovernance = () =>
+    runLoadMore('governance', async () => {
+      const c = lexNextCursorsRef.current.governance;
+      if (!c) return;
+      const resp = await api.getApi<{
+        requests: LexGovernanceRequestDto[];
+        page: LexCursorPage<LexGovernanceRequestDto>;
+      }>(`/pim/lex/governance?limit=50&cursor=${encodeURIComponent(c)}`);
+      setGovernance((prev) => [...prev, ...resp.requests]);
+      setLexNextCursors((p) => ({ ...p, governance: resp.page.nextCursor }));
+    });
+
+  const loadMoreTermProducts = () =>
+    runLoadMore('termProducts', async () => {
+      const termId = selectedTermIdRef.current;
+      const c = lexNextCursorsRef.current.termProducts;
+      if (!termId || !c) return;
+      const resp = await api.getApi<{
+        products: LexTermAffectedProductDto[];
+        page: LexCursorPage<LexTermAffectedProductDto>;
+      }>(`/pim/lex/terms/${termId}/products?limit=50&cursor=${encodeURIComponent(c)}`);
+      setTermAffectedProducts((prev) => [...prev, ...resp.products]);
+      setLexNextCursors((p) => ({ ...p, termProducts: resp.page.nextCursor }));
+    });
+
+  const lexLoadMore = useMemo(
+    () => ({
+      overviewRuns: {
+        hasMore: Boolean(lexNextCursors.overviewRuns),
+        loading: loadingMoreKey === 'overviewRuns',
+        onLoadMore: () => void loadMoreOverviewRuns(),
+      },
+      overviewLocalizations: {
+        hasMore: Boolean(lexNextCursors.overviewLocalizations),
+        loading: loadingMoreKey === 'overviewLocalizations',
+        onLoadMore: () => void loadMoreOverviewLocalizations(),
+      },
+      runs: {
+        hasMore: Boolean(lexNextCursors.runs),
+        loading: loadingMoreKey === 'runs',
+        onLoadMore: () => void loadMoreRuns(),
+      },
+      terms: {
+        hasMore: Boolean(lexNextCursors.terms),
+        loading: loadingMoreKey === 'terms',
+        onLoadMore: () => void loadMoreTerms(),
+      },
+      review: {
+        hasMore: Boolean(lexNextCursors.review),
+        loading: loadingMoreKey === 'review',
+        onLoadMore: () => void loadMoreReview(),
+      },
+      publications: {
+        hasMore: Boolean(lexNextCursors.publications),
+        loading: loadingMoreKey === 'publications',
+        onLoadMore: () => void loadMorePublications(),
+      },
+      glossary: {
+        hasMore: Boolean(lexNextCursors.glossary),
+        loading: loadingMoreKey === 'glossary',
+        onLoadMore: () => void loadMoreGlossary(),
+      },
+      rules: {
+        hasMore: Boolean(lexNextCursors.rules),
+        loading: loadingMoreKey === 'rules',
+        onLoadMore: () => void loadMoreRules(),
+      },
+      profiles: {
+        hasMore: Boolean(lexNextCursors.profiles),
+        loading: loadingMoreKey === 'profiles',
+        onLoadMore: () => void loadMoreProfiles(),
+      },
+      stopwords: {
+        hasMore: Boolean(lexNextCursors.stopwords),
+        loading: loadingMoreKey === 'stopwords',
+        onLoadMore: () => void loadMoreStopwords(),
+      },
+      governance: {
+        hasMore: Boolean(lexNextCursors.governance),
+        loading: loadingMoreKey === 'governance',
+        onLoadMore: () => void loadMoreGovernance(),
+      },
+      termProducts: {
+        hasMore: Boolean(lexNextCursors.termProducts),
+        loading: loadingMoreKey === 'termProducts',
+        onLoadMore: () => void loadMoreTermProducts(),
+      },
+    }),
+    [lexNextCursors, loadingMoreKey]
+  );
+
+  const clearLexSurfaceForNoAccess = useCallback(() => {
+    setSettings(null);
+    setExtractScopeText('');
+    savedSettingsRef.current = null;
+    setMetrics(null);
+    setRuns([]);
+    setTerms([]);
+    setSelectedTerm(null);
+    setLocalizations([]);
+    setReviewItems([]);
+    setSelectedReview(null);
+    setGlossary([]);
+    setRules([]);
+    setProfiles([]);
+    setStopwords([]);
+    setGovernance([]);
+    setPublications([]);
+    setSelectedPublication(null);
+    setGuardrailsStats(null);
+    setGuardrailsEvents([]);
+    setLexNextCursors({
+      runs: null,
+      terms: null,
+      review: null,
+      publications: null,
+      glossary: null,
+      rules: null,
+      profiles: null,
+      stopwords: null,
+      governance: null,
+      overviewRuns: null,
+      overviewLocalizations: null,
+      termProducts: null,
+    });
+  }, []);
+
+  const hydrateLexStaticBundle = useCallback(
+    async (signal: AbortSignal): Promise<'abort' | 'deny' | 'ok'> => {
+      const bootstrapResp = await api.getApi<{ bootstrap: LexBootstrapDto }>('/pim/lex/bootstrap', {
+        signal,
+      });
+      if (signal.aborted) return 'abort';
       setBootstrap(bootstrapResp.bootstrap);
+      lastBootstrapFetchRef.current = Date.now();
       if (!bootstrapResp.bootstrap.permissions.canView) {
-        setSettings(null);
-        setMetrics(null);
-        setRuns([]);
-        setTerms([]);
-        setSelectedTerm(null);
-        setLocalizations([]);
-        setReviewItems([]);
-        setSelectedReview(null);
-        setGlossary([]);
-        setRules([]);
-        setProfiles([]);
-        setStopwords([]);
-        setGovernance([]);
-        setPublications([]);
-        setSelectedPublication(null);
-        return;
+        clearLexSurfaceForNoAccess();
+        return 'deny';
       }
 
       const [settingsResp, metricsResp] = await Promise.all([
-        api.getApi<{ settings: LexShopSettingsDto }>('/pim/lex/settings'),
-        api.getApi<{ metrics: LexMetricsDto }>('/pim/lex/metrics'),
+        api.getApi<{ settings: LexShopSettingsDto }>('/pim/lex/settings', { signal }),
+        api.getApi<{ metrics: LexMetricsDto }>('/pim/lex/metrics', { signal }),
       ]);
 
-      setSettings(settingsResp.settings);
+      if (signal.aborted) return 'abort';
+      const loadedSettings = settingsResp.settings;
+      savedSettingsRef.current = structuredClone(loadedSettings);
+      setSettings(loadedSettings);
+      setExtractScopeText(JSON.stringify(loadedSettings.extractScope ?? {}, null, 2));
       setMetrics(metricsResp.metrics);
-      await loadTabData(activeTab);
+      return 'ok';
+    },
+    [api, clearLexSurfaceForNoAccess]
+  );
+
+  const loadCurrentView = async () => {
+    lexViewLoadAbortRef.current?.abort();
+    const ac = new AbortController();
+    lexViewLoadAbortRef.current = ac;
+    const { signal } = ac;
+
+    const initialBootstrap = bootstrap === null;
+    if (initialBootstrap) setLoading(true);
+    else setTabLoading(true);
+    setError(null);
+    try {
+      const shouldFetchStatic =
+        bootstrap === null || Date.now() - lastBootstrapFetchRef.current > LEX_STATIC_CACHE_MS;
+
+      if (shouldFetchStatic) {
+        const outcome = await hydrateLexStaticBundle(signal);
+        if (outcome === 'abort' || signal.aborted) return;
+        if (outcome === 'deny') return;
+      } else if (!bootstrap?.permissions.canView) {
+        return;
+      }
+
+      await loadTabData(activeTab, signal);
+      if (signal.aborted) return;
+      resumeLexHeartbeatAfterSuccessfulReload(
+        lexHeartbeatHardPausedRef,
+        lexHeartbeatFailuresRef,
+        setLexHeartbeatBanner,
+        setLexHeartbeatResumeNonce
+      );
     } catch (err) {
+      if (isFetchAborted(err, signal)) return;
       setError(err instanceof Error ? err.message : 'Nu am putut încărca modulul lexical.');
     } finally {
-      setLoading(false);
+      if (lexViewLoadAbortRef.current === ac) {
+        setLoading(false);
+        setTabLoading(false);
+      }
     }
   };
 
+  const loadCurrentViewRef = useRef(loadCurrentView);
+  loadCurrentViewRef.current = loadCurrentView;
+
   const loadAll = loadCurrentView;
+
+  // Stable refs — updated every render so the interval always reads current values
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+  const runsRef = useRef(runs);
+  runsRef.current = runs;
+  const loadTabDataRef = useRef(loadTabData);
+  loadTabDataRef.current = loadTabData;
+
+  // A run is stale when paused by the system, or when 3+ heartbeat ticks pass with no metric progress
+  const isRunStale = (run: LexRunSummary): boolean =>
+    run.status === 'paused' || staleRunIds.has(run.id);
+
+  const dismissLexHeartbeatBanner = () => {
+    lexHeartbeatHardPausedRef.current = false;
+    lexHeartbeatFailuresRef.current = 0;
+    setLexHeartbeatBanner(null);
+    setLexHeartbeatResumeNonce((n) => n + 1);
+  };
+
+  // Heartbeat: backoff exponențial la erori; după 3 eșecuri — banner + pauză până la dismiss sau reload reușit (f4-18).
+  useEffect(() => {
+    let cancelled = false;
+
+    const clearTimer = () => {
+      if (lexHeartbeatTimerRef.current != null) {
+        clearTimeout(lexHeartbeatTimerRef.current);
+        lexHeartbeatTimerRef.current = null;
+      }
+    };
+
+    const scheduleNext = (delayMs: number) => {
+      clearTimer();
+      if (cancelled || lexHeartbeatHardPausedRef.current) return;
+      lexHeartbeatTimerRef.current = setTimeout(() => {
+        void runTick();
+      }, delayMs);
+    };
+
+    const runTick = async () => {
+      if (cancelled || lexHeartbeatHardPausedRef.current) return;
+
+      const tab = activeTabRef.current;
+      if (tab !== 'overview' && tab !== 'runs') {
+        scheduleNext(LEX_HEARTBEAT_BASE_MS);
+        return;
+      }
+      if (!runsRef.current.some(isRunActive)) {
+        scheduleNext(LEX_HEARTBEAT_BASE_MS);
+        return;
+      }
+
+      try {
+        await loadTabDataRef.current(tab);
+        if (cancelled) return;
+        lexHeartbeatFailuresRef.current = 0;
+        setLexHeartbeatBanner(null);
+        scheduleNext(LEX_HEARTBEAT_BASE_MS);
+      } catch {
+        if (cancelled) return;
+        const n = ++lexHeartbeatFailuresRef.current;
+        if (n >= LEX_HEARTBEAT_FAIL_THRESHOLD) {
+          setLexHeartbeatBanner(
+            'Actualizarea automată a run-urilor s-a oprit după erori repetate. Reîncarcă pagina, folosește „Închide” pentru a relua polling-ul sau așteaptă un reload reușit al modulului.'
+          );
+          lexHeartbeatHardPausedRef.current = true;
+          return;
+        }
+        const delay = Math.min(LEX_HEARTBEAT_BASE_MS * 2 ** n, LEX_HEARTBEAT_MAX_MS);
+        scheduleNext(delay);
+      }
+    };
+
+    clearTimer();
+    if (!lexHeartbeatHardPausedRef.current) {
+      scheduleNext(LEX_HEARTBEAT_BASE_MS);
+    }
+
+    return () => {
+      cancelled = true;
+      clearTimer();
+    };
+  }, [activeTab, lexHeartbeatResumeNonce]);
+
+  // Progress tracking: update stale set whenever runs list changes
+  useEffect(() => {
+    // ~3 tick-uri la interval minim de polling (~15s); cu backoff intervalul poate fi mai mare (f4-18).
+    const STALE_TICKS = 3;
+    const nextStale = new Set<string>();
+    for (const run of runs) {
+      if (run.status !== 'running') {
+        runProgressRef.current.delete(run.id);
+        continue;
+      }
+      const total = getRunProgressTotal(run);
+      const prev = runProgressRef.current.get(run.id);
+      if (prev?.total === total) {
+        const newCount = prev.staleCount + 1;
+        runProgressRef.current.set(run.id, { total, staleCount: newCount });
+        if (newCount >= STALE_TICKS) nextStale.add(run.id);
+      } else {
+        runProgressRef.current.set(run.id, { total, staleCount: 0 });
+      }
+    }
+    setStaleRunIds(nextStale);
+  }, [runs]);
 
   useEffect(() => {
     void loadCurrentView();
   }, [activeTab]);
+
+  useEffect(() => {
+    return () => {
+      lexViewLoadAbortRef.current?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     if (bootstrap == null) return;
@@ -339,12 +1234,125 @@ export default function PimTranslationsPage() {
     void navigate('/pim', { replace: true });
   }, [bootstrap, navigate]);
 
+  useEffect(() => {
+    setReviewDecisionNotes('');
+  }, [selectedReview?.id]);
+
+  useEffect(() => {
+    setSelectedReviewIdsForBulk((prev) => {
+      const actionable = new Set(
+        reviewItems.filter((i) => lexReviewQueueActionsOpen(i.status)).map((i) => i.id)
+      );
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (actionable.has(id)) next.add(id);
+      }
+      return next.size === prev.size ? prev : next;
+    });
+  }, [reviewItems]);
+
+  const toggleBulkReviewSelection = useCallback((id: string) => {
+    setSelectedReviewIdsForBulk((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }, []);
+
+  const selectAllActionableReviewsVisible = useCallback(() => {
+    setSelectedReviewIdsForBulk(
+      new Set(reviewItems.filter((i) => lexReviewQueueActionsOpen(i.status)).map((i) => i.id))
+    );
+  }, [reviewItems]);
+
+  const clearBulkReviewSelection = useCallback(() => {
+    setSelectedReviewIdsForBulk(new Set());
+  }, []);
+
   const selectTerm = async (termId: string) => {
     try {
       setSelectionParam('termId', termId);
-      await loadTermDetail(termId);
+      const signal = lexViewLoadAbortRef.current?.signal;
+      await loadTermDetail(termId, signal);
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       setError(err instanceof Error ? err.message : 'Nu am putut încărca detaliile termenului.');
+    }
+  };
+
+  const updateTermFlags = async (termId: string, patch: LexTermFlagsPatchRequest) => {
+    setTermFlagsSaving(true);
+    setError(null);
+    try {
+      await api.patchApi<unknown, LexTermFlagsPatchRequest>(`/pim/lex/terms/${termId}`, patch);
+      await loadTermDetail(termId);
+      setTerms((prev) =>
+        prev.map((t) =>
+          t.id === termId
+            ? {
+                ...t,
+                ...(typeof patch.isTechnical === 'boolean'
+                  ? { isTechnical: patch.isTechnical }
+                  : {}),
+                ...(typeof patch.isProtected === 'boolean'
+                  ? { isProtected: patch.isProtected }
+                  : {}),
+              }
+            : t
+        )
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nu am putut actualiza flag-urile termenului.');
+    } finally {
+      setTermFlagsSaving(false);
+    }
+  };
+
+  const createManualLexTranslation = async (payload: {
+    translatedText: string;
+    targetLang: string;
+    clusterId?: string | null;
+  }) => {
+    if (!selectedTerm || !settings) return;
+    setManualTranslationSaving(true);
+    setError(null);
+    invalidateLexStaticCache();
+    try {
+      await api.postApi<unknown, Record<string, unknown>>('/pim/lex/localizations', {
+        termId: selectedTerm.id,
+        translatedText: payload.translatedText,
+        sourceLang: settings.sourceLang,
+        targetLang: payload.targetLang,
+        clusterId: payload.clusterId ?? null,
+      });
+      await loadTermDetail(selectedTerm.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nu am putut salva traducerea manuală.');
+    } finally {
+      setManualTranslationSaving(false);
+    }
+  };
+
+  const editManualLexTranslation = async (
+    translationId: string,
+    translatedText: string,
+    notes?: string
+  ) => {
+    if (!selectedTerm) return;
+    setEditTranslationSaving(true);
+    setError(null);
+    invalidateLexStaticCache();
+    try {
+      await api.patchApi(`/pim/lex/localizations/${translationId}`, {
+        translatedText,
+        notes,
+      });
+      await loadTermDetail(selectedTerm.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nu am putut actualiza traducerea.');
+    } finally {
+      setEditTranslationSaving(false);
     }
   };
 
@@ -366,6 +1374,31 @@ export default function PimTranslationsPage() {
     }
   };
 
+  const handleResumeRun = async (runId: string) => {
+    setResumingRunId(runId);
+    setError(null);
+    try {
+      const result = await api.postApi<
+        { recovered: boolean; reason: string },
+        Record<string, never>
+      >(`/pim/lex/runs/${runId}/recover`, {});
+      if (!result.recovered) {
+        // Run may still have been unpaused (e.g. no pending shards); refresh list always.
+        if (result.reason === 'no_pending_shards_found') {
+          await loadTabData(activeTab);
+          return;
+        }
+        setError(`Recovery failed: ${result.reason ?? 'unknown'}`);
+        return;
+      }
+      await loadTabData(activeTab);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nu am putut recupera run-ul lexical.');
+    } finally {
+      setResumingRunId(null);
+    }
+  };
+
   const handleStartRun = async (runType: LexRunSummary['runType']) => {
     setStartingRun(true);
     setError(null);
@@ -377,6 +1410,7 @@ export default function PimTranslationsPage() {
         },
       });
       setTab('runs');
+      invalidateLexStaticCache();
       await loadCurrentView();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Nu am putut porni un run lexical.');
@@ -385,35 +1419,85 @@ export default function PimTranslationsPage() {
     }
   };
 
+  const settingsDirty = useMemo(() => {
+    if (!settings) return false;
+    const saved = savedSettingsRef.current;
+    if (!saved) return false;
+    return JSON.stringify(settings) !== JSON.stringify(saved);
+  }, [settings]);
+
   const handleSaveSettings = async () => {
     if (!settings) return;
     setSavingSettings(true);
     setError(null);
     try {
       await api.putApi('/pim/lex/settings', settings);
+      invalidateLexStaticCache();
       await loadCurrentView();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Nu am putut salva setările modulului lexical.'
-      );
+      const is409 =
+        (err instanceof Error && 'status' in err && (err as { status: number }).status === 409) ||
+        (err instanceof Error && /version.*mismatch|conflict|outdated/i.test(err.message));
+      if (is409) {
+        setError(
+          'Versiunea setărilor a fost modificată de alt utilizator. Setările au fost reîncărcate automat — verifică valorile și salvează din nou.'
+        );
+        invalidateLexStaticCache();
+        await loadCurrentView();
+      } else {
+        setError(
+          err instanceof Error ? err.message : 'Nu am putut salva setările modulului lexical.'
+        );
+      }
     } finally {
       setSavingSettings(false);
     }
   };
+
+  const handleGuardrailsModeChange = useCallback(
+    async (mode: LexGuardrailsMode) => {
+      const current = settingsRef.current;
+      if (!current) return;
+      setError(null);
+      const payload: LexShopSettingsDto = { ...current, guardrailsLexMode: mode };
+      try {
+        await api.putApi<unknown, LexShopSettingsDto>('/pim/lex/settings', payload);
+        savedSettingsRef.current = structuredClone(payload);
+        setSettings(payload);
+        lastBootstrapFetchRef.current = 0;
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Nu am putut actualiza modul guardrails. Setările au fost reîncărcate.'
+        );
+        lastBootstrapFetchRef.current = 0;
+        await loadCurrentViewRef.current();
+      }
+    },
+    [api]
+  );
 
   const handleReviewDecision = async (id: string, decisionType: 'approve' | 'reject') => {
     try {
       const reviewItem = reviewItems.find((item) => item.id === id);
       if (!reviewItem) return;
 
+      const draftForItem = selectedReview?.id === id ? reviewDecisionNotes : '';
+      const user = clampLexDecisionNotes(draftForItem);
+      const fallback =
+        decisionType === 'approve'
+          ? 'Approved from PIM translations review.'
+          : 'Rejected from PIM translations review.';
+      const notes = user || fallback;
+
       await api.postApi(`/pim/lex/review/${id}/decision`, {
         decisionType,
         expectedVersion: reviewItem.version,
-        notes:
-          decisionType === 'approve'
-            ? 'Approved from PIM translations review.'
-            : 'Rejected from PIM translations review.',
+        notes,
       });
+      if (selectedReview?.id === id) setReviewDecisionNotes('');
+      invalidateLexStaticCache();
       await loadCurrentView();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Nu am putut salva decizia de review.');
@@ -428,14 +1512,21 @@ export default function PimTranslationsPage() {
       const reviewItem = reviewItems.find((item) => item.id === id);
       if (!reviewItem) return;
 
+      const draftForItem = selectedReview?.id === id ? reviewDecisionNotes : '';
+      const user = clampLexDecisionNotes(draftForItem);
+      const fallback =
+        decisionType === 'publish'
+          ? 'Publish requested from PIM translations workspace.'
+          : 'Translation locked from PIM translations workspace.';
+      const notes = user || fallback;
+
       await api.postApi(`/pim/lex/review/${id}/decision`, {
         decisionType,
         expectedVersion: reviewItem.version,
-        notes:
-          decisionType === 'publish'
-            ? 'Publish requested from PIM translations workspace.'
-            : 'Translation locked from PIM translations workspace.',
+        notes,
       });
+      if (selectedReview?.id === id) setReviewDecisionNotes('');
+      invalidateLexStaticCache();
       await loadCurrentView();
     } catch (err) {
       setError(
@@ -444,9 +1535,60 @@ export default function PimTranslationsPage() {
     }
   };
 
+  const handleBulkReviewDecision = async (decisionType: 'approve' | 'reject') => {
+    const ids = [...selectedReviewIdsForBulk];
+    if (ids.length === 0) return;
+    setBulkReviewBusy(true);
+    setError(null);
+    try {
+      const user = clampLexDecisionNotes(reviewDecisionNotes);
+      const fallback =
+        decisionType === 'approve'
+          ? 'Bulk approved from PIM translations review.'
+          : 'Bulk rejected from PIM translations review.';
+      const notesText = user || fallback;
+      const decisions = ids
+        .map((id) => {
+          const item = reviewItems.find((r) => r.id === id);
+          return item
+            ? {
+                reviewItemId: id,
+                expectedVersion: item.version,
+                decisionType,
+                notes: notesText,
+              }
+            : null;
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+      if (decisions.length === 0) {
+        return;
+      }
+
+      const data = await api.postApi<LexBulkReviewApiResponse, { decisions: typeof decisions }>(
+        '/pim/lex/review/bulk-decision',
+        { decisions }
+      );
+
+      if (data.failed.length > 0) {
+        const codes = [...new Set(data.failed.map((f) => f.code))].join(', ');
+        setError(
+          `Bulk: ${data.totals.succeeded} reușite, ${data.totals.failed} eșuate (coduri: ${codes}).`
+        );
+      }
+      clearBulkReviewSelection();
+      invalidateLexStaticCache();
+      await loadCurrentView();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nu am putut executa acțiunea bulk de review.');
+    } finally {
+      setBulkReviewBusy(false);
+    }
+  };
+
   const handleRetryPublication = async (id: string) => {
     try {
       await api.postApi(`/pim/lex/publications/${id}/retry`, {});
+      invalidateLexStaticCache();
       await loadCurrentView();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Nu am putut reîncerca publicarea.');
@@ -456,9 +1598,108 @@ export default function PimTranslationsPage() {
   const handleRollbackPublication = async (id: string) => {
     try {
       await api.postApi(`/pim/lex/publications/${id}/rollback`, {});
+      invalidateLexStaticCache();
       await loadCurrentView();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Nu am putut face rollback pentru publicare.');
+    }
+  };
+
+  const handleResolvePublicationConflict = async (
+    id: string,
+    resolution: 'accept_lex' | 'keep_manual'
+  ) => {
+    try {
+      await api.postApi(`/pim/lex/publications/${id}/resolve-conflict`, { resolution });
+      invalidateLexStaticCache();
+      await loadCurrentView();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nu am putut rezolva conflictul de publicare.');
+    }
+  };
+
+  const handleDownloadLexCsvExport = async (entity: LexCsvExportEntity) => {
+    setError(null);
+    try {
+      const p = new URLSearchParams();
+      p.set('format', 'csv');
+      p.set('entity', entity);
+      const q = csvExportFilterQueryForEntity(
+        entity,
+        termsListFiltersRef.current,
+        glossaryListFiltersRef.current,
+        reviewListFiltersRef.current,
+        publicationsListFiltersRef.current
+      );
+      if (q) p.set('q', q);
+      const response = await api.request(`/pim/lex/export?${p.toString()}`);
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      const dispo = response.headers.get('Content-Disposition');
+      const match = /filename="([^"]+)"/.exec(dispo ?? '');
+      anchor.download = match?.[1] ?? `lex-${entity}-export.csv`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+      if (response.headers.get('X-Export-Truncated') === 'true') {
+        setError(
+          'Exportul CSV a fost trunchiat la 25.000 de rânduri. Folosește căutarea (q) în tab-ul potrivit pentru un set mai mic.'
+        );
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nu am putut descărca exportul CSV.');
+    }
+  };
+
+  const handleDownloadLexXliffExport = async (targetLang: string) => {
+    setError(null);
+    try {
+      const p = new URLSearchParams();
+      p.set('targetLang', targetLang);
+      const response = await api.request(`/pim/lex/export-xliff?${p.toString()}`);
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      const dispo = response.headers.get('Content-Disposition');
+      const match = /filename="([^"]+)"/.exec(dispo ?? '');
+      anchor.download = match?.[1] ?? `lex-translations-${targetLang}.xliff`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nu am putut descărca exportul XLIFF.');
+    }
+  };
+
+  const handleImportXliff = async (file: File) => {
+    setError(null);
+    try {
+      const text = await file.text();
+      const response = await api.request('/pim/lex/import-xliff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/xml' },
+        body: text,
+      });
+      const json = (await response.json()) as {
+        data?: { imported: number; skipped: number; errors: string[] };
+      };
+      const d = json.data;
+      if (d) {
+        const parts = [`Import XLIFF: ${d.imported} importate, ${d.skipped} omise.`];
+        if (d.errors.length > 0) {
+          parts.push(`Erori (${d.errors.length}): ${d.errors.slice(0, 5).join('; ')}`);
+        }
+        setError(parts.join(' '));
+      }
+      invalidateLexStaticCache();
+      await loadCurrentView();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nu am putut importa fișierul XLIFF.');
     }
   };
 
@@ -476,9 +1717,212 @@ export default function PimTranslationsPage() {
         payload,
       });
       setTab('governance');
+      invalidateLexStaticCache();
       await loadCurrentView();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Nu am putut crea request-ul de governance.');
+    }
+  };
+
+  const refreshGlossary = async () => {
+    invalidateLexStaticCache();
+    await fetchGlossaryFirstPage(glossaryListFiltersRef.current);
+  };
+
+  const createGlossaryEntry = async (payload: LexGlossaryCreatePayload) => {
+    setError(null);
+    try {
+      await api.postApi('/pim/lex/glossary', {
+        sourceText: payload.sourceText,
+        targetText: payload.targetText,
+        domainCode: payload.domainCode ?? null,
+        sourceLang: payload.sourceLang,
+        targetLang: payload.targetLang,
+        translationKind: payload.translationKind,
+        priority: payload.priority,
+        isLocked: payload.isLocked,
+        isActive: payload.isActive,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nu am putut crea intrarea în glosar.');
+      throw err;
+    }
+  };
+
+  const updateGlossaryEntry = async (id: string, payload: LexGlossaryUpdatePayload) => {
+    setError(null);
+    try {
+      await api.patchApi(`/pim/lex/glossary/${id}`, { ...payload });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nu am putut actualiza intrarea din glosar.');
+      throw err;
+    }
+  };
+
+  const deleteGlossaryEntry = async (id: string, expectedVersion: number) => {
+    setError(null);
+    try {
+      await api.deleteApi(
+        `/pim/lex/glossary/${id}?expectedVersion=${encodeURIComponent(String(expectedVersion))}`
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nu am putut șterge intrarea din glosar.');
+      throw err;
+    }
+  };
+
+  const refreshRules = async () => {
+    invalidateLexStaticCache();
+    const rulesResp = await api.getApi<{
+      rules: LexTranslationRuleDto[];
+      page: LexCursorPage<LexTranslationRuleDto>;
+    }>('/pim/lex/rules?limit=50');
+    setRules(rulesResp.rules);
+    setLexNextCursors((p) => ({ ...p, rules: rulesResp.page.nextCursor }));
+  };
+
+  const createLexRule = async (payload: LexRuleCreatePayload) => {
+    setError(null);
+    try {
+      await api.postApi('/pim/lex/rules', {
+        ruleName: payload.ruleName,
+        matchTerm: payload.matchTerm,
+        targetTranslation: payload.targetTranslation,
+        sourceLang: payload.sourceLang,
+        targetLang: payload.targetLang,
+        domainCode: payload.domainCode ?? null,
+        priority: payload.priority,
+        isActive: payload.isActive,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nu am putut crea regula de traducere.');
+      throw err;
+    }
+  };
+
+  const updateLexRule = async (id: string, payload: LexRuleUpdatePayload) => {
+    setError(null);
+    try {
+      await api.patchApi(`/pim/lex/rules/${id}`, {
+        expectedVersion: payload.expectedVersion,
+        ruleName: payload.ruleName,
+        matchTerm: payload.matchTerm,
+        targetTranslation: payload.targetTranslation,
+        domainCode: payload.domainCode ?? null,
+        priority: payload.priority,
+        isActive: payload.isActive,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nu am putut actualiza regula de traducere.');
+      throw err;
+    }
+  };
+
+  const deleteLexRule = async (id: string, expectedVersion: number) => {
+    setError(null);
+    try {
+      await api.deleteApi(
+        `/pim/lex/rules/${id}?expectedVersion=${encodeURIComponent(String(expectedVersion))}`
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nu am putut șterge regula de traducere.');
+      throw err;
+    }
+  };
+
+  const refreshProfiles = async () => {
+    invalidateLexStaticCache();
+    const profilesResp = await api.getApi<{
+      profiles: LexDomainProfileDto[];
+      page: LexCursorPage<LexDomainProfileDto>;
+    }>('/pim/lex/profiles?limit=50');
+    setProfiles(profilesResp.profiles);
+    setLexNextCursors((p) => ({ ...p, profiles: profilesResp.page.nextCursor }));
+  };
+
+  const createLexProfile = async (payload: LexProfileCreatePayload) => {
+    setError(null);
+    try {
+      await api.postApi('/pim/lex/profiles', {
+        domainCode: payload.domainCode,
+        nameRo: payload.nameRo,
+        nameEn: payload.nameEn,
+        description: payload.description,
+        isActive: payload.isActive,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nu am putut crea profilul de domeniu.');
+      throw err;
+    }
+  };
+
+  const updateLexProfile = async (id: string, payload: LexProfileUpdatePayload) => {
+    setError(null);
+    try {
+      await api.patchApi(`/pim/lex/profiles/${id}`, { ...payload });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nu am putut actualiza profilul de domeniu.');
+      throw err;
+    }
+  };
+
+  const deleteLexProfile = async (id: string, expectedVersion: number) => {
+    setError(null);
+    try {
+      await api.deleteApi(
+        `/pim/lex/profiles/${id}?expectedVersion=${encodeURIComponent(String(expectedVersion))}`
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nu am putut șterge profilul de domeniu.');
+      throw err;
+    }
+  };
+
+  const refreshStopwords = async () => {
+    invalidateLexStaticCache();
+    const swResp = await api.getApi<{
+      stopwords: LexStopwordDto[];
+      page: LexCursorPage<LexStopwordDto>;
+    }>('/pim/lex/stopwords?limit=50');
+    setStopwords(swResp.stopwords);
+    setLexNextCursors((p) => ({ ...p, stopwords: swResp.page.nextCursor }));
+  };
+
+  const createLexStopword = async (payload: LexStopwordCreatePayload) => {
+    setError(null);
+    try {
+      await api.postApi('/pim/lex/stopwords', {
+        locale: payload.locale,
+        word: payload.word,
+        wordType: payload.wordType,
+        priority: payload.priority,
+        isActive: payload.isActive,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nu am putut crea stopword-ul.');
+      throw err;
+    }
+  };
+
+  const updateLexStopword = async (id: string, payload: LexStopwordUpdatePayload) => {
+    setError(null);
+    try {
+      await api.patchApi(`/pim/lex/stopwords/${id}`, { ...payload });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nu am putut actualiza stopword-ul.');
+      throw err;
+    }
+  };
+
+  const deleteLexStopword = async (id: string, expectedVersion: number) => {
+    setError(null);
+    try {
+      await api.deleteApi(
+        `/pim/lex/stopwords/${id}?expectedVersion=${encodeURIComponent(String(expectedVersion))}`
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nu am putut șterge stopword-ul.');
+      throw err;
     }
   };
 
@@ -490,9 +1934,13 @@ export default function PimTranslationsPage() {
       const request = governance.find((item) => item.id === id);
       if (!request) return;
 
+      const trimmed = clampLexDecisionNotes(governanceActionNotes);
       await api.postApi(`/pim/lex/governance/${id}/${action}`, {
         expectedVersion: request.version,
+        ...(trimmed ? { notes: trimmed } : {}),
       });
+      setGovernanceActionNotes('');
+      invalidateLexStaticCache();
       await loadCurrentView();
     } catch (err) {
       setError(
@@ -518,9 +1966,36 @@ export default function PimTranslationsPage() {
     return <ErrorState message={error} onRetry={() => void loadCurrentView()} />;
   }
 
+  if (!bootstrap) {
+    return (
+      <ErrorState
+        message={error ?? 'Nu s-au putut încărca bootstrap-ul modulului lexical.'}
+        onRetry={() => void loadCurrentView()}
+      />
+    );
+  }
+
   return (
     <div className="space-y-5">
       {error ? <ErrorState message={error} onRetry={() => void loadCurrentView()} /> : null}
+
+      {lexHeartbeatBanner ? (
+        <div
+          role="alert"
+          className="flex flex-col gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-600 dark:bg-amber-950/40 dark:text-amber-100 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <p className="min-w-0 flex-1">{lexHeartbeatBanner}</p>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="shrink-0 self-start sm:self-auto"
+            onClick={() => dismissLexHeartbeatBanner()}
+          >
+            Închide
+          </Button>
+        </div>
+      ) : null}
 
       <Card
         padding="lg"
@@ -540,18 +2015,11 @@ export default function PimTranslationsPage() {
               atribute și colecții.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button disabled={startingRun} onClick={() => void handleStartRun('delta_rebuild')}>
-              {startingRun ? 'Pornesc...' : 'Start Delta Rebuild'}
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={startingRun}
-              onClick={() => void handleStartRun('full_rebuild')}
-            >
-              Full Rebuild
-            </Button>
-          </div>
+          <LexRunStartControls
+            canManageSettings={bootstrap.permissions.canManageSettings}
+            startingRun={startingRun}
+            onStart={handleStartRun}
+          />
         </div>
       </Card>
 
@@ -562,1493 +2030,152 @@ export default function PimTranslationsPage() {
         ariaLabel="Translation Intelligence sections"
       />
 
-      {activeTab === 'overview' ? (
-        <div className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {[
-              { label: 'Runs', value: metrics?.runsTotal ?? 0, hint: 'Total execuții create' },
-              { label: 'Terms', value: metrics?.termsTotal ?? 0, hint: 'Termeni disponibili' },
-              {
-                label: 'Review Pending',
-                value: metrics?.reviewPending ?? 0,
-                hint: 'Decizii care așteaptă aprobare',
-              },
-              {
-                label: 'Approved Localizations',
-                value: metrics?.localizationsApproved ?? 0,
-                hint: 'Entități gata de publish',
-              },
-              {
-                label: 'Runs Active',
-                value: metrics?.runsActive ?? 0,
-                hint: 'Execuții încă active sau în pauză',
-              },
-              {
-                label: 'Runs Paused',
-                value: metrics?.runsPaused ?? 0,
-                hint: 'Run-uri oprite de budget, provider sau intervenție umană',
-              },
-              {
-                label: 'Shards Failed',
-                value: metrics?.shardsFailed ?? 0,
-                hint: 'Shards terminate cu eroare',
-              },
-              {
-                label: 'Publish Conflicts',
-                value: metrics?.publishConflicts ?? 0,
-                hint: 'Conflicte cu targete manuale sau drift',
-              },
-              {
-                label: 'Stale Checkpoints',
-                value: metrics?.staleCheckpoints ?? 0,
-                hint: 'Heartbeat-uri stale peste 15 minute',
-              },
-              {
-                label: 'AI Backlog',
-                value: metrics?.aiBatchBacklog ?? 0,
-                hint: 'Item-uri lex încă în AI batch processing',
-              },
-              {
-                label: 'DLQ Entries',
-                value: metrics?.dlqEntries ?? 0,
-                hint: 'Job-uri lex blocate în DLQ',
-              },
-              {
-                label: 'Workers Online',
-                value: metrics == null ? 0 : `${metrics.workersOnline}/${metrics.workersTotal}`,
-                hint: 'Worker-ele și scheduler-ele lex active',
-              },
-              {
-                label: 'Retention Lag',
-                value: formatDurationSeconds(metrics?.retentionLag ?? 0),
-                hint: 'Vechimea celui mai vechi fragment hot încă păstrat',
-              },
-            ].map((item) => (
-              <Card key={item.label} padding="md" variant="bordered" className="space-y-1">
-                <p className="text-xs uppercase tracking-[0.2em] text-muted">{item.label}</p>
-                <p className="text-h3 text-foreground">{item.value}</p>
-                <p className="text-sm text-muted">{item.hint}</p>
-              </Card>
-            ))}
-          </div>
-
-          <div className="grid gap-4 xl:grid-cols-[1.2fr_minmax(0,0.8fr)]">
-            <Card padding="md" variant="bordered" className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground">System Alerts</h3>
-                  <p className="text-sm text-muted">
-                    Semnale operaționale alimentate din același snapshot folosit de OTEL și PIM.
-                  </p>
-                </div>
-                <Button size="sm" variant="ghost" onClick={() => void loadCurrentView()}>
-                  Refresh
-                </Button>
-              </div>
-              {!metrics || metrics.alerts.length === 0 ? (
-                <EmptyState
-                  title="Nicio alertă lexicală activă"
-                  description="Pipeline-ul, publish-ul și retention-ul par sănătoase pentru shop-ul curent."
-                />
-              ) : (
-                <div className="space-y-2">
-                  {metrics.alerts.map((alert) => (
-                    <div
-                      key={alert.key}
-                      className={`rounded-lg border px-3 py-3 ${severityTone(alert.severity)}`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="space-y-1">
-                          <p className="text-xs font-semibold uppercase tracking-[0.16em]">
-                            {alert.severity}
-                          </p>
-                          <p className="text-sm font-medium">{alert.message}</p>
-                        </div>
-                        {alert.href ? (
-                          <a
-                            className="text-xs font-semibold underline"
-                            href={withAppBasePath(alert.href)}
-                          >
-                            Open
-                          </a>
-                        ) : null}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Card>
-
-            <Card padding="md" variant="bordered" className="space-y-3">
-              <h3 className="text-lg font-semibold text-foreground">Worker Health</h3>
-              {!metrics || metrics.workers.length === 0 ? (
-                <EmptyState
-                  title="Nicio informație despre worker-e"
-                  description="Health-ul worker-elor lex va apărea aici după primul refresh de metrics."
-                />
-              ) : (
-                <div className="space-y-2">
-                  {metrics.workers.map((worker) => (
-                    <div
-                      key={worker.id}
-                      className="rounded-lg border border-border bg-card px-3 py-3"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-medium text-foreground">{worker.label}</p>
-                          <p className="text-xs text-muted">{worker.id}</p>
-                          <p className="text-xs text-muted">
-                            {worker.currentJob
-                              ? `${worker.currentJob.jobName} · started ${formatDate(worker.currentJob.startedAtIso)}`
-                              : 'Idle'}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p
-                            className={`text-xs font-semibold ${worker.ok ? 'text-emerald-700' : 'text-rose-700'}`}
-                          >
-                            {worker.ok ? 'online' : 'offline'}
-                          </p>
-                          {worker.queueUrl ? (
-                            <a
-                              className="text-xs underline text-muted"
-                              href={withAppBasePath(worker.queueUrl)}
-                            >
-                              Queue
-                            </a>
-                          ) : null}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Card>
-          </div>
-
-          <Card padding="md" variant="bordered" className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-foreground">Queue Health</h3>
-                <p className="text-sm text-muted">
-                  Backlog, eșecuri și DLQ pe fiecare fază lexicală, cu deep-link direct spre
-                  monitorul generic de cozi.
-                </p>
-              </div>
-              <a
-                className="text-sm font-medium text-primary underline"
-                href={withAppBasePath('/queues?tab=overview')}
-              >
-                Open Queue Monitor
-              </a>
-            </div>
-            {!metrics || metrics.queues.length === 0 ? (
-              <EmptyState
-                title="Nu există queue health disponibil"
-                description="Aici apare distribuția reală pe cozi și DLQ-uri după primul snapshot lexical."
-              />
-            ) : (
-              <div className="overflow-x-auto rounded-md border border-border">
-                <table className="w-full text-sm">
-                  <thead className="bg-subtle">
-                    <tr>
-                      <th className="px-3 py-2 text-left font-medium text-muted">Queue</th>
-                      <th className="px-3 py-2 text-left font-medium text-muted">Waiting</th>
-                      <th className="px-3 py-2 text-left font-medium text-muted">Active</th>
-                      <th className="px-3 py-2 text-left font-medium text-muted">Delayed</th>
-                      <th className="px-3 py-2 text-left font-medium text-muted">Failed</th>
-                      <th className="px-3 py-2 text-left font-medium text-muted">DLQ</th>
-                      <th className="px-3 py-2 text-left font-medium text-muted">Links</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {metrics.queues.map((queue) => (
-                      <tr key={queue.name} className="border-t border-border">
-                        <td className="px-3 py-2 font-medium text-foreground">{queue.name}</td>
-                        <td className="px-3 py-2 text-muted">{queue.waiting}</td>
-                        <td className="px-3 py-2 text-muted">{queue.active}</td>
-                        <td className="px-3 py-2 text-muted">{queue.delayed}</td>
-                        <td className="px-3 py-2 text-muted">{queue.failed}</td>
-                        <td className="px-3 py-2 text-muted">{queue.dlqEntries}</td>
-                        <td className="px-3 py-2 text-xs">
-                          <div className="flex flex-wrap gap-2">
-                            <a
-                              className="text-primary underline"
-                              href={withAppBasePath(queue.queueUrl)}
-                            >
-                              Queue
-                            </a>
-                            <a
-                              className="text-primary underline"
-                              href={withAppBasePath(queue.dlqUrl)}
-                            >
-                              DLQ
-                            </a>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
-
-          <div className="grid gap-4 xl:grid-cols-[1.3fr_minmax(0,1fr)]">
-            <Card padding="md" variant="bordered" className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-foreground">Latest Runs</h3>
-                <Button size="sm" variant="ghost" onClick={() => void loadAll()}>
-                  Refresh
-                </Button>
-              </div>
-              {runs.length === 0 ? (
-                <EmptyState
-                  title="Nu există run-uri lexicale"
-                  description="Pornește primul rebuild ca să începi extracția, clusteringul și traducerea contextuală."
-                />
-              ) : (
-                <div className="overflow-x-auto rounded-md border border-border">
-                  <table className="w-full text-sm">
-                    <thead className="bg-subtle">
-                      <tr>
-                        <th className="px-3 py-2 text-left font-medium text-muted">Tip</th>
-                        <th className="px-3 py-2 text-left font-medium text-muted">Status</th>
-                        <th className="px-3 py-2 text-left font-medium text-muted">Fragmente</th>
-                        <th className="px-3 py-2 text-left font-medium text-muted">Traduceri</th>
-                        <th className="px-3 py-2 text-left font-medium text-muted">Start</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {runs.slice(0, 6).map((run) => (
-                        <tr key={run.id} className="border-t border-border">
-                          <td className="px-3 py-2 font-medium text-foreground">{run.runType}</td>
-                          <td className="px-3 py-2 text-muted">{run.status}</td>
-                          <td className="px-3 py-2 text-muted">{run.fragmentsCount}</td>
-                          <td className="px-3 py-2 text-muted">{run.translationsCount}</td>
-                          <td className="px-3 py-2 text-muted">{formatDate(run.startedAt)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </Card>
-
-            <Card padding="md" variant="bordered" className="space-y-3">
-              <h3 className="text-lg font-semibold text-foreground">Approved Localizations</h3>
-              {localizations.length === 0 ? (
-                <EmptyState
-                  title="Nicio localizare aprobată"
-                  description="După review și compunere, aici vor apărea localizările gata de publicare."
-                />
-              ) : (
-                <div className="space-y-2">
-                  {localizations.slice(0, 5).map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-lg border border-border bg-card/80 px-3 py-2"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-medium text-foreground">
-                            {item.entityType} · {item.targetLang.toUpperCase()}
-                          </p>
-                          <p className="text-xs text-muted">
-                            {item.titleText ?? item.descriptionShort ?? 'Fără titlu publicabil'}
-                          </p>
-                        </div>
-                        <span className="text-xs font-medium text-primary">
-                          {item.publicationStatus}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Card>
-          </div>
-        </div>
-      ) : null}
-
-      {activeTab === 'runs' ? (
-        <Card padding="md" variant="bordered" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-foreground">Execution Runs</h3>
-              <p className="text-sm text-muted">
-                Istoric complet pentru rebuild-uri și pipeline-uri de publicare.
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => void handleStartRun('translate_only')}
-              >
-                Translate Only
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => void loadAll()}>
-                Refresh
-              </Button>
-            </div>
-          </div>
-          {runs.length === 0 ? (
-            <EmptyState
-              title="Nu există run-uri"
-              description="Creează primul run lexical pentru a popula inventarul de termeni și sensuri."
-            />
-          ) : (
-            <div className="overflow-x-auto rounded-md border border-border">
-              <table className="w-full text-sm">
-                <thead className="bg-subtle">
-                  <tr>
-                    <th className="px-3 py-2 text-left font-medium text-muted">Run</th>
-                    <th className="px-3 py-2 text-left font-medium text-muted">Status</th>
-                    <th className="px-3 py-2 text-left font-medium text-muted">Terms</th>
-                    <th className="px-3 py-2 text-left font-medium text-muted">Contexts</th>
-                    <th className="px-3 py-2 text-left font-medium text-muted">Translations</th>
-                    <th className="px-3 py-2 text-left font-medium text-muted">Error</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {runs.map((run) => (
-                    <tr key={run.id} className="border-t border-border">
-                      <td className="px-3 py-2">
-                        <div className="font-medium text-foreground">{run.runType}</div>
-                        <div className="text-xs text-muted">{run.id}</div>
-                      </td>
-                      <td className="px-3 py-2 text-muted">{run.status}</td>
-                      <td className="px-3 py-2 text-muted">{run.termsCount}</td>
-                      <td className="px-3 py-2 text-muted">{run.contextsCount}</td>
-                      <td className="px-3 py-2 text-muted">{run.translationsCount}</td>
-                      <td className="px-3 py-2 text-xs text-muted">{run.errorMessage ?? '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
-      ) : null}
-
-      {activeTab === 'terms' ? (
-        <div className="grid gap-4 xl:grid-cols-[1.1fr_minmax(0,1fr)]">
-          <Card padding="md" variant="bordered" className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-foreground">Term Inventory</h3>
-              <Button size="sm" variant="ghost" onClick={() => void loadAll()}>
-                Refresh
-              </Button>
-            </div>
-            {terms.length === 0 ? (
-              <EmptyState
-                title="Inventar gol"
-                description="După fragment extraction și term mining, termenii vor apărea aici."
-              />
-            ) : (
-              <div className="overflow-x-auto rounded-md border border-border">
-                <table className="w-full text-sm">
-                  <thead className="bg-subtle">
-                    <tr>
-                      <th className="px-3 py-2 text-left font-medium text-muted">Term</th>
-                      <th className="px-3 py-2 text-left font-medium text-muted">Tip</th>
-                      <th className="px-3 py-2 text-left font-medium text-muted">Occ.</th>
-                      <th className="px-3 py-2 text-left font-medium text-muted">Scor</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {terms.slice(0, 60).map((term) => (
-                      <tr
-                        key={term.id}
-                        className="cursor-pointer border-t border-border hover:bg-subtle"
-                        onClick={() => void selectTerm(term.id)}
-                      >
-                        <td className="px-3 py-2">
-                          <div className="font-medium text-foreground">{term.canonicalText}</div>
-                          <div className="text-xs text-muted">
-                            {term.domainCode ?? 'fără domeniu'}
-                            {term.isProtected ? ' · protected' : ''}
-                            {term.isTechnical ? ' · technical' : ''}
-                          </div>
-                        </td>
-                        <td className="px-3 py-2 text-muted">{term.termType}</td>
-                        <td className="px-3 py-2 text-muted">{term.occurrencesTotal}</td>
-                        <td className="px-3 py-2 text-muted">{formatScore(term.scoreGlobal)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
-
-          <Card padding="md" variant="bordered" className="space-y-4">
-            <h3 className="text-lg font-semibold text-foreground">Term Detail</h3>
-            {!selectedTerm ? (
-              <EmptyState
-                title="Selectează un termen"
-                description="Vezi aici variantele, sensurile și cluster-ele aprobate pentru termenul ales."
-              />
-            ) : (
-              <>
-                <div className="rounded-lg border border-border bg-subtle/60 p-4">
-                  <p className="text-xs uppercase tracking-[0.2em] text-muted">
-                    {selectedTerm.termType}
-                  </p>
-                  <h4 className="mt-1 text-xl font-semibold text-foreground">
-                    {selectedTerm.canonicalText}
-                  </h4>
-                  <p className="mt-1 text-sm text-muted">
-                    Key: {selectedTerm.normalizedKey} · ngram {selectedTerm.ngramSize} ·{' '}
-                    {selectedTerm.status}
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <h5 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted">
-                    Variants
-                  </h5>
-                  {selectedTerm.variants.length === 0 ? (
-                    <p className="text-sm text-muted">
-                      Nu există variante aprobate sau extrase încă.
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {selectedTerm.variants.map((variant) => (
-                        <div
-                          key={variant.id}
-                          className="rounded-lg border border-border bg-card px-3 py-2 text-sm"
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="font-medium text-foreground">
-                              {variant.variantText}
-                            </span>
-                            <span className="text-xs text-muted">
-                              {variant.locale} · {variant.variantType}
-                              {variant.isPreferred ? ' · preferred' : ''}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <h5 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted">
-                    Sense Clusters
-                  </h5>
-                  {selectedTerm.clusters.length === 0 ? (
-                    <p className="text-sm text-muted">Nu există cluster-e pentru acest termen.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {selectedTerm.clusters.map((cluster) => (
-                        <div
-                          key={cluster.id}
-                          className="rounded-lg border border-border bg-card px-3 py-3"
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div>
-                              <p className="font-medium text-foreground">
-                                {cluster.labelRo ?? cluster.clusterKey}
-                              </p>
-                              <p className="text-xs text-muted">
-                                {cluster.clusterMethod} · {cluster.domainCode ?? 'fără domeniu'} ·
-                                scor {formatScore(cluster.confidenceScore)}
-                              </p>
-                            </div>
-                            <span className="text-xs font-medium text-primary">
-                              {cluster.isApproved
-                                ? 'approved'
-                                : cluster.needsReview
-                                  ? 'needs review'
-                                  : 'draft'}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </Card>
-        </div>
-      ) : null}
-
-      {activeTab === 'review' ? (
-        <div className="grid gap-4 xl:grid-cols-[1.1fr_minmax(0,1fr)]">
-          <Card padding="md" variant="bordered" className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-foreground">Review Queue</h3>
-                <p className="text-sm text-muted">
-                  Cazuri ambigue, conflicte de reguli și rezultate cu încredere mică.
-                </p>
-              </div>
-              <Button size="sm" variant="ghost" onClick={() => void loadAll()}>
-                Refresh
-              </Button>
-            </div>
-            {reviewItems.length === 0 ? (
-              <EmptyState
-                title="Review queue goală"
-                description="Când pipeline-ul detectează ambiguități sau conflicte, le va pune aici."
-              />
-            ) : (
-              <div className="space-y-3">
-                {reviewItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className={`cursor-pointer rounded-xl border p-4 ${
-                      selectedReview?.id === item.id
-                        ? 'border-primary bg-primary/5'
-                        : 'border-border bg-card'
-                    }`}
-                    onClick={() => void selectReview(item.id)}
-                  >
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                      <div className="space-y-1">
-                        <p className="text-xs uppercase tracking-[0.18em] text-muted">
-                          {item.entityType} · {item.reviewReason}
-                        </p>
-                        <p className="font-medium text-foreground">{item.entityId}</p>
-                        <p className="text-sm text-muted">
-                          Severitate {item.severity} · prioritate {item.priority} · status{' '}
-                          {item.status}
-                        </p>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void handleReviewDecision(item.id, 'approve');
-                          }}
-                        >
-                          Approve
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void handleReviewDecision(item.id, 'reject');
-                          }}
-                        >
-                          Reject
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void handleAdvancedReviewDecision(item.id, 'publish');
-                          }}
-                        >
-                          Publish
-                        </Button>
-                        {item.entityType === 'translation' ? (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void handleAdvancedReviewDecision(item.id, 'lock_translation');
-                            }}
-                          >
-                            Lock
-                          </Button>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-
-          <Card padding="md" variant="bordered" className="space-y-4">
-            <h3 className="text-lg font-semibold text-foreground">Review Detail</h3>
-            {!selectedReview ? (
-              <EmptyState
-                title="Selectează un item de review"
-                description="Aici apar evidence, timeline-ul deciziilor și impactul publicării."
-              />
-            ) : (
-              <>
-                <div className="rounded-lg border border-border bg-subtle/60 p-4">
-                  <p className="text-xs uppercase tracking-[0.2em] text-muted">
-                    {selectedReview.entityType} · {selectedReview.reviewReason}
-                  </p>
-                  <h4 className="mt-1 text-xl font-semibold text-foreground">
-                    {selectedReview.entityId}
-                  </h4>
-                  <p className="mt-1 text-sm text-muted">
-                    status {selectedReview.status} · severitate {selectedReview.severity} ·
-                    prioritate {selectedReview.priority}
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <h5 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted">
-                    Evidence
-                  </h5>
-                  <pre className="overflow-x-auto rounded-lg border border-border bg-card p-3 text-xs text-muted">
-                    {JSON.stringify(selectedReview.evidence, null, 2)}
-                  </pre>
-                </div>
-
-                <div className="space-y-2">
-                  <h5 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted">
-                    Decisions
-                  </h5>
-                  {selectedReview.decisions.length === 0 ? (
-                    <p className="text-sm text-muted">
-                      Încă nu există decizii salvate pentru acest item.
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {selectedReview.decisions.map((decision) => (
-                        <div
-                          key={decision.id}
-                          className="rounded-lg border border-border bg-card px-3 py-2"
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="font-medium text-foreground">
-                              {decision.decisionType}
-                            </span>
-                            <span className="text-xs text-muted">
-                              {formatDate(decision.createdAt)}
-                            </span>
-                          </div>
-                          <p className="mt-1 text-sm text-muted">
-                            {decision.decisionNotes ?? 'Fără note.'}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <h5 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted">
-                    Publication Impact
-                  </h5>
-                  {selectedReview.relatedPublications.length === 0 ? (
-                    <p className="text-sm text-muted">
-                      Nu există publication targets legate de acest item.
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {selectedReview.relatedPublications.map((publication) => (
-                        <button
-                          key={publication.id}
-                          type="button"
-                          className="flex w-full items-center justify-between rounded-lg border border-border bg-card px-3 py-2 text-left"
-                          onClick={() => {
-                            setTab('publications');
-                            void selectPublication(publication.id);
-                          }}
-                        >
-                          <span className="font-medium text-foreground">
-                            {publication.targetType}
-                          </span>
-                          <span className="text-xs text-muted">{publication.status}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </Card>
-        </div>
-      ) : null}
-
-      {activeTab === 'glossary' ? (
-        <Card padding="md" variant="bordered" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-foreground">Approved Glossary</h3>
-              <p className="text-sm text-muted">
-                Reguli deterministe care bat întotdeauna modelul atunci când există claritate.
-              </p>
-            </div>
-            <Button size="sm" variant="ghost" onClick={() => void loadAll()}>
-              Refresh
-            </Button>
-          </div>
-          {glossary.length === 0 ? (
-            <EmptyState
-              title="Glosar gol"
-              description="Intrările aprobate manual sau promovate din review vor apărea aici."
-            />
-          ) : (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted">
-                  Shop Override
-                </p>
-                <div className="overflow-x-auto rounded-md border border-border">
-                  <table className="w-full text-sm">
-                    <thead className="bg-subtle">
-                      <tr>
-                        <th className="px-3 py-2 text-left font-medium text-muted">Source</th>
-                        <th className="px-3 py-2 text-left font-medium text-muted">Target</th>
-                        <th className="px-3 py-2 text-left font-medium text-muted">Kind</th>
-                        <th className="px-3 py-2 text-left font-medium text-muted">Priority</th>
-                        <th className="px-3 py-2 text-left font-medium text-muted">Lock</th>
-                        <th className="px-3 py-2 text-left font-medium text-muted">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {glossary
-                        .filter((entry) => entry.shopId)
-                        .map((entry) => (
-                          <tr key={entry.id} className="border-t border-border">
-                            <td className="px-3 py-2 font-medium text-foreground">
-                              {entry.sourceText}
-                            </td>
-                            <td className="px-3 py-2 text-muted">{entry.targetText}</td>
-                            <td className="px-3 py-2 text-muted">{entry.translationKind}</td>
-                            <td className="px-3 py-2 text-muted">{entry.priority}</td>
-                            <td className="px-3 py-2 text-muted">
-                              {entry.isLocked ? 'locked' : 'open'}
-                            </td>
-                            <td className="px-3 py-2">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() =>
-                                  void handlePromoteToGovernance(
-                                    'glossary_entry',
-                                    entry.id,
-                                    `Promote glossary: ${entry.sourceText}`,
-                                    {
-                                      domainCode: entry.domainCode,
-                                      sourceLang: entry.sourceLang,
-                                      targetLang: entry.targetLang,
-                                      sourceText: entry.sourceText,
-                                      targetText: entry.targetText,
-                                      translationKind: entry.translationKind,
-                                      priority: entry.priority,
-                                      isLocked: entry.isLocked,
-                                      isActive: entry.isActive,
-                                    }
-                                  )
-                                }
-                              >
-                                Promote Global
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted">
-                  Global Canon
-                </p>
-                <div className="overflow-x-auto rounded-md border border-border">
-                  <table className="w-full text-sm">
-                    <thead className="bg-subtle">
-                      <tr>
-                        <th className="px-3 py-2 text-left font-medium text-muted">Source</th>
-                        <th className="px-3 py-2 text-left font-medium text-muted">Target</th>
-                        <th className="px-3 py-2 text-left font-medium text-muted">Kind</th>
-                        <th className="px-3 py-2 text-left font-medium text-muted">Priority</th>
-                        <th className="px-3 py-2 text-left font-medium text-muted">Lock</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {glossary
-                        .filter((entry) => !entry.shopId)
-                        .map((entry) => (
-                          <tr key={entry.id} className="border-t border-border">
-                            <td className="px-3 py-2 font-medium text-foreground">
-                              {entry.sourceText}
-                            </td>
-                            <td className="px-3 py-2 text-muted">{entry.targetText}</td>
-                            <td className="px-3 py-2 text-muted">{entry.translationKind}</td>
-                            <td className="px-3 py-2 text-muted">{entry.priority}</td>
-                            <td className="px-3 py-2 text-muted">
-                              {entry.isLocked ? 'locked' : 'open'}
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
-        </Card>
-      ) : null}
-
-      {activeTab === 'rules' ? (
-        <Card padding="md" variant="bordered" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-foreground">Translation Rules</h3>
-              <p className="text-sm text-muted">
-                Reguli explicite cu precedence peste AI acolo unde terminologia este fixă.
-              </p>
-            </div>
-            <Button size="sm" variant="ghost" onClick={() => void loadAll()}>
-              Refresh
-            </Button>
-          </div>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted">
-                Shop Override
-              </p>
-              <div className="overflow-x-auto rounded-md border border-border">
-                <table className="w-full text-sm">
-                  <thead className="bg-subtle">
-                    <tr>
-                      <th className="px-3 py-2 text-left font-medium text-muted">Rule</th>
-                      <th className="px-3 py-2 text-left font-medium text-muted">Match</th>
-                      <th className="px-3 py-2 text-left font-medium text-muted">Target</th>
-                      <th className="px-3 py-2 text-left font-medium text-muted">Priority</th>
-                      <th className="px-3 py-2 text-left font-medium text-muted">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rules
-                      .filter((item) => item.shopId)
-                      .map((item) => (
-                        <tr key={item.id} className="border-t border-border">
-                          <td className="px-3 py-2 font-medium text-foreground">{item.ruleName}</td>
-                          <td className="px-3 py-2 text-muted">{item.matchTerm}</td>
-                          <td className="px-3 py-2 text-muted">{item.targetTranslation}</td>
-                          <td className="px-3 py-2 text-muted">{item.priority}</td>
-                          <td className="px-3 py-2">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() =>
-                                void handlePromoteToGovernance(
-                                  'translation_rule',
-                                  item.id,
-                                  `Promote rule: ${item.ruleName}`,
-                                  {
-                                    ruleName: item.ruleName,
-                                    sourceLang: item.sourceLang,
-                                    targetLang: item.targetLang,
-                                    matchTerm: item.matchTerm,
-                                    domainCode: item.domainCode,
-                                    targetTranslation: item.targetTranslation,
-                                    priority: item.priority,
-                                    isActive: item.isActive,
-                                  }
-                                )
-                              }
-                            >
-                              Promote Global
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted">
-                Global Canon
-              </p>
-              <div className="overflow-x-auto rounded-md border border-border">
-                <table className="w-full text-sm">
-                  <thead className="bg-subtle">
-                    <tr>
-                      <th className="px-3 py-2 text-left font-medium text-muted">Rule</th>
-                      <th className="px-3 py-2 text-left font-medium text-muted">Match</th>
-                      <th className="px-3 py-2 text-left font-medium text-muted">Target</th>
-                      <th className="px-3 py-2 text-left font-medium text-muted">Priority</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rules
-                      .filter((item) => !item.shopId)
-                      .map((item) => (
-                        <tr key={item.id} className="border-t border-border">
-                          <td className="px-3 py-2 font-medium text-foreground">{item.ruleName}</td>
-                          <td className="px-3 py-2 text-muted">{item.matchTerm}</td>
-                          <td className="px-3 py-2 text-muted">{item.targetTranslation}</td>
-                          <td className="px-3 py-2 text-muted">{item.priority}</td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </Card>
-      ) : null}
-
-      {activeTab === 'profiles' ? (
-        <Card padding="md" variant="bordered" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-foreground">Domain Profiles</h3>
-              <p className="text-sm text-muted">
-                Profile de domeniu folosite la clustering, protecție de tokeni și stil.
-              </p>
-            </div>
-            <Button size="sm" variant="ghost" onClick={() => void loadAll()}>
-              Refresh
-            </Button>
-          </div>
-          <div className="overflow-x-auto rounded-md border border-border">
-            <table className="w-full text-sm">
-              <thead className="bg-subtle">
-                <tr>
-                  <th className="px-3 py-2 text-left font-medium text-muted">Scope</th>
-                  <th className="px-3 py-2 text-left font-medium text-muted">Domain</th>
-                  <th className="px-3 py-2 text-left font-medium text-muted">Name</th>
-                  <th className="px-3 py-2 text-left font-medium text-muted">Status</th>
-                  <th className="px-3 py-2 text-left font-medium text-muted">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {profiles.map((item) => (
-                  <tr key={item.id} className="border-t border-border">
-                    <td className="px-3 py-2 text-muted">{item.shopId ? 'shop' : 'global'}</td>
-                    <td className="px-3 py-2 font-medium text-foreground">{item.domainCode}</td>
-                    <td className="px-3 py-2 text-muted">{item.nameRo}</td>
-                    <td className="px-3 py-2 text-muted">
-                      {item.isActive ? 'active' : 'inactive'}
-                    </td>
-                    <td className="px-3 py-2">
-                      {item.shopId ? (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() =>
-                            void handlePromoteToGovernance(
-                              'domain_profile',
-                              item.id,
-                              `Promote profile: ${item.domainCode}`,
-                              {
-                                domainCode: item.domainCode,
-                                nameRo: item.nameRo,
-                                nameEn: item.nameEn,
-                                description: item.description,
-                                isActive: item.isActive,
-                              }
-                            )
-                          }
-                        >
-                          Promote Global
-                        </Button>
-                      ) : (
-                        <span className="text-xs text-muted">Canonical</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      ) : null}
-
-      {activeTab === 'stopwords' ? (
-        <Card padding="md" variant="bordered" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-foreground">Stopwords</h3>
-              <p className="text-sm text-muted">
-                Zgomot lexical și termeni ignorați în mining/context building.
-              </p>
-            </div>
-            <Button size="sm" variant="ghost" onClick={() => void loadAll()}>
-              Refresh
-            </Button>
-          </div>
-          <div className="overflow-x-auto rounded-md border border-border">
-            <table className="w-full text-sm">
-              <thead className="bg-subtle">
-                <tr>
-                  <th className="px-3 py-2 text-left font-medium text-muted">Scope</th>
-                  <th className="px-3 py-2 text-left font-medium text-muted">Locale</th>
-                  <th className="px-3 py-2 text-left font-medium text-muted">Word</th>
-                  <th className="px-3 py-2 text-left font-medium text-muted">Type</th>
-                  <th className="px-3 py-2 text-left font-medium text-muted">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stopwords.map((item) => (
-                  <tr key={item.id} className="border-t border-border">
-                    <td className="px-3 py-2 text-muted">{item.shopId ? 'shop' : 'global'}</td>
-                    <td className="px-3 py-2 text-muted">{item.locale}</td>
-                    <td className="px-3 py-2 font-medium text-foreground">{item.word}</td>
-                    <td className="px-3 py-2 text-muted">{item.wordType}</td>
-                    <td className="px-3 py-2">
-                      {item.shopId ? (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() =>
-                            void handlePromoteToGovernance(
-                              'stopword',
-                              item.id,
-                              `Promote stopword: ${item.word}`,
-                              {
-                                locale: item.locale,
-                                word: item.word,
-                                wordType: item.wordType,
-                                priority: item.priority,
-                                isActive: item.isActive,
-                              }
-                            )
-                          }
-                        >
-                          Promote Global
-                        </Button>
-                      ) : (
-                        <span className="text-xs text-muted">Canonical</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      ) : null}
-
-      {activeTab === 'governance' ? (
-        <Card padding="md" variant="bordered" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-foreground">Global Canon Governance</h3>
-              <p className="text-sm text-muted">
-                Maker-checker lane pentru promovarea regulilor și a canonului global.
-              </p>
-            </div>
-            <Button size="sm" variant="ghost" onClick={() => void loadAll()}>
-              Refresh
-            </Button>
-          </div>
-          {governance.length === 0 ? (
-            <EmptyState
-              title="Nu există request-uri de governance"
-              description="Promovează un override de shop către global canon ca să pornești un flux maker-checker."
-            />
-          ) : (
-            <div className="space-y-3">
-              {governance.map((item) => (
-                <div key={item.id} className="rounded-xl border border-border bg-card p-4">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="space-y-1">
-                      <p className="text-xs uppercase tracking-[0.18em] text-muted">
-                        {item.entityType} · {item.requestScope}
-                      </p>
-                      <p className="font-medium text-foreground">{item.title ?? item.id}</p>
-                      <p className="text-sm text-muted">
-                        status {item.status} · version {item.version}
-                      </p>
-                      <p className="text-xs text-muted">
-                        created {formatDate(item.createdAt)} · submitted{' '}
-                        {formatDate(item.submittedAt)}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {item.status === 'draft' ? (
-                        <Button
-                          size="sm"
-                          onClick={() => void handleGovernanceTransition(item.id, 'submit')}
-                        >
-                          Submit
-                        </Button>
-                      ) : null}
-                      {item.status === 'pending_approval' ? (
-                        <>
-                          <Button
-                            size="sm"
-                            onClick={() => void handleGovernanceTransition(item.id, 'approve')}
-                          >
-                            Approve
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => void handleGovernanceTransition(item.id, 'reject')}
-                          >
-                            Reject
-                          </Button>
-                        </>
-                      ) : null}
-                      {item.status === 'approved' ? (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => void handleGovernanceTransition(item.id, 'apply')}
-                        >
-                          Apply Canon
-                        </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      ) : null}
-
-      {activeTab === 'publications' ? (
-        <div className="grid gap-4 xl:grid-cols-[1.1fr_minmax(0,1fr)]">
-          <Card padding="md" variant="bordered" className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-foreground">Publication Targets</h3>
-                <p className="text-sm text-muted">
-                  Starea publicării în `prod_translations`, `prod_attr_synonyms`, `prod_semantics`
-                  și colecții.
-                </p>
-              </div>
-              <Button size="sm" variant="ghost" onClick={() => void loadAll()}>
-                Refresh
-              </Button>
-            </div>
-            {publications.length === 0 ? (
-              <EmptyState
-                title="Fără publication targets"
-                description="După aprobare și compunere, aici vor apărea operațiile de publicare și retry."
-              />
-            ) : (
-              <div className="space-y-3">
-                {publications.map((item) => (
-                  <div
-                    key={item.id}
-                    className={`cursor-pointer rounded-xl border p-4 ${
-                      selectedPublication?.id === item.id
-                        ? 'border-primary bg-primary/5'
-                        : 'border-border bg-card'
-                    }`}
-                    onClick={() => void selectPublication(item.id)}
-                  >
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                      <div>
-                        <p className="font-medium text-foreground">{item.targetType}</p>
-                        <p className="text-sm text-muted">
-                          {item.targetPath ?? item.targetRecordId ?? 'fără destinație'} · status{' '}
-                          {item.status} · attempt {item.attemptCount}
-                        </p>
-                        <p className="text-xs text-muted">
-                          {item.errorMessage ?? 'Nicio eroare înregistrată.'}
-                        </p>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void handleRetryPublication(item.id);
-                        }}
-                      >
-                        Retry Publish
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void handleRollbackPublication(item.id);
-                        }}
-                      >
-                        Rollback
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-
-          <Card padding="md" variant="bordered" className="space-y-4">
-            <h3 className="text-lg font-semibold text-foreground">Publication Detail</h3>
-            {!selectedPublication ? (
-              <EmptyState
-                title="Selectează un publication target"
-                description="Aici apar snapshot-urile, eligibilitatea de rollback și istoricul de evenimente."
-              />
-            ) : (
-              <>
-                <div className="rounded-lg border border-border bg-subtle/60 p-4">
-                  <p className="text-xs uppercase tracking-[0.2em] text-muted">
-                    {selectedPublication.targetType}
-                  </p>
-                  <h4 className="mt-1 text-xl font-semibold text-foreground">
-                    {selectedPublication.targetPath ??
-                      selectedPublication.targetRecordId ??
-                      selectedPublication.id}
-                  </h4>
-                  <p className="mt-1 text-sm text-muted">
-                    status {selectedPublication.status} · attempts{' '}
-                    {selectedPublication.attemptCount}
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                    <span
-                      className={`rounded-full px-2 py-1 font-semibold ${
-                        selectedPublication.rollbackable
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : selectedPublication.snapshotCompleteness === 'repairable'
-                            ? 'bg-amber-100 text-amber-800'
-                            : 'bg-rose-100 text-rose-800'
-                      }`}
-                    >
-                      rollback{' '}
-                      {selectedPublication.rollbackable
-                        ? 'enabled'
-                        : selectedPublication.snapshotCompleteness}
-                    </span>
-                    {selectedPublication.needsRepair ? (
-                      <span className="rounded-full bg-amber-100 px-2 py-1 font-semibold text-amber-800">
-                        needs repair
-                      </span>
-                    ) : null}
-                    {selectedPublication.rollbackBlockedReason ? (
-                      <span className="rounded-full bg-card px-2 py-1 text-muted">
-                        {selectedPublication.rollbackBlockedReason}
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-3 text-xs">
-                    <a
-                      className="font-medium text-primary underline"
-                      href={withAppBasePath(selectedPublication.queueLinks.queueUrl)}
-                    >
-                      Queue
-                    </a>
-                    <a
-                      className="font-medium text-primary underline"
-                      href={withAppBasePath(selectedPublication.queueLinks.dlqUrl)}
-                    >
-                      DLQ
-                    </a>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <h5 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted">
-                    Snapshots
-                  </h5>
-                  <div className="grid gap-3 lg:grid-cols-2">
-                    <pre className="overflow-x-auto rounded-lg border border-border bg-card p-3 text-xs text-muted">
-                      {JSON.stringify(selectedPublication.previousSnapshot, null, 2)}
-                    </pre>
-                    <pre className="overflow-x-auto rounded-lg border border-border bg-card p-3 text-xs text-muted">
-                      {JSON.stringify(selectedPublication.publishedSnapshot, null, 2)}
-                    </pre>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <h5 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted">
-                    Timeline
-                  </h5>
-                  {selectedPublication.events.length === 0 ? (
-                    <p className="text-sm text-muted">
-                      Nu există evenimente de publish pentru acest target.
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {selectedPublication.events.map((event) => (
-                        <div
-                          key={event.id}
-                          className="rounded-lg border border-border bg-card px-3 py-2"
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="font-medium text-foreground">
-                              {event.action} · {event.status}
-                            </span>
-                            <span className="text-xs text-muted">
-                              {formatDate(event.createdAt)}
-                            </span>
-                          </div>
-                          <p className="mt-1 text-sm text-muted">
-                            {event.errorMessage ?? 'Fără eroare.'}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </Card>
-        </div>
-      ) : null}
-
-      {activeTab === 'settings' ? (
-        <Card padding="md" variant="bordered" className="space-y-5">
-          <div>
-            <h3 className="text-lg font-semibold text-foreground">Lex Module Settings</h3>
-            <p className="text-sm text-muted">
-              Controlul operațional pentru scope, retenție și autopublish. Configurația este strict
-              per-shop.
-            </p>
-          </div>
-
-          {!settings ? (
-            <EmptyState
-              title="Setările nu sunt disponibile"
-              description="Reîncarcă pagina sau verifică dacă API-ul lexical este pornit."
-            />
-          ) : (
-            <div className="grid gap-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
-              <div className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="space-y-1">
-                    <span className="text-sm font-medium text-foreground">Source language</span>
-                    <input
-                      className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground"
-                      value={settings.sourceLang}
-                      onChange={(event) =>
-                        setSettings((current) =>
-                          current ? { ...current, sourceLang: event.target.value } : current
-                        )
-                      }
-                    />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="text-sm font-medium text-foreground">Target languages</span>
-                    <input
-                      className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground"
-                      value={settings.targetLangs.join(', ')}
-                      onChange={(event) =>
-                        setSettings((current) =>
-                          current
-                            ? {
-                                ...current,
-                                targetLangs: event.target.value
-                                  .split(',')
-                                  .map((value) => value.trim())
-                                  .filter((value) => value.length > 0),
-                              }
-                            : current
-                        )
-                      }
-                    />
-                  </label>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="space-y-1">
-                    <span className="text-sm font-medium text-foreground">Shard size</span>
-                    <input
-                      type="number"
-                      className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground"
-                      value={settings.shardSize}
-                      onChange={(event) =>
-                        setSettings((current) =>
-                          current ? { ...current, shardSize: Number(event.target.value) } : current
-                        )
-                      }
-                    />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="text-sm font-medium text-foreground">
-                      Retention contexts (days)
-                    </span>
-                    <input
-                      type="number"
-                      className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground"
-                      value={settings.retentionDaysContexts}
-                      onChange={(event) =>
-                        setSettings((current) =>
-                          current
-                            ? { ...current, retentionDaysContexts: Number(event.target.value) }
-                            : current
-                        )
-                      }
-                    />
-                  </label>
-                </div>
-
-                <label className="space-y-1">
-                  <span className="text-sm font-medium text-foreground">Extract scope JSON</span>
-                  <textarea
-                    rows={6}
-                    className="w-full rounded-md border border-border bg-card px-3 py-2 font-mono text-xs text-foreground"
-                    value={JSON.stringify(settings.extractScope, null, 2)}
-                    onChange={(event) => {
-                      try {
-                        const parsed = JSON.parse(event.target.value) as Record<string, unknown>;
-                        setSettings((current) =>
-                          current ? { ...current, extractScope: parsed } : current
-                        );
-                      } catch {
-                        // Keep the current valid state while the user edits invalid JSON.
-                      }
-                    }}
-                  />
-                </label>
-              </div>
-
-              <div className="space-y-3 rounded-xl border border-border bg-subtle/40 p-4">
-                <Checkbox
-                  checked={settings.enabled}
-                  label="Enable lexical module"
-                  description="Activează run-uri, UI și API-uri pentru Module N."
-                  onChange={(event) =>
-                    setSettings((current) =>
-                      current ? { ...current, enabled: event.target.checked } : current
-                    )
-                  }
-                />
-                <Checkbox
-                  checked={settings.autoPublishProducts}
-                  label="Auto publish products"
-                  description="Permite publicarea în `prod_translations` din localizări aprobate."
-                  onChange={(event) =>
-                    setSettings((current) =>
-                      current ? { ...current, autoPublishProducts: event.target.checked } : current
-                    )
-                  }
-                />
-                <Checkbox
-                  checked={settings.autoPublishAttributes}
-                  label="Auto publish attributes"
-                  description="Permite publicarea sinonimelor rezolvate către `prod_attr_synonyms`."
-                  onChange={(event) =>
-                    setSettings((current) =>
-                      current
-                        ? { ...current, autoPublishAttributes: event.target.checked }
-                        : current
-                    )
-                  }
-                />
-                <Checkbox
-                  checked={settings.autoPublishCollections}
-                  label="Auto publish collections"
-                  description="Permite write-through în `shopify_collections.title_en/description_en`."
-                  onChange={(event) =>
-                    setSettings((current) =>
-                      current
-                        ? { ...current, autoPublishCollections: event.target.checked }
-                        : current
-                    )
-                  }
-                />
-                <Button disabled={savingSettings} onClick={() => void handleSaveSettings()}>
-                  {savingSettings ? 'Salvez...' : 'Save Settings'}
-                </Button>
-              </div>
-            </div>
-          )}
-        </Card>
-      ) : null}
+      <TabContent
+        activeTab={activeTab}
+        tabLoading={tabLoading}
+        permissions={bootstrap.permissions}
+        metrics={metrics}
+        runs={runs}
+        terms={terms}
+        localizations={localizations}
+        reviewItems={reviewItems}
+        glossary={glossary}
+        rules={rules}
+        profiles={profiles}
+        stopwords={stopwords}
+        governance={governance}
+        publications={publications}
+        selectedTerm={selectedTerm}
+        termAffectedProducts={termAffectedProducts}
+        selectedReview={selectedReview}
+        selectedPublication={selectedPublication}
+        settings={settings}
+        settingsDirty={settingsDirty}
+        savingSettings={savingSettings}
+        startingRun={startingRun}
+        resumingRunId={resumingRunId}
+        termFlagsSaving={termFlagsSaving}
+        manualTranslationSaving={manualTranslationSaving}
+        editTranslationSaving={editTranslationSaving}
+        createManualLexTranslation={createManualLexTranslation}
+        editManualLexTranslation={editManualLexTranslation}
+        isRunStale={isRunStale}
+        loadAll={loadAll}
+        loadCurrentView={loadCurrentView}
+        handleStartRun={handleStartRun}
+        handleResumeRun={handleResumeRun}
+        handleSaveSettings={handleSaveSettings}
+        selectTerm={selectTerm}
+        updateTermFlags={updateTermFlags}
+        selectReview={selectReview}
+        selectPublication={selectPublication}
+        handleReviewDecision={handleReviewDecision}
+        handleAdvancedReviewDecision={handleAdvancedReviewDecision}
+        selectedReviewIdsForBulk={selectedReviewIdsForBulk}
+        toggleBulkReviewSelection={toggleBulkReviewSelection}
+        selectAllActionableReviewsVisible={selectAllActionableReviewsVisible}
+        clearBulkReviewSelection={clearBulkReviewSelection}
+        bulkReviewBusy={bulkReviewBusy}
+        handleBulkReviewDecision={handleBulkReviewDecision}
+        handlePromoteToGovernance={handlePromoteToGovernance}
+        handleGovernanceTransition={handleGovernanceTransition}
+        handleRetryPublication={handleRetryPublication}
+        handleRollbackPublication={handleRollbackPublication}
+        handleResolvePublicationConflict={handleResolvePublicationConflict}
+        handleDownloadLexCsvExport={handleDownloadLexCsvExport}
+        handleDownloadLexXliffExport={handleDownloadLexXliffExport}
+        handleImportXliff={handleImportXliff}
+        setTab={setTab}
+        setSettings={setSettings}
+        extractScopeText={extractScopeText}
+        setExtractScopeText={setExtractScopeText}
+        refreshGlossary={refreshGlossary}
+        createGlossaryEntry={createGlossaryEntry}
+        updateGlossaryEntry={updateGlossaryEntry}
+        deleteGlossaryEntry={deleteGlossaryEntry}
+        refreshRules={refreshRules}
+        createLexRule={createLexRule}
+        updateLexRule={updateLexRule}
+        deleteLexRule={deleteLexRule}
+        refreshProfiles={refreshProfiles}
+        createLexProfile={createLexProfile}
+        updateLexProfile={updateLexProfile}
+        deleteLexProfile={deleteLexProfile}
+        refreshStopwords={refreshStopwords}
+        createLexStopword={createLexStopword}
+        updateLexStopword={updateLexStopword}
+        deleteLexStopword={deleteLexStopword}
+        termsListFilters={termsListFilters}
+        onTermsFiltersInputChange={(q) => patchTermsListFilterDraft({ q })}
+        onTermsFiltersSearch={(q) => {
+          void mergeTermsListFiltersAndFetch({ q });
+        }}
+        onTermsFilterImmediate={(patch) => {
+          void mergeTermsListFiltersAndFetch(patch);
+        }}
+        onTermsFilterDraft={(patch) => patchTermsListFilterDraft(patch)}
+        onTermsFiltersReload={() => {
+          void fetchTermsFirstPage(termsListFiltersRef.current);
+        }}
+        onClearTermsListFilters={() => {
+          void mergeTermsListFiltersAndFetch({
+            q: '',
+            status: '',
+            domainCode: '',
+            minScore: '',
+            maxScore: '',
+          });
+        }}
+        reviewListFilters={reviewListFilters}
+        onReviewFiltersInputChange={(q) => patchReviewListFilterDraft({ q })}
+        onReviewFiltersSearch={(q) => {
+          void mergeReviewListFiltersAndFetch({ q });
+        }}
+        onReviewFilterImmediate={(patch) => {
+          void mergeReviewListFiltersAndFetch(patch);
+        }}
+        onClearReviewListFilters={() => {
+          void mergeReviewListFiltersAndFetch({
+            q: '',
+            status: '',
+            severity: '',
+            entityType: '',
+          });
+        }}
+        publicationsListFilters={publicationsListFilters}
+        onPublicationsFiltersInputChange={(q) => patchPublicationsListFilterDraft({ q })}
+        onPublicationsFiltersSearch={(q) => {
+          void mergePublicationsListFiltersAndFetch({ q });
+        }}
+        onPublicationsFilterImmediate={(patch) => {
+          void mergePublicationsListFiltersAndFetch(patch);
+        }}
+        onClearPublicationsListFilters={() => {
+          void mergePublicationsListFiltersAndFetch({
+            q: '',
+            status: '',
+            targetType: '',
+          });
+        }}
+        glossaryListFilters={glossaryListFilters}
+        onGlossaryFiltersInputChange={(q) => patchGlossaryListFilterDraft({ q })}
+        onGlossaryFiltersSearch={(q) => {
+          void mergeGlossaryListFiltersAndFetch({ q });
+        }}
+        onClearGlossaryListFilters={() => {
+          void mergeGlossaryListFiltersAndFetch({ q: '' });
+        }}
+        requestLexConfirm={requestLexConfirm}
+        lexLoadMore={lexLoadMore}
+        reviewDecisionNotes={reviewDecisionNotes}
+        setReviewDecisionNotes={setReviewDecisionNotes}
+        governanceActionNotes={governanceActionNotes}
+        setGovernanceActionNotes={setGovernanceActionNotes}
+        guardrailsStats={guardrailsStats}
+        guardrailsEvents={guardrailsEvents}
+        handleGuardrailsModeChange={handleGuardrailsModeChange}
+      />
+      <LexConfirmModal />
     </div>
   );
 }

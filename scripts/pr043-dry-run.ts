@@ -8,10 +8,11 @@
  * - dedupe cluster persistence (prod_dedupe_clusters + members)
  *
  * Usage (recommended):
- *   POSTGRES_USER=shopify POSTGRES_PASSWORD=shopify_dev_password POSTGRES_DB=neanelu_shopify \
- *   docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.dev.yml up -d db redis
+ *   scripts/with-secrets.sh node --import tsx scripts/pr043-dry-run.ts
  *
- *   DATABASE_URL=postgresql://shopify:shopify_dev_password@localhost:65010/neanelu_shopify \
+ * Alternative for local Docker dev, when credentials are already exported in the shell:
+ *   POSTGRES_USER="$POSTGRES_USER" POSTGRES_PASSWORD="$POSTGRES_PASSWORD" POSTGRES_DB="$POSTGRES_DB" \
+ *   POSTGRES_HOST=localhost POSTGRES_PORT=65010 \
  *   REDIS_URL=redis://localhost:65011 \
  *   APP_HOST=https://localhost:65000 \
  *   SHOPIFY_API_KEY=dev SHOPIFY_API_SECRET=dev SCOPES=read_products \
@@ -35,6 +36,37 @@ const EXISTING_PIM_ID = '00000000-0000-0000-0000-000000000020';
 const CANONICAL_PIM_ID = '00000000-0000-0000-0000-000000000030';
 const SUSPICIOUS_PIM_ID = '00000000-0000-0000-0000-000000000031';
 
+function resolveDryRunDatabaseUrl(): string {
+  const explicitDatabaseUrl = (process.env['DATABASE_URL'] ?? '').trim();
+  if (explicitDatabaseUrl !== '') {
+    return explicitDatabaseUrl;
+  }
+
+  const migrationDatabaseUrl = (process.env['MIGRATION_DATABASE_URL'] ?? '').trim();
+  if (migrationDatabaseUrl !== '') {
+    return migrationDatabaseUrl;
+  }
+
+  const postgresUser = (process.env['POSTGRES_USER'] ?? '').trim();
+  const postgresPassword = (process.env['POSTGRES_PASSWORD'] ?? '').trim();
+  const postgresDatabase = (process.env['POSTGRES_DB'] ?? '').trim();
+
+  if (postgresUser !== '' && postgresPassword !== '' && postgresDatabase !== '') {
+    const postgresHost = (process.env['POSTGRES_HOST'] ?? 'localhost').trim() || 'localhost';
+    const postgresPort = (process.env['POSTGRES_PORT'] ?? '65010').trim() || '65010';
+    const connectionUrl = new URL(
+      `postgresql://${postgresHost}:${postgresPort}/${postgresDatabase}`
+    );
+    connectionUrl.username = postgresUser;
+    connectionUrl.password = postgresPassword;
+    return connectionUrl.toString();
+  }
+
+  throw new Error(
+    'Missing database connection for PR-043 dry run. Use scripts/with-secrets.sh or set DATABASE_URL/MIGRATION_DATABASE_URL or POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB explicitly.'
+  );
+}
+
 function applyEnvDefaults(): void {
   // IMPORTANT: @app/database reads DATABASE_URL at import-time.
   // This script is written to use dynamic imports after defaults are applied.
@@ -51,10 +83,7 @@ function applyEnvDefaults(): void {
   setDefault('PORT', '65000');
 
   setDefault('APP_HOST', 'https://localhost:65000');
-  setDefault(
-    'DATABASE_URL',
-    'postgresql://shopify:shopify_dev_password@localhost:65010/neanelu_shopify'
-  );
+  setDefault('DATABASE_URL', resolveDryRunDatabaseUrl());
   setDefault('REDIS_URL', 'redis://localhost:65011');
   setDefault('BULLMQ_PRO_TOKEN', 'dev');
 

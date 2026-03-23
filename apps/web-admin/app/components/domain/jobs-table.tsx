@@ -25,7 +25,7 @@ export type QueueJobListItem = Readonly<{
 
 export type JobsTableAction = 'retry' | 'delete' | 'promote' | 'details' | 'dlq_replay';
 
-export function JobsTable(props: {
+interface JobsTableProps {
   jobs: QueueJobListItem[];
   total: number;
   page: number;
@@ -40,7 +40,98 @@ export function JobsTable(props: {
   onLimitChange: (limit: number) => void;
   onAction: (action: JobsTableAction, jobIds: string[]) => void;
   onOpenDetails: (jobId: string) => void;
-}) {
+}
+
+interface VirtualRowProps {
+  jobs: QueueJobListItem[];
+  selected: Set<string>;
+  toggleOne: (id: string) => void;
+  onOpenDetails: (jobId: string) => void;
+  onAction: (action: JobsTableAction, jobIds: string[]) => void;
+  copyId: (id: string) => Promise<void>;
+  getProgressValue: (progress: unknown) => number;
+  getStatusTone: (status: string | null) => 'success' | 'warning' | 'critical' | 'info' | 'neutral';
+  loading: boolean;
+  dlqReplayEnabled: boolean;
+}
+
+function VirtualRow({
+  index,
+  style,
+  jobs,
+  selected,
+  toggleOne,
+  onOpenDetails,
+  onAction,
+  copyId,
+  getProgressValue,
+  getStatusTone,
+  loading,
+  dlqReplayEnabled: vDlq = false,
+}: RowComponentProps<VirtualRowProps>) {
+  const job = jobs[index];
+  if (!job) return <div style={style} />;
+
+  return (
+    <div
+      style={style}
+      className="flex items-center gap-4 border-b border-border px-3 text-sm last:border-b-0"
+    >
+      <Checkbox
+        checked={selected.has(job.id)}
+        disabled={Boolean(loading)}
+        onChange={() => toggleOne(job.id)}
+        aria-label={`Select job ${job.id}`}
+      />
+      <div className="w-80">
+        <button
+          type="button"
+          className="font-mono text-xs text-primary hover:underline"
+          onClick={() => void copyId(job.id)}
+        >
+          {job.id}
+        </button>
+        <button
+          type="button"
+          className="text-caption text-muted hover:underline"
+          onClick={() => onOpenDetails(job.id)}
+        >
+          Detalii
+        </button>
+      </div>
+      <div className="w-105 truncate font-mono text-xs text-foreground/80">
+        {job.payloadPreview ?? '—'}
+      </div>
+      <div className="w-45">
+        <ProgressBar progress={getProgressValue(job.progress)} />
+      </div>
+      <div className="w-35">
+        <Badge tone={getStatusTone(job.status)}>{job.status ?? 'unknown'}</Badge>
+      </div>
+      <div className="w-40">
+        <Select
+          value=""
+          disabled={Boolean(loading)}
+          options={[
+            { label: 'Acțiuni', value: '' },
+            { label: 'Relansează', value: 'retry' },
+            ...(vDlq ? [{ label: 'Reia din DLQ', value: 'dlq_replay' }] : []),
+            { label: 'Promovează', value: 'promote' },
+            { label: 'Șterge', value: 'delete' },
+          ]}
+          onChange={(e) => {
+            const v = (e.target as HTMLSelectElement).value as JobsTableAction;
+            if (!v) return;
+            onAction(v, [job.id]);
+            (e.target as HTMLSelectElement).value = '';
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+export function JobsTable(props: Readonly<JobsTableProps>) {
   const {
     jobs,
     total,
@@ -237,86 +328,17 @@ export function JobsTable(props: {
   };
 
   const useVirtual = total > 1000;
-
-  interface VirtualRowProps {
-    jobs: QueueJobListItem[];
-    selected: Set<string>;
-    toggleOne: (id: string) => void;
-    onOpenDetails: (jobId: string) => void;
-    onAction: (action: JobsTableAction, jobIds: string[]) => void;
-    dlqReplayEnabled?: boolean;
-  }
-
-  const VirtualRow = ({
-    index,
-    style,
+  const virtualRowProps: VirtualRowProps = {
     jobs,
     selected,
     toggleOne,
     onOpenDetails,
     onAction,
-    dlqReplayEnabled: vDlq = false,
-  }: RowComponentProps<VirtualRowProps>) => {
-    const job = jobs[index];
-    if (!job) return <div style={style} />;
-
-    return (
-      <div
-        style={style}
-        className="flex items-center gap-4 border-b border-border px-3 text-sm last:border-b-0"
-      >
-        <Checkbox
-          checked={selected.has(job.id)}
-          disabled={Boolean(loading)}
-          onChange={() => toggleOne(job.id)}
-          aria-label={`Select job ${job.id}`}
-        />
-        <div className="w-80">
-          <button
-            type="button"
-            className="font-mono text-xs text-primary hover:underline"
-            onClick={() => void copyId(job.id)}
-          >
-            {job.id}
-          </button>
-          <button
-            type="button"
-            className="text-caption text-muted hover:underline"
-            onClick={() => onOpenDetails(job.id)}
-          >
-            Detalii
-          </button>
-        </div>
-        <div className="w-105 truncate font-mono text-xs text-foreground/80">
-          {job.payloadPreview ?? '—'}
-        </div>
-        <div className="w-45">
-          <ProgressBar progress={progressValue(job.progress)} />
-        </div>
-        <div className="w-35">
-          <Badge tone={statusTone(job.status)}>{job.status ?? 'unknown'}</Badge>
-        </div>
-        <div className="w-40">
-          <Select
-            value=""
-            disabled={Boolean(loading)}
-            options={[
-              { label: 'Acțiuni', value: '' },
-              { label: 'Relansează', value: 'retry' },
-              ...(vDlq ? [{ label: 'Reia din DLQ', value: 'dlq_replay' }] : []),
-              { label: 'Promovează', value: 'promote' },
-              { label: 'Șterge', value: 'delete' },
-            ]}
-            onChange={(e) => {
-              const v = (e.target as HTMLSelectElement).value as JobsTableAction;
-              if (!v) return;
-              onAction(v, [job.id]);
-              (e.target as HTMLSelectElement).value = '';
-            }}
-          />
-        </div>
-      </div>
-    );
+    copyId,
+    getProgressValue: progressValue,
+    getStatusTone: statusTone,
+    loading: Boolean(loading),
+    dlqReplayEnabled: Boolean(dlqReplayEnabled),
   };
 
   return (
@@ -462,8 +484,32 @@ export function JobsTable(props: {
       ) : null}
 
       <div className="overflow-x-auto rounded-md border border-border/80">
-        {!useVirtual ? (
-          <table className="min-w-[700px] w-full border-collapse text-sm">
+        {useVirtual ? (
+          <div className="min-w-225">
+            <div className="flex items-center gap-4 border-b bg-muted/20 px-3 py-2 text-sm">
+              <Checkbox
+                checked={allOnPageSelected}
+                disabled={Boolean(loading)}
+                onChange={toggleAllOnPage}
+                aria-label="Select all on page"
+              />
+              <div className="w-80">ID</div>
+              <div className="w-105">Payload</div>
+              <div className="w-45">Progres</div>
+              <div className="w-35">Status</div>
+              <div className="w-40">Acțiuni</div>
+            </div>
+            <List<VirtualRowProps>
+              defaultHeight={Math.min(480, Math.max(240, jobs.length * 48))}
+              rowCount={jobs.length}
+              rowHeight={48}
+              rowComponent={VirtualRow}
+              rowProps={virtualRowProps}
+              style={{ height: Math.min(480, Math.max(240, jobs.length * 48)) }}
+            />
+          </div>
+        ) : (
+          <table className="min-w-175 w-full border-collapse text-sm">
             <thead className="bg-muted/20 sticky top-0 z-10">
               <tr className="">
                 <th className="px-3 py-2 text-left">
@@ -493,37 +539,6 @@ export function JobsTable(props: {
             </thead>
             <tbody>{jobs.map(renderRow)}</tbody>
           </table>
-        ) : (
-          <div className="min-w-225">
-            <div className="flex items-center gap-4 border-b bg-muted/20 px-3 py-2 text-sm">
-              <Checkbox
-                checked={allOnPageSelected}
-                disabled={Boolean(loading)}
-                onChange={toggleAllOnPage}
-                aria-label="Select all on page"
-              />
-              <div className="w-80">ID</div>
-              <div className="w-105">Payload</div>
-              <div className="w-45">Progres</div>
-              <div className="w-35">Status</div>
-              <div className="w-40">Acțiuni</div>
-            </div>
-            <List<VirtualRowProps>
-              defaultHeight={Math.min(480, Math.max(240, jobs.length * 48))}
-              rowCount={jobs.length}
-              rowHeight={48}
-              rowComponent={VirtualRow}
-              rowProps={{
-                jobs,
-                selected,
-                toggleOne,
-                onOpenDetails,
-                onAction,
-                dlqReplayEnabled: dlqReplayEnabled ?? false,
-              }}
-              style={{ height: Math.min(480, Math.max(240, jobs.length * 48)) }}
-            />
-          </div>
         )}
       </div>
     </div>

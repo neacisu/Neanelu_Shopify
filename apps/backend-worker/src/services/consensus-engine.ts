@@ -915,83 +915,146 @@ export async function consensusChatCompletion<T>(
     step: 'consensus_arbitration',
     message: 'Arbitrare deep reasoning...',
   });
-  const arbitrationPrompt = buildArbitrationPrompt({
-    taskType: params.taskType,
-    systemPrompt: params.systemPrompt,
-    userPrompt: inputScan.sanitizedText,
-    responses: participants.map((participant, index) => ({
-      index: index + 1,
-      model: participant.model,
-      content: participant.raw,
-    })),
-    responseFormat: params.responseFormat,
-  });
-  const arbitrationRaw = await singleModelFetch({
-    config: consensus.arbitration,
-    messages: buildMessages(arbitrationPrompt.systemPrompt, arbitrationPrompt.userPrompt),
-    responseFormat: { type: 'json_object' },
-    maxTokens: Math.max(params.maxTokens ?? 600, 600),
-    env: params.env,
-    logger: params.logger,
-  });
-  const arbitrationScan = await scanOutput({
-    shopId: params.shopId,
-    prompt: arbitrationPrompt.userPrompt,
-    output: arbitrationRaw,
-    env: params.env,
-    logger: params.logger,
-  });
-  if (!arbitrationScan.isValid) {
-    throw new Error(
-      `guardrails_blocked_consensus_arbitration:${arbitrationScan.reason ?? 'unknown'}`
+
+  try {
+    const arbitrationPrompt = buildArbitrationPrompt({
+      taskType: params.taskType,
+      systemPrompt: params.systemPrompt,
+      userPrompt: inputScan.sanitizedText,
+      responses: participants.map((participant, index) => ({
+        index: index + 1,
+        model: participant.model,
+        content: participant.raw,
+      })),
+      responseFormat: params.responseFormat,
+    });
+    const arbitrationRaw = await singleModelFetch({
+      config: consensus.arbitration,
+      messages: buildMessages(arbitrationPrompt.systemPrompt, arbitrationPrompt.userPrompt),
+      responseFormat: { type: 'json_object' },
+      maxTokens: Math.max(params.maxTokens ?? 600, 600),
+      env: params.env,
+      logger: params.logger,
+    });
+    const arbitrationScan = await scanOutput({
+      shopId: params.shopId,
+      prompt: arbitrationPrompt.userPrompt,
+      output: arbitrationRaw,
+      env: params.env,
+      logger: params.logger,
+    });
+    if (!arbitrationScan.isValid) {
+      throw new Error(
+        `guardrails_blocked_consensus_arbitration:${arbitrationScan.reason ?? 'unknown'}`
+      );
+    }
+    const envelope = parseArbitrationEnvelope(arbitrationScan.sanitizedText);
+    const selectedParticipant =
+      envelope?.selectedIndex &&
+      envelope.selectedIndex >= 1 &&
+      envelope.selectedIndex <= participants.length
+        ? participants[envelope.selectedIndex - 1]!
+        : participants[0]!;
+    const arbitrationResult =
+      (envelope
+        ? parseArbitrationFinalResult({
+            envelope,
+            responseFormat: params.responseFormat,
+            parseResponse: params.parseResponse,
+          })
+        : null) ?? selectedParticipant.parsed;
+    const durationMs = Date.now() - startedAt;
+    const score = Math.max(
+      0,
+      Math.min(1, envelope?.consensusScore ?? Math.max(0.5, 1 / participants.length))
     );
+    onProgress?.({
+      step: 'consensus_arbitration',
+      message: 'Arbitrare deep reasoning finalizată.',
+      status: 'done',
+    });
+    onProgress?.({
+      step: 'consensus_result',
+      message: `Consens final score ${score.toFixed(2)}`,
+      status: 'done',
+    });
+    recordConsensusMetrics({
+      taskType: params.taskType,
+      method: 'arbitration',
+      durationMs,
+      score,
+      participants: participants.length,
+      arbitrationNeeded: true,
+    });
+    return {
+      result: arbitrationResult,
+      rawResponses: participants.map((participant) => participant.raw),
+      method: 'arbitration',
+      consensusScore: score,
+      participantCount: participants.length,
+      ...(envelope?.reasoning ? { arbitrationReasoning: envelope.reasoning } : {}),
+      models: [
+        ...participants.map((participant) => participant.model),
+        consensus.arbitration.model,
+      ],
+      durationMs,
+    };
+  } catch (error) {
+    params.logger.warn(
+      { shopId: params.shopId, taskType: params.taskType, error },
+      'consensus_arbitration_failed_fallback'
+    );
+    const durationMs = Date.now() - startedAt;
+    if (majority) {
+      const score = majority.count / participants.length;
+      const method: ConsensusMethod =
+        majority.count === participants.length ? 'unanimous' : 'majority';
+      recordConsensusMetrics({
+        taskType: params.taskType,
+        method,
+        durationMs,
+        score,
+        participants: participants.length,
+        arbitrationNeeded: true,
+        fallbackReason: 'arbitration_failed_majority_plurality',
+      });
+      onProgress?.({
+        step: 'consensus_result',
+        message: `Arbitrare eșuată — folosim pluralitate (${method})`,
+        status: 'done',
+      });
+      return {
+        result: majority.value.parsed,
+        rawResponses: participants.map((participant) => participant.raw),
+        method,
+        consensusScore: score,
+        participantCount: participants.length,
+        models: participants.map((participant) => participant.model),
+        durationMs,
+      };
+    }
+    recordConsensusMetrics({
+      taskType: params.taskType,
+      method: 'single_fallback',
+      durationMs,
+      score: 0.5,
+      participants: participants.length,
+      arbitrationNeeded: true,
+      fallbackReason: 'arbitration_failed_first_participant',
+    });
+    onProgress?.({
+      step: 'consensus_result',
+      message: 'Arbitrare eșuată — folosim primul participant',
+      status: 'done',
+    });
+    return {
+      result: participants[0]!.parsed,
+      rawResponses: participants.map((participant) => participant.raw),
+      method: 'single_fallback',
+      consensusScore: 0.5,
+      participantCount: participants.length,
+      models: participants.map((participant) => participant.model),
+      durationMs,
+    };
   }
-  const envelope = parseArbitrationEnvelope(arbitrationScan.sanitizedText);
-  const selectedParticipant =
-    envelope?.selectedIndex &&
-    envelope.selectedIndex >= 1 &&
-    envelope.selectedIndex <= participants.length
-      ? participants[envelope.selectedIndex - 1]!
-      : participants[0]!;
-  const arbitrationResult =
-    (envelope
-      ? parseArbitrationFinalResult({
-          envelope,
-          responseFormat: params.responseFormat,
-          parseResponse: params.parseResponse,
-        })
-      : null) ?? selectedParticipant.parsed;
-  const durationMs = Date.now() - startedAt;
-  const score = Math.max(
-    0,
-    Math.min(1, envelope?.consensusScore ?? Math.max(0.5, 1 / participants.length))
-  );
-  onProgress?.({
-    step: 'consensus_arbitration',
-    message: 'Arbitrare deep reasoning finalizată.',
-    status: 'done',
-  });
-  onProgress?.({
-    step: 'consensus_result',
-    message: `Consens final score ${score.toFixed(2)}`,
-    status: 'done',
-  });
-  recordConsensusMetrics({
-    taskType: params.taskType,
-    method: 'arbitration',
-    durationMs,
-    score,
-    participants: participants.length,
-    arbitrationNeeded: true,
-  });
-  return {
-    result: arbitrationResult,
-    rawResponses: participants.map((participant) => participant.raw),
-    method: 'arbitration',
-    consensusScore: score,
-    participantCount: participants.length,
-    ...(envelope?.reasoning ? { arbitrationReasoning: envelope.reasoning } : {}),
-    models: [...participants.map((participant) => participant.model), consensus.arbitration.model],
-    durationMs,
-  };
 }

@@ -323,6 +323,463 @@ let queueConfigListener: Awaited<ReturnType<typeof startQueueConfigListener>> | 
 let budgetGaugeRedis: ReturnType<typeof createManagedRedis> | null = null;
 let budgetGaugeInterval: NodeJS.Timeout | null = null;
 
+interface ClosableHandle {
+  close(): Promise<void>;
+}
+
+interface WorkerLifecycleEntry {
+  readonly workerId: string;
+  recreate(l: typeof logger): Promise<void>;
+  teardown(): Promise<boolean>;
+}
+
+function workerEntry<T extends ClosableHandle>(
+  workerId: string,
+  get: () => T | null,
+  set: (v: T | null) => void,
+  startFn: (l: typeof logger) => T,
+  setHandle?: (w: T | null) => void
+): WorkerLifecycleEntry {
+  return {
+    workerId,
+    async recreate(l) {
+      const current = get();
+      if (current) await current.close();
+      const w = startFn(l);
+      set(w);
+      setHandle?.(w);
+    },
+    async teardown() {
+      const w = get();
+      if (!w) return false;
+      await w.close();
+      set(null);
+      setHandle?.(null);
+      return true;
+    },
+  };
+}
+
+const WORKER_ENTRIES: WorkerLifecycleEntry[] = [
+  workerEntry(
+    'webhook-worker',
+    () => webhookWorker,
+    (v) => {
+      webhookWorker = v;
+    },
+    startWebhookWorker,
+    setWebhookWorkerHandle
+  ),
+  workerEntry(
+    'token-health-worker',
+    () => tokenHealthWorker,
+    (v) => {
+      tokenHealthWorker = v;
+    },
+    startTokenHealthWorker,
+    setTokenHealthWorkerHandle
+  ),
+  workerEntry(
+    'sync-worker',
+    () => syncWorker,
+    (v) => {
+      syncWorker = v;
+    },
+    startSyncWorker,
+    setSyncWorkerHandle
+  ),
+  workerEntry(
+    'bulk-orchestrator-worker',
+    () => bulkOrchestratorWorker,
+    (v) => {
+      bulkOrchestratorWorker = v;
+    },
+    startBulkOrchestratorWorker,
+    setBulkOrchestratorWorkerHandle
+  ),
+  workerEntry(
+    'bulk-poller-worker',
+    () => bulkPollerWorker,
+    (v) => {
+      bulkPollerWorker = v;
+    },
+    startBulkPollerWorker,
+    setBulkPollerWorkerHandle
+  ),
+  workerEntry(
+    'bulk-mutation-reconcile-worker',
+    () => bulkMutationReconcileWorker,
+    (v) => {
+      bulkMutationReconcileWorker = v;
+    },
+    startBulkMutationReconcileWorker,
+    setBulkMutationReconcileWorkerHandle
+  ),
+  workerEntry(
+    'bulk-ingest-worker',
+    () => bulkIngestWorker,
+    (v) => {
+      bulkIngestWorker = v;
+    },
+    startBulkIngestWorker,
+    setBulkIngestWorkerHandle
+  ),
+  workerEntry(
+    'pim-manual-sync-worker',
+    () => pimManualSyncWorker,
+    (v) => {
+      pimManualSyncWorker = v;
+    },
+    startPimManualSyncWorker,
+    setPimManualSyncWorkerHandle
+  ),
+  workerEntry(
+    'bulk-schedule-worker',
+    () => bulkScheduleWorker,
+    (v) => {
+      bulkScheduleWorker = v;
+    },
+    startBulkScheduleWorker
+  ),
+  workerEntry(
+    'ai-batch-worker',
+    () => aiBatchWorker,
+    (v) => {
+      aiBatchWorker = v;
+    },
+    startAiBatchWorker,
+    setAiBatchWorkerHandle
+  ),
+  workerEntry(
+    'ai-batch-schedule-worker',
+    () => aiBatchScheduleWorker,
+    (v) => {
+      aiBatchScheduleWorker = v;
+    },
+    startAiBatchScheduleWorker
+  ),
+  workerEntry(
+    'openai-health-worker',
+    () => openAiHealthWorker,
+    (v) => {
+      openAiHealthWorker = v;
+    },
+    startOpenAiHealthWorker
+  ),
+  workerEntry(
+    'serper-health-worker',
+    () => serperHealthWorker,
+    (v) => {
+      serperHealthWorker = v;
+    },
+    startSerperHealthWorker
+  ),
+  workerEntry(
+    'xai-health-worker',
+    () => xaiHealthWorker,
+    (v) => {
+      xaiHealthWorker = v;
+    },
+    startXaiHealthWorker
+  ),
+  workerEntry(
+    'selfhosted-health-worker',
+    () => selfHostedHealthWorker,
+    (v) => {
+      selfHostedHealthWorker = v;
+    },
+    startSelfHostedHealthWorker
+  ),
+  workerEntry(
+    'enrichment-worker',
+    () => enrichmentWorker,
+    (v) => {
+      enrichmentWorker = v;
+    },
+    startEnrichmentWorker,
+    setEnrichmentWorkerHandle
+  ),
+  workerEntry(
+    'similarity-search-worker',
+    () => similaritySearchWorker,
+    (v) => {
+      similaritySearchWorker = v;
+    },
+    startSimilaritySearchWorker,
+    setSimilaritySearchWorkerHandle
+  ),
+  workerEntry(
+    'ai-audit-worker',
+    () => similarityAIAuditWorker,
+    (v) => {
+      similarityAIAuditWorker = v;
+    },
+    startAIAuditWorker,
+    setSimilarityAIAuditWorkerHandle
+  ),
+  workerEntry(
+    'pim-extraction-worker',
+    () => extractionWorker,
+    (v) => {
+      extractionWorker = v;
+    },
+    startExtractionWorker,
+    setExtractionWorkerHandle
+  ),
+  workerEntry(
+    'pim-consensus-worker',
+    () => consensusWorker,
+    (v) => {
+      consensusWorker = v;
+    },
+    startConsensusWorker,
+    setConsensusWorkerHandle
+  ),
+  workerEntry(
+    'pim-category-classifier-worker',
+    () => categoryClassifierWorker,
+    (v) => {
+      categoryClassifierWorker = v;
+    },
+    startCategoryClassifierWorker,
+    setCategoryClassifierWorkerHandle
+  ),
+  workerEntry(
+    'pim-description-generator-worker',
+    () => descriptionGeneratorWorker,
+    (v) => {
+      descriptionGeneratorWorker = v;
+    },
+    startDescriptionGeneratorWorker,
+    setDescriptionGeneratorWorkerHandle
+  ),
+  workerEntry(
+    'pim-metafield-push-worker',
+    () => metafieldPushWorker,
+    (v) => {
+      metafieldPushWorker = v;
+    },
+    startMetafieldPushWorker,
+    setMetafieldPushWorkerHandle
+  ),
+  workerEntry(
+    'pim-budget-reset-worker',
+    () => budgetResetScheduler,
+    (v) => {
+      budgetResetScheduler = v;
+    },
+    startBudgetResetScheduler,
+    setBudgetResetSchedulerHandle
+  ),
+  workerEntry(
+    'pim-weekly-summary-worker',
+    () => weeklySummaryScheduler,
+    (v) => {
+      weeklySummaryScheduler = v;
+    },
+    startWeeklySummaryScheduler,
+    setWeeklySummarySchedulerHandle
+  ),
+  workerEntry(
+    'pim-mv-refresh-worker',
+    () => mvRefreshScheduler,
+    (v) => {
+      mvRefreshScheduler = v;
+    },
+    startMvRefreshScheduler,
+    setMvRefreshSchedulerHandle
+  ),
+  workerEntry(
+    'pim-auto-enrichment-scheduler-worker',
+    () => autoEnrichmentScheduler,
+    (v) => {
+      autoEnrichmentScheduler = v;
+    },
+    startAutoEnrichmentScheduler,
+    setAutoEnrichmentSchedulerHandle
+  ),
+  workerEntry(
+    'pim-raw-harvest-retention-worker',
+    () => rawHarvestRetentionScheduler,
+    (v) => {
+      rawHarvestRetentionScheduler = v;
+    },
+    startRawHarvestRetentionScheduler,
+    setRawHarvestRetentionSchedulerHandle
+  ),
+  workerEntry(
+    'pim-quality-webhook-worker',
+    () => qualityWebhookWorker,
+    (v) => {
+      qualityWebhookWorker = v;
+    },
+    startQualityWebhookWorker,
+    setQualityWebhookWorkerHandle
+  ),
+  workerEntry(
+    'pim-quality-webhook-sweep-worker',
+    () => qualityWebhookSweepScheduler,
+    (v) => {
+      qualityWebhookSweepScheduler = v;
+    },
+    startQualityWebhookSweepScheduler,
+    setQualityWebhookSweepSchedulerHandle
+  ),
+  workerEntry(
+    'pim-collections-sync-worker',
+    () => collectionsSyncWorker,
+    (v) => {
+      collectionsSyncWorker = v;
+    },
+    startCollectionsSyncWorker,
+    setCollectionsSyncWorkerHandle
+  ),
+  workerEntry(
+    'pim-collection-metafield-push-worker',
+    () => collectionMetafieldPushWorker,
+    (v) => {
+      collectionMetafieldPushWorker = v;
+    },
+    startCollectionMetafieldPushWorker,
+    setCollectionMetafieldPushWorkerHandle
+  ),
+  workerEntry(
+    'collection-shopify-sync-worker',
+    () => collectionShopifySyncWorker,
+    (v) => {
+      collectionShopifySyncWorker = v;
+    },
+    startCollectionShopifySyncWorker,
+    setCollectionShopifySyncWorkerHandle
+  ),
+  workerEntry(
+    'lex-extract-fragments-worker',
+    () => lexExtractFragmentsWorker,
+    (v) => {
+      lexExtractFragmentsWorker = v;
+    },
+    startLexExtractFragmentsWorker,
+    setLexExtractFragmentsWorkerHandle
+  ),
+  workerEntry(
+    'lex-extract-entities-worker',
+    () => lexExtractEntitiesWorker,
+    (v) => {
+      lexExtractEntitiesWorker = v;
+    },
+    startLexExtractEntitiesWorker,
+    setLexExtractEntitiesWorkerHandle
+  ),
+  workerEntry(
+    'lex-mine-terms-worker',
+    () => lexMineTermsWorker,
+    (v) => {
+      lexMineTermsWorker = v;
+    },
+    startLexMineTermsWorker,
+    setLexMineTermsWorkerHandle
+  ),
+  workerEntry(
+    'lex-aggregate-stats-worker',
+    () => lexAggregateStatsWorker,
+    (v) => {
+      lexAggregateStatsWorker = v;
+    },
+    startLexAggregateStatsWorker,
+    setLexAggregateStatsWorkerHandle
+  ),
+  workerEntry(
+    'lex-build-contexts-worker',
+    () => lexBuildContextsWorker,
+    (v) => {
+      lexBuildContextsWorker = v;
+    },
+    startLexBuildContextsWorker,
+    setLexBuildContextsWorkerHandle
+  ),
+  workerEntry(
+    'lex-embed-contexts-worker',
+    () => lexEmbedContextsWorker,
+    (v) => {
+      lexEmbedContextsWorker = v;
+    },
+    startLexEmbedContextsWorker,
+    setLexEmbedContextsWorkerHandle
+  ),
+  workerEntry(
+    'lex-cluster-senses-worker',
+    () => lexClusterSensesWorker,
+    (v) => {
+      lexClusterSensesWorker = v;
+    },
+    startLexClusterSensesWorker,
+    setLexClusterSensesWorkerHandle
+  ),
+  workerEntry(
+    'lex-resolve-attributes-worker',
+    () => lexResolveAttributesWorker,
+    (v) => {
+      lexResolveAttributesWorker = v;
+    },
+    startLexResolveAttributesWorker,
+    setLexResolveAttributesWorkerHandle
+  ),
+  workerEntry(
+    'lex-translate-candidates-worker',
+    () => lexTranslateCandidatesWorker,
+    (v) => {
+      lexTranslateCandidatesWorker = v;
+    },
+    startLexTranslateCandidatesWorker,
+    setLexTranslateCandidatesWorkerHandle
+  ),
+  workerEntry(
+    'lex-compose-localizations-worker',
+    () => lexComposeLocalizationsWorker,
+    (v) => {
+      lexComposeLocalizationsWorker = v;
+    },
+    startLexComposeLocalizationsWorker,
+    setLexComposeLocalizationsWorkerHandle
+  ),
+  workerEntry(
+    'lex-review-enqueue-worker',
+    () => lexReviewEnqueueWorker,
+    (v) => {
+      lexReviewEnqueueWorker = v;
+    },
+    startLexReviewEnqueueWorker,
+    setLexReviewEnqueueWorkerHandle
+  ),
+  workerEntry(
+    'lex-publish-worker',
+    () => lexPublishWorker,
+    (v) => {
+      lexPublishWorker = v;
+    },
+    startLexPublishWorker,
+    setLexPublishWorkerHandle
+  ),
+  workerEntry(
+    'lex-schedule-worker',
+    () => lexScheduleWorker,
+    (v) => {
+      lexScheduleWorker = v;
+    },
+    startLexScheduleWorker,
+    setLexScheduleWorkerHandle
+  ),
+  workerEntry(
+    'lex-retention-compact-worker',
+    () => lexRetentionWorker,
+    (v) => {
+      lexRetentionWorker = v;
+    },
+    startLexRetentionWorker,
+    setLexRetentionWorkerHandle
+  ),
+];
+
 function buildQueueConfigRegistry() {
   return {
     'webhook-queue': webhookWorker?.worker as unknown as { concurrency?: number },
@@ -385,187 +842,9 @@ async function recreateRedisDependentWorkers(newRedisUrl: string): Promise<void>
     queueConfigListener = null;
   }
 
-  if (webhookWorker) await webhookWorker.close();
-  webhookWorker = startWebhookWorker(logger);
-  setWebhookWorkerHandle(webhookWorker);
-
-  if (tokenHealthWorker) await tokenHealthWorker.close();
-  tokenHealthWorker = startTokenHealthWorker(logger);
-  setTokenHealthWorkerHandle(tokenHealthWorker);
-
-  if (syncWorker) await syncWorker.close();
-  syncWorker = startSyncWorker(logger);
-  setSyncWorkerHandle(syncWorker);
-
-  if (bulkOrchestratorWorker) await bulkOrchestratorWorker.close();
-  bulkOrchestratorWorker = startBulkOrchestratorWorker(logger);
-  setBulkOrchestratorWorkerHandle(bulkOrchestratorWorker);
-
-  if (bulkPollerWorker) await bulkPollerWorker.close();
-  bulkPollerWorker = startBulkPollerWorker(logger);
-  setBulkPollerWorkerHandle(bulkPollerWorker);
-
-  if (bulkMutationReconcileWorker) await bulkMutationReconcileWorker.close();
-  bulkMutationReconcileWorker = startBulkMutationReconcileWorker(logger);
-  setBulkMutationReconcileWorkerHandle(bulkMutationReconcileWorker);
-
-  if (bulkIngestWorker) await bulkIngestWorker.close();
-  bulkIngestWorker = startBulkIngestWorker(logger);
-  setBulkIngestWorkerHandle(bulkIngestWorker);
-
-  if (pimManualSyncWorker) await pimManualSyncWorker.close();
-  pimManualSyncWorker = startPimManualSyncWorker(logger);
-  setPimManualSyncWorkerHandle(pimManualSyncWorker);
-
-  if (bulkScheduleWorker) await bulkScheduleWorker.close();
-  bulkScheduleWorker = startBulkScheduleWorker(logger);
-
-  if (aiBatchWorker) await aiBatchWorker.close();
-  aiBatchWorker = startAiBatchWorker(logger);
-  setAiBatchWorkerHandle(aiBatchWorker);
-
-  if (aiBatchScheduleWorker) await aiBatchScheduleWorker.close();
-  aiBatchScheduleWorker = startAiBatchScheduleWorker(logger);
-
-  if (openAiHealthWorker) await openAiHealthWorker.close();
-  openAiHealthWorker = startOpenAiHealthWorker(logger);
-
-  if (serperHealthWorker) await serperHealthWorker.close();
-  serperHealthWorker = startSerperHealthWorker(logger);
-
-  if (xaiHealthWorker) await xaiHealthWorker.close();
-  xaiHealthWorker = startXaiHealthWorker(logger);
-
-  if (selfHostedHealthWorker) await selfHostedHealthWorker.close();
-  selfHostedHealthWorker = startSelfHostedHealthWorker(logger);
-
-  if (enrichmentWorker) await enrichmentWorker.close();
-  enrichmentWorker = startEnrichmentWorker(logger);
-  setEnrichmentWorkerHandle(enrichmentWorker);
-
-  if (similaritySearchWorker) await similaritySearchWorker.close();
-  similaritySearchWorker = startSimilaritySearchWorker(logger);
-  setSimilaritySearchWorkerHandle(similaritySearchWorker);
-
-  if (similarityAIAuditWorker) await similarityAIAuditWorker.close();
-  similarityAIAuditWorker = startAIAuditWorker(logger);
-  setSimilarityAIAuditWorkerHandle(similarityAIAuditWorker);
-
-  if (extractionWorker) await extractionWorker.close();
-  extractionWorker = startExtractionWorker(logger);
-  setExtractionWorkerHandle(extractionWorker);
-
-  if (consensusWorker) await consensusWorker.close();
-  consensusWorker = startConsensusWorker(logger);
-  setConsensusWorkerHandle(consensusWorker);
-
-  if (categoryClassifierWorker) await categoryClassifierWorker.close();
-  categoryClassifierWorker = startCategoryClassifierWorker(logger);
-  setCategoryClassifierWorkerHandle(categoryClassifierWorker);
-
-  if (descriptionGeneratorWorker) await descriptionGeneratorWorker.close();
-  descriptionGeneratorWorker = startDescriptionGeneratorWorker(logger);
-  setDescriptionGeneratorWorkerHandle(descriptionGeneratorWorker);
-
-  if (metafieldPushWorker) await metafieldPushWorker.close();
-  metafieldPushWorker = startMetafieldPushWorker(logger);
-  setMetafieldPushWorkerHandle(metafieldPushWorker);
-
-  if (budgetResetScheduler) await budgetResetScheduler.close();
-  budgetResetScheduler = startBudgetResetScheduler(logger);
-  setBudgetResetSchedulerHandle(budgetResetScheduler);
-
-  if (weeklySummaryScheduler) await weeklySummaryScheduler.close();
-  weeklySummaryScheduler = startWeeklySummaryScheduler(logger);
-  setWeeklySummarySchedulerHandle(weeklySummaryScheduler);
-
-  if (mvRefreshScheduler) await mvRefreshScheduler.close();
-  mvRefreshScheduler = startMvRefreshScheduler(logger);
-  setMvRefreshSchedulerHandle(mvRefreshScheduler);
-
-  if (autoEnrichmentScheduler) await autoEnrichmentScheduler.close();
-  autoEnrichmentScheduler = startAutoEnrichmentScheduler(logger);
-  setAutoEnrichmentSchedulerHandle(autoEnrichmentScheduler);
-
-  if (rawHarvestRetentionScheduler) await rawHarvestRetentionScheduler.close();
-  rawHarvestRetentionScheduler = startRawHarvestRetentionScheduler(logger);
-  setRawHarvestRetentionSchedulerHandle(rawHarvestRetentionScheduler);
-
-  if (qualityWebhookWorker) await qualityWebhookWorker.close();
-  qualityWebhookWorker = startQualityWebhookWorker(logger);
-  setQualityWebhookWorkerHandle(qualityWebhookWorker);
-
-  if (qualityWebhookSweepScheduler) await qualityWebhookSweepScheduler.close();
-  qualityWebhookSweepScheduler = startQualityWebhookSweepScheduler(logger);
-  setQualityWebhookSweepSchedulerHandle(qualityWebhookSweepScheduler);
-
-  if (collectionsSyncWorker) await collectionsSyncWorker.close();
-  collectionsSyncWorker = startCollectionsSyncWorker(logger);
-  setCollectionsSyncWorkerHandle(collectionsSyncWorker);
-
-  if (collectionMetafieldPushWorker) await collectionMetafieldPushWorker.close();
-  collectionMetafieldPushWorker = startCollectionMetafieldPushWorker(logger);
-  setCollectionMetafieldPushWorkerHandle(collectionMetafieldPushWorker);
-
-  if (collectionShopifySyncWorker) await collectionShopifySyncWorker.close();
-  collectionShopifySyncWorker = startCollectionShopifySyncWorker(logger);
-  setCollectionShopifySyncWorkerHandle(collectionShopifySyncWorker);
-
-  if (lexExtractFragmentsWorker) await lexExtractFragmentsWorker.close();
-  lexExtractFragmentsWorker = startLexExtractFragmentsWorker(logger);
-  setLexExtractFragmentsWorkerHandle(lexExtractFragmentsWorker);
-
-  if (lexExtractEntitiesWorker) await lexExtractEntitiesWorker.close();
-  lexExtractEntitiesWorker = startLexExtractEntitiesWorker(logger);
-  setLexExtractEntitiesWorkerHandle(lexExtractEntitiesWorker);
-
-  if (lexMineTermsWorker) await lexMineTermsWorker.close();
-  lexMineTermsWorker = startLexMineTermsWorker(logger);
-  setLexMineTermsWorkerHandle(lexMineTermsWorker);
-
-  if (lexAggregateStatsWorker) await lexAggregateStatsWorker.close();
-  lexAggregateStatsWorker = startLexAggregateStatsWorker(logger);
-  setLexAggregateStatsWorkerHandle(lexAggregateStatsWorker);
-
-  if (lexBuildContextsWorker) await lexBuildContextsWorker.close();
-  lexBuildContextsWorker = startLexBuildContextsWorker(logger);
-  setLexBuildContextsWorkerHandle(lexBuildContextsWorker);
-
-  if (lexEmbedContextsWorker) await lexEmbedContextsWorker.close();
-  lexEmbedContextsWorker = startLexEmbedContextsWorker(logger);
-  setLexEmbedContextsWorkerHandle(lexEmbedContextsWorker);
-
-  if (lexClusterSensesWorker) await lexClusterSensesWorker.close();
-  lexClusterSensesWorker = startLexClusterSensesWorker(logger);
-  setLexClusterSensesWorkerHandle(lexClusterSensesWorker);
-
-  if (lexResolveAttributesWorker) await lexResolveAttributesWorker.close();
-  lexResolveAttributesWorker = startLexResolveAttributesWorker(logger);
-  setLexResolveAttributesWorkerHandle(lexResolveAttributesWorker);
-
-  if (lexTranslateCandidatesWorker) await lexTranslateCandidatesWorker.close();
-  lexTranslateCandidatesWorker = startLexTranslateCandidatesWorker(logger);
-  setLexTranslateCandidatesWorkerHandle(lexTranslateCandidatesWorker);
-
-  if (lexComposeLocalizationsWorker) await lexComposeLocalizationsWorker.close();
-  lexComposeLocalizationsWorker = startLexComposeLocalizationsWorker(logger);
-  setLexComposeLocalizationsWorkerHandle(lexComposeLocalizationsWorker);
-
-  if (lexReviewEnqueueWorker) await lexReviewEnqueueWorker.close();
-  lexReviewEnqueueWorker = startLexReviewEnqueueWorker(logger);
-  setLexReviewEnqueueWorkerHandle(lexReviewEnqueueWorker);
-
-  if (lexPublishWorker) await lexPublishWorker.close();
-  lexPublishWorker = startLexPublishWorker(logger);
-  setLexPublishWorkerHandle(lexPublishWorker);
-
-  if (lexScheduleWorker) await lexScheduleWorker.close();
-  lexScheduleWorker = startLexScheduleWorker(logger);
-  setLexScheduleWorkerHandle(lexScheduleWorker);
-
-  if (lexRetentionWorker) await lexRetentionWorker.close();
-  lexRetentionWorker = startLexRetentionWorker(logger);
-  setLexRetentionWorkerHandle(lexRetentionWorker);
+  for (const entry of WORKER_ENTRIES) {
+    await entry.recreate(logger);
+  }
 
   queueConfigListener = await startQueueConfigListener(env, logger, buildQueueConfigRegistry());
   logger.warn({}, 'Redis-dependent workers recreated successfully');
@@ -1034,562 +1313,16 @@ try {
 const shutdown = async (signal: string): Promise<void> => {
   logger.info({ signal }, 'shutdown started');
   try {
-    if (webhookWorker) {
-      await webhookWorker.close();
-      webhookWorker = null;
-      setWebhookWorkerHandle(null);
-      logger.info({ signal }, 'webhook worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'webhook-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (tokenHealthWorker) {
-      await tokenHealthWorker.close();
-      tokenHealthWorker = null;
-      setTokenHealthWorkerHandle(null);
-      logger.info({ signal }, 'token health worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'token-health-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (syncWorker) {
-      await syncWorker.close();
-      syncWorker = null;
-      setSyncWorkerHandle(null);
-      logger.info({ signal }, 'sync worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'sync-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (bulkOrchestratorWorker) {
-      await bulkOrchestratorWorker.close();
-      bulkOrchestratorWorker = null;
-      setBulkOrchestratorWorkerHandle(null);
-      logger.info({ signal }, 'bulk orchestrator worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'bulk-orchestrator-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (bulkPollerWorker) {
-      await bulkPollerWorker.close();
-      bulkPollerWorker = null;
-      setBulkPollerWorkerHandle(null);
-      logger.info({ signal }, 'bulk poller worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'bulk-poller-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (bulkMutationReconcileWorker) {
-      await bulkMutationReconcileWorker.close();
-      bulkMutationReconcileWorker = null;
-      setBulkMutationReconcileWorkerHandle(null);
-      logger.info({ signal }, 'bulk mutation reconcile worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'bulk-mutation-reconcile-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (bulkIngestWorker) {
-      await bulkIngestWorker.close();
-      bulkIngestWorker = null;
-      setBulkIngestWorkerHandle(null);
-      logger.info({ signal }, 'bulk ingest worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'bulk-ingest-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (pimManualSyncWorker) {
-      await pimManualSyncWorker.close();
-      pimManualSyncWorker = null;
-      setPimManualSyncWorkerHandle(null);
-      logger.info({ signal }, 'pim manual sync worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'pim-manual-sync-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (bulkScheduleWorker) {
-      await bulkScheduleWorker.close();
-      bulkScheduleWorker = null;
-      logger.info({ signal }, 'bulk schedule worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'bulk-schedule-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (aiBatchWorker) {
-      await aiBatchWorker.close();
-      aiBatchWorker = null;
-      setAiBatchWorkerHandle(null);
-      logger.info({ signal }, 'ai batch worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'ai-batch-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (enrichmentWorker) {
-      await enrichmentWorker.close();
-      enrichmentWorker = null;
-      setEnrichmentWorkerHandle(null);
-      logger.info({ signal }, 'enrichment worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'enrichment-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (similaritySearchWorker) {
-      await similaritySearchWorker.close();
-      similaritySearchWorker = null;
-      setSimilaritySearchWorkerHandle(null);
-      logger.info({ signal }, 'similarity search worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'similarity-search-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (similarityAIAuditWorker) {
-      await similarityAIAuditWorker.close();
-      similarityAIAuditWorker = null;
-      setSimilarityAIAuditWorkerHandle(null);
-      logger.info({ signal }, 'similarity AI audit worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'ai-audit-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (extractionWorker) {
-      await extractionWorker.close();
-      extractionWorker = null;
-      setExtractionWorkerHandle(null);
-      logger.info({ signal }, 'pim extraction worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'pim-extraction-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (consensusWorker) {
-      await consensusWorker.close();
-      consensusWorker = null;
-      setConsensusWorkerHandle(null);
-      logger.info({ signal }, 'pim consensus worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'pim-consensus-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (categoryClassifierWorker) {
-      await categoryClassifierWorker.close();
-      categoryClassifierWorker = null;
-      setCategoryClassifierWorkerHandle(null);
-      logger.info({ signal }, 'pim category classifier worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'pim-category-classifier-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (descriptionGeneratorWorker) {
-      await descriptionGeneratorWorker.close();
-      descriptionGeneratorWorker = null;
-      setDescriptionGeneratorWorkerHandle(null);
-      logger.info({ signal }, 'pim description generator worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'pim-description-generator-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (metafieldPushWorker) {
-      await metafieldPushWorker.close();
-      metafieldPushWorker = null;
-      setMetafieldPushWorkerHandle(null);
-      logger.info({ signal }, 'pim metafield push worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'pim-metafield-push-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (budgetResetScheduler) {
-      await budgetResetScheduler.close();
-      budgetResetScheduler = null;
-      setBudgetResetSchedulerHandle(null);
-      logger.info({ signal }, 'pim budget reset scheduler stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'pim-budget-reset-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (weeklySummaryScheduler) {
-      await weeklySummaryScheduler.close();
-      weeklySummaryScheduler = null;
-      setWeeklySummarySchedulerHandle(null);
-      logger.info({ signal }, 'pim weekly summary scheduler stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'pim-weekly-summary-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (autoEnrichmentScheduler) {
-      await autoEnrichmentScheduler.close();
-      autoEnrichmentScheduler = null;
-      setAutoEnrichmentSchedulerHandle(null);
-      logger.info({ signal }, 'pim auto enrichment scheduler stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'pim-auto-enrichment-scheduler-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (rawHarvestRetentionScheduler) {
-      await rawHarvestRetentionScheduler.close();
-      rawHarvestRetentionScheduler = null;
-      setRawHarvestRetentionSchedulerHandle(null);
-      logger.info({ signal }, 'pim raw harvest retention scheduler stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'pim-raw-harvest-retention-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (mvRefreshScheduler) {
-      await mvRefreshScheduler.close();
-      mvRefreshScheduler = null;
-      setMvRefreshSchedulerHandle(null);
-      logger.info({ signal }, 'pim mv refresh scheduler stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'pim-mv-refresh-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (qualityWebhookWorker) {
-      await qualityWebhookWorker.close();
-      qualityWebhookWorker = null;
-      setQualityWebhookWorkerHandle(null);
-      logger.info({ signal }, 'pim quality webhook worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'pim-quality-webhook-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (qualityWebhookSweepScheduler) {
-      await qualityWebhookSweepScheduler.close();
-      qualityWebhookSweepScheduler = null;
-      setQualityWebhookSweepSchedulerHandle(null);
-      logger.info({ signal }, 'pim quality webhook sweep scheduler stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'pim-quality-webhook-sweep-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (aiBatchScheduleWorker) {
-      await aiBatchScheduleWorker.close();
-      aiBatchScheduleWorker = null;
-      logger.info({ signal }, 'ai batch schedule worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'ai-batch-schedule-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (openAiHealthWorker) {
-      await openAiHealthWorker.close();
-      openAiHealthWorker = null;
-      logger.info({ signal }, 'openai health worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'openai-health-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (serperHealthWorker) {
-      await serperHealthWorker.close();
-      serperHealthWorker = null;
-      logger.info({ signal }, 'serper health worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'serper-health-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (xaiHealthWorker) {
-      await xaiHealthWorker.close();
-      xaiHealthWorker = null;
-      logger.info({ signal }, 'xai health worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'xai-health-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (selfHostedHealthWorker) {
-      await selfHostedHealthWorker.close();
-      selfHostedHealthWorker = null;
-      logger.info({ signal }, 'selfhosted health worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'selfhosted-health-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (collectionsSyncWorker) {
-      await collectionsSyncWorker.close();
-      collectionsSyncWorker = null;
-      setCollectionsSyncWorkerHandle(null);
-      logger.info({ signal }, 'collections sync worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'pim-collections-sync-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (collectionMetafieldPushWorker) {
-      await collectionMetafieldPushWorker.close();
-      collectionMetafieldPushWorker = null;
-      setCollectionMetafieldPushWorkerHandle(null);
-      logger.info({ signal }, 'collection metafield push worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'pim-collection-metafield-push-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (collectionShopifySyncWorker) {
-      await collectionShopifySyncWorker.close();
-      collectionShopifySyncWorker = null;
-      setCollectionShopifySyncWorkerHandle(null);
-      logger.info({ signal }, 'collection shopify sync worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'collection-shopify-sync-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (lexExtractFragmentsWorker) {
-      await lexExtractFragmentsWorker.close();
-      lexExtractFragmentsWorker = null;
-      setLexExtractFragmentsWorkerHandle(null);
-      logger.info({ signal }, 'lex extract fragments worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'lex-extract-fragments-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (lexExtractEntitiesWorker) {
-      await lexExtractEntitiesWorker.close();
-      lexExtractEntitiesWorker = null;
-      setLexExtractEntitiesWorkerHandle(null);
-      logger.info({ signal }, 'lex extract entities worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'lex-extract-entities-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (lexMineTermsWorker) {
-      await lexMineTermsWorker.close();
-      lexMineTermsWorker = null;
-      setLexMineTermsWorkerHandle(null);
-      logger.info({ signal }, 'lex mine terms worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'lex-mine-terms-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (lexAggregateStatsWorker) {
-      await lexAggregateStatsWorker.close();
-      lexAggregateStatsWorker = null;
-      setLexAggregateStatsWorkerHandle(null);
-      logger.info({ signal }, 'lex aggregate stats worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'lex-aggregate-stats-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (lexBuildContextsWorker) {
-      await lexBuildContextsWorker.close();
-      lexBuildContextsWorker = null;
-      setLexBuildContextsWorkerHandle(null);
-      logger.info({ signal }, 'lex build contexts worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'lex-build-contexts-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (lexEmbedContextsWorker) {
-      await lexEmbedContextsWorker.close();
-      lexEmbedContextsWorker = null;
-      setLexEmbedContextsWorkerHandle(null);
-      logger.info({ signal }, 'lex embed contexts worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'lex-embed-contexts-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (lexClusterSensesWorker) {
-      await lexClusterSensesWorker.close();
-      lexClusterSensesWorker = null;
-      setLexClusterSensesWorkerHandle(null);
-      logger.info({ signal }, 'lex cluster senses worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'lex-cluster-senses-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (lexResolveAttributesWorker) {
-      await lexResolveAttributesWorker.close();
-      lexResolveAttributesWorker = null;
-      setLexResolveAttributesWorkerHandle(null);
-      logger.info({ signal }, 'lex resolve attributes worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'lex-resolve-attributes-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (lexTranslateCandidatesWorker) {
-      await lexTranslateCandidatesWorker.close();
-      lexTranslateCandidatesWorker = null;
-      setLexTranslateCandidatesWorkerHandle(null);
-      logger.info({ signal }, 'lex translate candidates worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'lex-translate-candidates-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (lexComposeLocalizationsWorker) {
-      await lexComposeLocalizationsWorker.close();
-      lexComposeLocalizationsWorker = null;
-      setLexComposeLocalizationsWorkerHandle(null);
-      logger.info({ signal }, 'lex compose localizations worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'lex-compose-localizations-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (lexReviewEnqueueWorker) {
-      await lexReviewEnqueueWorker.close();
-      lexReviewEnqueueWorker = null;
-      setLexReviewEnqueueWorkerHandle(null);
-      logger.info({ signal }, 'lex review enqueue worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'lex-review-enqueue-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (lexPublishWorker) {
-      await lexPublishWorker.close();
-      lexPublishWorker = null;
-      setLexPublishWorkerHandle(null);
-      logger.info({ signal }, 'lex publish worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'lex-publish-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (lexScheduleWorker) {
-      await lexScheduleWorker.close();
-      lexScheduleWorker = null;
-      setLexScheduleWorkerHandle(null);
-      logger.info({ signal }, 'lex schedule worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'lex-schedule-worker',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (lexRetentionWorker) {
-      await lexRetentionWorker.close();
-      lexRetentionWorker = null;
-      setLexRetentionWorkerHandle(null);
-      logger.info({ signal }, 'lex retention worker stopped');
-      emitQueueStreamEvent({
-        type: 'worker.offline',
-        workerId: 'lex-retention-compact-worker',
-        timestamp: new Date().toISOString(),
-      });
+    for (const entry of WORKER_ENTRIES) {
+      const wasRunning = await entry.teardown();
+      if (wasRunning) {
+        logger.info({ signal }, `${entry.workerId} stopped`);
+        emitQueueStreamEvent({
+          type: 'worker.offline',
+          workerId: entry.workerId,
+          timestamp: new Date().toISOString(),
+        });
+      }
     }
 
     if (queueConfigListener) {

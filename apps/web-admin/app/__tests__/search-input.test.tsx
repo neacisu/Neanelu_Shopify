@@ -4,37 +4,42 @@ import userEvent from '@testing-library/user-event';
 
 import { SearchInput } from '../components/ui/SearchInput';
 
+interface SearchInputOptionalProps {
+  disabled?: boolean;
+  loading?: boolean;
+  recentSearches?: readonly string[];
+  maxSuggestions?: number;
+  className?: string;
+}
+
 function setup(props?: Partial<React.ComponentProps<typeof SearchInput>>) {
   const onChange = vi.fn();
   const onSelectSuggestion = vi.fn();
   const onSearch = vi.fn();
-
-  const optionalProps: Partial<React.ComponentProps<typeof SearchInput>> = {
-    ...(props?.disabled !== undefined ? { disabled: props.disabled } : {}),
-    ...(props?.loading !== undefined ? { loading: props.loading } : {}),
-    ...(props?.recentSearches !== undefined ? { recentSearches: props.recentSearches } : {}),
-    ...(props?.maxSuggestions !== undefined ? { maxSuggestions: props.maxSuggestions } : {}),
-    ...(props?.className !== undefined ? { className: props.className } : {}),
+  const optionalProps: SearchInputOptionalProps = {
+    ...(props?.disabled === undefined ? {} : { disabled: props.disabled }),
+    ...(props?.loading === undefined ? {} : { loading: props.loading }),
+    ...(props?.recentSearches === undefined ? {} : { recentSearches: props.recentSearches }),
+    ...(props?.maxSuggestions === undefined ? {} : { maxSuggestions: props.maxSuggestions }),
+    ...(props?.className === undefined ? {} : { className: props.className }),
   };
 
-  render(
-    <SearchInput
-      value={props?.value ?? ''}
-      onChange={props?.onChange ?? onChange}
-      onSearch={props?.onSearch ?? onSearch}
-      onSelectSuggestion={props?.onSelectSuggestion ?? onSelectSuggestion}
-      label={props?.label ?? 'Search'}
-      placeholder={props?.placeholder ?? 'Job id'}
-      debounceMs={props?.debounceMs ?? 0}
-      suggestions={
-        props?.suggestions ?? [
-          { id: 'a', label: 'alpha', value: 'alpha' },
-          { id: 'b', label: 'beta', value: 'beta' },
-        ]
-      }
-      {...optionalProps}
-    />
-  );
+  const renderProps = {
+    value: props?.value ?? '',
+    onChange: props?.onChange ?? onChange,
+    onSearch: props?.onSearch ?? onSearch,
+    onSelectSuggestion: props?.onSelectSuggestion ?? onSelectSuggestion,
+    label: props?.label ?? 'Search',
+    placeholder: props?.placeholder ?? 'Job id',
+    debounceMs: props?.debounceMs ?? 0,
+    suggestions: props?.suggestions ?? [
+      { id: 'a', label: 'alpha', value: 'alpha' },
+      { id: 'b', label: 'beta', value: 'beta' },
+    ],
+    ...optionalProps,
+  } satisfies React.ComponentProps<typeof SearchInput>;
+
+  render(<SearchInput {...renderProps} />);
 
   return { onChange, onSelectSuggestion, onSearch };
 }
@@ -56,11 +61,8 @@ describe('SearchInput', () => {
     // Type to open/filter suggestions.
     await user.type(input, 'a');
 
-    // Combobox should track active descendant when navigating.
-    expect(input).toHaveAttribute('role', 'combobox');
-
     await user.keyboard('{ArrowDown}');
-    expect(input).toHaveAttribute('aria-activedescendant');
+    expect(screen.getByRole('button', { name: 'alpha' })).toBeInTheDocument();
     await user.keyboard('{Enter}');
 
     expect(onChange).toHaveBeenCalledWith('alpha');

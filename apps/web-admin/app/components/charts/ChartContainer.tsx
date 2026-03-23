@@ -36,10 +36,11 @@ export function ChartContainer(props: ChartContainerProps) {
     children,
   } = props;
   const safeHeight = Math.max(height, 1);
+  const legendButtonLabel = legendCollapsed ? 'Afișează legenda' : 'Ascunde legenda';
 
   return (
     <article
-      className={`overflow-hidden rounded-xl border border-border bg-card/80 p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm transition-all duration-200 hover:shadow-[var(--shadow-md)] motion-safe:animate-[chartFadeIn_300ms_ease-out_both] ${className ?? ''}`.trim()}
+      className={`overflow-hidden rounded-xl border border-border bg-card/80 p-4 shadow-(--shadow-sm) backdrop-blur-sm transition-all duration-200 hover:shadow-(--shadow-md) motion-safe:animate-[chartFadeIn_300ms_ease-out_both] ${className ?? ''}`.trim()}
     >
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -55,9 +56,9 @@ export function ChartContainer(props: ChartContainerProps) {
                 size="sm"
                 onClick={onLegendToggle}
                 aria-pressed={legendCollapsed}
-                aria-label={legendCollapsed ? 'Afișează legenda' : 'Ascunde legenda'}
+                aria-label={legendButtonLabel}
               >
-                {legendCollapsed ? 'Afișează legenda' : 'Ascunde legenda'}
+                {legendButtonLabel}
               </Button>
             ) : null}
             {actions ?? null}

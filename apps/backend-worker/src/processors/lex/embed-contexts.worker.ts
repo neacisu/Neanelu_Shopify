@@ -1,3 +1,4 @@
+import { loadEnv } from '@app/config';
 import type { Logger } from '@app/logger';
 import type { LexShardJobPayload } from '@app/types';
 import { validateLexShardJobPayload } from '@app/types';
@@ -61,6 +62,7 @@ export function startLexEmbedContextsWorker(logger: Logger): LexWorkerHandle {
       });
 
       try {
+        const env = loadEnv();
         const result = await withTenantContext(payload.shopId, async (client) => {
           const contextIds = parseTouchedIds(shard.metadata, 'contextIdsTouched');
           if (contextIds.length === 0) {
@@ -84,6 +86,8 @@ export function startLexEmbedContextsWorker(logger: Logger): LexWorkerHandle {
           const batch = await processLexEmbeddingBatch({
             shopId: payload.shopId,
             runId: payload.runId,
+            env,
+            logger,
             contexts: contexts.rows,
           });
 
@@ -117,7 +121,7 @@ export function startLexEmbedContextsWorker(logger: Logger): LexWorkerHandle {
           metadataPatch: {
             embeddedContextIds: result.embeddedContextIds,
           },
-        });
+        }).catch(() => undefined);
 
         await recordLexPhaseEvent({
           shopId: payload.shopId,

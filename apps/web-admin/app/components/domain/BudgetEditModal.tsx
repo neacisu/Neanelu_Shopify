@@ -129,7 +129,7 @@ export function BudgetEditModal({
       ).filter((element) => !element.hasAttribute('disabled'));
       if (focusables.length === 0) return;
       const first = focusables[0];
-      const last = focusables[focusables.length - 1];
+      const last = focusables.at(-1);
       if (!first || !last) return;
       const active = document.activeElement;
       if (event.shiftKey && active === first) {
@@ -143,6 +143,19 @@ export function BudgetEditModal({
     dialog.addEventListener('keydown', handleKeyDown);
     return () => dialog.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const dialog = ref.current;
+    if (!dialog) return;
+    const handleBackdropClick = (e: MouseEvent) => {
+      if (dialog.open && e.target === dialog) {
+        onClose();
+      }
+    };
+    document.addEventListener('click', handleBackdropClick);
+    return () => document.removeEventListener('click', handleBackdropClick);
+  }, [open, onClose]);
 
   const validationErrors = validate(form);
   const hasErrors = Object.keys(validationErrors).length > 0;
@@ -165,16 +178,13 @@ export function BudgetEditModal({
   return (
     <dialog
       ref={ref}
-      className="w-full max-w-xl rounded-2xl border border-border bg-card/90 p-0 shadow-[var(--shadow-xl)] backdrop-blur-xl motion-safe:animate-[scale-in_180ms_ease-out] backdrop:bg-overlay/35 backdrop:backdrop-blur-sm"
+      className="w-full max-w-xl rounded-2xl border border-border bg-card/90 p-0 shadow-(--shadow-xl) backdrop-blur-xl motion-safe:animate-[scale-in_180ms_ease-out] backdrop:bg-overlay/35 backdrop:backdrop-blur-sm"
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
       aria-modal="true"
       onCancel={(e) => {
         e.preventDefault();
         onClose();
-      }}
-      onClick={(e) => {
-        if (e.target === ref.current) onClose();
       }}
     >
       <div className="border-b border-border p-4">

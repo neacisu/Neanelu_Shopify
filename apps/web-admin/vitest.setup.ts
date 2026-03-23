@@ -92,7 +92,7 @@ class ResizeObserverStub {
     /* noop stub */
   }
 }
-if (typeof globalThis.ResizeObserver === 'undefined') {
+if (globalThis.ResizeObserver === undefined) {
   (globalThis as Record<string, unknown>)['ResizeObserver'] = ResizeObserverStub;
 }
 
@@ -114,12 +114,74 @@ class IntersectionObserverStub {
     return [];
   }
 }
-if (typeof globalThis.IntersectionObserver === 'undefined') {
+if (globalThis.IntersectionObserver === undefined) {
   (globalThis as Record<string, unknown>)['IntersectionObserver'] = IntersectionObserverStub;
 }
 
+interface StorageLike {
+  readonly length: number;
+  clear(): void;
+  getItem(key: string): string | null;
+  key(index: number): string | null;
+  removeItem(key: string): void;
+  setItem(key: string, value: string): void;
+}
+
+function createStorageStub(): StorageLike {
+  const store = new Map<string, string>();
+
+  return {
+    get length() {
+      return store.size;
+    },
+    clear() {
+      store.clear();
+    },
+    getItem(key: string) {
+      return store.get(String(key)) ?? null;
+    },
+    key(index: number) {
+      return [...store.keys()][index] ?? null;
+    },
+    removeItem(key: string) {
+      store.delete(String(key));
+    },
+    setItem(key: string, value: string) {
+      store.set(String(key), String(value));
+    },
+  };
+}
+
+function ensureStorage(
+  target: Window & typeof globalThis,
+  property: 'localStorage' | 'sessionStorage'
+) {
+  const current = target[property] as Partial<StorageLike> | undefined;
+  if (
+    current != null &&
+    typeof current.getItem === 'function' &&
+    typeof current.setItem === 'function' &&
+    typeof current.removeItem === 'function' &&
+    typeof current.clear === 'function' &&
+    typeof current.key === 'function'
+  ) {
+    return;
+  }
+
+  Object.defineProperty(target, property, {
+    configurable: true,
+    writable: true,
+    value: createStorageStub(),
+  });
+}
+
+const browserGlobal = globalThis as Window & typeof globalThis;
+
+ensureStorage(browserGlobal, 'localStorage');
+ensureStorage(browserGlobal, 'sessionStorage');
+
 // JSDOM doesn't implement matchMedia, which is required by some libraries (e.g. TanStack Query DevTools).
-Object.defineProperty(window, 'matchMedia', {
+Object.defineProperty(browserGlobal, 'matchMedia', {
   writable: true,
   value: vi.fn().mockImplementation((query: string) => ({
     matches: false,

@@ -4,7 +4,7 @@
  * CONFORM: Plan_de_implementare.md F2.2.4.1
  */
 
-import { db } from './db.js';
+import { db, withTenantContext } from './db.js';
 import { auditLogs } from './schema/audit.js';
 
 export type AuditActorType = 'user' | 'system' | 'scheduler' | 'webhook';
@@ -38,7 +38,7 @@ export interface AuditContext {
 }
 
 export async function logAuditEvent(action: AuditAction, context: AuditContext): Promise<void> {
-  await db.insert(auditLogs).values({
+  const values = {
     action,
     actorType: context.actorType ?? 'system',
     actorId: context.actorId ?? null,
@@ -50,5 +50,25 @@ export async function logAuditEvent(action: AuditAction, context: AuditContext):
     userAgent: context.userAgent ?? null,
     traceId: context.traceId ?? null,
     spanId: context.spanId ?? null,
-  });
+  };
+
+  if (context.shopId) {
+    await withTenantContext(context.shopId, async (client) => {
+      const cols = Object.keys(values);
+      const vals = Object.values(values).map((v) =>
+        v !== null && typeof v === 'object' ? JSON.stringify(v) : v
+      );
+      const placeholders = vals.map((_, i) => `$${i + 1}`);
+      await client.query(
+        `INSERT INTO audit_logs (${cols.map(camelToSnake).join(', ')}) VALUES (${placeholders.join(', ')})`,
+        vals
+      );
+    });
+  } else {
+    await db.insert(auditLogs).values(values);
+  }
+}
+
+function camelToSnake(str: string): string {
+  return str.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 }

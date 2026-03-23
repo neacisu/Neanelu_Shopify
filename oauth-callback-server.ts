@@ -11,9 +11,24 @@
  * @see apps/backend-worker/src/auth/index.ts
  */
 
-import http from 'http';
-import url from 'url';
+import { createServer } from 'node:http';
+import { parse } from 'node:url';
 import 'dotenv/config';
+
+/** Elimină caractere de control / newline (S5145 – prevenire log injection). */
+function sanitizeForLog(value: string, maxLen = 200): string {
+  let s = '';
+  for (const ch of value) {
+    if (s.length >= maxLen) break;
+    const cp = ch.codePointAt(0) ?? 0;
+    if (cp >= 32 && cp !== 127 && (cp < 0x80 || cp > 0x9f)) {
+      s += ch;
+    } else {
+      s += '?';
+    }
+  }
+  return s;
+}
 
 const PORT = 65033;
 const CLIENT_ID = process.env['SHOPIFY_CLIENT_ID'];
@@ -27,18 +42,20 @@ if (!CLIENT_ID || !SHOP_DOMAIN || !REDIRECT_URI) {
   process.exit(1);
 }
 
-const server = http.createServer((req, res) => {
-  const parsedUrl = url.parse(req.url ?? '', true);
+const server = createServer((req, res) => {
+  const parsedUrl = parse(req.url ?? '', true);
 
   if (parsedUrl.pathname === '/auth/callback') {
     const code = parsedUrl.query['code'];
 
     if (code && typeof code === 'string') {
+      const safePreview = sanitizeForLog(code);
+      const codeForBody = encodeURIComponent(code);
       console.info('=== SHOPIFY OAUTH CODE RECEIVED ===');
-      console.info('Code:', code);
-      console.info('Now run this command to get access token:');
+      console.info('Code (sanitized preview, full value not logged raw):', safePreview);
+      console.info('Now run this command to get access token (code is URL-encoded in -d):');
       console.info(
-        `curl -X POST https://${SHOP_DOMAIN}/admin/oauth/access_token -d 'client_id=${CLIENT_ID}&client_secret=${process.env['SHOPIFY_CLIENT_SECRET']}&code=${code}'`
+        `curl -X POST https://${SHOP_DOMAIN}/admin/oauth/access_token -d 'client_id=${CLIENT_ID}&client_secret=${process.env['SHOPIFY_CLIENT_SECRET']}&code=${codeForBody}'`
       );
 
       res.writeHead(200, { 'Content-Type': 'text/plain' });

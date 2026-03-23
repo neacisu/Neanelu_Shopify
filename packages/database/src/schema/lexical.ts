@@ -9,6 +9,7 @@
 import {
   type AnyPgColumn,
   pgTable,
+  pgView,
   uuid,
   text,
   varchar,
@@ -25,6 +26,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
+import { aiBatchItems } from './ai-batches.ts';
 import { shops } from './shops.ts';
 import { staffUsers } from './staff-users.ts';
 import { prodMaster, prodTaxonomy } from './pim.ts';
@@ -54,6 +56,39 @@ export const lexShopSettings = pgTable(
     autoPublishProducts: boolean('auto_publish_products').notNull().default(false),
     autoPublishAttributes: boolean('auto_publish_attributes').notNull().default(false),
     autoPublishCollections: boolean('auto_publish_collections').notNull().default(false),
+    /** single | consensus | auto */
+    translationMode: varchar('translation_mode', { length: 20 }).notNull().default('auto'),
+    consensusEscalationThreshold: decimal('consensus_escalation_threshold', {
+      precision: 5,
+      scale: 4,
+    })
+      .notNull()
+      .default('0.8000'),
+    translationAutoApproveThreshold: decimal('translation_auto_approve_threshold', {
+      precision: 5,
+      scale: 4,
+    })
+      .notNull()
+      .default('0.9300'),
+    localizationAutoApproveThreshold: decimal('localization_auto_approve_threshold', {
+      precision: 5,
+      scale: 4,
+    })
+      .notNull()
+      .default('0.8500'),
+    tmEnabled: boolean('tm_enabled').notNull().default(true),
+    tmSimilarityThreshold: decimal('tm_similarity_threshold', { precision: 5, scale: 4 })
+      .notNull()
+      .default('0.9200'),
+    qualityAuditEnabled: boolean('quality_audit_enabled').notNull().default(true),
+    qualityAuditMinBatchSize: integer('quality_audit_min_batch_size').notNull().default(50),
+    maxTermsPerLlmBatch: integer('max_terms_per_llm_batch').notNull().default(10),
+    guardrailsLexMode: varchar('guardrails_lex_mode', { length: 20 }).notNull().default('warn'),
+    guardrailsWarnThreshold: integer('guardrails_warn_threshold').notNull().default(1000),
+    guardrailsWarnCount: integer('guardrails_warn_count').notNull().default(0),
+    guardrailsBlockCount: integer('guardrails_block_count').notNull().default(0),
+    guardrailsFalsePositiveCount: integer('guardrails_false_positive_count').notNull().default(0),
+    guardrailsLastEvaluatedAt: timestamp('guardrails_last_evaluated_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
   },
@@ -99,6 +134,9 @@ export const lexRuns = pgTable(
   (table) => [
     index('idx_lex_runs_shop_status').on(table.shopId, table.status),
     index('idx_lex_runs_shop_type_created').on(table.shopId, table.runType, table.createdAt),
+    uniqueIndex('idx_lex_runs_single_active_per_shop')
+      .on(table.shopId)
+      .where(sql`${table.status} in ('pending', 'running', 'paused')`),
   ]
 );
 
@@ -114,7 +152,7 @@ export const lexRunShards = pgTable(
     shopId: uuid('shop_id')
       .notNull()
       .references(() => shops.id, { onDelete: 'cascade' }),
-    shardKey: varchar('shard_key', { length: 100 }).notNull(),
+    shardKey: varchar('shard_key', { length: 200 }).notNull(),
     phaseName: varchar('phase_name', { length: 50 }).notNull().default('extract.fragments'),
     sourceTable: varchar('source_table', { length: 50 }).notNull(),
     minSourceId: uuid('min_source_id'),
@@ -284,6 +322,8 @@ export const lexFragments = pgTable(
     ),
     index('idx_lex_fragments_shop_field_kind').on(table.shopId, table.fieldKind),
     index('idx_lex_fragments_shop_content_hash').on(table.shopId, table.contentHash),
+    index('idx_lex_fragments_shop_created_at').on(table.shopId, table.createdAt),
+    index('idx_lex_fragments_created_at_brin').using('brin', table.createdAt),
   ]
 );
 
@@ -360,6 +400,7 @@ export const lexTerms = pgTable(
     isAttributeCandidate: boolean('is_attribute_candidate').default(false),
     isValueCandidate: boolean('is_value_candidate').default(false),
     isBrandCandidate: boolean('is_brand_candidate').default(false),
+    translations: jsonb('translations').notNull().default({}),
     mergedIntoTermId: uuid('merged_into_term_id').references((): AnyPgColumn => lexTerms.id, {
       onDelete: 'set null',
     }),
@@ -372,6 +413,9 @@ export const lexTerms = pgTable(
   (table) => [
     index('idx_lex_terms_shop_normalized').on(table.shopId, table.normalizedKey, table.ngramSize),
     index('idx_lex_terms_shop_domain_status').on(table.shopId, table.domainCode, table.status),
+    uniqueIndex('idx_lex_terms_shop_norm_ngram_unique_non_merged')
+      .on(table.shopId, table.normalizedKey, table.ngramSize)
+      .where(sql`${table.status} <> 'merged'`),
   ]
 );
 
@@ -400,6 +444,11 @@ export const lexTermVariants = pgTable(
   (table) => [
     index('idx_lex_term_variants_term').on(table.termId),
     index('idx_lex_term_variants_shop_normalized').on(table.shopId, table.normalizedVariant),
+    uniqueIndex('idx_lex_term_variants_term_norm_locale_unique').on(
+      table.termId,
+      table.normalizedVariant,
+      table.locale
+    ),
   ]
 );
 
@@ -439,6 +488,8 @@ export const lexTermOccurrences = pgTable(
     index('idx_lex_term_occurrences_fragment').on(table.fragmentId),
     index('idx_lex_term_occurrences_shop_context_hash').on(table.shopId, table.contextHash),
     index('idx_lex_term_occurrences_run_term').on(table.runId, table.termId),
+    index('idx_lex_term_occurrences_shop_created_at').on(table.shopId, table.createdAt),
+    index('idx_lex_term_occurrences_created_at_brin').using('brin', table.createdAt),
   ]
 );
 
@@ -516,6 +567,8 @@ export const lexTermContexts = pgTable(
     ),
     index('idx_lex_term_contexts_shop_domain').on(table.shopId, table.domainCode),
     index('idx_lex_term_contexts_shop_taxonomy').on(table.shopId, table.taxonomyId),
+    index('idx_lex_term_contexts_shop_created_at').on(table.shopId, table.createdAt),
+    index('idx_lex_term_contexts_created_at_brin').using('brin', table.createdAt),
   ]
 );
 
@@ -535,7 +588,7 @@ export const lexContextEmbeddings = pgTable(
     modelName: varchar('model_name', { length: 100 }).notNull(),
     dimensions: integer('dimensions').notNull().default(2000),
     contentHash: varchar('content_hash', { length: 64 }).notNull(),
-    // embedding: vector(2000) is defined in SQL migration to mirror the existing repo pattern.
+    // embedding: vector(2000) + idx_lex_context_embeddings_hnsw — SQL migrations only; omitted from Drizzle to avoid unsafe drizzle-kit push DROP COLUMN.
     status: varchar('status', { length: 20 }).default('ready'),
     errorMessage: text('error_message'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
@@ -576,6 +629,7 @@ export const lexSenseClusters = pgTable(
         onDelete: 'set null',
       }
     ),
+    translations: jsonb('translations').notNull().default({}),
     confidenceScore: decimal('confidence_score', { precision: 5, scale: 4 }),
     needsReview: boolean('needs_review').default(false),
     isApproved: boolean('is_approved').default(false),
@@ -641,6 +695,7 @@ export const lexDomainProfiles = pgTable(
     forbiddenNeighborTerms: jsonb('forbidden_neighbor_terms').default([]),
     allowedTranslationStyles: jsonb('allowed_translation_styles').default([]),
     metadata: jsonb('metadata').default({}),
+    translations: jsonb('translations').notNull().default({}),
     version: integer('version').notNull().default(1),
     isActive: boolean('is_active').default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
@@ -687,6 +742,25 @@ export const lexGlossaryEntries = pgTable(
       table.domainCode,
       table.isActive
     ),
+    uniqueIndex('idx_lex_glossary_entries_shop_active_unique')
+      .on(
+        table.shopId,
+        table.normalizedSourceText,
+        table.sourceLang,
+        table.targetLang,
+        sql`COALESCE(${table.domainCode}, '')`,
+        sql`COALESCE(${table.senseHint}, '')`
+      )
+      .where(sql`${table.shopId} IS NOT NULL AND ${table.isActive} = true`),
+    uniqueIndex('idx_lex_glossary_entries_global_active_unique')
+      .on(
+        table.normalizedSourceText,
+        table.sourceLang,
+        table.targetLang,
+        sql`COALESCE(${table.domainCode}, '')`,
+        sql`COALESCE(${table.senseHint}, '')`
+      )
+      .where(sql`${table.shopId} IS NULL AND ${table.isActive} = true`),
   ]
 );
 
@@ -740,7 +814,9 @@ export const lexTranslationCandidates = pgTable(
       .notNull()
       .default(sql`'{}'::text[]`),
     candidateSource: varchar('candidate_source', { length: 30 }).notNull(),
-    providerBatchItemId: uuid('provider_batch_item_id'),
+    providerBatchItemId: uuid('provider_batch_item_id').references(() => aiBatchItems.id, {
+      onDelete: 'set null',
+    }),
     confidenceScore: decimal('confidence_score', { precision: 5, scale: 4 }),
     justification: text('justification'),
     evidence: jsonb('evidence').default({}),
@@ -757,6 +833,14 @@ export const lexTranslationCandidates = pgTable(
     ),
     index('idx_lex_translation_candidates_cluster_rank').on(table.clusterId, table.rank),
     index('idx_lex_translation_candidates_provider_batch_item').on(table.providerBatchItemId),
+    uniqueIndex('idx_lex_translation_candidates_shop_term_cluster_lang_rank').on(
+      table.shopId,
+      table.termId,
+      sql`COALESCE(${table.clusterId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
+      table.sourceLang,
+      table.targetLang,
+      table.rank
+    ),
   ]
 );
 
@@ -774,6 +858,7 @@ export const lexTranslations = pgTable(
     sourceLang: varchar('source_lang', { length: 10 }).notNull(),
     targetLang: varchar('target_lang', { length: 10 }).notNull(),
     translationText: text('translation_text').notNull(),
+    // source_embedding: vector(2000) — SQL migration 0119; omit from Drizzle to avoid unsafe push/drop.
     translationKind: varchar('translation_kind', { length: 30 }).notNull(),
     version: integer('version').notNull().default(1),
     qualityScore: decimal('quality_score', { precision: 5, scale: 4 }),
@@ -828,6 +913,13 @@ export const lexAttributeResolutionCandidates = pgTable(
   (table) => [
     index('idx_lex_attr_resolution_candidates_shop_term').on(table.shopId, table.termId),
     index('idx_lex_attr_resolution_candidates_definition').on(table.definitionId),
+    uniqueIndex('idx_lex_attr_resolution_candidates_business_key').on(
+      table.shopId,
+      table.termId,
+      sql`COALESCE(${table.clusterId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
+      sql`COALESCE(${table.definitionId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
+      table.resolutionRole
+    ),
   ]
 );
 
@@ -862,13 +954,12 @@ export const lexAttributeResolutions = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
   },
   (table) => [
-    uniqueIndex('idx_lex_attribute_resolutions_shop_unique').on(
-      table.shopId,
-      table.termId,
-      table.clusterId,
-      table.definitionId,
-      table.resolutionRole
-    ),
+    uniqueIndex('idx_lex_attribute_resolutions_shop_unique')
+      .on(table.shopId, table.termId, table.clusterId, table.definitionId, table.resolutionRole)
+      .where(sql`${table.shopId} IS NOT NULL`),
+    uniqueIndex('idx_lex_attribute_resolutions_global_unique')
+      .on(table.termId, table.clusterId, table.definitionId, table.resolutionRole)
+      .where(sql`${table.shopId} IS NULL`),
     index('idx_lex_attribute_resolutions_shop_term').on(table.shopId, table.termId),
     index('idx_lex_attribute_resolutions_definition_role').on(
       table.definitionId,
@@ -876,6 +967,122 @@ export const lexAttributeResolutions = pgTable(
     ),
   ]
 );
+
+/**
+ * Effective-resolution views (global + shop override). DDL: `0116_lexical_module_hardening.sql`.
+ * Each view projects the underlying table columns plus `rn` from `ROW_NUMBER()` (visible rows have `rn = 1`).
+ * Registered with `pgView(...).existing()` so migrations remain the source of truth for `CREATE VIEW`.
+ */
+export const lexEffectiveTerms = pgView('lex_effective_terms', {
+  id: uuid('id').notNull(),
+  shopId: uuid('shop_id'),
+  canonicalText: text('canonical_text').notNull(),
+  normalizedKey: varchar('normalized_key', { length: 255 }).notNull(),
+  displayTextRo: text('display_text_ro'),
+  ngramSize: smallint('ngram_size').notNull(),
+  termType: varchar('term_type', { length: 30 }).notNull(),
+  domainCode: varchar('domain_code', { length: 100 }),
+  isTechnical: boolean('is_technical'),
+  isProtected: boolean('is_protected'),
+  isStopword: boolean('is_stopword'),
+  isAttributeCandidate: boolean('is_attribute_candidate'),
+  isValueCandidate: boolean('is_value_candidate'),
+  isBrandCandidate: boolean('is_brand_candidate'),
+  mergedIntoTermId: uuid('merged_into_term_id'),
+  firstSeenAt: timestamp('first_seen_at', { withTimezone: true }),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
+  status: varchar('status', { length: 20 }),
+  createdAt: timestamp('created_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }),
+  rn: bigint('rn', { mode: 'number' }).notNull(),
+}).existing();
+
+export const lexEffectiveGlossaryEntries = pgView('lex_effective_glossary_entries', {
+  id: uuid('id').notNull(),
+  shopId: uuid('shop_id'),
+  domainCode: varchar('domain_code', { length: 100 }),
+  sourceLang: varchar('source_lang', { length: 10 }).notNull(),
+  targetLang: varchar('target_lang', { length: 10 }).notNull(),
+  sourceText: text('source_text').notNull(),
+  normalizedSourceText: varchar('normalized_source_text', { length: 255 }).notNull(),
+  senseHint: varchar('sense_hint', { length: 255 }),
+  targetText: text('target_text').notNull(),
+  translationKind: varchar('translation_kind', { length: 30 }).notNull(),
+  priority: integer('priority'),
+  version: integer('version').notNull(),
+  isLocked: boolean('is_locked'),
+  isActive: boolean('is_active'),
+  source: varchar('source', { length: 30 }),
+  confidenceScore: decimal('confidence_score', { precision: 5, scale: 4 }),
+  notes: text('notes'),
+  approvedBy: uuid('approved_by'),
+  createdAt: timestamp('created_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }),
+  rn: bigint('rn', { mode: 'number' }).notNull(),
+}).existing();
+
+export const lexEffectiveTranslationRules = pgView('lex_effective_translation_rules', {
+  id: uuid('id').notNull(),
+  shopId: uuid('shop_id'),
+  ruleName: varchar('rule_name', { length: 255 }).notNull(),
+  sourceLang: varchar('source_lang', { length: 10 }).notNull(),
+  targetLang: varchar('target_lang', { length: 10 }).notNull(),
+  matchTerm: text('match_term').notNull(),
+  domainCode: varchar('domain_code', { length: 100 }),
+  requiredNeighbors: jsonb('required_neighbors'),
+  forbiddenNeighbors: jsonb('forbidden_neighbors'),
+  requiredFieldKinds: jsonb('required_field_kinds'),
+  targetTranslation: text('target_translation').notNull(),
+  priority: integer('priority'),
+  version: integer('version').notNull(),
+  isActive: boolean('is_active'),
+  createdBy: uuid('created_by'),
+  createdAt: timestamp('created_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }),
+  rn: bigint('rn', { mode: 'number' }).notNull(),
+}).existing();
+
+export const lexEffectiveTranslations = pgView('lex_effective_translations', {
+  id: uuid('id').notNull(),
+  shopId: uuid('shop_id'),
+  termId: uuid('term_id').notNull(),
+  clusterId: uuid('cluster_id'),
+  sourceLang: varchar('source_lang', { length: 10 }).notNull(),
+  targetLang: varchar('target_lang', { length: 10 }).notNull(),
+  translationText: text('translation_text').notNull(),
+  translationKind: varchar('translation_kind', { length: 30 }).notNull(),
+  version: integer('version').notNull(),
+  qualityScore: decimal('quality_score', { precision: 5, scale: 4 }),
+  sourceCandidateId: uuid('source_candidate_id'),
+  publicationStatus: varchar('publication_status', { length: 20 }),
+  isLocked: boolean('is_locked').notNull(),
+  lockedBy: uuid('locked_by'),
+  lockedAt: timestamp('locked_at', { withTimezone: true }),
+  approvedBy: uuid('approved_by'),
+  approvedAt: timestamp('approved_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }),
+  rn: bigint('rn', { mode: 'number' }).notNull(),
+}).existing();
+
+export const lexEffectiveAttributeResolutions = pgView('lex_effective_attribute_resolutions', {
+  id: uuid('id').notNull(),
+  shopId: uuid('shop_id'),
+  termId: uuid('term_id').notNull(),
+  clusterId: uuid('cluster_id'),
+  definitionId: uuid('definition_id').notNull(),
+  resolutionRole: varchar('resolution_role', { length: 30 }).notNull(),
+  version: integer('version').notNull(),
+  sourceCandidateId: uuid('source_candidate_id'),
+  confidenceScore: decimal('confidence_score', { precision: 5, scale: 4 }),
+  status: varchar('status', { length: 20 }),
+  approvedBy: uuid('approved_by'),
+  approvedAt: timestamp('approved_at', { withTimezone: true }),
+  metadata: jsonb('metadata'),
+  createdAt: timestamp('created_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }),
+  rn: bigint('rn', { mode: 'number' }).notNull(),
+}).existing();
 
 export const lexReviewItems = pgTable(
   'lex_review_items',
@@ -909,6 +1116,10 @@ export const lexReviewItems = pgTable(
       table.priority
     ),
     index('idx_lex_review_items_shop_entity').on(table.shopId, table.entityType, table.entityId),
+    /** Matches migration 0127 — one open row per (shop, entity, reason). */
+    uniqueIndex('idx_lex_review_items_shop_entity_reason_open_unique')
+      .on(table.shopId, table.entityType, table.entityId, table.reviewReason)
+      .where(sql`${table.status} IN ('pending', 'in_review')`),
   ]
 );
 
@@ -1050,9 +1261,10 @@ export const lexPublicationTargets = pgTable(
     index('idx_lex_publication_targets_status').on(table.status),
     index('idx_lex_publication_targets_shop_target').on(table.shopId, table.targetType),
     uniqueIndex('idx_lex_publication_targets_business_key').on(
-      table.localizationId,
+      sql`COALESCE(${table.localizationId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
       table.targetType,
-      table.targetSnapshotHash
+      sql`COALESCE(${table.targetRecordId}::text, ${table.targetPath}, '')`,
+      sql`COALESCE(${table.targetSnapshotHash}, '')`
     ),
   ]
 );
@@ -1077,6 +1289,7 @@ export const lexPublishEvents = pgTable(
   (table) => [
     index('idx_lex_publish_events_target').on(table.publicationTargetId),
     index('idx_lex_publish_events_shop_status').on(table.shopId, table.status),
+    index('idx_lex_publish_events_created_at_brin').using('brin', table.createdAt),
   ]
 );
 
@@ -1098,6 +1311,12 @@ export const lexStopwords = pgTable(
   },
   (table) => [
     index('idx_lex_stopwords_shop_locale_word').on(table.shopId, table.locale, table.word),
+    uniqueIndex('idx_lex_stopwords_shop_locale_word_unique')
+      .on(table.shopId, table.locale, table.word)
+      .where(sql`${table.shopId} IS NOT NULL`),
+    uniqueIndex('idx_lex_stopwords_global_locale_word_unique')
+      .on(table.locale, table.word)
+      .where(sql`${table.shopId} IS NULL`),
   ]
 );
 
@@ -1139,6 +1358,14 @@ export const lexGovernanceRequests = pgTable(
       table.createdAt
     ),
     index('idx_lex_governance_requests_entity').on(table.entityType, table.status, table.createdAt),
+    uniqueIndex('idx_lex_governance_requests_non_terminal_dedupe')
+      .on(
+        table.shopId,
+        table.entityType,
+        sql`COALESCE(${table.targetId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
+        table.proposedHash
+      )
+      .where(sql`${table.status} IN ('draft', 'pending_approval', 'approved')`),
   ]
 );
 
@@ -1175,11 +1402,136 @@ export type LexShopSetting = typeof lexShopSettings.$inferSelect;
 export type NewLexShopSetting = typeof lexShopSettings.$inferInsert;
 export type LexRun = typeof lexRuns.$inferSelect;
 export type NewLexRun = typeof lexRuns.$inferInsert;
+export type LexRunShard = typeof lexRunShards.$inferSelect;
+export type NewLexRunShard = typeof lexRunShards.$inferInsert;
+export type LexCheckpoint = typeof lexCheckpoints.$inferSelect;
+export type NewLexCheckpoint = typeof lexCheckpoints.$inferInsert;
+export type LexSourceWatermark = typeof lexSourceWatermarks.$inferSelect;
+export type NewLexSourceWatermark = typeof lexSourceWatermarks.$inferInsert;
+export type LexRunPhaseEvent = typeof lexRunPhaseEvents.$inferSelect;
+export type NewLexRunPhaseEvent = typeof lexRunPhaseEvents.$inferInsert;
+export type LexFragment = typeof lexFragments.$inferSelect;
+export type NewLexFragment = typeof lexFragments.$inferInsert;
+export type LexFragmentEntity = typeof lexFragmentEntities.$inferSelect;
+export type NewLexFragmentEntity = typeof lexFragmentEntities.$inferInsert;
+export type LexFragmentAnnotation = typeof lexFragmentAnnotations.$inferSelect;
+export type NewLexFragmentAnnotation = typeof lexFragmentAnnotations.$inferInsert;
 export type LexTerm = typeof lexTerms.$inferSelect;
 export type NewLexTerm = typeof lexTerms.$inferInsert;
+export type LexTermVariant = typeof lexTermVariants.$inferSelect;
+export type NewLexTermVariant = typeof lexTermVariants.$inferInsert;
+export type LexTermOccurrence = typeof lexTermOccurrences.$inferSelect;
+export type NewLexTermOccurrence = typeof lexTermOccurrences.$inferInsert;
+export type LexTermStat = typeof lexTermStats.$inferSelect;
+export type NewLexTermStat = typeof lexTermStats.$inferInsert;
+export type LexTermContext = typeof lexTermContexts.$inferSelect;
+export type NewLexTermContext = typeof lexTermContexts.$inferInsert;
+export type LexContextEmbedding = typeof lexContextEmbeddings.$inferSelect;
+export type NewLexContextEmbedding = typeof lexContextEmbeddings.$inferInsert;
+export type LexSenseCluster = typeof lexSenseClusters.$inferSelect;
+export type NewLexSenseCluster = typeof lexSenseClusters.$inferInsert;
+export type LexSenseClusterMember = typeof lexSenseClusterMembers.$inferSelect;
+export type NewLexSenseClusterMember = typeof lexSenseClusterMembers.$inferInsert;
+export type LexDomainProfile = typeof lexDomainProfiles.$inferSelect;
+export type NewLexDomainProfile = typeof lexDomainProfiles.$inferInsert;
+export type LexGlossaryEntry = typeof lexGlossaryEntries.$inferSelect;
+export type NewLexGlossaryEntry = typeof lexGlossaryEntries.$inferInsert;
+export type LexTranslationRule = typeof lexTranslationRules.$inferSelect;
+export type NewLexTranslationRule = typeof lexTranslationRules.$inferInsert;
+export type LexTranslationCandidate = typeof lexTranslationCandidates.$inferSelect;
+export type NewLexTranslationCandidate = typeof lexTranslationCandidates.$inferInsert;
+export type LexTranslation = typeof lexTranslations.$inferSelect;
+export type NewLexTranslation = typeof lexTranslations.$inferInsert;
+export type LexAttributeResolutionCandidate = typeof lexAttributeResolutionCandidates.$inferSelect;
+export type NewLexAttributeResolutionCandidate =
+  typeof lexAttributeResolutionCandidates.$inferInsert;
+export type LexAttributeResolution = typeof lexAttributeResolutions.$inferSelect;
+export type NewLexAttributeResolution = typeof lexAttributeResolutions.$inferInsert;
+export type LexReviewItem = typeof lexReviewItems.$inferSelect;
+export type NewLexReviewItem = typeof lexReviewItems.$inferInsert;
+export type LexDecision = typeof lexDecisions.$inferSelect;
+export type NewLexDecision = typeof lexDecisions.$inferInsert;
 export type LexEntityLocalization = typeof lexEntityLocalizations.$inferSelect;
 export type NewLexEntityLocalization = typeof lexEntityLocalizations.$inferInsert;
-export type LexReviewItem = typeof lexReviewItems.$inferSelect;
+export type LexEntityLocalizationEvidence = typeof lexEntityLocalizationEvidence.$inferSelect;
+export type NewLexEntityLocalizationEvidence = typeof lexEntityLocalizationEvidence.$inferInsert;
 export type LexPublicationTarget = typeof lexPublicationTargets.$inferSelect;
+export type NewLexPublicationTarget = typeof lexPublicationTargets.$inferInsert;
+export type LexPublishEvent = typeof lexPublishEvents.$inferSelect;
+export type NewLexPublishEvent = typeof lexPublishEvents.$inferInsert;
+export type LexStopword = typeof lexStopwords.$inferSelect;
+export type NewLexStopword = typeof lexStopwords.$inferInsert;
 export type LexGovernanceRequest = typeof lexGovernanceRequests.$inferSelect;
 export type NewLexGovernanceRequest = typeof lexGovernanceRequests.$inferInsert;
+export type LexGovernanceRequestEvent = typeof lexGovernanceRequestEvents.$inferSelect;
+export type NewLexGovernanceRequestEvent = typeof lexGovernanceRequestEvents.$inferInsert;
+
+/** Row from `lex_effective_terms` (see `lexEffectiveTerms`). */
+export type LexEffectiveTerm = LexTerm & { rn: number };
+/** Row from `lex_effective_glossary_entries`. */
+export type LexEffectiveGlossaryEntry = LexGlossaryEntry & { rn: number };
+/** Row from `lex_effective_translation_rules`. */
+export type LexEffectiveTranslationRule = LexTranslationRule & { rn: number };
+/**
+ * Row from `lex_effective_translations`.
+ * Note: DB `SELECT *` may include `source_embedding` (vector); it is omitted from `lexTranslations` / this type — see column comment on `lexTranslations`.
+ */
+export type LexEffectiveTranslation = LexTranslation & { rn: number };
+/** Row from `lex_effective_attribute_resolutions`. */
+export type LexEffectiveAttributeResolution = LexAttributeResolution & { rn: number };
+
+export const lexGuardrailsEvents = pgTable(
+  'lex_guardrails_events',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`uuidv7()`),
+    shopId: uuid('shop_id')
+      .notNull()
+      .references(() => shops.id, { onDelete: 'cascade' }),
+    eventType: varchar('event_type', { length: 50 }).notNull(),
+    pipelinePhase: varchar('pipeline_phase', { length: 40 }).notNull(),
+    scanPoint: varchar('scan_point', { length: 40 }).notNull(),
+    verdict: varchar('verdict', { length: 20 }).notNull().default('pass'),
+    reasons: text('reasons')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    inputHash: varchar('input_hash', { length: 64 }).notNull(),
+    outputHash: varchar('output_hash', { length: 64 }),
+    entityId: uuid('entity_id'),
+    entityType: varchar('entity_type', { length: 40 }),
+    termId: uuid('term_id').references(() => lexTerms.id, { onDelete: 'set null' }),
+    runId: uuid('run_id').references(() => lexRuns.id, { onDelete: 'set null' }),
+    shardIdx: integer('shard_idx'),
+    confidenceScore: decimal('confidence_score', { precision: 5, scale: 4 }),
+    metadata: jsonb('metadata').notNull().default({}),
+    isFalsePositive: boolean('is_false_positive').notNull().default(false),
+    reviewedBy: uuid('reviewed_by').references(() => staffUsers.id, { onDelete: 'set null' }),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    index('idx_lex_guardrails_events_shop_created').on(table.shopId, table.createdAt),
+    index('idx_lex_guardrails_events_shop_verdict')
+      .on(table.shopId, table.verdict)
+      .where(sql`${table.verdict} != 'pass'`),
+    index('idx_lex_guardrails_events_shop_phase_scan').on(
+      table.shopId,
+      table.pipelinePhase,
+      table.scanPoint
+    ),
+    index('idx_lex_guardrails_events_term')
+      .on(table.termId)
+      .where(sql`${table.termId} IS NOT NULL`),
+    index('idx_lex_guardrails_events_run')
+      .on(table.runId)
+      .where(sql`${table.runId} IS NOT NULL`),
+    index('idx_lex_guardrails_events_false_positive')
+      .on(table.shopId, table.isFalsePositive)
+      .where(sql`${table.isFalsePositive} = true`),
+  ]
+);
+
+export type LexGuardrailsEvent = typeof lexGuardrailsEvents.$inferSelect;
+export type NewLexGuardrailsEvent = typeof lexGuardrailsEvents.$inferInsert;

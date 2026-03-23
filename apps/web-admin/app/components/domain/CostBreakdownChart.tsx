@@ -17,7 +17,7 @@ export function CostBreakdownChart({ data }: CostBreakdownChartProps) {
   const hasData = data.length > 0;
   return (
     <div
-      className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-md)]"
+      className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-(--shadow-md)"
       role="img"
       aria-label="Grafic costuri zilnice pe categorii: cautare, audit, extractie si embedding."
     >

@@ -1,3 +1,4 @@
+import { LEX_PHASE_NAMES, type LexPhaseName, isLexPhaseName } from '@app/types';
 import {
   LEX_AGGREGATE_STATS_QUEUE_NAME,
   LEX_BUILD_CONTEXTS_QUEUE_NAME,
@@ -12,25 +13,14 @@ import {
   LEX_REVIEW_ENQUEUE_QUEUE_NAME,
   LEX_TRANSLATE_CANDIDATES_QUEUE_NAME,
 } from '../../queue/lex-queues.js';
+import type { LexQueueName } from '../../queue/lex-queues.js';
 
-export const LEX_PHASE_ORDER = [
-  'extract.fragments',
-  'extract.entities',
-  'mine.terms',
-  'aggregate.stats',
-  'build.contexts',
-  'embed.contexts',
-  'cluster.senses',
-  'resolve.attributes',
-  'translate.candidates',
-  'compose.localizations',
-  'review.enqueue',
-  'publish',
-] as const;
+export { isLexPhaseName, type LexPhaseName };
 
-export type LexPhaseName = (typeof LEX_PHASE_ORDER)[number];
+/** Ordinea fazelor pipeline (alias la `LEX_PHASE_NAMES` din @app/types). */
+export const LEX_PHASE_ORDER = LEX_PHASE_NAMES;
 
-export const LEX_PHASE_TO_QUEUE: Readonly<Record<LexPhaseName, string>> = {
+export const LEX_PHASE_TO_QUEUE: Readonly<Record<LexPhaseName, LexQueueName>> = {
   'extract.fragments': LEX_EXTRACT_FRAGMENTS_QUEUE_NAME,
   'extract.entities': LEX_EXTRACT_ENTITIES_QUEUE_NAME,
   'mine.terms': LEX_MINE_TERMS_QUEUE_NAME,
@@ -52,8 +42,4 @@ export function nextLexPhase(currentPhase: LexPhaseName): LexPhaseName | null {
   }
 
   return LEX_PHASE_ORDER[currentIndex + 1] ?? null;
-}
-
-export function isLexPhaseName(value: string): value is LexPhaseName {
-  return (LEX_PHASE_ORDER as readonly string[]).includes(value);
 }

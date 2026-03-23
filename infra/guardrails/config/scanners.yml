@@ -32,3 +32,32 @@ output_scanners:
     params:
       threshold: 0.3
   - type: Deanonymize
+
+# ------------------------------------------------------------------ #
+#  Lex pipeline scanners — applied to translation I/O in guardrails  #
+# ------------------------------------------------------------------ #
+lex_scanners:
+  - name: BanSubstrings
+    patterns:
+      - '[REDACTED_'
+      - '{{PLACEHOLDER}}'
+      - '$UNDEFINED'
+    action: block
+  - name: LanguageDetection
+    enabled: true
+    minConfidence: 0.7
+    action: warn
+  - name: Relevance
+    threshold: 0.5
+    action: warn
+  - name: LengthRatio
+    minRatio: 0.2
+    maxRatio: 3.0
+    action: warn
+  - name: HtmlInjection
+    patterns:
+      - '<script'
+      - '<iframe'
+      - 'javascript:'
+      - 'onerror='
+    action: block

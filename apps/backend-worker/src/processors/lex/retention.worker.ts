@@ -8,14 +8,8 @@ import {
   LEX_RETENTION_JOB_NAME,
 } from '../../queue/lex-queues.js';
 import { repairLexPublicationSnapshots } from '../../services/lex-localizations.js';
+import type { TenantClient } from './pipeline-types.js';
 import { createLexWorker, type LexWorkerHandle } from './worker-toolkit.js';
-
-interface TenantClient {
-  query: <TRow extends Record<string, unknown> = Record<string, unknown>>(
-    sql: string,
-    values?: readonly unknown[]
-  ) => Promise<{ rows: TRow[] }>;
-}
 
 const DEFAULT_FRAGMENT_RETENTION_DAYS = 90;
 const DEFAULT_OCCURRENCE_RETENTION_DAYS = 90;
@@ -24,6 +18,15 @@ const DEFAULT_PUBLISH_EVENT_RETENTION_DAYS = 365;
 const DEFAULT_CHECKPOINT_RETENTION_DAYS = 30;
 const DEFAULT_BATCH_SIZE = 500;
 const DEFAULT_MAX_BATCHES = 5;
+
+/** Minimum 1 zi; valori din DB sau payload pot fi lipsă sau invalide. */
+function effectiveRetentionDays(value: number | null | undefined, fallback: number): number {
+  const raw = value ?? fallback;
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+    return Math.max(1, fallback);
+  }
+  return Math.max(1, Math.floor(raw));
+}
 
 function positiveIntegerFromEnv(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
@@ -195,6 +198,15 @@ async function cleanupTermContexts(
                FROM protected_contexts pc
                WHERE pc.context_id = ctx.id
              )
+             AND NOT EXISTS (
+               SELECT 1
+               FROM lex_term_occurrences occ
+               INNER JOIN lex_runs r ON r.id = occ.run_id
+               WHERE occ.shop_id = ctx.shop_id
+                 AND occ.term_id = ctx.term_id
+                 AND occ.context_hash = ctx.context_hash
+                 AND r.status NOT IN ('completed', 'failed', 'cancelled')
+             )
            ORDER BY ctx.updated_at ASC
            LIMIT $3
          )
@@ -268,9 +280,31 @@ async function cleanupFragments(
   );
 }
 
+async function runRetentionStep(
+  logger: Logger,
+  shopId: string,
+  step: string,
+  fn: () => Promise<number>
+): Promise<number> {
+  try {
+    return await fn();
+  } catch (error) {
+    logger.error(
+      {
+        err: error,
+        shopId,
+        step,
+      },
+      'lex_retention_cleanup_step_failed'
+    );
+    return 0;
+  }
+}
+
 async function compactLexRetention(params: {
   shopId: string;
   payload: LexRetentionJobPayload;
+  logger: Logger;
 }): Promise<{
   deleted: {
     checkpoints: number;
@@ -303,33 +337,60 @@ async function compactLexRetention(params: {
     );
 
     const settings = settingsRes.rows[0];
-    const retentionDaysFragments =
-      params.payload.retentionDays ??
-      settings?.retentionDaysFragments ??
-      DEFAULT_FRAGMENT_RETENTION_DAYS;
-    const retentionDaysOccurrences =
-      params.payload.retentionDays ??
-      settings?.retentionDaysOccurrences ??
-      DEFAULT_OCCURRENCE_RETENTION_DAYS;
-    const retentionDaysContexts =
-      params.payload.retentionDays ??
-      settings?.retentionDaysContexts ??
-      DEFAULT_CONTEXT_RETENTION_DAYS;
-
-    const checkpoints = await cleanupCheckpoints(client, params.shopId);
-    const publishEvents = await cleanupPublishEvents(client, params.shopId);
-    const embeddings = await cleanupContextEmbeddings(client, params.shopId, retentionDaysContexts);
-    const contexts = await cleanupTermContexts(client, params.shopId, retentionDaysContexts);
-    const occurrences = await cleanupTermOccurrences(
-      client,
-      params.shopId,
-      retentionDaysOccurrences
+    const payloadDays = params.payload.retentionDays;
+    const retentionDaysFragments = effectiveRetentionDays(
+      payloadDays ?? settings?.retentionDaysFragments,
+      DEFAULT_FRAGMENT_RETENTION_DAYS
     );
-    const fragments = await cleanupFragments(client, params.shopId, retentionDaysFragments);
-    const snapshotRepair = await repairLexPublicationSnapshots({
-      shopId: params.shopId,
-      limit: RETENTION_BATCH_SIZE * RETENTION_MAX_BATCHES,
-    });
+    const retentionDaysOccurrences = effectiveRetentionDays(
+      payloadDays ?? settings?.retentionDaysOccurrences,
+      DEFAULT_OCCURRENCE_RETENTION_DAYS
+    );
+    const retentionDaysContexts = effectiveRetentionDays(
+      payloadDays ?? settings?.retentionDaysContexts,
+      DEFAULT_CONTEXT_RETENTION_DAYS
+    );
+
+    const checkpoints = await runRetentionStep(params.logger, params.shopId, 'checkpoints', () =>
+      cleanupCheckpoints(client, params.shopId)
+    );
+    const publishEvents = await runRetentionStep(
+      params.logger,
+      params.shopId,
+      'publish_events',
+      () => cleanupPublishEvents(client, params.shopId)
+    );
+    const embeddings = await runRetentionStep(
+      params.logger,
+      params.shopId,
+      'context_embeddings',
+      () => cleanupContextEmbeddings(client, params.shopId, retentionDaysContexts)
+    );
+    const contexts = await runRetentionStep(params.logger, params.shopId, 'term_contexts', () =>
+      cleanupTermContexts(client, params.shopId, retentionDaysContexts)
+    );
+    const occurrences = await runRetentionStep(
+      params.logger,
+      params.shopId,
+      'term_occurrences',
+      () => cleanupTermOccurrences(client, params.shopId, retentionDaysOccurrences)
+    );
+    const fragments = await runRetentionStep(params.logger, params.shopId, 'fragments', () =>
+      cleanupFragments(client, params.shopId, retentionDaysFragments)
+    );
+
+    let snapshotRepair = { scanned: 0, repaired: 0, blocked: 0 };
+    try {
+      snapshotRepair = await repairLexPublicationSnapshots({
+        shopId: params.shopId,
+        limit: RETENTION_BATCH_SIZE * RETENTION_MAX_BATCHES,
+      });
+    } catch (error) {
+      params.logger.error(
+        { err: error, shopId: params.shopId, step: 'snapshot_repair' },
+        'lex_retention_cleanup_step_failed'
+      );
+    }
 
     return {
       deleted: {
@@ -363,6 +424,7 @@ export function startLexRetentionWorker(logger: Logger): LexWorkerHandle {
       const result = await compactLexRetention({
         shopId: payload.shopId,
         payload,
+        logger,
       });
 
       return {

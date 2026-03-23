@@ -56,6 +56,12 @@ const SAMPLE_QUERIES = [
   'iaurt grecesc',
 ];
 
+function getSampleQuery(index: number): string {
+  return (
+    SAMPLE_QUERIES[index % SAMPLE_QUERIES.length] ?? SAMPLE_QUERIES[0] ?? 'apa minerala naturala'
+  );
+}
+
 function percentile(values: number[], p: number): number {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -72,9 +78,8 @@ async function makeSearchRequest(
 
   try {
     const url = `${baseUrl}/api/products/search?q=${encodeURIComponent(query)}&limit=20`;
-    const res = await fetch(url, {
-      headers: authCookie ? { Cookie: authCookie } : undefined,
-    });
+    const requestInit: RequestInit = authCookie ? { headers: { Cookie: authCookie } } : {};
+    const res = await fetch(url, requestInit);
 
     const end = process.hrtime.bigint();
     const latencyMs = Number(end - start) / 1_000_000;
@@ -112,7 +117,7 @@ async function runLoadTest(config: LoadTestConfig): Promise<LoadTestReport> {
 
   console.info(`Warmup: ${config.warmupRequests} requests...`);
   for (let i = 0; i < config.warmupRequests; i += 1) {
-    const query = SAMPLE_QUERIES[i % SAMPLE_QUERIES.length]!;
+    const query = getSampleQuery(i);
     await makeSearchRequest(config.baseUrl, query, config.authCookie);
   }
 
@@ -121,7 +126,7 @@ async function runLoadTest(config: LoadTestConfig): Promise<LoadTestReport> {
 
   while (Date.now() < endTime) {
     const batch = Array.from({ length: config.concurrency }, (_, i) => {
-      const query = SAMPLE_QUERIES[(requestCount + i) % SAMPLE_QUERIES.length]!;
+      const query = getSampleQuery(requestCount + i);
       return makeSearchRequest(config.baseUrl, query, config.authCookie);
     });
 
@@ -225,7 +230,9 @@ async function main(): Promise<void> {
   process.exit(report.slaPass ? 0 : 1);
 }
 
-main().catch((err) => {
+try {
+  await main();
+} catch (err) {
   console.error('Load test failed:', err);
   process.exit(1);
-});
+}

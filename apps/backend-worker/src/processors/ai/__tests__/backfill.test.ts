@@ -1,7 +1,5 @@
-import { beforeEach, afterEach, describe, it } from 'node:test';
+import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
-
-import { mock } from 'node:test';
 
 const BASE_ENV = {
   NODE_ENV: 'test',
@@ -10,8 +8,8 @@ const BASE_ENV = {
   DATABASE_URL: 'postgres://user:pass@localhost:5432/test',
   REDIS_URL: 'redis://localhost:6379',
   BULLMQ_PRO_TOKEN: 'token',
-  SHOPIFY_API_KEY: 'shopify_key',
-  SHOPIFY_API_SECRET: 'shopify_secret',
+  SHOPIFY_API_KEY: 'dummy01',
+  SHOPIFY_API_SECRET: 'dummy02',
   SCOPES: 'read_products',
   ENCRYPTION_KEY_VERSION: '1',
   ENCRYPTION_KEY_256: 'a'.repeat(64),
@@ -44,7 +42,7 @@ const logger = {
 };
 
 const openAiConfigPath = new URL('../../../runtime/openai-config.js', import.meta.url).href;
-void mock.module(openAiConfigPath, {
+mock.module(openAiConfigPath, {
   namedExports: {
     getShopOpenAiConfig: () =>
       Promise.resolve({

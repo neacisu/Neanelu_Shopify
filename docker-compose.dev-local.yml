@@ -56,7 +56,7 @@ services:
       [
         'sh',
         '-lc',
-        'export DATABASE_URL="$$MIGRATION_DATABASE_URL"; pnpm --filter @app/backend-worker dev:watch',
+        'export DATABASE_URL="$${MIGRATION_DATABASE_URL}"; pnpm --filter @app/backend-worker dev:watch',
       ]
     networks:
       default:

@@ -57,6 +57,7 @@ export const shopifyCollections = pgTable(
     productsCount: integer('products_count').default(0),
     templateSuffix: varchar('template_suffix', { length: 100 }),
     metafields: jsonb('metafields').default({}),
+    translations: jsonb('translations').notNull().default({}),
 
     parentCollectionId: uuid('parent_collection_id').references(
       (): AnyPgColumn => shopifyCollections.id,

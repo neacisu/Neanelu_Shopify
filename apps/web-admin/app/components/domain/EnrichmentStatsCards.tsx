@@ -24,7 +24,7 @@ export function EnrichmentStatsCards({ stats }: EnrichmentStatsCardsProps) {
 
   return (
     <div className="grid gap-4 md:grid-cols-4">
-      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-md)]">
+      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-(--shadow-md)">
         <div className="mb-2 flex items-center justify-between text-xs text-warning">
           <span className="flex items-center gap-1.5">
             În așteptare
@@ -42,7 +42,7 @@ export function EnrichmentStatsCards({ stats }: EnrichmentStatsCardsProps) {
         <div className="text-h5 text-foreground">{stats.pending}</div>
       </div>
 
-      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-md)]">
+      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-(--shadow-md)">
         <div className="mb-2 flex items-center gap-1.5 text-xs text-primary">
           <span>În curs</span>
           <InfoTooltip title="În curs">
@@ -55,7 +55,7 @@ export function EnrichmentStatsCards({ stats }: EnrichmentStatsCardsProps) {
         <div className="text-h5 text-foreground">{stats.inProgress}</div>
       </div>
 
-      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-md)]">
+      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-(--shadow-md)">
         <div className="mb-2 flex items-center justify-between text-xs text-success">
           <span className="flex items-center gap-1.5">
             Finalizate azi
@@ -73,7 +73,7 @@ export function EnrichmentStatsCards({ stats }: EnrichmentStatsCardsProps) {
         <div className="text-h5 text-foreground">{stats.completedToday}</div>
       </div>
 
-      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-md)]">
+      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-(--shadow-md)">
         <div className="mb-2 flex items-center gap-1.5 text-xs text-primary">
           <span>Rata succes</span>
           <InfoTooltip title="Rata succes">

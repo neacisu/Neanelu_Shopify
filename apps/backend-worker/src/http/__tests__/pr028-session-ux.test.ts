@@ -3,7 +3,7 @@ import assert from 'node:assert';
 
 import type { FastifyInstance } from 'fastify';
 
-void mock.module('@app/database', {
+mock.module('@app/database', {
   namedExports: {
     createManagedRedis: () => ({
       on: () => undefined,
@@ -54,7 +54,7 @@ void mock.module('@app/database', {
   },
 });
 
-void mock.module('@app/queue-manager', {
+mock.module('@app/queue-manager', {
   namedExports: {
     QUEUE_NAMES: ['webhook-queue', 'sync-queue', 'bulk-queue', 'ai-batch-queue'],
     NEANELU_BACKOFF_STRATEGY: 'neanelu-exp4',
@@ -94,7 +94,7 @@ void mock.module('@app/queue-manager', {
 });
 
 const workerRegistryPath = new URL('../../runtime/worker-registry.js', import.meta.url).href;
-void mock.module(workerRegistryPath, {
+mock.module(workerRegistryPath, {
   namedExports: {
     getWorkerReadiness: () => ({
       webhookWorkerOk: true,
@@ -109,28 +109,28 @@ void mock.module(workerRegistryPath, {
 });
 
 const authIndexPath = new URL('../../auth/index.js', import.meta.url).href;
-void mock.module(authIndexPath, {
+mock.module(authIndexPath, {
   namedExports: {
     registerAuthRoutes: () => Promise.resolve(),
   },
 });
 
 const webhooksRoutesPath = new URL('../../routes/webhooks.js', import.meta.url).href;
-void mock.module(webhooksRoutesPath, {
+mock.module(webhooksRoutesPath, {
   namedExports: {
     webhookRoutes: () => Promise.resolve(),
   },
 });
 
 const queuesRoutesPath = new URL('../../routes/queues.js', import.meta.url).href;
-void mock.module(queuesRoutesPath, {
+mock.module(queuesRoutesPath, {
   namedExports: {
     queueRoutes: () => Promise.resolve(),
   },
 });
 
 const sessionPath = new URL('../../auth/session.js', import.meta.url).href;
-void mock.module(sessionPath, {
+mock.module(sessionPath, {
   namedExports: {
     getDefaultSessionConfig: () => ({
       secret: 'test',

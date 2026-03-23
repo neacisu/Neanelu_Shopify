@@ -53,6 +53,11 @@ export * from './quality-webhook-deliveries.ts';
 export * from './vectors.ts';
 
 // ============================================
+// Module F: AI batches (FK targets for lexical / PIM AI)
+// ============================================
+export * from './ai-batches.ts';
+
+// ============================================
 // Module N: Lexical Intelligence & Contextual Translation
 // ============================================
 export * from './lexical.ts';

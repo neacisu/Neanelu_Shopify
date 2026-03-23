@@ -4,7 +4,7 @@ import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 
 const sessionPath = new URL('../../../../auth/session.js', import.meta.url).href;
-void mock.module(sessionPath, {
+mock.module(sessionPath, {
   namedExports: {
     requireSession:
       () =>
@@ -21,7 +21,7 @@ void mock.module(sessionPath, {
 });
 
 const accessPath = new URL('../../../../auth/require-lex-access.js', import.meta.url).href;
-void mock.module(accessPath, {
+mock.module(accessPath, {
   namedExports: {
     requireLexModuleAccess:
       () =>
@@ -60,6 +60,7 @@ void mock.module(accessPath, {
             canReview: true,
             canPublish: true,
             canManageSettings: true,
+            canGovernance: true,
           },
         };
       },
@@ -72,9 +73,18 @@ void mock.module(accessPath, {
             canReview: true,
             canPublish: true,
             canManageSettings: true,
+            canGovernance: true,
           },
         };
       },
+    requireLexSettingsAccess:
+      () =>
+      (_request: unknown, _reply: unknown): void =>
+        undefined,
+    requireLexGovernanceAccess:
+      () =>
+      (_request: unknown, _reply: unknown): void =>
+        undefined,
     resolveLexBootstrap: () => ({
       moduleEnabled: true,
       reviewUiEnabled: true,
@@ -86,6 +96,7 @@ void mock.module(accessPath, {
         canReview: true,
         canPublish: true,
         canManageSettings: true,
+        canGovernance: true,
       },
       settingsSummary: {
         shopId: 'integration-shop',
@@ -102,7 +113,7 @@ void mock.module(accessPath, {
   },
 });
 
-void mock.module('@app/database', {
+mock.module('@app/database', {
   namedExports: {
     withTenantContext: async (
       _shopId: string,
@@ -181,7 +192,7 @@ void mock.module('@app/database', {
 });
 
 const queuePath = new URL('../../../../queue/lex-queues.js', import.meta.url).href;
-void mock.module(queuePath, {
+mock.module(queuePath, {
   namedExports: {
     enqueueLexPublishJob: () => 'lex-publish-job-1',
     enqueueLexRunRequestedJob: () => 'lex-run-job-1',
@@ -190,20 +201,20 @@ void mock.module(queuePath, {
 
 const scheduledTasksPath = new URL('../../../../processors/lex/scheduled-tasks.js', import.meta.url)
   .href;
-void mock.module(scheduledTasksPath, {
+mock.module(scheduledTasksPath, {
   namedExports: {
     reconcileLexScheduledTasks: () => undefined,
   },
 });
 
 const governancePath = new URL('../../../../services/lex-governance.js', import.meta.url).href;
-void mock.module(governancePath, {
+mock.module(governancePath, {
   namedExports: {
     approveLexGovernanceRequest: () => null,
     applyLexGovernanceRequest: () => null,
     createLexGovernanceRequest: () => null,
     getLexGovernanceRequest: () => null,
-    listLexGovernanceRequests: () => [],
+    listLexGovernanceRequests: () => ({ requests: [], nextPageCursor: null }),
     rejectLexGovernanceRequest: () => null,
     submitLexGovernanceRequest: () => null,
   },
@@ -211,7 +222,7 @@ void mock.module(governancePath, {
 
 const reviewActionsPath = new URL('../../../../services/lex-review-actions.js', import.meta.url)
   .href;
-void mock.module(reviewActionsPath, {
+mock.module(reviewActionsPath, {
   namedExports: {
     assignLexReviewItem: () => null,
     decideLexReviewItem: () => null,
@@ -219,7 +230,7 @@ void mock.module(reviewActionsPath, {
 });
 
 const lexOpsPath = new URL('../../../../services/lex-ops.js', import.meta.url).href;
-void mock.module(lexOpsPath, {
+mock.module(lexOpsPath, {
   namedExports: {
     collectLexMetrics: () => ({
       runsTotal: 30,
@@ -240,6 +251,11 @@ void mock.module(lexOpsPath, {
       staleCheckpoints: 2,
       retentionLag: 3600,
       aiBatchBacklog: 3,
+      tmHits: 0,
+      tmMisses: 0,
+      tmHitRatePercent: 0,
+      tmMissRatePercent: 0,
+      tmAverageSimilarity: null,
       dlqEntries: 2,
       workersOnline: 11,
       workersTotal: 12,
@@ -259,7 +275,7 @@ void mock.module(lexOpsPath, {
 
 const lexLocalizationsPath = new URL('../../../../services/lex-localizations.js', import.meta.url)
   .href;
-void mock.module(lexLocalizationsPath, {
+mock.module(lexLocalizationsPath, {
   namedExports: {
     getLexPublicationRollbackStatus: () => ({
       rollbackable: true,
@@ -271,7 +287,7 @@ void mock.module(lexLocalizationsPath, {
   },
 });
 
-void describe('integration: lexical operator surface', () => {
+await describe('integration: lexical operator surface', async () => {
   let app: FastifyInstance;
 
   beforeEach(async () => {
@@ -293,7 +309,7 @@ void describe('integration: lexical operator surface', () => {
     await app.close();
   });
 
-  void test('GET /pim/lex/metrics returns aligned lexical operator metrics', async () => {
+  await test('GET /pim/lex/metrics returns aligned lexical operator metrics', async () => {
     const response = await app.inject({ method: 'GET', url: '/pim/lex/metrics' });
     assert.equal(response.statusCode, 200);
     const body = response.json<{
@@ -307,7 +323,7 @@ void describe('integration: lexical operator surface', () => {
     assert.equal(body.data.metrics.dlqEntries, 2);
   });
 
-  void test('GET /pim/lex/publications/:id returns rollback verdict and queue links', async () => {
+  await test('GET /pim/lex/publications/:id returns rollback verdict and queue links', async () => {
     const response = await app.inject({ method: 'GET', url: '/pim/lex/publications/pub-1' });
     assert.equal(response.statusCode, 200);
     const body = response.json<{

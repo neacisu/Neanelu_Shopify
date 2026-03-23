@@ -4,7 +4,7 @@ import { createEmbeddingsProvider, createSelfhostedEmbeddingsProvider } from '@a
 import { decryptAesGcm, withTenantContext } from '@app/database';
 import type { Logger } from '@app/logger';
 import type { ChatModelCredentials } from '@app/pim';
-import type { AiProvider } from '@app/types';
+import type { AiProvider, SelfHostedEndpoint } from '@app/types';
 import { Redis } from 'ioredis';
 import { isFeatureFlagEnabled } from '../processors/bulk-operations/feature-flags.js';
 import { getShopOpenAiConfig } from '../runtime/openai-config.js';
@@ -36,6 +36,10 @@ export interface ConsensusCredentialSet {
   calls: ConsensusChatModelConfig[];
   arbitration: ConsensusChatModelConfig;
 }
+
+type ConsensusCircuitBreakerState = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+type ConsensusStageTaskType = Extract<ChatTaskType, 'extraction' | 'description' | 'translation'>;
+type ConsensusChatEndpoint = SelfHostedEndpoint;
 
 type RoutingRow = Readonly<{
   modelExtraction: string | null;
@@ -556,10 +560,10 @@ async function getConsensusCircuitBreakerState(params: {
   redis: Redis;
   redisPrefix: string;
   endpointId: string;
-}): Promise<'CLOSED' | 'OPEN' | 'HALF_OPEN'> {
+}): Promise<ConsensusCircuitBreakerState> {
   const keys = consensusCbKeys(params.redisPrefix, params.endpointId);
   const rawState = await params.redis.get(keys.state);
-  const state: 'CLOSED' | 'OPEN' | 'HALF_OPEN' =
+  const state: ConsensusCircuitBreakerState =
     rawState === 'OPEN' || rawState === 'HALF_OPEN' ? rawState : 'CLOSED';
   if (state !== 'OPEN') {
     return state;
@@ -641,24 +645,279 @@ function toConsensusConfig(params: {
   endpointId: string;
   temperature: number;
   timeoutMs: number;
-  executionStage?: number;
-  executionGroupId?: string | null;
-  maxConcurrentGroupSlots?: number | null;
-  maxTokensOverride?: number | null;
+  executionStage?: number | undefined;
+  executionGroupId?: string | null | undefined;
+  maxConcurrentGroupSlots?: number | null | undefined;
+  maxTokensOverride?: number | null | undefined;
 }): ConsensusChatModelConfig {
+  const optionalFields: Partial<ConsensusChatModelConfig> = {};
+
+  if (params.executionStage !== undefined) {
+    optionalFields.executionStage = params.executionStage;
+  }
+
+  if (params.executionGroupId !== undefined) {
+    optionalFields.executionGroupId = params.executionGroupId;
+  }
+
+  if (params.maxConcurrentGroupSlots !== undefined) {
+    optionalFields.maxConcurrentGroupSlots = params.maxConcurrentGroupSlots;
+  }
+
+  if (params.maxTokensOverride !== undefined) {
+    optionalFields.maxTokensOverride = params.maxTokensOverride;
+  }
+
   return {
     ...params.credentials,
     endpointId: params.endpointId,
     temperature: params.temperature,
     timeoutMs: params.timeoutMs,
-    ...(params.executionStage !== undefined ? { executionStage: params.executionStage } : {}),
-    ...(params.executionGroupId !== undefined ? { executionGroupId: params.executionGroupId } : {}),
-    ...(params.maxConcurrentGroupSlots !== undefined
-      ? { maxConcurrentGroupSlots: params.maxConcurrentGroupSlots }
-      : {}),
-    ...(params.maxTokensOverride !== undefined
-      ? { maxTokensOverride: params.maxTokensOverride }
-      : {}),
+    ...optionalFields,
+  };
+}
+
+function isStagedConsensusTask(taskType: ChatTaskType): taskType is ConsensusStageTaskType {
+  return taskType === 'extraction' || taskType === 'description' || taskType === 'translation';
+}
+
+function isChatConsensusEndpoint(endpoint: SelfHostedEndpoint): endpoint is ConsensusChatEndpoint {
+  return endpoint.enabled && (endpoint.type === 'chat' || endpoint.type === 'both');
+}
+
+function hasUnavailableSelfHostedConsensus(
+  selfHosted: Awaited<ReturnType<typeof loadSelfHostedCredentials>>
+): boolean {
+  return (
+    !selfHosted?.enabled ||
+    selfHosted.connectionStatus === 'error' ||
+    selfHosted.connectionStatus === 'unreachable'
+  );
+}
+
+function buildSelfhostedConsensusCredentials(params: {
+  endpoint: ConsensusChatEndpoint;
+  bearerToken: string | undefined;
+}): ChatModelCredentials {
+  const { endpoint, bearerToken } = params;
+  return {
+    provider: 'selfhosted',
+    ...(bearerToken ? { apiKey: bearerToken } : {}),
+    baseUrl: endpoint.baseUrl,
+    model: endpoint.modelId,
+    temperature: 0.1,
+    maxTokensPerRequest: 4000,
+    rateLimitPerMinute: 0,
+  };
+}
+
+async function isConsensusEndpointAvailable(params: {
+  redis: Redis;
+  redisPrefix: string;
+  endpoint: ConsensusChatEndpoint | null;
+}): Promise<boolean> {
+  if (params.endpoint === null) {
+    return false;
+  }
+
+  const state = await getConsensusCircuitBreakerState({
+    redis: params.redis,
+    redisPrefix: params.redisPrefix,
+    endpointId: params.endpoint.id,
+  });
+  return state === 'CLOSED' || state === 'HALF_OPEN';
+}
+
+function selectAvailableConsensusEndpoint(params: {
+  qwenEndpoint: ConsensusChatEndpoint | null;
+  qwenAvailable: boolean;
+  qwqEndpoint: ConsensusChatEndpoint | null;
+  qwqAvailable: boolean;
+}): ConsensusChatEndpoint | null {
+  if (params.qwqEndpoint && params.qwqAvailable) {
+    return params.qwqEndpoint;
+  }
+
+  if (params.qwenEndpoint && params.qwenAvailable) {
+    return params.qwenEndpoint;
+  }
+
+  return null;
+}
+
+function buildConsensusCallConfig(params: {
+  credentials: ChatModelCredentials;
+  endpoint: ConsensusChatEndpoint;
+  taskType: ChatTaskType;
+  temperature: number;
+  executionStage?: number | undefined;
+  executionGroupId?: string | undefined;
+  maxConcurrentGroupSlots?: number | undefined;
+  maxTokensOverride?: number | undefined;
+  arbitration?: boolean | undefined;
+}): ConsensusChatModelConfig {
+  const useStagedExecution = isStagedConsensusTask(params.taskType);
+  const timeoutMs = getChatTaskTimeoutMs({
+    taskType: params.taskType,
+    provider: 'selfhosted',
+    model: params.endpoint.modelId,
+    endpointId: params.endpoint.id,
+    timeoutMs: params.arbitration
+      ? Math.max(params.endpoint.timeoutMs, 45_000)
+      : params.endpoint.timeoutMs,
+  });
+
+  const executionFields =
+    useStagedExecution &&
+    params.executionStage !== undefined &&
+    params.executionGroupId !== undefined
+      ? {
+          executionStage: params.executionStage,
+          executionGroupId: params.executionGroupId,
+          maxConcurrentGroupSlots: params.maxConcurrentGroupSlots ?? 1,
+        }
+      : {};
+
+  const maxTokensFields =
+    params.maxTokensOverride === undefined ? {} : { maxTokensOverride: params.maxTokensOverride };
+
+  return toConsensusConfig({
+    credentials: params.credentials,
+    endpointId: params.endpoint.id,
+    temperature: params.temperature,
+    timeoutMs,
+    ...executionFields,
+    ...maxTokensFields,
+  });
+}
+
+function buildDualEndpointConsensusSet(params: {
+  taskType: ChatTaskType;
+  qwenEndpoint: ConsensusChatEndpoint;
+  qwqEndpoint: ConsensusChatEndpoint;
+  bearerToken: string | undefined;
+}): ConsensusCredentialSet {
+  const qwenCreds = buildSelfhostedConsensusCredentials({
+    endpoint: params.qwenEndpoint,
+    bearerToken: params.bearerToken,
+  });
+  const qwqCreds = buildSelfhostedConsensusCredentials({
+    endpoint: params.qwqEndpoint,
+    bearerToken: params.bearerToken,
+  });
+  const qwenMaxTokensOverride = getChatTaskMaxTokensOverride({
+    taskType: params.taskType,
+    provider: 'selfhosted',
+    model: params.qwenEndpoint.modelId,
+    endpointId: params.qwenEndpoint.id,
+  });
+  const qwqMaxTokensOverride = getChatTaskMaxTokensOverride({
+    taskType: params.taskType,
+    provider: 'selfhosted',
+    model: params.qwqEndpoint.modelId,
+    endpointId: params.qwqEndpoint.id,
+  });
+  const extractionGroupQwen = buildSelfhostedExecutionGroupId(params.qwenEndpoint);
+  const extractionGroupQwq = buildSelfhostedExecutionGroupId(params.qwqEndpoint);
+
+  return {
+    calls: [
+      buildConsensusCallConfig({
+        credentials: qwenCreds,
+        endpoint: params.qwenEndpoint,
+        taskType: params.taskType,
+        temperature: 0.2,
+        executionStage: 1,
+        executionGroupId: extractionGroupQwen,
+        maxConcurrentGroupSlots: 1,
+        maxTokensOverride: qwenMaxTokensOverride,
+      }),
+      buildConsensusCallConfig({
+        credentials: qwqCreds,
+        endpoint: params.qwqEndpoint,
+        taskType: params.taskType,
+        temperature: 0.1,
+        executionStage: 1,
+        executionGroupId: extractionGroupQwq,
+        maxConcurrentGroupSlots: 1,
+        maxTokensOverride: qwqMaxTokensOverride,
+      }),
+      buildConsensusCallConfig({
+        credentials: qwenCreds,
+        endpoint: params.qwenEndpoint,
+        taskType: params.taskType,
+        temperature: 0.4,
+        executionStage: 2,
+        executionGroupId: extractionGroupQwen,
+        maxConcurrentGroupSlots: 1,
+        maxTokensOverride: qwenMaxTokensOverride,
+      }),
+      buildConsensusCallConfig({
+        credentials: qwqCreds,
+        endpoint: params.qwqEndpoint,
+        taskType: params.taskType,
+        temperature: 0.3,
+        executionStage: 2,
+        executionGroupId: extractionGroupQwq,
+        maxConcurrentGroupSlots: 1,
+        maxTokensOverride: qwqMaxTokensOverride,
+      }),
+    ],
+    arbitration: buildConsensusCallConfig({
+      credentials: qwqCreds,
+      endpoint: params.qwqEndpoint,
+      taskType: params.taskType,
+      temperature: 0,
+      executionStage: 3,
+      executionGroupId: extractionGroupQwq,
+      maxConcurrentGroupSlots: 1,
+      maxTokensOverride: qwqMaxTokensOverride,
+      arbitration: true,
+    }),
+  };
+}
+
+function buildSingleEndpointConsensusSet(params: {
+  taskType: ChatTaskType;
+  endpoint: ConsensusChatEndpoint;
+  bearerToken: string | undefined;
+}): ConsensusCredentialSet {
+  const credentials = buildSelfhostedConsensusCredentials({
+    endpoint: params.endpoint,
+    bearerToken: params.bearerToken,
+  });
+  const maxTokensOverride = getChatTaskMaxTokensOverride({
+    taskType: params.taskType,
+    provider: 'selfhosted',
+    model: params.endpoint.modelId,
+    endpointId: params.endpoint.id,
+  });
+  const executionGroupId = buildSelfhostedExecutionGroupId(params.endpoint);
+
+  return {
+    calls: [0.1, 0.2, 0.3, 0.4].map((temperature, index) =>
+      buildConsensusCallConfig({
+        credentials,
+        endpoint: params.endpoint,
+        taskType: params.taskType,
+        temperature,
+        executionStage: index + 1,
+        executionGroupId,
+        maxConcurrentGroupSlots: 1,
+        maxTokensOverride,
+      })
+    ),
+    arbitration: buildConsensusCallConfig({
+      credentials,
+      endpoint: params.endpoint,
+      taskType: params.taskType,
+      temperature: 0,
+      executionStage: 5,
+      executionGroupId,
+      maxConcurrentGroupSlots: 1,
+      maxTokensOverride,
+      arbitration: true,
+    }),
   };
 }
 
@@ -669,18 +928,29 @@ export function getChatTaskTimeoutMs(params: {
   endpointId?: string;
   timeoutMs: number;
 }): number {
-  if (params.provider !== 'selfhosted') return params.timeoutMs;
-  if (params.taskType !== 'extraction' && params.taskType !== 'description')
-    return params.timeoutMs;
+  const isSelfhostedConsensusTask =
+    params.provider === 'selfhosted' &&
+    (params.taskType === 'extraction' ||
+      params.taskType === 'description' ||
+      params.taskType === 'translation' ||
+      params.taskType === 'audit');
 
-  const marker = `${params.endpointId ?? ''} ${params.model}`.toLowerCase();
-  if (marker.includes('selfhosted-chat-reasoning') || marker.includes('qwq-32b')) {
+  if (isSelfhostedConsensusTask) {
+    const marker = `${params.endpointId ?? ''} ${params.model}`.toLowerCase();
+    if (marker.includes('selfhosted-chat-reasoning') || marker.includes('qwq-32b')) {
+      return Math.max(params.timeoutMs, 120_000);
+    }
+    if (marker.includes('selfhosted-chat-fast') || marker.includes('qwen2.5-14b-instruct-awq')) {
+      return Math.max(params.timeoutMs, 90_000);
+    }
+    return Math.max(params.timeoutMs, 60_000);
+  }
+
+  if (params.taskType === 'translation') {
     return Math.max(params.timeoutMs, 120_000);
   }
-  if (marker.includes('selfhosted-chat-fast') || marker.includes('qwen2.5-14b-instruct-awq')) {
-    return Math.max(params.timeoutMs, 90_000);
-  }
-  return Math.max(params.timeoutMs, 60_000);
+
+  return params.timeoutMs;
 }
 
 export function getChatTaskMaxTokensOverride(params: {
@@ -689,17 +959,18 @@ export function getChatTaskMaxTokensOverride(params: {
   model: string;
   endpointId?: string;
 }): number | undefined {
-  if (params.provider !== 'selfhosted') return undefined;
-  if (params.taskType !== 'extraction') return undefined;
+  if (params.provider === 'selfhosted' && params.taskType === 'extraction') {
+    const marker = `${params.endpointId ?? ''} ${params.model}`.toLowerCase();
+    if (marker.includes('selfhosted-chat-fast') || marker.includes('qwen2.5-14b-instruct-awq')) {
+      return 250;
+    }
+    if (marker.includes('selfhosted-chat-reasoning') || marker.includes('qwq-32b')) {
+      return 1000;
+    }
+    return 600;
+  }
 
-  const marker = `${params.endpointId ?? ''} ${params.model}`.toLowerCase();
-  if (marker.includes('selfhosted-chat-fast') || marker.includes('qwen2.5-14b-instruct-awq')) {
-    return 250;
-  }
-  if (marker.includes('selfhosted-chat-reasoning') || marker.includes('qwq-32b')) {
-    return 1000;
-  }
-  return 600;
+  return undefined;
 }
 
 async function buildFallbackConsensusSet(params: {
@@ -762,18 +1033,12 @@ export async function resolveConsensusCredentials(params: {
     encryptionKeyHex: params.env.encryptionKeyHex,
     allowDisabled: true,
   }).catch(() => null);
-  if (
-    !selfHosted?.enabled ||
-    selfHosted.connectionStatus === 'error' ||
-    selfHosted.connectionStatus === 'unreachable'
-  ) {
+  if (selfHosted === null || hasUnavailableSelfHostedConsensus(selfHosted)) {
     return await buildFallbackConsensusSet(params);
   }
 
   const redis = getRoutingRedis(params.env);
-  const chatEndpoints = selfHosted.endpoints.filter(
-    (endpoint) => endpoint.enabled && (endpoint.type === 'chat' || endpoint.type === 'both')
-  );
+  const chatEndpoints = selfHosted.endpoints.filter(isChatConsensusEndpoint);
   const qwenEndpoint = chatEndpoints.find(
     (endpoint) =>
       endpoint.id === 'selfhosted-chat-fast' || endpoint.modelId === 'Qwen/Qwen2.5-14B-Instruct-AWQ'
@@ -783,222 +1048,40 @@ export async function resolveConsensusCredentials(params: {
       endpoint.id === 'selfhosted-chat-reasoning' || endpoint.modelId === 'Qwen/QwQ-32B-AWQ'
   );
 
-  const qwenOpen =
-    qwenEndpoint == null
-      ? false
-      : (await getConsensusCircuitBreakerState({
-          redis,
-          redisPrefix: params.env.redisPrefix,
-          endpointId: qwenEndpoint.id,
-        })) === 'OPEN';
-  const qwqOpen =
-    qwqEndpoint == null
-      ? false
-      : (await getConsensusCircuitBreakerState({
-          redis,
-          redisPrefix: params.env.redisPrefix,
-          endpointId: qwqEndpoint.id,
-        })) === 'OPEN';
-
-  const bearerToken = selfHosted.bearerToken ?? undefined;
-  const buildSelfhostedCreds = (
-    endpoint: (typeof chatEndpoints)[number]
-  ): ChatModelCredentials => ({
-    provider: 'selfhosted',
-    ...(bearerToken ? { apiKey: bearerToken } : {}),
-    baseUrl: endpoint.baseUrl,
-    model: endpoint.modelId,
-    temperature: 0.1,
-    maxTokensPerRequest: 4000,
-    rateLimitPerMinute: 0,
+  const qwenAvailable = await isConsensusEndpointAvailable({
+    redis,
+    redisPrefix: params.env.redisPrefix,
+    endpoint: qwenEndpoint ?? null,
+  });
+  const qwqAvailable = await isConsensusEndpointAvailable({
+    redis,
+    redisPrefix: params.env.redisPrefix,
+    endpoint: qwqEndpoint ?? null,
   });
 
-  if (qwqEndpoint && qwenEndpoint && !qwqOpen && !qwenOpen) {
-    const qwqCreds = buildSelfhostedCreds(qwqEndpoint);
-    const qwenCreds = buildSelfhostedCreds(qwenEndpoint);
-    const qwenMaxTokensOverride = getChatTaskMaxTokensOverride({
+  const bearerToken = selfHosted.bearerToken ?? undefined;
+
+  if (qwqEndpoint && qwenEndpoint && qwqAvailable && qwenAvailable) {
+    return buildDualEndpointConsensusSet({
       taskType: params.taskType,
-      provider: 'selfhosted',
-      model: qwenEndpoint.modelId,
-      endpointId: qwenEndpoint.id,
+      qwenEndpoint,
+      qwqEndpoint,
+      bearerToken,
     });
-    const qwqMaxTokensOverride = getChatTaskMaxTokensOverride({
-      taskType: params.taskType,
-      provider: 'selfhosted',
-      model: qwqEndpoint.modelId,
-      endpointId: qwqEndpoint.id,
-    });
-    const extractionGroupQwq = buildSelfhostedExecutionGroupId(qwqEndpoint);
-    const extractionGroupQwen = buildSelfhostedExecutionGroupId(qwenEndpoint);
-    const useStagedExtractionPlan =
-      params.taskType === 'extraction' || params.taskType === 'description';
-    return {
-      calls: [
-        toConsensusConfig({
-          credentials: qwenCreds,
-          endpointId: qwenEndpoint.id,
-          temperature: 0.2,
-          timeoutMs: getChatTaskTimeoutMs({
-            taskType: params.taskType,
-            provider: 'selfhosted',
-            model: qwenEndpoint.modelId,
-            endpointId: qwenEndpoint.id,
-            timeoutMs: qwenEndpoint.timeoutMs,
-          }),
-          ...(useStagedExtractionPlan
-            ? {
-                executionStage: 1,
-                executionGroupId: extractionGroupQwen,
-                maxConcurrentGroupSlots: 1,
-              }
-            : {}),
-          ...(qwenMaxTokensOverride !== undefined
-            ? { maxTokensOverride: qwenMaxTokensOverride }
-            : {}),
-        }),
-        toConsensusConfig({
-          credentials: qwqCreds,
-          endpointId: qwqEndpoint.id,
-          temperature: 0.1,
-          timeoutMs: getChatTaskTimeoutMs({
-            taskType: params.taskType,
-            provider: 'selfhosted',
-            model: qwqEndpoint.modelId,
-            endpointId: qwqEndpoint.id,
-            timeoutMs: qwqEndpoint.timeoutMs,
-          }),
-          ...(useStagedExtractionPlan
-            ? {
-                executionStage: 1,
-                executionGroupId: extractionGroupQwq,
-                maxConcurrentGroupSlots: 1,
-              }
-            : {}),
-          ...(qwqMaxTokensOverride !== undefined
-            ? { maxTokensOverride: qwqMaxTokensOverride }
-            : {}),
-        }),
-        toConsensusConfig({
-          credentials: qwenCreds,
-          endpointId: qwenEndpoint.id,
-          temperature: 0.4,
-          timeoutMs: getChatTaskTimeoutMs({
-            taskType: params.taskType,
-            provider: 'selfhosted',
-            model: qwenEndpoint.modelId,
-            endpointId: qwenEndpoint.id,
-            timeoutMs: qwenEndpoint.timeoutMs,
-          }),
-          ...(useStagedExtractionPlan
-            ? {
-                executionStage: 2,
-                executionGroupId: extractionGroupQwen,
-                maxConcurrentGroupSlots: 1,
-              }
-            : {}),
-          ...(qwenMaxTokensOverride !== undefined
-            ? { maxTokensOverride: qwenMaxTokensOverride }
-            : {}),
-        }),
-        toConsensusConfig({
-          credentials: qwqCreds,
-          endpointId: qwqEndpoint.id,
-          temperature: 0.3,
-          timeoutMs: getChatTaskTimeoutMs({
-            taskType: params.taskType,
-            provider: 'selfhosted',
-            model: qwqEndpoint.modelId,
-            endpointId: qwqEndpoint.id,
-            timeoutMs: qwqEndpoint.timeoutMs,
-          }),
-          ...(useStagedExtractionPlan
-            ? {
-                executionStage: 2,
-                executionGroupId: extractionGroupQwq,
-                maxConcurrentGroupSlots: 1,
-              }
-            : {}),
-          ...(qwqMaxTokensOverride !== undefined
-            ? { maxTokensOverride: qwqMaxTokensOverride }
-            : {}),
-        }),
-      ],
-      arbitration: toConsensusConfig({
-        credentials: qwqCreds,
-        endpointId: qwqEndpoint.id,
-        temperature: 0,
-        timeoutMs: getChatTaskTimeoutMs({
-          taskType: params.taskType,
-          provider: 'selfhosted',
-          model: qwqEndpoint.modelId,
-          endpointId: qwqEndpoint.id,
-          timeoutMs: Math.max(qwqEndpoint.timeoutMs, 45_000),
-        }),
-        ...(useStagedExtractionPlan
-          ? { executionStage: 3, executionGroupId: extractionGroupQwq, maxConcurrentGroupSlots: 1 }
-          : {}),
-        ...(qwqMaxTokensOverride !== undefined ? { maxTokensOverride: qwqMaxTokensOverride } : {}),
-      }),
-    };
   }
 
-  const singleEndpoint =
-    qwqEndpoint && !qwqOpen ? qwqEndpoint : qwenEndpoint && !qwenOpen ? qwenEndpoint : null;
+  const singleEndpoint = selectAvailableConsensusEndpoint({
+    qwenEndpoint: qwenEndpoint ?? null,
+    qwenAvailable,
+    qwqEndpoint: qwqEndpoint ?? null,
+    qwqAvailable,
+  });
   if (singleEndpoint) {
-    const creds = buildSelfhostedCreds(singleEndpoint);
-    const singleEndpointMaxTokensOverride = getChatTaskMaxTokensOverride({
+    return buildSingleEndpointConsensusSet({
       taskType: params.taskType,
-      provider: 'selfhosted',
-      model: singleEndpoint.modelId,
-      endpointId: singleEndpoint.id,
+      endpoint: singleEndpoint,
+      bearerToken,
     });
-    const useStagedExtractionPlan =
-      params.taskType === 'extraction' || params.taskType === 'description';
-    const extractionGroup = buildSelfhostedExecutionGroupId(singleEndpoint);
-    return {
-      calls: [0.1, 0.2, 0.3, 0.4].map((temperature, index) =>
-        toConsensusConfig({
-          credentials: creds,
-          endpointId: singleEndpoint.id,
-          temperature,
-          timeoutMs: getChatTaskTimeoutMs({
-            taskType: params.taskType,
-            provider: 'selfhosted',
-            model: singleEndpoint.modelId,
-            endpointId: singleEndpoint.id,
-            timeoutMs: singleEndpoint.timeoutMs,
-          }),
-          ...(useStagedExtractionPlan
-            ? {
-                executionStage: index + 1,
-                executionGroupId: extractionGroup,
-                maxConcurrentGroupSlots: 1,
-              }
-            : {}),
-          ...(singleEndpointMaxTokensOverride !== undefined
-            ? { maxTokensOverride: singleEndpointMaxTokensOverride }
-            : {}),
-        })
-      ),
-      arbitration: toConsensusConfig({
-        credentials: creds,
-        endpointId: singleEndpoint.id,
-        temperature: 0,
-        timeoutMs: getChatTaskTimeoutMs({
-          taskType: params.taskType,
-          provider: 'selfhosted',
-          model: singleEndpoint.modelId,
-          endpointId: singleEndpoint.id,
-          timeoutMs: Math.max(singleEndpoint.timeoutMs, 45_000),
-        }),
-        ...(useStagedExtractionPlan
-          ? { executionStage: 5, executionGroupId: extractionGroup, maxConcurrentGroupSlots: 1 }
-          : {}),
-        ...(singleEndpointMaxTokensOverride !== undefined
-          ? { maxTokensOverride: singleEndpointMaxTokensOverride }
-          : {}),
-      }),
-    };
   }
 
   return await buildFallbackConsensusSet(params);
@@ -1212,6 +1295,83 @@ function normalizeEmbeddingBaseUrl(baseUrl: string): string {
   return trimmed;
 }
 
+async function performSelfhostedEmbeddingRequest(params: {
+  redis: Redis;
+  redisPrefix: string;
+  shopId: string;
+  endpointId: string;
+  maxConcurrentRequests: number;
+  maxRequestsPerMinute: number;
+  maxTokensPerMinute: number;
+  bucketTtlMs: number;
+  logger: Logger;
+  texts: readonly string[];
+  primaryProvider: EmbeddingsProvider;
+  fallbackProvider: EmbeddingsProvider;
+}): Promise<readonly (readonly number[])[]> {
+  const slot = await acquireSelfhostedSlot({
+    redis: params.redis,
+    redisPrefix: params.redisPrefix,
+    endpointId: params.endpointId,
+    maxConcurrent: params.maxConcurrentRequests,
+  });
+
+  if (slot.acquired) {
+    try {
+      const estimatedTokens = estimateEmbeddingTokens(params.texts);
+      const rateGate = await gateSelfhostedEmbeddingRequest({
+        redis: params.redis,
+        redisPrefix: params.redisPrefix,
+        shopId: params.shopId,
+        endpointId: params.endpointId,
+        estimatedTokens,
+        maxRequestsPerMinute: params.maxRequestsPerMinute,
+        maxTokensPerMinute: params.maxTokensPerMinute,
+        bucketTtlMs: params.bucketTtlMs,
+      });
+
+      if (rateGate.allowed) {
+        return await params.primaryProvider.embedTexts(params.texts);
+      }
+
+      params.logger.warn(
+        {
+          shopId: params.shopId,
+          endpointId: params.endpointId,
+          delayMs: rateGate.delayMs,
+          reason: 'selfhosted_embedding_rate_limited',
+        },
+        'selfhosted_embedding_fallback'
+      );
+      recordSelfhostedFallbackToFrontier('embedding', 'openai');
+      recordAiProviderRouting({ provider: 'openai', taskType: 'embedding', outcome: 'fallback' });
+      return await params.fallbackProvider.embedTexts(params.texts);
+    } catch (error) {
+      params.logger.warn(
+        { shopId: params.shopId, endpointId: params.endpointId, error },
+        'selfhosted_embedding_call_failed_fallback'
+      );
+      recordSelfhostedFallbackToFrontier('embedding', 'openai');
+      recordAiProviderRouting({ provider: 'openai', taskType: 'embedding', outcome: 'fallback' });
+      return await params.fallbackProvider.embedTexts(params.texts);
+    } finally {
+      await slot.release();
+    }
+  }
+
+  params.logger.warn(
+    {
+      shopId: params.shopId,
+      endpointId: params.endpointId,
+      reason: 'concurrency_limit_exceeded',
+    },
+    'selfhosted_embedding_fallback'
+  );
+  recordSelfhostedFallbackToFrontier('embedding', 'openai');
+  recordAiProviderRouting({ provider: 'openai', taskType: 'embedding', outcome: 'fallback' });
+  return await params.fallbackProvider.embedTexts(params.texts);
+}
+
 export async function resolveEmbeddingsProvider(params: {
   shopId: string;
   env: AppEnv;
@@ -1302,83 +1462,26 @@ export async function resolveEmbeddingsProvider(params: {
       },
       async embedTexts(texts: readonly string[]): Promise<readonly (readonly number[])[]> {
         const redis = getRoutingRedis(params.env);
-        const slot = await acquireSelfhostedSlot({
+        return await performSelfhostedEmbeddingRequest({
           redis,
           redisPrefix: params.env.redisPrefix,
+          shopId: params.shopId,
           endpointId: endpoint.id,
-          maxConcurrent: endpoint.maxConcurrentRequests,
+          maxConcurrentRequests: endpoint.maxConcurrentRequests,
+          maxRequestsPerMinute: Math.max(
+            endpoint.maxConcurrentRequests * 30,
+            Math.floor(params.env.openAiEmbedRateLimitRequestsPerMinute / 2)
+          ),
+          maxTokensPerMinute: Math.max(
+            10_000,
+            Math.floor(params.env.openAiEmbedRateLimitTokensPerMinute / 2)
+          ),
+          bucketTtlMs: params.env.openAiEmbedRateLimitBucketTtlMs,
+          logger: params.logger,
+          texts,
+          primaryProvider,
+          fallbackProvider,
         });
-        if (!slot.acquired) {
-          params.logger.warn(
-            {
-              shopId: params.shopId,
-              endpointId: endpoint.id,
-              reason: 'concurrency_limit_exceeded',
-            },
-            'selfhosted_embedding_fallback'
-          );
-          recordSelfhostedFallbackToFrontier('embedding', 'openai');
-          recordAiProviderRouting({
-            provider: 'openai',
-            taskType: 'embedding',
-            outcome: 'fallback',
-          });
-          return await fallbackProvider.embedTexts(texts);
-        }
-
-        try {
-          const estimatedTokens = estimateEmbeddingTokens(texts);
-          const rateGate = await gateSelfhostedEmbeddingRequest({
-            redis,
-            redisPrefix: params.env.redisPrefix,
-            shopId: params.shopId,
-            endpointId: endpoint.id,
-            estimatedTokens,
-            maxRequestsPerMinute: Math.max(
-              endpoint.maxConcurrentRequests * 30,
-              Math.floor(params.env.openAiEmbedRateLimitRequestsPerMinute / 2)
-            ),
-            maxTokensPerMinute: Math.max(
-              10_000,
-              Math.floor(params.env.openAiEmbedRateLimitTokensPerMinute / 2)
-            ),
-            bucketTtlMs: params.env.openAiEmbedRateLimitBucketTtlMs,
-          });
-          if (!rateGate.allowed) {
-            params.logger.warn(
-              {
-                shopId: params.shopId,
-                endpointId: endpoint.id,
-                delayMs: rateGate.delayMs,
-                reason: 'selfhosted_embedding_rate_limited',
-              },
-              'selfhosted_embedding_fallback'
-            );
-            recordSelfhostedFallbackToFrontier('embedding', 'openai');
-            recordAiProviderRouting({
-              provider: 'openai',
-              taskType: 'embedding',
-              outcome: 'fallback',
-            });
-            return await fallbackProvider.embedTexts(texts);
-          }
-
-          return await primaryProvider.embedTexts(texts);
-        } catch (error) {
-          params.logger.warn(
-            { shopId: params.shopId, endpointId: endpoint.id, error },
-            'selfhosted_embedding_call_failed_fallback'
-          );
-          recordSelfhostedFallbackToFrontier('embedding', 'openai');
-          recordAiProviderRouting({
-            provider: 'openai',
-            taskType: 'embedding',
-            outcome: 'fallback',
-          });
-          return await fallbackProvider.embedTexts(texts);
-        } finally {
-          await slot.release();
-        }
       },
     };
   }

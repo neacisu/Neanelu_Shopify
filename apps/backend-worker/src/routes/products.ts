@@ -14,8 +14,12 @@ import {
 } from '@app/queue-manager';
 import { buildConsensusLaneJobId, enqueueConsensusJob } from '../queue/consensus-queue.js';
 import { enqueueSimilaritySearchJob } from '../queue/similarity-queues.js';
-import type { BulkOrchestratorJobPayload, EnrichmentJobPayload } from '@app/types';
-import type { ProductDetail, ProductVariantDetail } from '@app/types';
+import type {
+  BulkOrchestratorJobPayload,
+  EnrichmentJobPayload,
+  ProductDetail,
+  ProductVariantDetail,
+} from '@app/types';
 import type { SessionConfig } from '../auth/session.js';
 import { getSessionFromRequest, requireSession } from '../auth/session.js';
 import { withTokenRetry } from '../auth/token-lifecycle.js';
@@ -183,6 +187,12 @@ function parseProductIds(value: unknown): string[] {
   return Array.isArray(value) && value.length ? value.filter((id) => typeof id === 'string') : [];
 }
 
+function parseBoolParam(value: unknown): boolean | null {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') return value === 'true';
+  return null;
+}
+
 function normalizeStatus(input: string | null): 'ACTIVE' | 'DRAFT' | 'ARCHIVED' | null {
   if (!input) return null;
   const normalized = input.toUpperCase();
@@ -195,8 +205,8 @@ function normalizeStatus(input: string | null): 'ACTIVE' | 'DRAFT' | 'ARCHIVED' 
 function slugify(value: string): string {
   return value
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)+/g, '')
+    .replaceAll(/[^a-z0-9]+/g, '-')
+    .replaceAll(/(^-|-$)+/g, '')
     .slice(0, 255);
 }
 
@@ -297,7 +307,10 @@ type FilterConfig = Readonly<{
 }>;
 
 function toPrefixLikePattern(value: string): string {
-  const escaped = value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+  const escaped = value
+    .replaceAll('\\', '\\\\')
+    .replaceAll('%', String.raw`\%`)
+    .replaceAll('_', String.raw`\_`);
   return `${escaped}%`;
 }
 
@@ -307,14 +320,14 @@ function buildFilters(params: FilterConfig, baseParamIndex = 1) {
   const nextParam = (): string => `$${values.length + baseParamIndex}`;
   const add = (sql: string, value?: unknown) => {
     where.push(sql);
-    if (typeof value !== 'undefined') values.push(value);
+    if (value !== undefined) values.push(value);
   };
 
   if (params.search) {
     const skuLikeParam = nextParam();
     values.push(toPrefixLikePattern(params.search));
     where.push(
-      `(
+      String.raw`(
         p.handle ILIKE ${skuLikeParam} ESCAPE '\\'
         OR EXISTS (
           SELECT 1
@@ -369,23 +382,17 @@ function buildFilters(params: FilterConfig, baseParamIndex = 1) {
   return { where, values };
 }
 
+function toCsvValue(value: unknown): string {
+  if (value === null || value === undefined) return '""';
+  if (typeof value === 'object') return `"${JSON.stringify(value).replaceAll('"', '""')}"`;
+  if (typeof value === 'number' || typeof value === 'boolean') return `"${String(value)}"`;
+  if (typeof value === 'string') return `"${value.replaceAll('"', '""')}"`;
+  return '""';
+}
+
 function toCsv(rows: Record<string, unknown>[]): string {
   const header = Object.keys(rows[0] ?? {}).join(',');
-  const csvRows = rows.map((row) =>
-    Object.values(row)
-      .map((value) => {
-        if (value === null || value === undefined) return '""';
-        if (typeof value === 'object') return `"${JSON.stringify(value).replace(/"/g, '""')}"`;
-        const stringValue =
-          typeof value === 'string'
-            ? value
-            : typeof value === 'number' || typeof value === 'boolean'
-              ? String(value)
-              : '';
-        return `"${stringValue.replace(/"/g, '""')}"`;
-      })
-      .join(',')
-  );
+  const csvRows = rows.map((row) => Object.values(row).map(toCsvValue).join(','));
   return [header, ...csvRows].join('\n');
 }
 
@@ -400,15 +407,14 @@ function toExcel(rows: Record<string, unknown>[]): string {
     }
     return '';
   };
-  const body = rows
-    .map((row) => `<tr>${header.map((key) => `<td>${formatCell(row[key])}</td>`).join('')}</tr>`)
-    .join('');
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"/></head><body><table><thead><tr>${header
-    .map((key) => `<th>${key}</th>`)
-    .join('')}</tr></thead><tbody>${body}</tbody></table></body></html>`;
+  const toRow = (row: Record<string, unknown>) =>
+    header.map((key) => `<td>${formatCell(row[key])}</td>`).join('');
+  const body = rows.map((row) => `<tr>${toRow(row)}</tr>`).join('');
+  const headCells = header.map((key) => `<th>${key}</th>`).join('');
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/></head><body><table><thead><tr>${headCells}</tr></thead><tbody>${body}</tbody></table></body></html>`;
 }
 
-function parseCsvPayload(payload: string): Record<string, string>[] {
+function parseCsvRows(payload: string): string[][] {
   const rows: string[][] = [];
   let current: string[] = [];
   let field = '';
@@ -441,11 +447,9 @@ function parseCsvPayload(payload: string): Record<string, string>[] {
 
     if (!inQuotes && (char === '\n' || char === '\r')) {
       flushField();
-      if (current.some((cell) => cell.length > 0)) {
-        rows.push(current);
-      }
+      rows.push(current);
       current = [];
-      if (char === '\r' && next === '\n') i += 1;
+      i += +(char === '\r' && next === '\n');
       continue;
     }
 
@@ -457,6 +461,11 @@ function parseCsvPayload(payload: string): Record<string, string>[] {
     rows.push(current);
   }
 
+  return rows.filter((row) => row.some((cell) => cell.length > 0));
+}
+
+function parseCsvPayload(payload: string): Record<string, string>[] {
+  const rows = parseCsvRows(payload);
   if (rows.length === 0) return [];
   const headers = rows[0] ?? [];
   return rows.slice(1).map((cells) => {
@@ -466,6 +475,11 @@ function parseCsvPayload(payload: string): Record<string, string>[] {
     });
     return row;
   });
+}
+
+function parseSinceMs(raw: unknown): number {
+  const num = typeof raw === 'string' ? Number(raw) : Number.NaN;
+  return Number.isFinite(num) && num > 0 ? num : 0;
 }
 
 export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
@@ -508,6 +522,207 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
       name: toSyncStatusDlqQueueName(syncStatusQueueNames.metafield),
     }),
   } as const;
+
+  // ---- Sync-status types, constants & helpers (shared across requests) ----
+  interface JobStepState {
+    status:
+      | 'waiting'
+      | 'active'
+      | 'completed'
+      | 'failed'
+      | 'delayed'
+      | 'unknown'
+      | 'not_found'
+      | 'skipped';
+    progress: number | null;
+    processedOn: number | null;
+    finishedOn: number | null;
+    attemptsMade: number;
+    failedReason?: string;
+  }
+
+  const NOT_FOUND: JobStepState = {
+    status: 'not_found',
+    progress: null,
+    processedOn: null,
+    finishedOn: null,
+    attemptsMade: 0,
+  };
+  const UNKNOWN: JobStepState = {
+    status: 'unknown',
+    progress: null,
+    processedOn: null,
+    finishedOn: null,
+    attemptsMade: 0,
+  };
+
+  type SyncStatusQueueKey = keyof typeof syncStatusQueues;
+
+  async function getDlqJobState(
+    queueKey: SyncStatusQueueKey,
+    jobId: string,
+    sinceMs: number
+  ): Promise<JobStepState> {
+    try {
+      const queueName = syncStatusQueueNames[queueKey];
+      const dlqQueue = syncStatusDlqQueues[queueKey];
+      const dlqJob = await dlqQueue.getJob(buildDlqLookupJobId(queueName, jobId));
+      if (!dlqJob) return NOT_FOUND;
+
+      const dlqData =
+        dlqJob.data && typeof dlqJob.data === 'object'
+          ? (dlqJob.data as {
+              attemptsMade?: unknown;
+              failedReason?: unknown;
+              occurredAt?: unknown;
+            })
+          : null;
+      const occurredAtMs =
+        typeof dlqData?.occurredAt === 'string' ? Date.parse(dlqData.occurredAt) : Number.NaN;
+      const finishedOn = Number.isFinite(occurredAtMs) ? occurredAtMs : (dlqJob.finishedOn ?? null);
+      if (sinceMs > 0 && finishedOn != null && finishedOn < sinceMs) {
+        return NOT_FOUND;
+      }
+
+      const attemptsMade =
+        typeof dlqData?.attemptsMade === 'number'
+          ? dlqData.attemptsMade
+          : (dlqJob.attemptsMade ?? 0);
+      const failedReason =
+        typeof dlqData?.failedReason === 'string'
+          ? dlqData.failedReason
+          : (dlqJob.failedReason ?? undefined);
+      return {
+        status: 'failed',
+        progress: 100,
+        processedOn: null,
+        finishedOn,
+        attemptsMade,
+        ...(failedReason ? { failedReason } : {}),
+      };
+    } catch {
+      return UNKNOWN;
+    }
+  }
+
+  async function getJobState(
+    queueKey: SyncStatusQueueKey,
+    jobId: string,
+    sinceMs: number
+  ): Promise<JobStepState> {
+    try {
+      const queue = syncStatusQueues[queueKey];
+      const job = await queue.getJob(jobId);
+      if (!job) {
+        return await getDlqJobState(queueKey, jobId, sinceMs);
+      }
+      const state = await job.getState();
+      if (
+        sinceMs > 0 &&
+        (state === 'completed' || state === 'failed') &&
+        job.finishedOn != null &&
+        job.finishedOn < sinceMs
+      ) {
+        return NOT_FOUND;
+      }
+      const normalised =
+        state === 'active' ||
+        state === 'completed' ||
+        state === 'failed' ||
+        state === 'waiting' ||
+        state === 'delayed'
+          ? state
+          : 'unknown';
+      const obj: JobStepState = {
+        status: normalised,
+        progress: typeof job.progress === 'number' ? Math.round(job.progress) : null,
+        processedOn: job.processedOn ?? null,
+        finishedOn: job.finishedOn ?? null,
+        attemptsMade: job.attemptsMade,
+      };
+      if (state === 'failed' && job.failedReason) obj.failedReason = job.failedReason;
+      return obj;
+    } catch {
+      return UNKNOWN;
+    }
+  }
+
+  function mergeState(a: JobStepState, b: JobStepState): JobStepState {
+    return a.status === 'not_found' ? b : a;
+  }
+
+  function mergeConsensusStates(...states: JobStepState[]): JobStepState {
+    const priority: JobStepState['status'][] = [
+      'active',
+      'waiting',
+      'delayed',
+      'failed',
+      'completed',
+      'unknown',
+    ];
+    for (const status of priority) {
+      const match = states.find((state) => state.status === status);
+      if (match) {
+        return match;
+      }
+    }
+    return NOT_FOUND;
+  }
+
+  function resolveMetafieldState(
+    metafieldManual: JobStepState,
+    metafieldConsensus: JobStepState,
+    latestMetafieldLog: {
+      status: 'success' | 'partial' | 'failed';
+      errorMessage: string | null;
+      pushedAtMs: number | null;
+    } | null,
+    consensusTerminal: boolean,
+    qualityLevel: LocalQualityLevel | null
+  ): JobStepState {
+    let state = mergeState(metafieldManual, metafieldConsensus);
+    if (latestMetafieldLog) {
+      if (latestMetafieldLog.status === 'success' && state.status === 'not_found') {
+        state = {
+          ...state,
+          status: 'completed',
+          progress: 100,
+          finishedOn: latestMetafieldLog.pushedAtMs,
+        };
+      } else if (
+        latestMetafieldLog.status === 'failed' ||
+        latestMetafieldLog.status === 'partial'
+      ) {
+        state = {
+          ...state,
+          status: 'failed',
+          failedReason: latestMetafieldLog.errorMessage ?? latestMetafieldLog.status,
+          finishedOn: latestMetafieldLog.pushedAtMs,
+        };
+      }
+    } else if (
+      consensusTerminal &&
+      state.status === 'not_found' &&
+      qualityLevel != null &&
+      qualityLevel !== 'silver' &&
+      qualityLevel !== 'golden'
+    ) {
+      state = {
+        ...state,
+        status: 'skipped',
+        progress: 100,
+      };
+    }
+    return state;
+  }
+
+  const STEP_TERMINAL = new Set<JobStepState['status']>(['completed', 'failed']);
+  const STEP_TERMINAL_OPTIONAL = new Set<JobStepState['status']>([
+    'completed',
+    'failed',
+    'not_found',
+    'skipped',
+  ]);
 
   server.addHook('onClose', async () => {
     await Promise.all([
@@ -552,12 +767,7 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
     const syncStatus = parseArrayParam(query.syncStatus);
     const categoryId = normalizeString(query.categoryId);
     const enrichmentStatus = parseArrayParam(query.enrichmentStatus);
-    const hasGtin =
-      typeof query.hasGtin === 'string'
-        ? query.hasGtin === 'true'
-        : typeof query.hasGtin === 'boolean'
-          ? query.hasGtin
-          : null;
+    const hasGtin = parseBoolParam(query.hasGtin);
 
     const sortByRaw = normalizeString(query.sortBy) ?? 'updated_at';
     const sortOrderRaw = normalizeString(query.sortOrder) ?? 'desc';
@@ -2016,22 +2226,18 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
       triggerEnrichment: false,
     };
 
+    const optionFields = new Set(['dryRun', 'skipErrors', 'updateExisting', 'triggerEnrichment']);
+
     for await (const part of parts) {
       if (part.type === 'file') {
         data = part;
         continue;
       }
       const rawValue = part.value;
-      const value =
-        typeof rawValue === 'string'
-          ? rawValue
-          : typeof rawValue === 'number' || typeof rawValue === 'boolean'
-            ? String(rawValue)
-            : '';
-      if (part.fieldname === 'dryRun') options.dryRun = value === 'true';
-      if (part.fieldname === 'skipErrors') options.skipErrors = value === 'true';
-      if (part.fieldname === 'updateExisting') options.updateExisting = value === 'true';
-      if (part.fieldname === 'triggerEnrichment') options.triggerEnrichment = value === 'true';
+      const value = typeof rawValue === 'string' ? rawValue : '';
+      if (optionFields.has(part.fieldname)) {
+        options[part.fieldname as keyof typeof options] = value === 'true';
+      }
     }
 
     if (!data) {
@@ -2069,11 +2275,14 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
         } satisfies ImportJob);
 
         const payload = buffer.toString('utf-8');
-        const parsedData: unknown = isJson
-          ? JSON.parse(payload)
-          : isCsv
-            ? parseCsvPayload(payload)
-            : [];
+        let parsedData: unknown;
+        if (isJson) {
+          parsedData = JSON.parse(payload);
+        } else if (isCsv) {
+          parsedData = parseCsvPayload(payload);
+        } else {
+          parsedData = [];
+        }
 
         if (!Array.isArray(parsedData)) throw new Error('Unsupported file format');
         const rows = parsedData as Record<string, string>[];
@@ -2373,12 +2582,7 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
       : parseArrayParam(enrichmentStatusFilter);
     const categoryId = normalizeString(filters?.['categoryId']);
     const hasGtinFilter = filters?.['hasGtin'];
-    const hasGtin =
-      typeof hasGtinFilter === 'boolean'
-        ? hasGtinFilter
-        : typeof hasGtinFilter === 'string'
-          ? hasGtinFilter === 'true'
-          : null;
+    const hasGtin = parseBoolParam(hasGtinFilter);
 
     const { where, values } = buildFilters({
       search,
@@ -2467,18 +2671,19 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
 
         await setJob(redis, 'export', jobId, { ...initial, status: 'processing', progress: 70 });
 
-        const payload =
-          format === 'csv'
-            ? toCsv(rows)
-            : format === 'excel'
-              ? toExcel(rows)
-              : JSON.stringify(rows, null, 2);
-        const contentType =
-          format === 'csv'
-            ? 'text/csv'
-            : format === 'excel'
-              ? 'application/vnd.ms-excel'
-              : 'application/json';
+        const FORMAT_MAP: Record<
+          string,
+          { encode: (r: Record<string, unknown>[]) => string; contentType: string }
+        > = {
+          csv: { encode: toCsv, contentType: 'text/csv' },
+          excel: { encode: toExcel, contentType: 'application/vnd.ms-excel' },
+        };
+        const fmt = FORMAT_MAP[format] ?? {
+          encode: (r: Record<string, unknown>[]) => JSON.stringify(r, null, 2),
+          contentType: 'application/json',
+        };
+        const payload = fmt.encode(rows);
+        const contentType = fmt.contentType;
         await setJob(redis, 'export', jobId, {
           ...initial,
           status: 'completed',
@@ -2704,6 +2909,13 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
             }
           : null;
 
+        // 5b (early). Compute outside withTenantContext to avoid >4 nested functions
+        const firstBarcode =
+          p.variants.nodes.find((v) => v.barcode?.trim())?.barcode?.trim() ?? null;
+        const internalSku = firstBarcode
+          ? `gtin:${firstBarcode}`
+          : `shopify:${session.shopId}:${String(legacyId)}`;
+
         // 3. Upsert product row
         await withTenantContext(session.shopId, async (dbClient) => {
           const productRow = await dbClient.query<{ id: string }>(
@@ -2859,13 +3071,6 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
           const sourceId = sourceRow.rows[0]?.id;
           if (!sourceId) throw new Error('Failed to upsert prod_source');
 
-          // 5b. internal_sku: prefer GTIN (variant barcode), fallback to shopify:{shopId}:{legacyId}
-          const firstBarcode =
-            p.variants.nodes.find((v) => v.barcode?.trim())?.barcode?.trim() ?? null;
-          const internalSku = firstBarcode
-            ? `gtin:${firstBarcode}`
-            : `shopify:${session.shopId}:${String(legacyId)}`;
-
           // 5c. Upsert prod_master
           const masterRow = await dbClient.query<{ id: string }>(
             `INSERT INTO prod_master (
@@ -2920,7 +3125,7 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
           productId: pimMasterId,
           trigger: 'direct_sync',
         });
-        consensusJobId = jobId != null ? String(jobId) : null;
+        consensusJobId = jobId == null ? null : String(jobId);
       } catch (err) {
         logger.warn(
           { err, shopId: session.shopId, masterId: pimMasterId },
@@ -2935,7 +3140,7 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
         shopId: session.shopId,
         productId,
       });
-      similaritySearchJobId = jobId != null ? String(jobId) : null;
+      similaritySearchJobId = jobId == null ? null : String(jobId);
     } catch (err) {
       logger.warn(
         { err, shopId: session.shopId, productId },
@@ -2984,158 +3189,13 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
       return;
     }
 
-    interface JobStepState {
-      status:
-        | 'waiting'
-        | 'active'
-        | 'completed'
-        | 'failed'
-        | 'delayed'
-        | 'unknown'
-        | 'not_found'
-        | 'skipped';
-      progress: number | null;
-      processedOn: number | null;
-      finishedOn: number | null;
-      attemptsMade: number;
-      failedReason?: string;
-    }
-
-    const NOT_FOUND: JobStepState = {
-      status: 'not_found',
-      progress: null,
-      processedOn: null,
-      finishedOn: null,
-      attemptsMade: 0,
-    };
-    const UNKNOWN: JobStepState = {
-      status: 'unknown',
-      progress: null,
-      processedOn: null,
-      finishedOn: null,
-      attemptsMade: 0,
-    };
-
     // sinceMs: epoch ms when the user triggered this sync session.
     // BullMQ keeps completed jobs with removeOnComplete:{count:1000}, so
     // deterministic job IDs (pim-description-${masterId}-manual etc.) will
     // return the PREVIOUS run's completed job on the first few polls.
     // Any job whose finishedOn < sinceMs belongs to a prior run — treat it
     // as not_found so the UI correctly shows it as waiting/pending.
-    const sinceRaw = typeof query['sinceMs'] === 'string' ? Number(query['sinceMs']) : NaN;
-    const sinceMs = Number.isFinite(sinceRaw) && sinceRaw > 0 ? sinceRaw : 0;
-
-    type SyncStatusQueueKey = keyof typeof syncStatusQueues;
-
-    async function getDlqJobState(
-      queueKey: SyncStatusQueueKey,
-      jobId: string
-    ): Promise<JobStepState> {
-      try {
-        const queueName = syncStatusQueueNames[queueKey];
-        const dlqQueue = syncStatusDlqQueues[queueKey];
-        const dlqJob = await dlqQueue.getJob(buildDlqLookupJobId(queueName, jobId));
-        if (!dlqJob) return NOT_FOUND;
-
-        const dlqData =
-          dlqJob.data && typeof dlqJob.data === 'object'
-            ? (dlqJob.data as {
-                attemptsMade?: unknown;
-                failedReason?: unknown;
-                occurredAt?: unknown;
-              })
-            : null;
-        const occurredAtMs =
-          typeof dlqData?.occurredAt === 'string' ? Date.parse(dlqData.occurredAt) : NaN;
-        const finishedOn = Number.isFinite(occurredAtMs)
-          ? occurredAtMs
-          : (dlqJob.finishedOn ?? null);
-        if (sinceMs > 0 && finishedOn != null && finishedOn < sinceMs) {
-          return NOT_FOUND;
-        }
-
-        const attemptsMade =
-          typeof dlqData?.attemptsMade === 'number'
-            ? dlqData.attemptsMade
-            : (dlqJob.attemptsMade ?? 0);
-        const failedReason =
-          typeof dlqData?.failedReason === 'string'
-            ? dlqData.failedReason
-            : (dlqJob.failedReason ?? undefined);
-        return {
-          status: 'failed',
-          progress: 100,
-          processedOn: null,
-          finishedOn,
-          attemptsMade,
-          ...(failedReason ? { failedReason } : {}),
-        };
-      } catch {
-        return UNKNOWN;
-      }
-    }
-
-    async function getJobState(queueKey: SyncStatusQueueKey, jobId: string): Promise<JobStepState> {
-      try {
-        const queue = syncStatusQueues[queueKey];
-        const job = await queue.getJob(jobId);
-        if (!job) {
-          return await getDlqJobState(queueKey, jobId);
-        }
-        const state = await job.getState();
-        // If this job finished before the current sync session started, it is a
-        // stale result from a previous run — ignore it completely.
-        if (
-          sinceMs > 0 &&
-          (state === 'completed' || state === 'failed') &&
-          job.finishedOn != null &&
-          job.finishedOn < sinceMs
-        ) {
-          return NOT_FOUND;
-        }
-        const normalised =
-          state === 'active' ||
-          state === 'completed' ||
-          state === 'failed' ||
-          state === 'waiting' ||
-          state === 'delayed'
-            ? state
-            : 'unknown';
-        const obj: JobStepState = {
-          status: normalised,
-          progress: typeof job.progress === 'number' ? Math.round(job.progress) : null,
-          processedOn: job.processedOn ?? null,
-          finishedOn: job.finishedOn ?? null,
-          attemptsMade: job.attemptsMade,
-        };
-        if (state === 'failed' && job.failedReason) obj.failedReason = job.failedReason;
-        return obj;
-      } catch {
-        return UNKNOWN;
-      }
-    }
-
-    function mergeState(a: JobStepState, b: JobStepState): JobStepState {
-      return a.status !== 'not_found' ? a : b;
-    }
-
-    function mergeConsensusStates(...states: JobStepState[]): JobStepState {
-      const priority: JobStepState['status'][] = [
-        'active',
-        'waiting',
-        'delayed',
-        'failed',
-        'completed',
-        'unknown',
-      ];
-      for (const status of priority) {
-        const match = states.find((state) => state.status === status);
-        if (match) {
-          return match;
-        }
-      }
-      return NOT_FOUND;
-    }
+    const sinceMs = parseSinceMs(query['sinceMs']);
 
     const bootstrapConsensusJobId = buildConsensusLaneJobId(masterId, 'bootstrap');
     const settlementConsensusJobId = buildConsensusLaneJobId(masterId, 'settlement');
@@ -3159,16 +3219,16 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
       metafieldConsensus,
     ] = await Promise.all([
       legacyConsensusJobId
-        ? getJobState('consensus', legacyConsensusJobId)
+        ? getJobState('consensus', legacyConsensusJobId, sinceMs)
         : Promise.resolve(NOT_FOUND),
-      getJobState('consensus', bootstrapConsensusJobId),
-      getJobState('consensus', settlementConsensusJobId),
-      getJobState('category', `pim-category-${masterId}-manual`),
-      getJobState('description', `pim-description-${masterId}-manual`),
-      getJobState('metafield', `pim-metafield-${masterId}-manual`),
-      getJobState('category', `pim-category-${masterId}-consensus`),
-      getJobState('description', `pim-description-${masterId}-consensus`),
-      getJobState('metafield', `pim-metafield-${masterId}-consensus`),
+      getJobState('consensus', bootstrapConsensusJobId, sinceMs),
+      getJobState('consensus', settlementConsensusJobId, sinceMs),
+      getJobState('category', `pim-category-${masterId}-manual`, sinceMs),
+      getJobState('description', `pim-description-${masterId}-manual`, sinceMs),
+      getJobState('metafield', `pim-metafield-${masterId}-manual`, sinceMs),
+      getJobState('category', `pim-category-${masterId}-consensus`, sinceMs),
+      getJobState('description', `pim-description-${masterId}-consensus`, sinceMs),
+      getJobState('metafield', `pim-metafield-${masterId}-consensus`, sinceMs),
     ]);
 
     const consensusState = mergeConsensusStates(
@@ -3224,44 +3284,18 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
           status: meta.metafield_status,
           errorMessage: meta.metafield_error_message ?? null,
           pushedAtMs:
-            meta.metafield_pushed_at_ms != null ? Number(meta.metafield_pushed_at_ms) : null,
+            meta.metafield_pushed_at_ms == null ? null : Number(meta.metafield_pushed_at_ms),
         };
       }
     }
 
-    let metafieldState = mergeState(metafieldManual, metafieldConsensus);
-    if (latestMetafieldLog) {
-      if (latestMetafieldLog.status === 'success' && metafieldState.status === 'not_found') {
-        metafieldState = {
-          ...metafieldState,
-          status: 'completed',
-          progress: 100,
-          finishedOn: latestMetafieldLog.pushedAtMs,
-        };
-      } else if (
-        latestMetafieldLog.status === 'failed' ||
-        latestMetafieldLog.status === 'partial'
-      ) {
-        metafieldState = {
-          ...metafieldState,
-          status: 'failed',
-          failedReason: latestMetafieldLog.errorMessage ?? latestMetafieldLog.status,
-          finishedOn: latestMetafieldLog.pushedAtMs,
-        };
-      }
-    } else if (
-      consensusTerminal &&
-      metafieldState.status === 'not_found' &&
-      qualityLevel != null &&
-      qualityLevel !== 'silver' &&
-      qualityLevel !== 'golden'
-    ) {
-      metafieldState = {
-        ...metafieldState,
-        status: 'skipped',
-        progress: 100,
-      };
-    }
+    const metafieldState = resolveMetafieldState(
+      metafieldManual,
+      metafieldConsensus,
+      latestMetafieldLog,
+      consensusTerminal,
+      qualityLevel
+    );
 
     const steps = [
       { id: 'consensus', label: 'Calcul calitate & consens PIM', ...consensusState },
@@ -3278,31 +3312,12 @@ export const productsRoutes: FastifyPluginAsync<ProductsRoutesOptions> = (
       { id: 'metafield', label: 'Push metafields Shopify', ...metafieldState },
     ];
 
-    // A step is terminal only when it has actually completed or failed.
-    // `not_found` means the job hasn't been enqueued yet (e.g. consensus is still
-    // running and hasn't dispatched downstream jobs). Treating not_found as terminal
-    // would cause the frontend to stop polling before the pipeline even starts.
-    //
-    // Special case: metafield push is optional — it is only enqueued for silver/golden
-    // products. If consensus is terminal and metafield is not_found it is legitimately
-    // absent, so we exclude metafield from the "all must complete" check.
     const downstreamSteps = steps.filter((s) => s.id !== 'consensus');
     const allTerminal =
       consensusTerminal &&
-      downstreamSteps.every((s) => {
-        if (s.id === 'metafield') {
-          // metafield is optional: not_found is acceptable once consensus is done.
-          return (
-            s.status === 'completed' ||
-            s.status === 'failed' ||
-            s.status === 'not_found' ||
-            s.status === 'skipped'
-          );
-        }
-        // category and description must actually complete or fail — not_found here
-        // means the job hasn't been enqueued yet and we should keep polling.
-        return s.status === 'completed' || s.status === 'failed';
-      });
+      downstreamSteps.every((s) =>
+        (s.id === 'metafield' ? STEP_TERMINAL_OPTIONAL : STEP_TERMINAL).has(s.status)
+      );
     const anyFailed = steps.some((s) => s.status === 'failed');
 
     void reply.status(200).send(successEnvelope(request.id, { steps, allTerminal, anyFailed }));

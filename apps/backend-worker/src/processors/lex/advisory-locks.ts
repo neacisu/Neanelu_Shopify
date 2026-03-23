@@ -1,13 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { withTenantContext } from '@app/database';
-
-interface TenantClient {
-  query: <TRow extends Record<string, unknown> = Record<string, unknown>>(
-    sql: string,
-    params?: unknown[]
-  ) => Promise<{ rows: TRow[] }>;
-}
+import type { TenantClient } from './pipeline-types.js';
 
 function toSignedInt32(hex: string): number {
   const unsigned = Number.parseInt(hex, 16) >>> 0;

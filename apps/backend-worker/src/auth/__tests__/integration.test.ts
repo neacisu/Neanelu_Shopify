@@ -11,9 +11,21 @@ import assert from 'node:assert/strict';
 /**
  * Mock pentru Shopify token exchange
  */
+function toRequestUrlString(url: string | URL | Request): string {
+  if (typeof url === 'string') {
+    return url;
+  }
+
+  if (url instanceof URL) {
+    return url.toString();
+  }
+
+  return url.url;
+}
+
 function createMockFetch(responses: Map<string, Response | Error>) {
   return mock.fn((url: string | URL | Request): Promise<Response> => {
-    const urlString = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+    const urlString = toRequestUrlString(url);
 
     for (const [pattern, response] of responses) {
       if (urlString.includes(pattern)) {

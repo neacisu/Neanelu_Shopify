@@ -52,7 +52,29 @@
     "dev:local:build": "scripts/with-secrets.sh docker compose -f docker-compose.staging.yml -f docker-compose.dev-local.yml --profile dev build --no-cache backend-worker-dev web-admin-dev",
     "dev:local:logs": "docker compose -f docker-compose.staging.yml -f docker-compose.dev-local.yml --profile dev logs -f backend-worker-dev web-admin-dev",
     "test:queues-ws": "scripts/with-secrets.sh pnpm tsx scripts/test-queues-ws.ts",
-    "oauth:server": "tsx oauth-callback-server.ts"
+    "oauth:server": "tsx oauth-callback-server.ts",
+    "sonar:inventory": "node --import tsx ./scripts/sonar/manual-inventory-worker.ts",
+    "sonar:inventory:init": "node --import tsx ./scripts/sonar/manual-inventory-worker.ts init",
+    "sonar:inventory:refresh": "node --import tsx ./scripts/sonar/manual-inventory-worker.ts refresh",
+    "sonar:inventory:claim": "node --import tsx ./scripts/sonar/manual-inventory-worker.ts claim",
+    "sonar:inventory:release": "node --import tsx ./scripts/sonar/manual-inventory-worker.ts release",
+    "sonar:inventory:complete": "node --import tsx ./scripts/sonar/manual-inventory-worker.ts complete",
+    "sonar:inventory:skip": "node --import tsx ./scripts/sonar/manual-inventory-worker.ts skip",
+    "sonar:inventory:fail": "node --import tsx ./scripts/sonar/manual-inventory-worker.ts fail",
+    "sonar:inventory:retry-stale": "node --import tsx ./scripts/sonar/manual-inventory-worker.ts retry-stale",
+    "sonar:inventory:summary": "node --import tsx ./scripts/sonar/manual-inventory-worker.ts summary",
+    "sonar:inventory:record": "node --import tsx ./scripts/sonar/manual-inventory-worker.ts record-findings",
+    "sonar:inventory:import": "node --import tsx ./scripts/sonar/manual-inventory-worker.ts import-findings",
+    "sonar:inventory:export": "node --import tsx ./scripts/sonar/manual-inventory-worker.ts export",
+    "sonar:inventory:doctor": "node --import tsx ./scripts/sonar/manual-inventory-worker.ts doctor",
+    "sonar:analyzer": "node --import tsx ./scripts/sonar/persistent-findings-analyzer.ts",
+    "sonar:publish-problems": "node ./scripts/sonar/publish-findings-problems.mjs",
+    "sonar:publish-problems:watch": "node ./scripts/sonar/publish-findings-problems-watch.mjs",
+    "sonar:export-progress-watch": "node ./scripts/sonar/export-findings-progress-watch.mjs",
+    "sonar:rescan-watch": "node ./scripts/sonar/incremental-rescan-watch.mjs",
+    "sonar:runner": "node --import tsx ./scripts/sonar/manual-inventory-runner.ts",
+    "sonar:runner:run": "node --import tsx ./scripts/sonar/manual-inventory-runner.ts run",
+    "sonar:runner:run-one": "node --import tsx ./scripts/sonar/manual-inventory-runner.ts run-one"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,mjs,cjs}": [
@@ -85,12 +107,14 @@
     "eslint-plugin-import": "^2.32.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
+    "markdownlint": "^0.40.0",
     "pg": "^8.18.0",
     "prettier": "^3.8.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.55.0",
-    "ws": "^8.19.0"
+    "ws": "^8.19.0",
+    "yaml": "^2.8.2"
   },
   "dependencies": {
     "google-auth-library": "^10.5.0"

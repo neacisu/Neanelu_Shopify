@@ -2,6 +2,43 @@ import { AlertTriangle } from 'lucide-react';
 import { GaugeChart } from '../charts/GaugeChart';
 import { Button } from '../ui/button';
 
+type ProviderKey = 'serper' | 'xai' | 'openai' | 'scraper';
+type ProviderStatus = 'critical' | 'warning' | 'ok';
+
+function providerDisplayName(provider: ProviderKey): string {
+  const names: Record<ProviderKey, string> = {
+    serper: 'Serper',
+    xai: 'xAI',
+    scraper: 'Scraper',
+    openai: 'OpenAI',
+  };
+  return names[provider];
+}
+
+function resolveProviderStatus(exceeded: boolean, alertTriggered: boolean): ProviderStatus {
+  if (exceeded) return 'critical';
+  if (alertTriggered) return 'warning';
+  return 'ok';
+}
+
+function providerStatusClass(status: ProviderStatus): string {
+  if (status === 'critical') return 'text-error';
+  if (status === 'warning') return 'text-warning';
+  return 'text-success';
+}
+
+function providerStatusLabel(status: ProviderStatus): string {
+  if (status === 'critical') return 'Depasit';
+  if (status === 'warning') return 'Atentie';
+  return 'In regula';
+}
+
+function resolveBudgetStatusText(status: BudgetStatus): string {
+  if (status === 'critical') return 'Limita buget depasita';
+  if (status === 'warning') return 'Avertizare buget';
+  return 'Buget in parametri';
+}
+
 export type BudgetStatus = 'ok' | 'warning' | 'critical' | null;
 
 export type BudgetSnapshot = Readonly<{
@@ -62,12 +99,7 @@ export function BudgetAlertsPanel({
   }
 
   const percentage = Math.min(Math.max(budget.percentage * 100, 0), 100);
-  const statusText =
-    budget.status === 'critical'
-      ? 'Limita buget depasita'
-      : budget.status === 'warning'
-        ? 'Avertizare buget'
-        : 'Buget in parametri';
+  const statusText = resolveBudgetStatusText(budget.status);
   const thresholds =
     budget.warningThreshold != null && budget.criticalThreshold != null
       ? [
@@ -77,7 +109,7 @@ export function BudgetAlertsPanel({
       : undefined;
 
   return (
-    <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-md)]">
+    <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-(--shadow-md)">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm font-medium text-foreground">
           <AlertTriangle className="h-4 w-4 text-warning" />
@@ -147,19 +179,13 @@ export function BudgetAlertsPanel({
         {providers.length > 0 ? (
           <div className="grid gap-3 md:grid-cols-3">
             {providers.map((provider) => {
-              const providerLabel =
-                provider.provider === 'serper'
-                  ? 'Serper'
-                  : provider.provider === 'xai'
-                    ? 'xAI'
-                    : provider.provider === 'scraper'
-                      ? 'Scraper'
-                      : 'OpenAI';
-              const providerStatus = provider.exceeded
-                ? 'critical'
-                : provider.alertTriggered
-                  ? 'warning'
-                  : 'ok';
+              const providerLabel = providerDisplayName(provider.provider);
+              const providerStatus = resolveProviderStatus(
+                provider.exceeded,
+                provider.alertTriggered
+              );
+              const statusClass = providerStatusClass(providerStatus);
+              const statusLabel = providerStatusLabel(providerStatus);
               const providerThresholds = [
                 { value: provider.alertThreshold * 100, color: 'rgb(var(--color-warning))' },
                 { value: 100, color: 'rgb(var(--color-error))' },
@@ -185,21 +211,7 @@ export function BudgetAlertsPanel({
                       label={provider.primary.unit}
                       ariaLabel={`${providerLabel} utilizare ${Math.round(provider.primary.ratio * 100)} procente`}
                     />
-                    <span
-                      className={`text-xs ${
-                        providerStatus === 'critical'
-                          ? 'text-error'
-                          : providerStatus === 'warning'
-                            ? 'text-warning'
-                            : 'text-success'
-                      }`}
-                    >
-                      {providerStatus === 'critical'
-                        ? 'Depasit'
-                        : providerStatus === 'warning'
-                          ? 'Atentie'
-                          : 'In regula'}
-                    </span>
+                    <span className={`text-xs ${statusClass}`}>{statusLabel}</span>
                   </div>
                 </div>
               );

@@ -9,6 +9,10 @@ export type WarningModalProps = Readonly<{
   description?: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
+  /** Use destructive for delete / irreversible actions. */
+  confirmVariant?: 'primary' | 'destructive';
+  confirmLoading?: boolean;
+  closeOnOverlayClick?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }>;
@@ -19,11 +23,14 @@ export function WarningModal({
   description,
   confirmLabel = 'Aplică',
   cancelLabel = 'Anulează',
+  confirmVariant = 'primary',
+  confirmLoading = false,
+  closeOnOverlayClick = true,
   onConfirm,
   onCancel,
 }: WarningModalProps) {
   return (
-    <Modal open={open} onClose={onCancel} className="p-6">
+    <Modal open={open} onClose={onCancel} closeOnOverlayClick={closeOnOverlayClick} className="p-6">
       <div role="alertdialog" aria-labelledby="warning-modal-title">
         <div className="mb-4 flex items-start gap-3">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-warning/15">
@@ -39,10 +46,15 @@ export function WarningModal({
           </div>
         </div>
         <div className="flex justify-end gap-3">
-          <Button variant="secondary" onClick={onCancel}>
+          <Button variant="secondary" onClick={onCancel} disabled={confirmLoading}>
             {cancelLabel}
           </Button>
-          <Button variant="primary" onClick={onConfirm}>
+          <Button
+            variant={confirmVariant}
+            onClick={onConfirm}
+            disabled={confirmLoading}
+            loading={confirmLoading}
+          >
             {confirmLabel}
           </Button>
         </div>

@@ -12,35 +12,17 @@ type SuggestionLike = string | SearchSuggestion;
 export type SearchInputProps = Readonly<{
   value: string;
   onChange: (value: string) => void;
-
-  /** Triggered for search execution (debounced typing + immediate select/enter). */
   onSearch?: (value: string) => void;
-
   label?: string;
   placeholder?: string;
   disabled?: boolean;
   loading?: boolean;
-
-  /** Suggestions list. Can be strings or objects (id/label/value). */
   suggestions?: readonly SuggestionLike[];
-
-  /** Recent searches (shown when input is empty, Polaris Autocomplete-style). */
   recentSearches?: readonly string[];
-
-  /** Back-compat: fired when a suggestion is selected (also triggers onSearch). */
   onSelectSuggestion?: (value: string) => void;
-
-  /** Debounce delay for `onSearch` calls when typing. */
   debounceMs?: number;
-
-  /** Use a multiline textarea instead of input. */
   multiline?: boolean;
-
-  /**
-   * Max number of suggestions rendered.
-   */
   maxSuggestions?: number;
-
   className?: string;
 }>;
 
@@ -48,70 +30,92 @@ function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
 }
 
-export function SearchInput(props: SearchInputProps) {
-  const {
-    value,
-    onChange,
-    onSearch,
-    label = 'Search',
-    placeholder,
-    disabled,
-    loading,
-    suggestions: suggestionsProp = [],
-    recentSearches = [],
-    onSelectSuggestion,
-    debounceMs = 200,
-    multiline = false,
-    maxSuggestions = 20,
-    className,
-  } = props;
+function getNextActiveIndex(currentIndex: number, itemCount: number, direction: 1 | -1): number {
+  return clamp(currentIndex + direction, 0, Math.max(0, itemCount - 1));
+}
 
+function normalizeSuggestions(
+  suggestions: readonly SuggestionLike[],
+  recentSearches: readonly string[],
+  includeRecentSearches: boolean
+): SearchSuggestion[] {
+  const normalized: SearchSuggestion[] = [];
+
+  for (const suggestion of suggestions) {
+    if (typeof suggestion === 'string') {
+      normalized.push({ id: suggestion, label: suggestion, value: suggestion });
+      continue;
+    }
+
+    normalized.push(suggestion);
+  }
+
+  if (!includeRecentSearches || recentSearches.length === 0) {
+    return normalized;
+  }
+
+  const existing = new Set(normalized.map((suggestion) => suggestion.value));
+  for (const recentSearch of recentSearches) {
+    const trimmedRecent = recentSearch.trim();
+    if (trimmedRecent === '' || existing.has(trimmedRecent)) {
+      continue;
+    }
+
+    normalized.unshift({
+      id: `recent:${trimmedRecent}`,
+      label: trimmedRecent,
+      value: trimmedRecent,
+    });
+  }
+
+  return normalized;
+}
+
+export function SearchInput({
+  value,
+  onChange,
+  onSearch,
+  label = 'Search',
+  placeholder,
+  disabled,
+  loading,
+  suggestions: suggestionsProp = [],
+  recentSearches = [],
+  onSelectSuggestion,
+  debounceMs = 200,
+  multiline = false,
+  maxSuggestions = 20,
+  className,
+}: SearchInputProps) {
   const inputId = useId();
-  const listboxId = useId();
+  const suggestionsId = useId();
   const statusId = useId();
 
   const [draft, setDraft] = useState(value);
   const [open, setOpen] = useState(false);
-  const [activeIndex, setActiveIndex] = useState<number>(-1);
+  const [activeIndex, setActiveIndex] = useState(-1);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const debounceRef = useRef<number | null>(null);
+  const debounceRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
 
   useEffect(() => {
     setDraft(value);
   }, [value]);
 
   const trimmed = draft.trim();
-
-  const normalizedSuggestions = useMemo((): SearchSuggestion[] => {
-    const base: SearchSuggestion[] = [];
-
-    for (const s of suggestionsProp) {
-      if (typeof s === 'string') {
-        base.push({ id: s, label: s, value: s });
-      } else {
-        base.push(s);
-      }
-    }
-
-    if (trimmed.length === 0 && recentSearches.length > 0) {
-      const existing = new Set(base.map((x) => x.value));
-      for (const v of recentSearches) {
-        if (!v.trim()) continue;
-        if (existing.has(v)) continue;
-        base.unshift({ id: `recent:${v}`, label: v, value: v });
-      }
-    }
-
-    return base;
-  }, [recentSearches, suggestionsProp, trimmed.length]);
+  const normalizedSuggestions = useMemo(
+    () => normalizeSuggestions(suggestionsProp, recentSearches, trimmed.length === 0),
+    [recentSearches, suggestionsProp, trimmed.length]
+  );
 
   const filtered = useMemo(() => {
-    const q = trimmed.toLowerCase();
-    const items = q
+    const query = trimmed.toLowerCase();
+    const items = query
       ? normalizedSuggestions.filter(
-          (s) => s.label.toLowerCase().includes(q) || s.value.toLowerCase().includes(q)
+          (suggestion) =>
+            suggestion.label.toLowerCase().includes(query) ||
+            suggestion.value.toLowerCase().includes(query)
         )
       : normalizedSuggestions;
 
@@ -122,112 +126,177 @@ export function SearchInput(props: SearchInputProps) {
   const shouldShowMenu = open && canOpen && filtered.length > 0;
 
   const statusText = useMemo(() => {
-    if (disabled) return '';
-    if (loading) return 'Se încarcă sugestii';
-    if (!canOpen) return '';
-    if (!open) return '';
-    if (filtered.length === 0) return 'Nicio sugestie';
+    if (disabled || loading || !canOpen || !open) {
+      return loading ? 'Se încarcă sugestii' : '';
+    }
+
+    if (filtered.length === 0) {
+      return 'Nicio sugestie';
+    }
+
     return `${filtered.length} sugestie${filtered.length === 1 ? '' : 'i'} disponibile`;
   }, [canOpen, disabled, filtered.length, loading, open]);
 
-  const commitSearch = useCallback(
-    (next: string) => {
-      if (debounceRef.current) window.clearTimeout(debounceRef.current);
-      if (!onSearch) return;
-      if (debounceMs <= 0) {
-        onSearch(next);
-        return;
-      }
-      debounceRef.current = window.setTimeout(() => {
-        onSearch(next);
-      }, debounceMs);
-    },
-    [debounceMs, onSearch]
-  );
+  const clearPendingSearch = useCallback(() => {
+    if (debounceRef.current == null) {
+      return;
+    }
 
-  useEffect(() => {
-    return () => {
-      if (debounceRef.current) window.clearTimeout(debounceRef.current);
-    };
+    globalThis.clearTimeout(debounceRef.current);
+    debounceRef.current = null;
   }, []);
 
-  const select = useCallback(
+  const focusField = useCallback(() => {
+    if (multiline) {
+      textareaRef.current?.focus();
+      return;
+    }
+
+    inputRef.current?.focus();
+  }, [multiline]);
+
+  const closeMenu = useCallback(() => {
+    setOpen(false);
+    setActiveIndex(-1);
+  }, []);
+
+  const commitSearch = useCallback(
     (nextValue: string) => {
-      if (debounceRef.current) window.clearTimeout(debounceRef.current);
+      clearPendingSearch();
+
+      if (!onSearch) {
+        return;
+      }
+
+      if (debounceMs <= 0) {
+        onSearch(nextValue);
+        return;
+      }
+
+      debounceRef.current = globalThis.setTimeout(() => {
+        debounceRef.current = null;
+        onSearch(nextValue);
+      }, debounceMs);
+    },
+    [clearPendingSearch, debounceMs, onSearch]
+  );
+
+  useEffect(
+    () => () => {
+      clearPendingSearch();
+    },
+    [clearPendingSearch]
+  );
+
+  const selectSuggestion = useCallback(
+    (nextValue: string) => {
+      clearPendingSearch();
       setDraft(nextValue);
       onChange(nextValue);
       onSearch?.(nextValue);
       onSelectSuggestion?.(nextValue);
-      setOpen(false);
-      setActiveIndex(-1);
-      if (multiline) {
-        textareaRef.current?.focus();
-      } else {
-        inputRef.current?.focus();
-      }
+      closeMenu();
+      focusField();
     },
-    [multiline, onChange, onSearch, onSelectSuggestion]
+    [clearPendingSearch, closeMenu, focusField, onChange, onSearch, onSelectSuggestion]
   );
 
   const clearValue = useCallback(() => {
+    clearPendingSearch();
     setDraft('');
     onChange('');
     onSearch?.('');
-    setOpen(false);
-    setActiveIndex(-1);
-    if (multiline) {
-      textareaRef.current?.focus();
-    } else {
-      inputRef.current?.focus();
+    closeMenu();
+    focusField();
+  }, [clearPendingSearch, closeMenu, focusField, onChange, onSearch]);
+
+  const openSuggestions = useCallback(() => {
+    if (canOpen) {
+      setOpen(true);
     }
-  }, [multiline, onChange, onSearch]);
+  }, [canOpen]);
 
-  const onKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      if (e.key === 'ArrowDown') {
-        if (!open) setOpen(true);
-        if (!canOpen) return;
-        e.preventDefault();
-        setActiveIndex((idx) => clamp(idx + 1, 0, Math.max(0, filtered.length - 1)));
-        return;
+  const moveActiveSuggestion = useCallback(
+    (direction: 1 | -1) => {
+      setOpen(true);
+      if (!canOpen) {
+        return false;
       }
 
-      if (e.key === 'ArrowUp') {
-        if (!open) setOpen(true);
-        if (!canOpen) return;
-        e.preventDefault();
-        setActiveIndex((idx) => clamp(idx - 1, 0, Math.max(0, filtered.length - 1)));
-        return;
-      }
-
-      if (e.key === 'Enter') {
-        if (multiline && e.shiftKey) return;
-        if (shouldShowMenu && activeIndex >= 0 && activeIndex < filtered.length) {
-          e.preventDefault();
-          select(filtered[activeIndex]?.value ?? draft);
-          return;
-        }
-        if (trimmed.length > 0) {
-          e.preventDefault();
-          if (debounceRef.current) window.clearTimeout(debounceRef.current);
-          onSearch?.(trimmed);
-        }
-        return;
-      }
-
-      if (e.key === 'Escape') {
-        if (open) {
-          e.preventDefault();
-          setOpen(false);
-          setActiveIndex(-1);
-        }
-      }
+      setActiveIndex((currentIndex) =>
+        getNextActiveIndex(currentIndex, filtered.length, direction)
+      );
+      return true;
     },
-    [activeIndex, canOpen, draft, filtered, multiline, open, select, shouldShowMenu]
+    [canOpen, filtered.length]
   );
 
-  const ariaAutocomplete = filtered.length ? 'list' : 'none';
-  const ariaHasPopup = 'listbox';
+  const triggerSearchNow = useCallback(
+    (nextValue: string) => {
+      if (nextValue.length === 0) {
+        return false;
+      }
+
+      clearPendingSearch();
+      onSearch?.(nextValue);
+      return true;
+    },
+    [clearPendingSearch, onSearch]
+  );
+
+  const handleEnterKey = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      if (multiline && event.shiftKey) {
+        return;
+      }
+
+      const activeSuggestion =
+        shouldShowMenu && activeIndex >= 0 && activeIndex < filtered.length
+          ? filtered[activeIndex]
+          : undefined;
+
+      if (activeSuggestion) {
+        event.preventDefault();
+        selectSuggestion(activeSuggestion.value);
+        return;
+      }
+
+      if (triggerSearchNow(trimmed)) {
+        event.preventDefault();
+      }
+    },
+    [activeIndex, filtered, multiline, selectSuggestion, shouldShowMenu, triggerSearchNow, trimmed]
+  );
+
+  const onKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      switch (event.key) {
+        case 'ArrowDown':
+          if (moveActiveSuggestion(1)) {
+            event.preventDefault();
+          }
+          return;
+        case 'ArrowUp':
+          if (moveActiveSuggestion(-1)) {
+            event.preventDefault();
+          }
+          return;
+        case 'Enter':
+          handleEnterKey(event);
+          return;
+        case 'Escape':
+          if (open) {
+            event.preventDefault();
+            closeMenu();
+          }
+          return;
+        default:
+          return;
+      }
+    },
+    [closeMenu, handleEnterKey, moveActiveSuggestion, open]
+  );
+
   const commonProps = {
     id: inputId,
     value: draft,
@@ -235,31 +304,26 @@ export function SearchInput(props: SearchInputProps) {
     placeholder,
     className:
       'mt-1.5 w-full rounded-xl border border-border bg-card pl-10 pr-9 py-2.5 text-sm text-foreground shadow-[var(--shadow-sm)] outline-none transition-[border-color,box-shadow] duration-200 placeholder:text-muted focus-visible:border-accent focus-ring-standard disabled:opacity-60',
-    role: 'combobox',
-    'aria-controls': listboxId,
+    'aria-controls': suggestionsId,
     'aria-expanded': shouldShowMenu,
     'aria-busy': loading ? true : undefined,
     'aria-describedby': statusText ? statusId : undefined,
-    'aria-activedescendant':
-      shouldShowMenu && activeIndex >= 0 && activeIndex < filtered.length
-        ? `${listboxId}-opt-${activeIndex}`
-        : undefined,
-    onFocus: () => {
-      if (canOpen) setOpen(true);
-    },
-    onBlur: (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      const next = e.relatedTarget as HTMLElement | null;
-      if (next?.dataset?.['searchSuggestion'] === 'true') return;
-      setOpen(false);
-      setActiveIndex(-1);
+    onFocus: openSuggestions,
+    onBlur: (event: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      const next = event.relatedTarget as HTMLElement | null;
+      if (next?.dataset?.['searchSuggestion'] === 'true') {
+        return;
+      }
+
+      closeMenu();
     },
     onKeyDown,
-    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       setOpen(true);
       setActiveIndex(-1);
-      setDraft(e.target.value);
-      onChange(e.target.value);
-      commitSearch(e.target.value);
+      setDraft(event.target.value);
+      onChange(event.target.value);
+      commitSearch(event.target.value);
     },
   };
 
@@ -270,7 +334,7 @@ export function SearchInput(props: SearchInputProps) {
       </label>
       <div className="relative">
         <Search
-          className="pointer-events-none absolute left-3 top-1/2 mt-[3px] size-4 -translate-y-1/2 text-muted"
+          className="pointer-events-none absolute left-3 top-1/2 mt-0.75 size-4 -translate-y-1/2 text-muted"
           aria-hidden
         />
 
@@ -278,26 +342,18 @@ export function SearchInput(props: SearchInputProps) {
           <textarea
             ref={textareaRef}
             rows={3}
-            aria-haspopup={ariaHasPopup}
-            aria-autocomplete={ariaAutocomplete}
             {...commonProps}
             className={commonProps.className.replace('pl-10', 'pl-3')}
           />
         ) : (
-          <input
-            ref={inputRef}
-            type="search"
-            aria-haspopup={ariaHasPopup}
-            aria-autocomplete={ariaAutocomplete}
-            {...commonProps}
-          />
+          <input ref={inputRef} type="search" {...commonProps} />
         )}
 
         {draft.length > 0 && !loading ? (
           <button
             type="button"
             onClick={clearValue}
-            className="absolute right-3 top-1/2 mt-[3px] -translate-y-1/2 rounded-md p-0.5 text-muted transition-all duration-200 hover:bg-subtle hover:text-foreground focus-ring-standard motion-safe:animate-[fadeIn_150ms_ease-out]"
+            className="absolute right-3 top-1/2 mt-0.75 -translate-y-1/2 rounded-md p-0.5 text-muted transition-all duration-200 hover:bg-subtle hover:text-foreground focus-ring-standard motion-safe:animate-[fadeIn_150ms_ease-out]"
             aria-label="Șterge căutarea"
           >
             <X className="size-3.5" />
@@ -305,7 +361,7 @@ export function SearchInput(props: SearchInputProps) {
         ) : null}
 
         {loading ? (
-          <div className="pointer-events-none absolute right-3 top-1/2 mt-[3px] -translate-y-1/2">
+          <div className="pointer-events-none absolute right-3 top-1/2 mt-0.75 -translate-y-1/2">
             <span
               className="inline-block size-4 animate-spin rounded-full border-2 border-muted/40 border-t-muted"
               aria-hidden
@@ -320,39 +376,36 @@ export function SearchInput(props: SearchInputProps) {
         ) : null}
 
         {shouldShowMenu ? (
-          <div
-            className="absolute z-50 mt-1.5 w-full overflow-hidden rounded-xl border border-border bg-card/80 shadow-lg shadow-black/5 backdrop-blur-xl motion-safe:animate-[fadeSlideUp_0.2s_ease-out]"
-            role="listbox"
-            id={listboxId}
+          <ul
+            id={suggestionsId}
+            aria-label="Sugestii căutare"
+            className="absolute z-50 mt-1.5 max-h-64 w-full overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-card/80 shadow-lg shadow-black/5 backdrop-blur-xl motion-safe:animate-[fadeSlideUp_0.2s_ease-out]"
           >
-            <div className="max-h-64 overflow-y-auto">
-              {filtered.map((s, idx) => {
-                const active = idx === activeIndex;
-                return (
+            {filtered.map((suggestion, index) => {
+              const active = index === activeIndex;
+              return (
+                <li key={suggestion.id}>
                   <button
-                    key={s.id}
                     type="button"
                     data-search-suggestion="true"
-                    id={`${listboxId}-opt-${idx}`}
-                    role="option"
-                    aria-selected={active}
+                    id={`${suggestionsId}-opt-${index}`}
                     tabIndex={-1}
                     className={
                       'flex w-full items-center justify-between px-3 py-2.5 text-left text-sm text-foreground transition-colors duration-150 ' +
                       (active ? 'bg-primary/5' : 'hover:bg-subtle')
                     }
-                    onMouseEnter={() => setActiveIndex(idx)}
-                    onMouseDown={(ev) => {
-                      ev.preventDefault();
+                    onMouseEnter={() => setActiveIndex(index)}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
                     }}
-                    onClick={() => select(s.value)}
+                    onClick={() => selectSuggestion(suggestion.value)}
                   >
-                    <span className="truncate">{s.label}</span>
+                    <span className="truncate">{suggestion.label}</span>
                   </button>
-                );
-              })}
-            </div>
-          </div>
+                </li>
+              );
+            })}
+          </ul>
         ) : null}
       </div>
     </div>

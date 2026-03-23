@@ -7,7 +7,7 @@ import type { FastifyInstance } from 'fastify';
 const requireSessionMock = () => (_req: unknown, _reply: unknown) => Promise.resolve();
 
 const sessionPath = new URL('../../auth/session.js', import.meta.url).href;
-void mock.module(sessionPath, {
+mock.module(sessionPath, {
   namedExports: {
     requireSession: () => requireSessionMock(),
     getSessionFromRequest: () => ({
@@ -19,13 +19,13 @@ void mock.module(sessionPath, {
 });
 
 const latencyPath = new URL('../../runtime/http-latency.js', import.meta.url).href;
-void mock.module(latencyPath, {
+mock.module(latencyPath, {
   namedExports: {
     getHttpLatencySnapshot: () => ({ windowMs: 300000, sampleCount: 25, p95Seconds: 2.5 }),
   },
 });
 
-void mock.module('@app/database', {
+mock.module('@app/database', {
   namedExports: {
     withTenantContext: async (
       _shopId: string,
@@ -84,34 +84,40 @@ void mock.module('@app/database', {
 });
 
 const lexOpsPath = new URL('../../services/lex-ops.js', import.meta.url).href;
-void mock.module(lexOpsPath, {
+mock.module(lexOpsPath, {
   namedExports: {
-    collectLexMetrics: () => ({
-      runsTotal: 12,
-      termsTotal: 50,
-      clustersTotal: 18,
-      glossaryTotal: 4,
-      reviewPending: 2,
-      reviewBacklog: 4,
-      localizationsApproved: 11,
-      publicationsPending: 3,
-      runsActive: 2,
-      runsPaused: 2,
-      pausedBudgetBlocked: 1,
-      pausedProviderUnavailable: 1,
-      shardsFailed: 5,
-      publicationsFailed: 2,
-      publishConflicts: 1,
-      staleCheckpoints: 3,
-      retentionLag: 90061,
-      aiBatchBacklog: 7,
-      dlqEntries: 6,
-      workersOnline: 10,
-      workersTotal: 14,
-      workers: [],
-      queues: [],
-      alerts: [],
-    }),
+    collectLexMetrics: () =>
+      Promise.resolve({
+        runsTotal: 12,
+        termsTotal: 50,
+        clustersTotal: 18,
+        glossaryTotal: 4,
+        reviewPending: 2,
+        reviewBacklog: 4,
+        localizationsApproved: 11,
+        publicationsPending: 3,
+        runsActive: 2,
+        runsPaused: 2,
+        pausedBudgetBlocked: 1,
+        pausedProviderUnavailable: 1,
+        shardsFailed: 5,
+        publicationsFailed: 2,
+        publishConflicts: 1,
+        staleCheckpoints: 3,
+        retentionLag: 90061,
+        aiBatchBacklog: 7,
+        tmHits: 0,
+        tmMisses: 0,
+        tmHitRatePercent: 0,
+        tmMissRatePercent: 0,
+        tmAverageSimilarity: null,
+        dlqEntries: 6,
+        workersOnline: 10,
+        workersTotal: 14,
+        workers: [],
+        queues: [],
+        alerts: [],
+      }),
   },
 });
 
@@ -157,8 +163,7 @@ function createRedisStub(): {
       return Promise.resolve('OK');
     },
     scan: (...args: unknown[]) => {
-      const [cursor, _match, pattern] = args;
-      const cur = typeof cursor === 'string' ? cursor : '0';
+      const [_cursor, _match, pattern] = args;
       const pat = typeof pattern === 'string' ? pattern : '*';
 
       const prefix = pat.endsWith('*') ? pat.slice(0, -1) : pat;
@@ -166,8 +171,8 @@ function createRedisStub(): {
         pat === '*' ? true : k.startsWith(prefix)
       );
 
-      // Single batch for tests.
-      return Promise.resolve<[string, string[]]>([cur === '0' ? '0' : '0', matches]);
+      // Single batch for tests: always signal SCAN complete (cursor "0" = no further iterations).
+      return Promise.resolve<[string, string[]]>(['0', matches]);
     },
     pipeline: () => {
       const toDelete: string[] = [];
@@ -204,7 +209,7 @@ const queueStub = {
 
 const { redis: redisMock, state: redisState } = createRedisStub();
 
-void mock.module('@app/queue-manager', {
+mock.module('@app/queue-manager', {
   namedExports: {
     QUEUE_NAMES: ['webhook-queue', 'sync-queue'],
     configFromEnv: (_env: unknown) => ({}),
@@ -217,7 +222,8 @@ void mock.module('@app/queue-manager', {
   },
 });
 
-void describe('Dashboard Routes', () => {
+// Shared Redis stub state: tests must run serially so one case (e.g. ping failure) does not affect others.
+void describe('Dashboard Routes', { concurrency: false }, () => {
   let app: FastifyInstance;
   let dashboardRoutes: unknown;
 

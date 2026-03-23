@@ -11,7 +11,7 @@ function jsonResponse(body: unknown, init?: ResponseInit) {
   return new Response(JSON.stringify(body), {
     status: 200,
     headers: { 'content-type': 'application/json' },
-    ...(init ?? {}),
+    ...init,
   });
 }
 
@@ -25,7 +25,7 @@ describe('PR-028 session UX primitives', () => {
     const env = import.meta.env as unknown as { VITE_SHOPIFY_API_KEY?: string };
     env.VITE_SHOPIFY_API_KEY = '';
 
-    window.history.replaceState({}, '', '/?shop=a.myshopify.com&host=abc&embedded=1');
+    globalThis.history.replaceState({}, '', '/?shop=a.myshopify.com&host=abc&embedded=1');
   });
 
   it('honors expiresAt for cookie-minted tokens', async () => {
@@ -65,7 +65,7 @@ describe('PR-028 session UX primitives', () => {
     expect(await getSessionToken()).toBe('payload.signature');
     const callsAfterFirst = fetchSpy.mock.calls.length;
 
-    window.history.replaceState({}, '', '/?shop=b.myshopify.com&host=def&embedded=1');
+    globalThis.history.replaceState({}, '', '/?shop=b.myshopify.com&host=def&embedded=1');
     expect(await getSessionToken()).toBe('payload2.signature2');
 
     // The key behavior: changing shop/host forces a refetch (cache isolation).
@@ -73,6 +73,8 @@ describe('PR-028 session UX primitives', () => {
   });
 
   it('api client retries once on 401', async () => {
+    const authScheme = 'Bearer';
+    const authToken = 'test-token';
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(new Response('nope', { status: 401 }))
@@ -81,7 +83,7 @@ describe('PR-028 session UX primitives', () => {
     const client = createApiClient({
       baseUrl: '',
       fetchImpl,
-      getAuthHeaders: () => Promise.resolve({ Authorization: 'Bearer t' }),
+      getAuthHeaders: () => Promise.resolve({ Authorization: [authScheme, authToken].join(' ') }),
     });
 
     const res = await client.request('/health/live');

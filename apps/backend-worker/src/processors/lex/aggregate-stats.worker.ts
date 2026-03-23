@@ -18,6 +18,7 @@ import {
 import { saveLexCheckpoint } from './checkpoints.js';
 import { createLexWorker, type LexWorkerHandle } from './worker-toolkit.js';
 import { decimalString, parseTouchedIds } from './pipeline-utils.js';
+import type { TenantClient } from './pipeline-types.js';
 
 type TermStatsRow = Readonly<{
   termId: string;
@@ -39,6 +40,80 @@ function scoreFromStats(row: TermStatsRow): number {
   const descriptions = Number(row.descriptionOccurrences || 0);
   const vendor = Number(row.vendorOccurrences || 0);
   return occurrences * 0.4 + fragments * 0.3 + titles * 1.2 + descriptions * 0.5 + vendor * 0.2;
+}
+
+const LEX_TERM_STATS_UPSERT_BATCH = 100;
+
+async function batchUpsertLexTermStats(params: {
+  client: TenantClient;
+  shopId: string;
+  runId: string;
+  rows: readonly TermStatsRow[];
+}): Promise<void> {
+  const { client, shopId, runId, rows } = params;
+  if (rows.length === 0) {
+    return;
+  }
+
+  for (let offset = 0; offset < rows.length; offset += LEX_TERM_STATS_UPSERT_BATCH) {
+    const chunk = rows.slice(offset, offset + LEX_TERM_STATS_UPSERT_BATCH);
+    const placeholders: string[] = [];
+    const values: unknown[] = [];
+    let p = 1;
+    for (const row of chunk) {
+      const scoreGlobal = scoreFromStats(row);
+      const scoreTfidf = Number(row.occurrencesTotal || 0) * 0.25;
+      const scoreDomain =
+        Number(row.titleOccurrences || 0) * 0.8 +
+        Number(row.descriptionOccurrences || 0) * 0.3 +
+        Number(row.metafieldOccurrences || 0) * 0.5;
+      placeholders.push(
+        `($${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, now())`
+      );
+      values.push(
+        shopId,
+        row.termId,
+        runId,
+        Number(row.occurrencesTotal || 0),
+        Number(row.distinctFragments || 0),
+        Number(row.distinctProducts || 0),
+        Number(row.distinctVariants || 0),
+        Number(row.distinctCollections || 0),
+        Number(row.titleOccurrences || 0),
+        Number(row.descriptionOccurrences || 0),
+        Number(row.metafieldOccurrences || 0),
+        Number(row.vendorOccurrences || 0),
+        decimalString(scoreGlobal),
+        decimalString(scoreTfidf),
+        decimalString(scoreDomain)
+      );
+    }
+
+    await client.query(
+      `INSERT INTO lex_term_stats
+         (shop_id, term_id, last_run_id, occurrences_total, distinct_fragments, distinct_products,
+          distinct_variants, distinct_collections, title_occurrences, description_occurrences,
+          metafield_occurrences, vendor_occurrences, score_global, score_tfidf, score_domain, updated_at)
+       VALUES ${placeholders.join(', ')}
+       ON CONFLICT (shop_id, term_id)
+       DO UPDATE
+          SET last_run_id = EXCLUDED.last_run_id,
+              occurrences_total = EXCLUDED.occurrences_total,
+              distinct_fragments = EXCLUDED.distinct_fragments,
+              distinct_products = EXCLUDED.distinct_products,
+              distinct_variants = EXCLUDED.distinct_variants,
+              distinct_collections = EXCLUDED.distinct_collections,
+              title_occurrences = EXCLUDED.title_occurrences,
+              description_occurrences = EXCLUDED.description_occurrences,
+              metafield_occurrences = EXCLUDED.metafield_occurrences,
+              vendor_occurrences = EXCLUDED.vendor_occurrences,
+              score_global = EXCLUDED.score_global,
+              score_tfidf = EXCLUDED.score_tfidf,
+              score_domain = EXCLUDED.score_domain,
+              updated_at = now()`,
+      values
+    );
+  }
 }
 
 export function startLexAggregateStatsWorker(logger: Logger): LexWorkerHandle {
@@ -94,68 +169,28 @@ export function startLexAggregateStatsWorker(logger: Logger): LexWorkerHandle {
              INNER JOIN lex_fragments f
                      ON f.id = o.fragment_id
              WHERE o.shop_id = $1
+               AND f.shop_id = $1
+               AND f.run_id = $3
                AND o.term_id = ANY($2::uuid[])
              GROUP BY o.term_id`,
-            [payload.shopId, termIds]
+            [payload.shopId, termIds, payload.runId]
           );
 
-          for (const row of stats.rows) {
-            const scoreGlobal = scoreFromStats(row);
-            const scoreTfidf = Number(row.occurrencesTotal || 0) * 0.25;
-            const scoreDomain =
-              Number(row.titleOccurrences || 0) * 0.8 +
-              Number(row.descriptionOccurrences || 0) * 0.3 +
-              Number(row.metafieldOccurrences || 0) * 0.5;
-
-            await client.query(
-              `INSERT INTO lex_term_stats
-                 (shop_id, term_id, last_run_id, occurrences_total, distinct_fragments, distinct_products,
-                  distinct_variants, distinct_collections, title_occurrences, description_occurrences,
-                  metafield_occurrences, vendor_occurrences, score_global, score_tfidf, score_domain, updated_at)
-               VALUES
-                 ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now())
-               ON CONFLICT (shop_id, term_id)
-               DO UPDATE
-                  SET last_run_id = EXCLUDED.last_run_id,
-                      occurrences_total = EXCLUDED.occurrences_total,
-                      distinct_fragments = EXCLUDED.distinct_fragments,
-                      distinct_products = EXCLUDED.distinct_products,
-                      distinct_variants = EXCLUDED.distinct_variants,
-                      distinct_collections = EXCLUDED.distinct_collections,
-                      title_occurrences = EXCLUDED.title_occurrences,
-                      description_occurrences = EXCLUDED.description_occurrences,
-                      metafield_occurrences = EXCLUDED.metafield_occurrences,
-                      vendor_occurrences = EXCLUDED.vendor_occurrences,
-                      score_global = EXCLUDED.score_global,
-                      score_tfidf = EXCLUDED.score_tfidf,
-                      score_domain = EXCLUDED.score_domain,
-                      updated_at = now()`,
-              [
-                payload.shopId,
-                row.termId,
-                payload.runId,
-                Number(row.occurrencesTotal || 0),
-                Number(row.distinctFragments || 0),
-                Number(row.distinctProducts || 0),
-                Number(row.distinctVariants || 0),
-                Number(row.distinctCollections || 0),
-                Number(row.titleOccurrences || 0),
-                Number(row.descriptionOccurrences || 0),
-                Number(row.metafieldOccurrences || 0),
-                Number(row.vendorOccurrences || 0),
-                decimalString(scoreGlobal),
-                decimalString(scoreTfidf),
-                decimalString(scoreDomain),
-              ]
-            );
-          }
+          await batchUpsertLexTermStats({
+            client,
+            shopId: payload.shopId,
+            runId: payload.runId,
+            rows: stats.rows,
+          });
 
           await client.query(
             `UPDATE lex_runs
              SET terms_count = (
-                   SELECT COUNT(*)
-                   FROM lex_term_stats
-                   WHERE shop_id = $2
+                   SELECT COUNT(DISTINCT o.term_id)::bigint
+                   FROM lex_term_occurrences o
+                   INNER JOIN lex_fragments f ON f.id = o.fragment_id
+                   WHERE f.run_id = $1
+                     AND f.shop_id = $2
                  ),
                  updated_at = now()
              WHERE id = $1
@@ -192,7 +227,7 @@ export function startLexAggregateStatsWorker(logger: Logger): LexWorkerHandle {
           metadataPatch: {
             statsUpdatedForTermIds: result.termIdsTouched,
           },
-        });
+        }).catch(() => undefined);
 
         await recordLexPhaseEvent({
           shopId: payload.shopId,

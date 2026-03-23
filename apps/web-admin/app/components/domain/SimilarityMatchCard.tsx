@@ -5,11 +5,11 @@ import { ExtractionStatusBadge } from './ExtractionStatusBadge';
 import { MatchStatusBadge } from './MatchStatusBadge';
 import { TriageStatusBadge } from './TriageStatusBadge';
 
-import type { SimilarityMatchItem } from '../../hooks/use-similarity-matches';
 import {
   getExtractionStatus,
   getTriageDecision,
   type ExtractionStatus,
+  type SimilarityMatchItem,
 } from '../../hooks/use-similarity-matches';
 
 interface SimilarityMatchCardProps {
@@ -28,7 +28,7 @@ export function SimilarityMatchCard({
   onClick,
   onQuickConfirm,
   onQuickReject,
-}: SimilarityMatchCardProps) {
+}: Readonly<SimilarityMatchCardProps>) {
   const reducedMotion = useReducedMotion();
   const extractionStatus = extractionStatusOverride ?? getExtractionStatus(match);
   const triage = getTriageDecision(match);
@@ -42,20 +42,17 @@ export function SimilarityMatchCard({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onClick={onClick}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onClick?.();
-        }
-      }}
-      className="group cursor-pointer rounded-lg border border-border bg-card/80 backdrop-blur-sm p-4 transition-all duration-200 hover:border-primary/30 hover:shadow-[var(--shadow-md)] hover:bg-card/90 focus-ring-standard"
+      className="group relative rounded-lg border border-border bg-card/80 backdrop-blur-sm p-4 transition-all duration-200 hover:border-primary/30 hover:shadow-(--shadow-md) hover:bg-card/90"
       style={
         reducedMotion ? undefined : { animation: `fadeSlideUp 0.35s ease-out ${index * 60}ms both` }
       }
     >
+      <button
+        type="button"
+        aria-label={`Detalii potrivire: ${match.product_title}`}
+        onClick={onClick}
+        className="absolute inset-0 cursor-pointer rounded-lg focus-ring-standard"
+      />
       <div className="flex items-start gap-3">
         {match.product_image ? (
           <img
@@ -91,7 +88,7 @@ export function SimilarityMatchCard({
         {triage ? <TriageStatusBadge status={triage} /> : null}
         <ExtractionStatusBadge status={extractionStatus} />
       </div>
-      <div className="mt-4 flex gap-2">
+      <div className="relative z-10 mt-4 flex gap-2">
         <Button
           size="sm"
           variant="secondary"

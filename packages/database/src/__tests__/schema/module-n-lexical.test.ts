@@ -50,63 +50,72 @@ void describe('Module N: foundational lexical tables', { skip: SKIP }, () => {
 
   void it('lex_shop_settings has required config columns', async () => {
     const columns = await getTableColumns('lex_shop_settings');
-    const names = columns.map((column) => column.column_name);
-    assert.ok(names.includes('shop_id'));
-    assert.ok(names.includes('version'));
-    assert.ok(names.includes('source_lang'));
-    assert.ok(names.includes('target_langs'));
-    assert.ok(names.includes('extract_scope'));
-    assert.ok(names.includes('auto_publish_products'));
-    assert.ok(names.includes('auto_publish_attributes'));
-    assert.ok(names.includes('auto_publish_collections'));
+    const names = new Set(columns.map((column) => column.column_name));
+    assert.ok(names.has('shop_id'));
+    assert.ok(names.has('version'));
+    assert.ok(names.has('source_lang'));
+    assert.ok(names.has('target_langs'));
+    assert.ok(names.has('extract_scope'));
+    assert.ok(names.has('auto_publish_products'));
+    assert.ok(names.has('auto_publish_attributes'));
+    assert.ok(names.has('auto_publish_collections'));
+    assert.ok(names.has('translation_mode'));
+    assert.ok(names.has('consensus_escalation_threshold'));
+    assert.ok(names.has('translation_auto_approve_threshold'));
+    assert.ok(names.has('localization_auto_approve_threshold'));
+    assert.ok(names.has('tm_enabled'));
+    assert.ok(names.has('tm_similarity_threshold'));
+    assert.ok(names.has('quality_audit_enabled'));
+    assert.ok(names.has('quality_audit_min_batch_size'));
+    assert.ok(names.has('max_terms_per_llm_batch'));
   });
 
   void it('lex_runs has lifecycle hardening columns', async () => {
     const columns = await getTableColumns('lex_runs');
-    const names = columns.map((column) => column.column_name);
-    assert.ok(names.includes('current_phase'));
-    assert.ok(names.includes('phase_started_at'));
-    assert.ok(names.includes('pause_reason'));
-    assert.ok(names.includes('completed_with_errors'));
+    const names = new Set(columns.map((column) => column.column_name));
+    assert.ok(names.has('current_phase'));
+    assert.ok(names.has('phase_started_at'));
+    assert.ok(names.has('pause_reason'));
+    assert.ok(names.has('completed_with_errors'));
   });
 
   void it('lex_run_shards has phase and checkpoint columns', async () => {
     const columns = await getTableColumns('lex_run_shards');
-    const names = columns.map((column) => column.column_name);
-    assert.ok(names.includes('phase_name'));
-    assert.ok(names.includes('retry_count'));
-    assert.ok(names.includes('checkpoint_cursor'));
-    assert.ok(names.includes('completed_with_errors'));
+    const names = new Set(columns.map((column) => column.column_name));
+    assert.ok(names.has('phase_name'));
+    assert.ok(names.has('retry_count'));
+    assert.ok(names.has('checkpoint_cursor'));
+    assert.ok(names.has('completed_with_errors'));
   });
 
   void it('lex_publication_targets has idempotency and snapshot columns', async () => {
     const columns = await getTableColumns('lex_publication_targets');
-    const names = columns.map((column) => column.column_name);
-    assert.ok(names.includes('idempotency_key'));
-    assert.ok(names.includes('target_snapshot_hash'));
-    assert.ok(names.includes('previous_snapshot'));
-    assert.ok(names.includes('published_snapshot'));
-    assert.ok(names.includes('last_event_id'));
+    const names = new Set(columns.map((column) => column.column_name));
+    assert.ok(names.has('idempotency_key'));
+    assert.ok(names.has('target_snapshot_hash'));
+    assert.ok(names.has('previous_snapshot'));
+    assert.ok(names.has('published_snapshot'));
+    assert.ok(names.has('last_event_id'));
   });
 
   void it('governance tables expose maker-checker fields', async () => {
     const requestColumns = await getTableColumns('lex_governance_requests');
-    const requestNames = requestColumns.map((column) => column.column_name);
-    assert.ok(requestNames.includes('entity_type'));
-    assert.ok(requestNames.includes('status'));
-    assert.ok(requestNames.includes('proposed_payload'));
-    assert.ok(requestNames.includes('proposed_hash'));
-    assert.ok(requestNames.includes('created_by'));
-    assert.ok(requestNames.includes('approved_by'));
-    assert.ok(requestNames.includes('applied_by'));
+    const requestNames = new Set(requestColumns.map((column) => column.column_name));
+    assert.ok(requestNames.has('entity_type'));
+    assert.ok(requestNames.has('status'));
+    assert.ok(requestNames.has('proposed_payload'));
+    assert.ok(requestNames.has('proposed_hash'));
+    assert.ok(requestNames.has('created_by'));
+    assert.ok(requestNames.has('approved_by'));
+    assert.ok(requestNames.has('applied_by'));
 
     const eventColumns = await getTableColumns('lex_governance_request_events');
-    const eventNames = eventColumns.map((column) => column.column_name);
-    assert.ok(eventNames.includes('request_id'));
-    assert.ok(eventNames.includes('actor_id'));
-    assert.ok(eventNames.includes('action'));
-    assert.ok(eventNames.includes('from_status'));
-    assert.ok(eventNames.includes('to_status'));
+    const eventNames = new Set(eventColumns.map((column) => column.column_name));
+    assert.ok(eventNames.has('request_id'));
+    assert.ok(eventNames.has('actor_id'));
+    assert.ok(eventNames.has('action'));
+    assert.ok(eventNames.has('from_status'));
+    assert.ok(eventNames.has('to_status'));
   });
 
   void it('effective lexical views expose columns', async () => {
@@ -179,8 +188,8 @@ void describe('Module N: foundational lexical tables', { skip: SKIP }, () => {
     );
 
     const stopwordColumns = await getTableColumns('lex_stopwords');
-    const stopwordNames = stopwordColumns.map((column) => column.column_name);
-    assert.ok(stopwordNames.includes('version'));
-    assert.ok(stopwordNames.includes('updated_at'));
+    const stopwordNames = new Set(stopwordColumns.map((column) => column.column_name));
+    assert.ok(stopwordNames.has('version'));
+    assert.ok(stopwordNames.has('updated_at'));
   });
 });

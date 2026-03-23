@@ -8,7 +8,7 @@ type ConsensusStatsCardsProps = Readonly<{
 export function ConsensusStatsCards({ stats }: ConsensusStatsCardsProps) {
   return (
     <div className="grid gap-4 md:grid-cols-4">
-      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-md)]">
+      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-(--shadow-md)">
         <div className="mb-2 flex items-center gap-1.5 text-xs text-success">
           <span>Produse cu consens</span>
           <InfoTooltip title="Produse cu consens">
@@ -20,7 +20,7 @@ export function ConsensusStatsCards({ stats }: ConsensusStatsCardsProps) {
         </div>
         <div className="text-h5 text-foreground">{stats.productsWithConsensus}</div>
       </div>
-      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-md)]">
+      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-(--shadow-md)">
         <div className="mb-2 flex items-center gap-1.5 text-xs text-warning">
           <span>Consens în așteptare</span>
           <InfoTooltip title="Consens în așteptare">
@@ -32,7 +32,7 @@ export function ConsensusStatsCards({ stats }: ConsensusStatsCardsProps) {
         </div>
         <div className="text-h5 text-foreground">{stats.pendingConsensus}</div>
       </div>
-      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-md)]">
+      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-(--shadow-md)">
         <div className="mb-2 flex items-center gap-1.5 text-xs text-error">
           <span>Conflicte</span>
           <InfoTooltip title="Conflicte">
@@ -44,7 +44,7 @@ export function ConsensusStatsCards({ stats }: ConsensusStatsCardsProps) {
         </div>
         <div className="text-h5 text-foreground">{stats.productsWithConflicts}</div>
       </div>
-      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-[var(--shadow-md)]">
+      <div className="rounded-lg border border-muted/20 bg-card/80 backdrop-blur-sm p-4 transition-shadow duration-200 hover:shadow-(--shadow-md)">
         <div className="mb-2 flex items-center gap-1.5 text-xs text-success">
           <span>Rezolvate azi</span>
           <InfoTooltip title="Rezolvate azi">

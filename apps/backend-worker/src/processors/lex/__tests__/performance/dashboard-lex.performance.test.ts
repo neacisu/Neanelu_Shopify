@@ -11,7 +11,7 @@ const p95BudgetMs = Number.parseInt(process.env['PERF_DASHBOARD_P95_MS'] ?? '150
 const requireSessionMock = () => (_req: unknown, _reply: unknown) => Promise.resolve();
 
 const sessionPath = new URL('../../../../auth/session.js', import.meta.url).href;
-void mock.module(sessionPath, {
+mock.module(sessionPath, {
   namedExports: {
     requireSession: () => requireSessionMock(),
     getSessionFromRequest: () => ({
@@ -23,13 +23,13 @@ void mock.module(sessionPath, {
 });
 
 const latencyPath = new URL('../../../../runtime/http-latency.js', import.meta.url).href;
-void mock.module(latencyPath, {
+mock.module(latencyPath, {
   namedExports: {
     getHttpLatencySnapshot: () => ({ windowMs: 300000, sampleCount: 50, p95Seconds: 0.18 }),
   },
 });
 
-void mock.module('@app/database', {
+mock.module('@app/database', {
   namedExports: {
     withTenantContext: async (
       _shopId: string,
@@ -82,7 +82,7 @@ void mock.module('@app/database', {
   },
 });
 
-void mock.module('@app/queue-manager', {
+mock.module('@app/queue-manager', {
   namedExports: {
     configFromEnv: (_env: unknown) => ({}),
     createRedisConnection: () => ({
@@ -104,7 +104,7 @@ void mock.module('@app/queue-manager', {
 });
 
 const lexOpsPath = new URL('../../../../services/lex-ops.js', import.meta.url).href;
-void mock.module(lexOpsPath, {
+mock.module(lexOpsPath, {
   namedExports: {
     collectLexMetrics: () => ({
       runsTotal: 40,
@@ -125,6 +125,11 @@ void mock.module(lexOpsPath, {
       staleCheckpoints: 0,
       retentionLag: 3600,
       aiBatchBacklog: 3,
+      tmHits: 0,
+      tmMisses: 0,
+      tmHitRatePercent: 0,
+      tmMissRatePercent: 0,
+      tmAverageSimilarity: null,
       dlqEntries: 0,
       workersOnline: 14,
       workersTotal: 14,
@@ -142,7 +147,7 @@ function percentile95(values: number[]): number {
   return sorted[index] ?? 0;
 }
 
-void describe('perf: dashboard lexical operator surface', { skip: !shouldRun }, () => {
+await describe('perf: dashboard lexical operator surface', { skip: !shouldRun }, async () => {
   let app: FastifyInstance;
 
   before(async () => {
@@ -164,7 +169,7 @@ void describe('perf: dashboard lexical operator surface', { skip: !shouldRun }, 
     await app.close();
   });
 
-  void it('serves summary, alerts, and health-score within the mocked latency budget', async () => {
+  await it('serves summary, alerts, and health-score within the mocked latency budget', async () => {
     const durations: number[] = [];
     const urls = ['/dashboard/summary', '/dashboard/alerts', '/dashboard/health-score'] as const;
 

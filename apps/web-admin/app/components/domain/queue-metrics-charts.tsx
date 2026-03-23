@@ -2,7 +2,6 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
-  Cell,
   Line,
   LineChart,
   Pie,
@@ -50,12 +49,14 @@ function formatTs(ts: number): string {
 }
 
 const cardBase =
-  'overflow-hidden rounded-xl border border-border bg-card p-4 shadow-[var(--shadow-sm)] backdrop-blur-sm transition-[box-shadow,border-color] duration-normal hover:border-accent-border/70 hover:shadow-[var(--shadow-md)]';
+  'overflow-hidden rounded-xl border border-border bg-card p-4 shadow-(--shadow-sm) backdrop-blur-sm transition-[box-shadow,border-color] duration-normal hover:border-accent-border/70 hover:shadow-(--shadow-md)';
 
-export function QueueMetricsCharts(props: {
-  points: QueueMetricsPoint[];
-  distribution?: QueueStatusDistribution | null;
-}) {
+export function QueueMetricsCharts(
+  props: Readonly<{
+    points: QueueMetricsPoint[];
+    distribution?: QueueStatusDistribution | null;
+  }>
+) {
   const reducedMotion = useReducedMotion();
   const theme = useChartTheme();
   const { points, distribution = null } = props;
@@ -85,11 +86,11 @@ export function QueueMetricsCharts(props: {
 
   const distData = distribution
     ? [
-        { name: 'În așteptare', value: distribution.waiting, color: COLORS.waiting },
-        { name: 'Active', value: distribution.active, color: COLORS.active },
-        { name: 'Amânate', value: distribution.delayed, color: COLORS.delayed },
-        { name: 'Eșuate', value: distribution.failed, color: COLORS.distFailed },
-        { name: 'Finalizate', value: distribution.completed, color: COLORS.distCompleted },
+        { name: 'În așteptare', value: distribution.waiting, fill: COLORS.waiting },
+        { name: 'Active', value: distribution.active, fill: COLORS.active },
+        { name: 'Amânate', value: distribution.delayed, fill: COLORS.delayed },
+        { name: 'Eșuate', value: distribution.failed, fill: COLORS.distFailed },
+        { name: 'Finalizate', value: distribution.completed, fill: COLORS.distCompleted },
       ].filter((d) => d.value > 0)
     : [];
 
@@ -292,11 +293,7 @@ export function QueueMetricsCharts(props: {
                   isAnimationActive
                   animationDuration={350}
                   animationEasing="ease-out"
-                >
-                  {distData.map((d) => (
-                    <Cell key={d.name} fill={d.color} />
-                  ))}
-                </Pie>
+                />
               </PieChart>
             </ResponsiveContainer>
             {totalDist > 0 && (
@@ -307,7 +304,7 @@ export function QueueMetricsCharts(props: {
             )}
           </div>
         ) : (
-          <div className="flex h-[200px] items-center justify-center text-sm text-muted">
+          <div className="flex h-50 items-center justify-center text-sm text-muted">
             Fără date de distribuție
           </div>
         )}

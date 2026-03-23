@@ -15,6 +15,7 @@ import type {
 
 import { setLexMetricsSnapshot, setLexWorkersOnline } from '../otel/metrics.js';
 import { getWorkerCurrentJob, getWorkerReadiness } from '../runtime/worker-registry.js';
+import type { TenantClient } from '../processors/lex/pipeline-types.js';
 
 const LEX_EXTRACT_FRAGMENTS_QUEUE_NAME = 'lex.extract.fragments';
 const LEX_EXTRACT_ENTITIES_QUEUE_NAME = 'lex.extract.entities';
@@ -45,13 +46,6 @@ const LEX_QUEUE_NAMES = [
   LEX_PUBLISH_QUEUE_NAME,
   LEX_RETENTION_COMPACT_QUEUE_NAME,
 ] as const satisfies readonly KnownQueueName[];
-
-interface TenantClient {
-  query: <TRow extends Record<string, unknown> = Record<string, unknown>>(
-    sql: string,
-    values?: readonly unknown[]
-  ) => Promise<{ rows: TRow[] }>;
-}
 
 type LexReadiness = ReturnType<typeof getWorkerReadiness>;
 
@@ -168,6 +162,16 @@ function toNumber(value: unknown): number {
   return 0;
 }
 
+function toOptionalFiniteNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
 function buildQueueUrl(queueName: string, tab: 'overview' | 'jobs' | 'workers' = 'jobs'): string {
   const params = new URLSearchParams();
   params.set('tab', tab);
@@ -271,6 +275,9 @@ function buildHealthAlerts(params: {
     | 'publicationsFailed'
     | 'retentionLag'
     | 'dlqEntries'
+    | 'tmHits'
+    | 'tmMisses'
+    | 'tmHitRatePercent'
   >;
   queues: LexQueueHealthDto[];
   workers: LexWorkerHealthDto[];
@@ -404,6 +411,18 @@ function buildHealthAlerts(params: {
     });
   }
 
+  const tmAttempts = params.metrics.tmHits + params.metrics.tmMisses;
+  if (tmAttempts >= 100 && params.metrics.tmHitRatePercent < 30) {
+    alerts.push({
+      key: 'tm-hit-rate-low',
+      severity: 'warning',
+      message: `TM hit rate sub 30%: ${params.metrics.tmHitRatePercent.toFixed(1)}% (${params.metrics.tmHits}/${tmAttempts}).`,
+      href: '/pim/translations?tab=settings',
+      queueName: null,
+      workerId: null,
+    });
+  }
+
   return alerts;
 }
 
@@ -429,6 +448,11 @@ async function collectLexBaseMetrics(
   staleCheckpoints: number;
   retentionLag: number;
   aiBatchBacklog: number;
+  tmHits: number;
+  tmMisses: number;
+  tmHitRatePercent: number;
+  tmMissRatePercent: number;
+  tmAverageSimilarity: number | null;
 }> {
   const result = await client.query<{
     runsTotal: string;
@@ -449,12 +473,15 @@ async function collectLexBaseMetrics(
     staleCheckpoints: string;
     retentionLag: string;
     aiBatchBacklog: string;
+    tmHits: string;
+    tmMisses: string;
+    tmAverageSimilarity: string | null;
   }>(
     `SELECT
        (SELECT COUNT(*)::text FROM lex_runs WHERE shop_id = $1) AS "runsTotal",
-       (SELECT COUNT(*)::text FROM lex_effective_terms) AS "termsTotal",
+       (SELECT COUNT(*)::text FROM lex_effective_terms WHERE shop_id = $1 OR shop_id IS NULL) AS "termsTotal",
        (SELECT COUNT(*)::text FROM lex_sense_clusters WHERE shop_id = $1 OR shop_id IS NULL) AS "clustersTotal",
-       (SELECT COUNT(*)::text FROM lex_effective_glossary_entries) AS "glossaryTotal",
+       (SELECT COUNT(*)::text FROM lex_effective_glossary_entries WHERE shop_id = $1 OR shop_id IS NULL) AS "glossaryTotal",
        (SELECT COUNT(*)::text FROM lex_review_items WHERE shop_id = $1 AND status = 'pending') AS "reviewPending",
        (SELECT COUNT(*)::text FROM lex_review_items WHERE shop_id = $1 AND status IN ('pending', 'in_review')) AS "reviewBacklog",
        (SELECT COUNT(*)::text FROM lex_entity_localizations WHERE shop_id = $1 AND publication_status IN ('approved', 'published')) AS "localizationsApproved",
@@ -467,8 +494,53 @@ async function collectLexBaseMetrics(
        (SELECT COUNT(*)::text FROM lex_publication_targets WHERE shop_id = $1 AND status = 'failed') AS "publicationsFailed",
        (SELECT COUNT(*)::text FROM lex_review_items WHERE shop_id = $1 AND review_reason = 'publish_conflict' AND status IN ('pending', 'in_review')) AS "publishConflicts",
        (SELECT COUNT(*)::text FROM lex_checkpoints WHERE shop_id = $1 AND status = 'active' AND heartbeat_at < now() - interval '15 minutes') AS "staleCheckpoints",
-       (SELECT COALESCE(EXTRACT(EPOCH FROM (now() - MIN(created_at))), 0)::bigint::text FROM lex_fragments WHERE shop_id = $1) AS "retentionLag",
-       (SELECT COUNT(*)::text FROM ai_batch_items WHERE shop_id = $1 AND entity_type IN ('lex_term_context', 'lex_sense_cluster') AND status IN ('pending', 'processing')) AS "aiBatchBacklog"`,
+       (SELECT GREATEST(
+                 0,
+                 COALESCE(
+                   (SELECT EXTRACT(EPOCH FROM (now() - MIN(created_at)))::bigint
+                    FROM lex_fragments
+                    WHERE shop_id = $1),
+                   0
+                 )
+                 - COALESCE(
+                     (SELECT retention_days_fragments::bigint
+                      FROM lex_shop_settings
+                      WHERE shop_id = $1
+                      LIMIT 1),
+                     90
+                   ) * 86400
+               )::text) AS "retentionLag",
+       (SELECT COUNT(*)::text FROM ai_batch_items WHERE shop_id = $1 AND entity_type IN ('lex_term_context', 'lex_sense_cluster') AND status IN ('pending', 'processing')) AS "aiBatchBacklog",
+       (SELECT COALESCE(SUM((d.details->>'tmHits')::bigint), 0)::text
+        FROM lex_run_phase_events d
+        WHERE d.shop_id = $1
+          AND d.phase_name = 'translate.candidates'
+          AND d.event_type = 'shard_completed') AS "tmHits",
+       (SELECT COALESCE(SUM((d.details->>'tmMisses')::bigint), 0)::text
+        FROM lex_run_phase_events d
+        WHERE d.shop_id = $1
+          AND d.phase_name = 'translate.candidates'
+          AND d.event_type = 'shard_completed') AS "tmMisses",
+       (SELECT
+          CASE
+            WHEN COALESCE(
+              SUM((d.details->>'tmHits')::bigint) FILTER (WHERE d.details ? 'tmSimilaritySum'),
+              0
+            ) > 0
+            THEN (
+              SUM((d.details->>'tmSimilaritySum')::double precision)
+                FILTER (WHERE d.details ? 'tmSimilaritySum')
+              / NULLIF(
+                  SUM((d.details->>'tmHits')::bigint) FILTER (WHERE d.details ? 'tmSimilaritySum'),
+                  0
+                )::double precision
+            )::text
+            ELSE NULL
+          END
+        FROM lex_run_phase_events d
+        WHERE d.shop_id = $1
+          AND d.phase_name = 'translate.candidates'
+          AND d.event_type = 'shard_completed') AS "tmAverageSimilarity"`,
     [shopId]
   );
 
@@ -491,7 +563,16 @@ async function collectLexBaseMetrics(
     staleCheckpoints: '0',
     retentionLag: '0',
     aiBatchBacklog: '0',
+    tmHits: '0',
+    tmMisses: '0',
+    tmAverageSimilarity: null,
   };
+
+  const tmHits = toNumber(row.tmHits);
+  const tmMisses = toNumber(row.tmMisses);
+  const tmAttempts = tmHits + tmMisses;
+  const tmHitRatePercent = tmAttempts > 0 ? (tmHits / tmAttempts) * 100 : 0;
+  const tmMissRatePercent = tmAttempts > 0 ? (tmMisses / tmAttempts) * 100 : 0;
 
   return {
     runsTotal: toNumber(row.runsTotal),
@@ -512,24 +593,61 @@ async function collectLexBaseMetrics(
     staleCheckpoints: toNumber(row.staleCheckpoints),
     retentionLag: toNumber(row.retentionLag),
     aiBatchBacklog: toNumber(row.aiBatchBacklog),
+    tmHits,
+    tmMisses,
+    tmHitRatePercent,
+    tmMissRatePercent,
+    tmAverageSimilarity: toOptionalFiniteNumber(row.tmAverageSimilarity),
   };
 }
+
+const LEX_METRICS_TTL_MS = 30_000;
+const LEX_QUEUE_COUNTS_TTL_MS = 30_000;
+
+interface MetricsCacheEntry {
+  ts: number;
+  data: Awaited<ReturnType<typeof collectLexBaseMetrics>>;
+}
+
+interface QueueCountsCacheEntry {
+  ts: number;
+  data: { queueName: string; counts: LexQueueCounts }[];
+}
+
+const metricsCache = new Map<string, MetricsCacheEntry>();
+const queueCountsCache = new Map<string, QueueCountsCacheEntry>();
 
 export async function collectLexMetrics(params: {
   shopId: string;
   env: AppEnv;
 }): Promise<LexMetricsDto> {
-  const baseMetrics = await withTenantContext(
-    params.shopId,
-    async (client) => await collectLexBaseMetrics(client, params.shopId)
-  );
+  const now = Date.now();
 
-  const queueCounts = await Promise.all(
-    LEX_QUEUE_NAMES.map(async (queueName) => ({
-      queueName,
-      counts: await getLexQueueCounts(params.env, queueName),
-    }))
-  );
+  const cachedBase = metricsCache.get(params.shopId);
+  let baseMetrics: Awaited<ReturnType<typeof collectLexBaseMetrics>>;
+  if (cachedBase && now - cachedBase.ts < LEX_METRICS_TTL_MS) {
+    baseMetrics = cachedBase.data;
+  } else {
+    baseMetrics = await withTenantContext(
+      params.shopId,
+      async (client) => await collectLexBaseMetrics(client, params.shopId)
+    );
+    metricsCache.set(params.shopId, { ts: now, data: baseMetrics });
+  }
+
+  const cachedQueues = queueCountsCache.get(params.shopId);
+  let queueCounts: { queueName: string; counts: LexQueueCounts }[];
+  if (cachedQueues && now - cachedQueues.ts < LEX_QUEUE_COUNTS_TTL_MS) {
+    queueCounts = cachedQueues.data;
+  } else {
+    queueCounts = await Promise.all(
+      LEX_QUEUE_NAMES.map(async (queueName) => ({
+        queueName,
+        counts: await getLexQueueCounts(params.env, queueName),
+      }))
+    );
+    queueCountsCache.set(params.shopId, { ts: now, data: queueCounts });
+  }
 
   const queueErrors = queueCounts
     .filter(
@@ -596,5 +714,64 @@ export async function refreshLexMetrics(params: {
   await collectLexMetrics({
     shopId,
     env: params.env,
+  });
+}
+
+export type LexQualityCalibrationResult = Readonly<{
+  averageQuality: number | null;
+  sampleSize: number;
+  recommendedAutoApproveThreshold: number;
+  recommendedConsensusEscalation: number;
+}>;
+
+export async function calibrateLexQualityThresholds(params: {
+  shopId: string;
+}): Promise<LexQualityCalibrationResult> {
+  return withTenantContext(params.shopId, async (client) => {
+    const result = await client.query<{
+      avgQuality: string | null;
+      sampleSize: string;
+    }>(
+      `SELECT
+         AVG(t.quality_score::double precision)::text AS "avgQuality",
+         COUNT(*)::text AS "sampleSize"
+       FROM lex_translations t
+       WHERE t.shop_id = $1
+         AND t.quality_score IS NOT NULL
+         AND t.created_at >= (
+           SELECT r.started_at
+           FROM lex_runs r
+           WHERE r.shop_id = $1
+             AND r.status = 'completed'
+           ORDER BY r.completed_at DESC
+           LIMIT 1
+         )`,
+      [params.shopId]
+    );
+
+    const row = result.rows[0];
+    const avgQuality = toOptionalFiniteNumber(row?.avgQuality);
+    const sampleSize = toNumber(row?.sampleSize);
+
+    let recommendedAutoApproveThreshold: number;
+    let recommendedConsensusEscalation: number;
+
+    if (avgQuality !== null && avgQuality >= 0.85) {
+      recommendedAutoApproveThreshold = 0.9;
+      recommendedConsensusEscalation = 0.7;
+    } else if (avgQuality !== null && avgQuality >= 0.75) {
+      recommendedAutoApproveThreshold = 0.85;
+      recommendedConsensusEscalation = 0.65;
+    } else {
+      recommendedAutoApproveThreshold = 0.95;
+      recommendedConsensusEscalation = 0.8;
+    }
+
+    return {
+      averageQuality: avgQuality,
+      sampleSize,
+      recommendedAutoApproveThreshold,
+      recommendedConsensusEscalation,
+    };
   });
 }
